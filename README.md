@@ -156,5 +156,10 @@ mit JSON-Schema) und parst defensiv nach.
 - **Spracheingabe reagiert nicht:** Der Quest-Browser unterstützt die Web Speech
   API nicht – die virtuelle Tastatur öffnet sich automatisch. Am Desktop braucht
   Chrome eine Mikrofon-Freigabe.
+- **In VR sind nur das Menü, aber keine Karten sichtbar:** Beim Session-Start
+  werden alle Karten automatisch in einem Halbkreis vor dich geholt (sobald die
+  Headset-Pose bekannt ist). Falls sie mal außer Sicht geraten (z. B. weit
+  weggeschoben), einfach die VR-Sitzung einmal beenden und neu starten – dann
+  werden sie neu vor dir angeordnet.
 - **Dev-Server ohne HTTPS starten** (z. B. für Headless-Tests):
   `NO_HTTPS=1 npm run dev:web`.

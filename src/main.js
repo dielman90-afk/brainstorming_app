@@ -55,9 +55,7 @@ const interactions = new InteractionManager({
   ],
 });
 interactions.onControllerConnected = (handedness, grip) => {
-  if (handedness === 'left' || (handedness === 'right' && !wristMenu.attachedHand)) {
-    wristMenu.attachToGrip(grip, handedness);
-  }
+  wristMenu.registerGrip(handedness, grip);
 };
 
 // --- Status: DOM-Zeile am Desktop + schwebendes HUD in XR ---
@@ -328,12 +326,16 @@ async function setupXRButton() {
 }
 setupXRButton();
 
+let recenterOnNextFrame = false;
+
 renderer.xr.addEventListener('sessionstart', () => {
   controls.enabled = false;
   const passthrough = xrMode === 'immersive-ar';
   scene.background = passthrough ? null : DESKTOP_BG;
   environment.visible = !passthrough;
   wristMenu.setVisible(true);
+  // Karten neu vor den Nutzer holen, sobald die echte Headset-Pose steht
+  recenterOnNextFrame = true;
 });
 
 renderer.xr.addEventListener('sessionend', () => {
@@ -361,6 +363,16 @@ renderer.setAnimationLoop(() => {
   interactions.update();
   if (!renderer.xr.isPresenting) controls.update();
   renderer.render(scene, camera);
+
+  // Nach dem ersten gerenderten XR-Frame hat die XR-Kamera eine gültige Pose –
+  // erst dann die Karten vor den Nutzer setzen.
+  if (recenterOnNextFrame && renderer.xr.isPresenting) {
+    const xrCam = renderer.xr.getCamera();
+    if (xrCam.cameras?.length) {
+      cardManager.repositionAllInArc(xrCam);
+      recenterOnNextFrame = false;
+    }
+  }
 });
 
 // Für schnelle Iteration & Headless-Tests

@@ -55,9 +55,20 @@ export class WristMenu {
     });
   }
 
-  attachToGrip(grip, handedness) {
-    if (this.attachedHand === 'left' && handedness !== 'left') return;
-    grip.add(this.group);
+  // Grips beider Controller registrieren; das Menü sitzt bevorzugt am linken.
+  // Robust gegen beliebige Verbindungsreihenfolge und fehlende handedness-Angabe.
+  registerGrip(handedness, grip) {
+    if (handedness === 'left') this.leftGrip = grip;
+    else if (handedness === 'right') this.rightGrip = grip;
+    else this.fallbackGrip ??= grip;
+
+    const target = this.leftGrip || this.rightGrip || this.fallbackGrip || grip;
+    const hand = this.leftGrip ? 'left' : this.rightGrip ? 'right' : 'unknown';
+    this._attach(target, hand);
+  }
+
+  _attach(grip, handedness) {
+    grip.add(this.group); // Object3D wird automatisch vom alten Grip gelöst
     this.attachedHand = handedness;
     // Über dem Handgelenk, zum Gesicht geneigt – Werte bei Bedarf anpassen
     this.group.position.set(0, 0.08, 0.1);
