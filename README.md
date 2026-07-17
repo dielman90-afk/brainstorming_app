@@ -15,8 +15,8 @@ Zusammenfassungen.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Handgelenk-Menü** (linker Controller): *Neue Karte*, *Verwandte Ideen*,
-  *Cluster*, *Zusammenfassen*. Buttons werden mit dem Ray des anderen Controllers
-  geklickt.
+  *Cluster*, *Zusammenfassen*, *Karte löschen*. Buttons werden mit dem Ray des
+  anderen Controllers geklickt.
 - **KI-Funktionen:** Der Client ruft `/api/generate` auf; der Server-Proxy nutzt die
   Anthropic Messages API mit Structured Outputs (JSON-Schema) und liefert immer
   `{ "ideas": [{ "text": "…" }] }`. Neue Ideen erscheinen als Karten im Halbkreis
@@ -76,6 +76,9 @@ Einfach `https://localhost:5173` öffnen:
 | Umschauen | Linke Maustaste ziehen (Orbit), Scrollen = Zoom |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
+| Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
+| Karte löschen | **Rechtsklick → „Karte löschen“** oder **Entf/Backspace** bei ausgewählter Karte |
+| Kontextmenü | **Rechtsklick** auf eine Karte: Bearbeiten · Verwandte Ideen · Löschen |
 | Neue Karte | Text ins Eingabefeld, „Neue Karte“ oder Enter |
 | KI-Funktionen | Buttons „Verwandte Ideen“ / „Cluster“ / „Zusammenfassen“ |
 | Export/Import | Buttons im Overlay |
@@ -118,6 +121,7 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Karte auswählen | Kurz mit dem Trigger antippen (Cyan-Rahmen) |
 | Menü | Am **linken Handgelenk** – mit dem rechten Ray anvisieren und Trigger drücken |
 | Neue Karte | Menü → „＋ Neue Karte“ → sprechen bzw. virtuelle Tastatur |
+| Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
 Die Position des Handgelenk-Menüs lässt sich in `src/wristMenu.js`

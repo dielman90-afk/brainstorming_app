@@ -7,7 +7,7 @@
   <title>WebXR Brainstorming</title>
   <style>
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #0d141c; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #f5f7fa; }
     canvas { display: block; }
     #overlay {
       position: fixed;
@@ -17,8 +17,10 @@
       width: 300px;
       padding: 14px;
       border-radius: 12px;
-      background: rgba(10, 16, 24, 0.88);
-      color: #e8eef4;
+      background: rgba(255, 255, 255, 0.92);
+      border: 1px solid #dde6ee;
+      box-shadow: 0 6px 24px rgba(20, 30, 40, 0.08);
+      color: #1c2733;
       font: 14px/1.45 'Segoe UI', system-ui, sans-serif;
       backdrop-filter: blur(6px);
     }
@@ -29,25 +31,66 @@
       min-width: 0;
       padding: 7px 9px;
       border-radius: 8px;
-      border: 1px solid #33475c;
-      background: #16222f;
-      color: #e8eef4;
+      border: 1px solid #c9d4df;
+      background: #ffffff;
+      color: #1c2733;
     }
     button, .file-btn {
       padding: 7px 11px;
       border-radius: 8px;
-      border: none;
-      background: #27435c;
-      color: #e8eef4;
+      border: 1px solid #c9d4df;
+      background: #e8f0f7;
+      color: #1c2733;
       cursor: pointer;
       font: inherit;
     }
-    button:hover, .file-btn:hover { background: #3a6b93; }
+    button:hover, .file-btn:hover { background: #cfe0ef; }
     button:disabled { opacity: 0.5; cursor: default; }
-    #xr-button { width: 100%; background: #2b5c3a; }
-    #xr-button:hover { background: #37784c; }
-    #status { min-height: 20px; color: #8fd3ff; margin: 4px 0; }
-    .hint { margin: 6px 0 0; font-size: 12px; color: #93a4b5; }
+    #xr-button { width: 100%; background: #d9f0e0; border-color: #a8d5b5; }
+    #xr-button:hover { background: #bfe4cb; }
+    #status { min-height: 20px; color: #2b6cb0; margin: 4px 0; }
+    .hint { margin: 6px 0 0; font-size: 12px; color: #64778a; }
+
+    #context-menu {
+      position: fixed;
+      z-index: 30;
+      min-width: 200px;
+      padding: 4px;
+      border-radius: 10px;
+      background: #ffffff;
+      border: 1px solid #c9d4df;
+      box-shadow: 0 8px 24px rgba(20, 30, 40, 0.18);
+      font: 14px 'Segoe UI', system-ui, sans-serif;
+    }
+    #context-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: none;
+      background: none;
+      padding: 8px 10px;
+      border-radius: 6px;
+    }
+    #context-menu button:hover { background: #e8f0f7; }
+    #context-menu button.danger:hover { background: #fbe4e4; color: #b3261e; }
+
+    #edit-box {
+      position: fixed;
+      z-index: 30;
+      left: 50%;
+      top: 38%;
+      transform: translate(-50%, -50%);
+      width: 360px;
+      padding: 14px;
+      border-radius: 12px;
+      background: #ffffff;
+      border: 1px solid #c9d4df;
+      box-shadow: 0 12px 32px rgba(20, 30, 40, 0.2);
+      font: 14px 'Segoe UI', system-ui, sans-serif;
+      color: #1c2733;
+    }
+    #edit-box input { width: 100%; }
+    .hint-mini { font-size: 11px; color: #64778a; margin-top: 6px; }
   </style>
 </head>
 <body>
@@ -71,10 +114,23 @@
     </div>
     <div id="status"></div>
     <p class="hint">
-      Desktop: Ziehen = Umschauen · Karte anklicken = auswählen · Karte ziehen = verschieben.<br />
-      Quest 3: Trigger auf Karte = greifen · Menü am linken Handgelenk.
+      Ziehen = Umschauen · Klick auf Karte = auswählen · Karte ziehen = verschieben<br />
+      Doppelklick = Text bearbeiten · Rechtsklick = Menü · Entf = Karte löschen<br />
+      Quest 3: Trigger auf Karte = greifen · Menü am linken Handgelenk
     </p>
   </div>
+
+  <div id="context-menu" hidden>
+    <button data-action="edit">✏️ Text bearbeiten</button>
+    <button data-action="related">✨ Verwandte Ideen</button>
+    <button data-action="delete" class="danger">🗑️ Karte löschen</button>
+  </div>
+
+  <div id="edit-box" hidden>
+    <input id="edit-input" type="text" />
+    <div class="hint-mini">Enter = speichern · Esc = abbrechen</div>
+  </div>
+
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
