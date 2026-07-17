@@ -1,0 +1,26 @@
+{
+  "name": "webxr-brainstorming",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"node server/index.js\" \"vite\"",
+    "dev:web": "vite",
+    "dev:api": "node server/index.js",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.112.1",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.3",
+    "vite": "^8.1.5",
+    "vite-plugin-mkcert": "^2.1.0"
+  }
+}

@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>WebXR Brainstorming</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0d141c; }
+    canvas { display: block; }
+    #overlay {
+      position: fixed;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      width: 300px;
+      padding: 14px;
+      border-radius: 12px;
+      background: rgba(10, 16, 24, 0.88);
+      color: #e8eef4;
+      font: 14px/1.45 'Segoe UI', system-ui, sans-serif;
+      backdrop-filter: blur(6px);
+    }
+    #overlay h1 { margin: 0 0 10px; font-size: 17px; }
+    .row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+    input[type="text"] {
+      flex: 1;
+      min-width: 0;
+      padding: 7px 9px;
+      border-radius: 8px;
+      border: 1px solid #33475c;
+      background: #16222f;
+      color: #e8eef4;
+    }
+    button, .file-btn {
+      padding: 7px 11px;
+      border-radius: 8px;
+      border: none;
+      background: #27435c;
+      color: #e8eef4;
+      cursor: pointer;
+      font: inherit;
+    }
+    button:hover, .file-btn:hover { background: #3a6b93; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    #xr-button { width: 100%; background: #2b5c3a; }
+    #xr-button:hover { background: #37784c; }
+    #status { min-height: 20px; color: #8fd3ff; margin: 4px 0; }
+    .hint { margin: 6px 0 0; font-size: 12px; color: #93a4b5; }
+  </style>
+</head>
+<body>
+  <div id="overlay">
+    <h1>🧠 WebXR Brainstorming</h1>
+    <div class="row">
+      <input id="idea-input" type="text" placeholder="Neue Idee eingeben…" />
+      <button id="btn-new">Neue Karte</button>
+    </div>
+    <div class="row">
+      <button id="btn-related">Verwandte Ideen</button>
+      <button id="btn-cluster">Cluster</button>
+      <button id="btn-summary">Zusammenfassen</button>
+    </div>
+    <div class="row">
+      <button id="btn-export">Export JSON</button>
+      <label class="file-btn">Import JSON<input id="import-file" type="file" accept=".json,application/json" hidden /></label>
+    </div>
+    <div class="row">
+      <button id="xr-button" disabled>WebXR wird geprüft…</button>
+    </div>
+    <div id="status"></div>
+    <p class="hint">
+      Desktop: Ziehen = Umschauen · Karte anklicken = auswählen · Karte ziehen = verschieben.<br />
+      Quest 3: Trigger auf Karte = greifen · Menü am linken Handgelenk.
+    </p>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
