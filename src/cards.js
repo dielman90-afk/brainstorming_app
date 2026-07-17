@@ -118,6 +118,17 @@ export class CardManager {
     return cards;
   }
 
+  // Alle vorhandenen Karten neu vor dem Nutzer anordnen (z. B. beim VR-Start,
+  // wenn sich die Kamera-Pose gegenüber der Desktop-Ansicht ändert).
+  repositionAllInArc(camera) {
+    const perRow = 6;
+    for (let i = 0; i < this.cards.length; i += perRow) {
+      const row = this.cards.slice(i, i + perRow);
+      this.arrangeInArc(row, camera, Math.floor(i / perRow));
+    }
+    this.spawnBatch = Math.ceil(this.cards.length / perRow);
+  }
+
   toJSON() {
     return {
       version: 1,
