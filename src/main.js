@@ -11,7 +11,7 @@ import { createTextPanel } from './textPanel.js';
 
 // --- Szene & Renderer ---
 
-const DESKTOP_BG = new THREE.Color(0x0d141c);
+const DESKTOP_BG = new THREE.Color(0xf5f7fa);
 
 const scene = new THREE.Scene();
 scene.background = DESKTOP_BG;
@@ -30,7 +30,7 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
 
 // Einfache VR-Umgebung – wird im Passthrough-Modus ausgeblendet
 const environment = new THREE.Group();
-environment.add(new THREE.GridHelper(8, 24, 0x2b4a63, 0x18293a));
+environment.add(new THREE.GridHelper(8, 24, 0xb8c7d6, 0xdde6ee));
 scene.add(environment);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -102,6 +102,16 @@ async function handleAction(action) {
     const ideas = cardManager.cards.map((c) => c.text);
     if (!ideas.length) {
       setStatus('Das Board ist leer – erst Karten anlegen.');
+      return;
+    }
+    if (action === 'delete') {
+      const selected = cardManager.selected;
+      if (!selected) {
+        setStatus('Bitte zuerst eine Karte auswählen.');
+        return;
+      }
+      cardManager.removeCard(selected);
+      setStatus('Karte gelöscht.');
       return;
     }
     busy = true;
@@ -188,6 +198,102 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
     setStatus(`Import fehlgeschlagen: ${err.message}`, 6000);
   }
   e.target.value = '';
+});
+
+// --- Kontextmenü (Rechtsklick auf Karte, Desktop) ---
+
+const contextMenu = document.getElementById('context-menu');
+let contextCard = null;
+
+function openContextMenu(card, x, y) {
+  contextCard = card;
+  contextMenu.hidden = false;
+  const rect = contextMenu.getBoundingClientRect();
+  contextMenu.style.left = `${Math.min(x, innerWidth - rect.width - 8)}px`;
+  contextMenu.style.top = `${Math.min(y, innerHeight - rect.height - 8)}px`;
+}
+
+function closeContextMenu() {
+  contextMenu.hidden = true;
+  contextCard = null;
+}
+
+contextMenu.addEventListener('click', (e) => {
+  const action = e.target.dataset?.action;
+  const card = contextCard;
+  closeContextMenu();
+  if (!action || !card) return;
+  if (action === 'edit') {
+    openEditor(card);
+  } else if (action === 'delete') {
+    cardManager.removeCard(card);
+    setStatus('Karte gelöscht.');
+  } else if (action === 'related') {
+    cardManager.select(card);
+    handleAction('related');
+  }
+});
+
+window.addEventListener(
+  'pointerdown',
+  (e) => {
+    if (!contextMenu.hidden && !contextMenu.contains(e.target)) closeContextMenu();
+  },
+  true
+);
+
+// --- Karten-Editor (Doppelklick, Desktop) ---
+
+const editBox = document.getElementById('edit-box');
+const editInput = document.getElementById('edit-input');
+let editingCard = null;
+
+function openEditor(card) {
+  editingCard = card;
+  editInput.value = card.text;
+  editBox.hidden = false;
+  editInput.focus();
+  editInput.select();
+}
+
+function closeEditor(save) {
+  if (save && editingCard) {
+    const text = editInput.value.trim();
+    if (text) {
+      editingCard.setText(text);
+      setStatus('Karte aktualisiert.');
+    }
+  }
+  editBox.hidden = true;
+  editingCard = null;
+}
+
+editInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') closeEditor(true);
+  if (e.key === 'Escape') closeEditor(false);
+  e.stopPropagation();
+});
+
+interactions.onCardContextMenu = (card, x, y) => openContextMenu(card, x, y);
+interactions.onCardDoubleClick = (card) => openEditor(card);
+
+// --- Tastatur-Shortcuts (Desktop) ---
+
+window.addEventListener('keydown', (e) => {
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+  if (e.key === 'Escape') {
+    closeContextMenu();
+    closeEditor(false);
+    return;
+  }
+  if (!cardManager.selected) return;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    cardManager.removeCard(cardManager.selected);
+    setStatus('Karte gelöscht.');
+  } else if (e.key === 'F2') {
+    openEditor(cardManager.selected);
+  }
 });
 
 // --- WebXR: Passthrough (immersive-ar) bevorzugt, sonst VR ---

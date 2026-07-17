@@ -16,6 +16,8 @@ export class InteractionManager {
     this.pointer = new THREE.Vector2();
     this.controllers = [];
     this.drag = null;
+    this.onCardContextMenu = null;
+    this.onCardDoubleClick = null;
 
     this._initControllers();
     this._initPointer();
@@ -125,6 +127,8 @@ export class InteractionManager {
     window.addEventListener('pointerdown', (e) => this._onPointerDown(e), true);
     window.addEventListener('pointermove', (e) => this._onPointerMove(e), true);
     window.addEventListener('pointerup', () => this._onPointerUp(), true);
+    this.renderer.domElement.addEventListener('contextmenu', (e) => this._onContextMenu(e));
+    this.renderer.domElement.addEventListener('dblclick', (e) => this._onDoubleClick(e));
   }
 
   _setRayFromMouse(event) {
@@ -139,10 +143,14 @@ export class InteractionManager {
   _onPointerDown(event) {
     if (this.renderer.xr.isPresenting) return;
     if (event.target !== this.renderer.domElement) return;
+    if (event.button !== 0 && event.button !== 2) return;
     this._setRayFromMouse(event);
     const hit = this._firstInteractiveHit();
     if (hit?.type !== 'card') return;
+    // Verhindert, dass OrbitControls die Geste übernimmt (Rotation/Pan)
     event.stopPropagation();
+    // Rechtsklick: kein Drag – das contextmenu-Event öffnet gleich das Menü
+    if (event.button === 2) return;
     this.cardManager.select(hit.card);
     const normal = this.camera.getWorldDirection(new THREE.Vector3());
     this.drag = {
@@ -171,5 +179,22 @@ export class InteractionManager {
 
   _onPointerUp() {
     this.drag = null;
+  }
+
+  _onContextMenu(event) {
+    if (this.renderer.xr.isPresenting) return;
+    event.preventDefault();
+    this._setRayFromMouse(event);
+    const hit = this._firstInteractiveHit();
+    if (hit?.type !== 'card') return;
+    this.cardManager.select(hit.card);
+    this.onCardContextMenu?.(hit.card, event.clientX, event.clientY);
+  }
+
+  _onDoubleClick(event) {
+    if (this.renderer.xr.isPresenting) return;
+    this._setRayFromMouse(event);
+    const hit = this._firstInteractiveHit();
+    if (hit?.type === 'card') this.onCardDoubleClick?.(hit.card);
   }
 }

@@ -6,6 +6,7 @@ const ACTIONS = [
   { id: 'related', label: '✨ Verwandte Ideen' },
   { id: 'cluster', label: '🗂 Cluster' },
   { id: 'summary', label: '📝 Zusammenfassen' },
+  { id: 'delete', label: '🗑 Karte löschen' },
 ];
 
 const BTN_BG = '#27435c';
@@ -21,7 +22,7 @@ export class WristMenu {
     this.attachedHand = null;
 
     const bg = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.19, 0.25),
+      new THREE.PlaneGeometry(0.19, 0.31),
       new THREE.MeshBasicMaterial({ color: 0x0b121a, transparent: true, opacity: 0.9 })
     );
     bg.position.z = -0.003;
@@ -34,7 +35,7 @@ export class WristMenu {
       background: 'rgba(0,0,0,0)',
       fontSize: 28,
     });
-    title.mesh.position.set(0, 0.1, 0.001);
+    title.mesh.position.set(0, 0.13, 0.001);
     this.group.add(title.mesh);
 
     ACTIONS.forEach((action, i) => {
@@ -45,7 +46,7 @@ export class WristMenu {
         background: BTN_BG,
         fontSize: 26,
       });
-      panel.mesh.position.set(0, 0.055 - i * 0.053, 0.001);
+      panel.mesh.position.set(0, 0.085 - i * 0.052, 0.001);
       panel.mesh.userData.onClick = () => onAction(action.id);
       panel.mesh.userData.setHover = (hovered) =>
         panel.setColors({ background: hovered ? BTN_BG_HOVER : BTN_BG });
