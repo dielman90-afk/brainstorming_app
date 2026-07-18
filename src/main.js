@@ -610,6 +610,7 @@ window.__app = {
   connectionManager,
   keyboard,
   wristMenu,
+  controls,
   handleAction,
   setStatus,
   env: { sky, grid, isVirtual: () => virtualEnv },

@@ -50,7 +50,14 @@ export function createTextPanel({
   texture.colorSpace = THREE.SRGBColorSpace;
 
   const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
-  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+  const geometry = new THREE.PlaneGeometry(width, height);
+  const mesh = new THREE.Mesh(geometry, material);
+
+  // Rückseite: zweite Ebene um 180° um Y gedreht, gleiche Textur. So bleibt der
+  // Text von hinten lesbar (nicht gespiegelt) und die Karte ist rundum sichtbar.
+  const backMesh = new THREE.Mesh(geometry, material);
+  backMesh.rotation.y = Math.PI;
+  mesh.add(backMesh);
 
   const state = { text, background, color };
 
