@@ -8,6 +8,7 @@ import { VirtualKeyboard } from './keyboard.js';
 import { isSpeechAvailable, recognizeSpeech } from './speech.js';
 import { requestAI, requestIdeas } from './ai.js';
 import { downloadBoard, importBoardFile, saveBoardLocal, loadBoardLocal } from './boardState.js';
+import { createEnvironments } from './environments.js';
 import { createTextPanel } from './textPanel.js';
 
 // --- Szene & Renderer ---
@@ -29,73 +30,53 @@ document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
 
-// Umgebung: Grid (Desktop/VR) + virtueller Himmel für volle Immersion.
-// "virtualEnv" schaltet zwischen Passthrough und virtueller Umgebung um.
-const VR_BG = new THREE.Color(0xdfe9f3);
-
+// Umgebungen: Passthrough/Weiß (-1) sowie drei virtuelle Welten aus
+// environments.js, per 🌐-Button zyklisch durchschaltbar.
 const grid = new THREE.GridHelper(8, 24, 0xb8c7d6, 0xdde6ee);
+scene.add(grid);
 
-const sky = new THREE.Group();
-const skyMaterial = new THREE.ShaderMaterial({
-  side: THREE.BackSide,
-  depthWrite: false,
-  uniforms: {
-    topColor: { value: new THREE.Color(0x6f9dc9) },
-    bottomColor: { value: new THREE.Color(0xeaf1f8) },
-  },
-  vertexShader: `
-    varying vec3 vPos;
-    void main() {
-      vPos = position;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }`,
-  fragmentShader: `
-    uniform vec3 topColor;
-    uniform vec3 bottomColor;
-    varying vec3 vPos;
-    void main() {
-      float h = normalize(vPos).y * 0.5 + 0.5;
-      gl_FragColor = vec4(mix(bottomColor, topColor, pow(h, 1.5)), 1.0);
-    }`,
-});
-sky.add(new THREE.Mesh(new THREE.SphereGeometry(40, 32, 16), skyMaterial));
-
-const floor = new THREE.Mesh(
-  new THREE.CircleGeometry(8, 48),
-  new THREE.MeshBasicMaterial({ color: 0xf0f4f8 })
-);
-floor.rotation.x = -Math.PI / 2;
-floor.position.y = -0.02;
-sky.add(floor);
-sky.visible = false;
-scene.add(grid, sky);
-
-let virtualEnv = false;
+const environments = createEnvironments(scene);
+const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
+let envIndex = -1; // -1 = Passthrough (AR) bzw. weißer Hintergrund
 
 function applyEnvironment() {
   const inPassthrough = renderer.xr.isPresenting && xrMode === 'immersive-ar';
-  if (virtualEnv) {
-    scene.background = VR_BG;
-    sky.visible = true;
-    grid.visible = true;
+  environments.forEach((env, i) => {
+    env.group.visible = i === envIndex;
+  });
+  if (envIndex >= 0) {
+    scene.background = environments[envIndex].background;
+    grid.visible = false;
   } else if (inPassthrough) {
     scene.background = null;
-    sky.visible = false;
     grid.visible = false;
   } else {
     scene.background = DESKTOP_BG;
-    sky.visible = false;
     grid.visible = true;
   }
 }
 
-function toggleEnvironment() {
-  virtualEnv = !virtualEnv;
+function savedEnvIndex() {
+  try {
+    const value = parseInt(localStorage.getItem(ENV_STORAGE_KEY) ?? '', 10);
+    return Number.isInteger(value) && value >= -1 && value < environments.length ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function cycleEnvironment() {
+  envIndex = envIndex >= environments.length - 1 ? -1 : envIndex + 1;
+  try {
+    localStorage.setItem(ENV_STORAGE_KEY, String(envIndex));
+  } catch {
+    // Autosave der Umgebungswahl ist optional
+  }
   applyEnvironment();
   const inAR = renderer.xr.isPresenting && xrMode === 'immersive-ar';
   setStatus(
-    virtualEnv
-      ? '🌐 Virtuelle Umgebung aktiv.'
+    envIndex >= 0
+      ? `${environments[envIndex].name} aktiv.`
       : inAR
         ? '🪟 Passthrough aktiv – du siehst wieder deinen Raum.'
         : 'Weißer Hintergrund aktiv.'
@@ -192,7 +173,7 @@ async function handleAction(action) {
       return;
     }
     if (action === 'environment') {
-      toggleEnvironment();
+      cycleEnvironment();
       return;
     }
     if (action === 'color') {
@@ -530,9 +511,14 @@ let recenterOnNextFrame = false;
 
 renderer.xr.addEventListener('sessionstart', () => {
   controls.enabled = false;
-  // Passthrough (AR): Raum zeigen, Umgebung per Menü zuschaltbar.
-  // Reine VR-Session: direkt voll virtuell.
-  virtualEnv = xrMode !== 'immersive-ar';
+  if (xrMode === 'immersive-ar') {
+    // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
+    envIndex = -1;
+  } else {
+    // Reine VR-Session: direkt immersiv – zuletzt genutzte Umgebung, sonst Insel
+    const saved = savedEnvIndex();
+    envIndex = saved !== null && saved >= 0 ? saved : 0;
+  }
   applyEnvironment();
   wristMenu.setVisible(true);
   // Karten neu vor den Nutzer holen, sobald die echte Headset-Pose steht
@@ -541,13 +527,16 @@ renderer.xr.addEventListener('sessionstart', () => {
 
 renderer.xr.addEventListener('sessionend', () => {
   controls.enabled = true;
-  virtualEnv = false;
+  envIndex = savedEnvIndex() ?? -1;
   applyEnvironment();
   wristMenu.setVisible(false);
   keyboard.close();
 });
 
-// --- Start: gespeichertes Board wiederherstellen, sonst Demo-Karten ---
+// --- Start: gespeicherte Umgebung + Board wiederherstellen ---
+
+envIndex = savedEnvIndex() ?? -1;
+applyEnvironment();
 
 const savedBoard = loadBoardLocal();
 if (savedBoard === null) {
@@ -584,9 +573,12 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+const clock = new THREE.Clock();
+
 renderer.setAnimationLoop(() => {
   interactions.update();
   connectionManager.update();
+  if (envIndex >= 0) environments[envIndex].update?.(clock.getElapsedTime());
   if (!renderer.xr.isPresenting) controls.update();
   renderer.render(scene, camera);
 
@@ -613,5 +605,5 @@ window.__app = {
   controls,
   handleAction,
   setStatus,
-  env: { sky, grid, isVirtual: () => virtualEnv },
+  env: { environments, grid, current: () => envIndex, cycle: cycleEnvironment },
 };

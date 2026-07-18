@@ -11,10 +11,14 @@ Zusammenfassungen.
 ## Features
 
 - **Mixed Reality / VR:** Startet bevorzugt als `immersive-ar` (Passthrough auf der
-  Quest 3), Fallback auf `immersive-vr`. Über den Button **„🌐 Umgebung“**
-  (Handgelenk-Menü oder Desktop-Overlay) lässt sich jederzeit zwischen
-  Passthrough und einer virtuellen Umgebung (Gradient-Himmel + Boden) umschalten
-  – für volles Eintauchen in VR.
+  Quest 3), Fallback auf `immersive-vr`.
+- **Drei virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
+  externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
+  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, treibenden
+  Wolken und schwebenden Mini-Inseln) → **🌌 Nachthimmel** (Sternenfeld, Mond,
+  leuchtendes Boden-Grid) → **🌐 Studio** (schlichter heller Verlauf). Die
+  Auswahl wird gemerkt; eine reine VR-Session startet direkt in der zuletzt
+  genutzten Umgebung (sonst Himmelsinsel).
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Handgelenk-Menü** (linker Controller, 2-Spalten-Raster): *Neue Karte*,
@@ -62,7 +66,8 @@ Zusammenfassungen.
 │   ├── keyboard.js         Virtuelle 3D-Tastatur (Fallback)
 │   ├── speech.js           Web Speech API Wrapper
 │   ├── ai.js               Client für den Server-Proxy
-│   ├── boardState.js       JSON-Export/-Import
+│   ├── boardState.js       JSON-Export/-Import + Autosave
+│   ├── environments.js     Drei prozedurale VR-Umgebungen (Insel, Nacht, Studio)
 │   └── textPanel.js        Canvas-Textur-Panels für Text
 ├── server/
 │   ├── index.js            Express-Proxy (lokale Entwicklung)
@@ -150,7 +155,7 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
 | Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |
-| Passthrough ↔ Virtuell | Menü → „🌐 Umgebung“ |
+| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel → Studio) |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
 Die Position des Handgelenk-Menüs lässt sich in `src/wristMenu.js`
