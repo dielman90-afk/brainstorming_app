@@ -6,7 +6,7 @@ import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
 import { isSpeechAvailable, recognizeSpeech } from './speech.js';
 import { requestIdeas } from './ai.js';
-import { downloadBoard, importBoardFile } from './boardState.js';
+import { downloadBoard, importBoardFile, saveBoardLocal, loadBoardLocal } from './boardState.js';
 import { createTextPanel } from './textPanel.js';
 
 // --- Szene & Renderer ---
@@ -28,10 +28,78 @@ document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
 
-// Einfache VR-Umgebung – wird im Passthrough-Modus ausgeblendet
-const environment = new THREE.Group();
-environment.add(new THREE.GridHelper(8, 24, 0xb8c7d6, 0xdde6ee));
-scene.add(environment);
+// Umgebung: Grid (Desktop/VR) + virtueller Himmel für volle Immersion.
+// "virtualEnv" schaltet zwischen Passthrough und virtueller Umgebung um.
+const VR_BG = new THREE.Color(0xdfe9f3);
+
+const grid = new THREE.GridHelper(8, 24, 0xb8c7d6, 0xdde6ee);
+
+const sky = new THREE.Group();
+const skyMaterial = new THREE.ShaderMaterial({
+  side: THREE.BackSide,
+  depthWrite: false,
+  uniforms: {
+    topColor: { value: new THREE.Color(0x6f9dc9) },
+    bottomColor: { value: new THREE.Color(0xeaf1f8) },
+  },
+  vertexShader: `
+    varying vec3 vPos;
+    void main() {
+      vPos = position;
+      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    }`,
+  fragmentShader: `
+    uniform vec3 topColor;
+    uniform vec3 bottomColor;
+    varying vec3 vPos;
+    void main() {
+      float h = normalize(vPos).y * 0.5 + 0.5;
+      gl_FragColor = vec4(mix(bottomColor, topColor, pow(h, 1.5)), 1.0);
+    }`,
+});
+sky.add(new THREE.Mesh(new THREE.SphereGeometry(40, 32, 16), skyMaterial));
+
+const floor = new THREE.Mesh(
+  new THREE.CircleGeometry(8, 48),
+  new THREE.MeshBasicMaterial({ color: 0xf0f4f8 })
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -0.02;
+sky.add(floor);
+sky.visible = false;
+scene.add(grid, sky);
+
+let virtualEnv = false;
+
+function applyEnvironment() {
+  const inPassthrough = renderer.xr.isPresenting && xrMode === 'immersive-ar';
+  if (virtualEnv) {
+    scene.background = VR_BG;
+    sky.visible = true;
+    grid.visible = true;
+  } else if (inPassthrough) {
+    scene.background = null;
+    sky.visible = false;
+    grid.visible = false;
+  } else {
+    scene.background = DESKTOP_BG;
+    sky.visible = false;
+    grid.visible = true;
+  }
+}
+
+function toggleEnvironment() {
+  virtualEnv = !virtualEnv;
+  applyEnvironment();
+  const inAR = renderer.xr.isPresenting && xrMode === 'immersive-ar';
+  setStatus(
+    virtualEnv
+      ? '🌐 Virtuelle Umgebung aktiv.'
+      : inAR
+        ? '🪟 Passthrough aktiv – du siehst wieder deinen Raum.'
+        : 'Weißer Hintergrund aktiv.'
+  );
+}
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -90,6 +158,8 @@ function setStatus(message, ms = 3500) {
 
 let busy = false;
 
+let clearArmedAt = 0;
+
 async function handleAction(action) {
   if (busy) return;
   try {
@@ -97,9 +167,23 @@ async function handleAction(action) {
       await newCardFlow();
       return;
     }
-    const ideas = cardManager.cards.map((c) => c.text);
-    if (!ideas.length) {
-      setStatus('Das Board ist leer – erst Karten anlegen.');
+    if (action === 'environment') {
+      toggleEnvironment();
+      return;
+    }
+    if (action === 'clear') {
+      if (!cardManager.cards.length) {
+        setStatus('Das Board ist schon leer.');
+        return;
+      }
+      if (Date.now() - clearArmedAt > 4000) {
+        clearArmedAt = Date.now();
+        setStatus('⚠️ Wirklich ALLE Karten löschen? Nochmal drücken zum Bestätigen.', 4000);
+        return;
+      }
+      clearArmedAt = 0;
+      cardManager.clear();
+      setStatus('Alle Karten gelöscht.');
       return;
     }
     if (action === 'delete') {
@@ -110,6 +194,11 @@ async function handleAction(action) {
       }
       cardManager.removeCard(selected);
       setStatus('Karte gelöscht.');
+      return;
+    }
+    const ideas = cardManager.cards.map((c) => c.text);
+    if (!ideas.length) {
+      setStatus('Das Board ist leer – erst Karten anlegen.');
       return;
     }
     busy = true;
@@ -183,6 +272,8 @@ document.getElementById('btn-related').addEventListener('click', () => handleAct
 document.getElementById('btn-cluster').addEventListener('click', () => handleAction('cluster'));
 document.getElementById('btn-summary').addEventListener('click', () => handleAction('summary'));
 document.getElementById('btn-export').addEventListener('click', () => downloadBoard(cardManager));
+document.getElementById('btn-clear').addEventListener('click', () => handleAction('clear'));
+document.getElementById('btn-env').addEventListener('click', () => handleAction('environment'));
 document.getElementById('idea-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleAction('new');
 });
@@ -330,9 +421,10 @@ let recenterOnNextFrame = false;
 
 renderer.xr.addEventListener('sessionstart', () => {
   controls.enabled = false;
-  const passthrough = xrMode === 'immersive-ar';
-  scene.background = passthrough ? null : DESKTOP_BG;
-  environment.visible = !passthrough;
+  // Passthrough (AR): Raum zeigen, Umgebung per Menü zuschaltbar.
+  // Reine VR-Session: direkt voll virtuell.
+  virtualEnv = xrMode !== 'immersive-ar';
+  applyEnvironment();
   wristMenu.setVisible(true);
   // Karten neu vor den Nutzer holen, sobald die echte Headset-Pose steht
   recenterOnNextFrame = true;
@@ -340,18 +432,34 @@ renderer.xr.addEventListener('sessionstart', () => {
 
 renderer.xr.addEventListener('sessionend', () => {
   controls.enabled = true;
-  scene.background = DESKTOP_BG;
-  environment.visible = true;
+  virtualEnv = false;
+  applyEnvironment();
   wristMenu.setVisible(false);
   keyboard.close();
 });
 
-// --- Start ---
+// --- Start: gespeichertes Board wiederherstellen, sonst Demo-Karten ---
 
-cardManager.spawnIdeas(
-  ['VR-Brainstorming-App', 'Zielgruppe: Remote-Teams', 'Feature: KI-Ideenassistent'],
-  camera
-);
+if (loadBoardLocal(cardManager) === null) {
+  cardManager.spawnIdeas(
+    ['VR-Brainstorming-App', 'Zielgruppe: Remote-Teams', 'Feature: KI-Ideenassistent'],
+    camera
+  );
+}
+
+// Automatisches Speichern: alle 3 s bei Änderungen sowie beim Verlassen
+let lastSavedSnapshot = '';
+setInterval(() => {
+  const snapshot = JSON.stringify(cardManager.toJSON().cards);
+  if (snapshot !== lastSavedSnapshot) {
+    lastSavedSnapshot = snapshot;
+    saveBoardLocal(cardManager);
+  }
+}, 3000);
+addEventListener('beforeunload', () => saveBoardLocal(cardManager));
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) saveBoardLocal(cardManager);
+});
 
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight;
@@ -376,4 +484,14 @@ renderer.setAnimationLoop(() => {
 });
 
 // Für schnelle Iteration & Headless-Tests
-window.__app = { scene, camera, renderer, cardManager, keyboard, wristMenu, handleAction, setStatus };
+window.__app = {
+  scene,
+  camera,
+  renderer,
+  cardManager,
+  keyboard,
+  wristMenu,
+  handleAction,
+  setStatus,
+  env: { sky, grid, isVirtual: () => virtualEnv },
+};
