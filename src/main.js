@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CardManager } from './cards.js';
+import { CardManager, CARD_COLORS } from './cards.js';
+import { ConnectionManager } from './connections.js';
 import { InteractionManager } from './interactions.js';
 import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
 import { isSpeechAvailable, recognizeSpeech } from './speech.js';
-import { requestIdeas } from './ai.js';
+import { requestAI, requestIdeas } from './ai.js';
 import { downloadBoard, importBoardFile, saveBoardLocal, loadBoardLocal } from './boardState.js';
 import { createTextPanel } from './textPanel.js';
 
@@ -109,6 +110,18 @@ controls.update();
 // --- Bausteine ---
 
 const cardManager = new CardManager(scene);
+const connectionManager = new ConnectionManager(scene, cardManager);
+cardManager.onCardRemoved = (card) => connectionManager.removeForCard(card);
+
+function boardToJSON() {
+  return { ...cardManager.toJSON(), connections: connectionManager.toJSON() };
+}
+
+function applyBoardJSON(data) {
+  cardManager.loadJSON(data);
+  connectionManager.loadJSON(data?.connections ?? []);
+}
+
 const keyboard = new VirtualKeyboard(scene);
 const wristMenu = new WristMenu((action) => handleAction(action));
 
@@ -159,6 +172,17 @@ function setStatus(message, ms = 3500) {
 let busy = false;
 
 let clearArmedAt = 0;
+let linkSource = null;
+
+function startLinking() {
+  const selected = cardManager.selected;
+  if (!selected) {
+    setStatus('Bitte zuerst eine Karte auswählen.');
+    return;
+  }
+  linkSource = selected;
+  setStatus('🔗 Verbinden: Ziel-Karte anklicken (gleiche Karte oder Esc = abbrechen)', 0);
+}
 
 async function handleAction(action) {
   if (busy) return;
@@ -169,6 +193,32 @@ async function handleAction(action) {
     }
     if (action === 'environment') {
       toggleEnvironment();
+      return;
+    }
+    if (action === 'color') {
+      const selected = cardManager.selected;
+      if (!selected) {
+        setStatus('Bitte zuerst eine Karte auswählen.');
+        return;
+      }
+      selected.setColor(selected.colorIndex + 1);
+      return;
+    }
+    if (action === 'connect') {
+      startLinking();
+      return;
+    }
+    if (action === 'topic') {
+      const topic = await getUserText();
+      if (!topic) return;
+      busy = true;
+      setStatus(`Claude erstellt ein Start-Board zu „${topic}“…`, 0);
+      const result = await requestIdeas('topic', {
+        topic,
+        ideas: cardManager.cards.map((c) => c.text),
+      });
+      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      setStatus(`Start-Board zu „${topic}“: ${result.length} Ideen.`);
       return;
     }
     if (action === 'clear') {
@@ -213,10 +263,26 @@ async function handleAction(action) {
       cardManager.spawnIdeas(result.map((i) => i.text), camera);
       setStatus(`${result.length} neue Ideen zu „${selected.text}“`);
     } else if (action === 'cluster') {
-      setStatus('Claude schlägt Cluster vor…', 0);
-      const result = await requestIdeas('cluster', { ideas });
-      cardManager.spawnIdeas(result.map((i) => i.text), camera);
-      setStatus('Cluster-Vorschläge erstellt.');
+      if (ideas.length < 2) {
+        setStatus('Für Cluster werden mindestens 2 Karten benötigt.');
+        return;
+      }
+      setStatus('Claude gruppiert die Karten…', 0);
+      // Snapshot, damit die Indizes der Antwort zu den gesendeten Ideen passen
+      const snapshot = [...cardManager.cards];
+      const data = await requestAI('cluster', { ideas: snapshot.map((c) => c.text) });
+      const clusterDefs = (data.clusters ?? [])
+        .map((cl, i) => ({
+          name: cl.name,
+          colorIndex: 1 + (i % (CARD_COLORS.length - 1)),
+          cards: (cl.ideaIndexes ?? [])
+            .filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < snapshot.length)
+            .map((idx) => snapshot[idx]),
+        }))
+        .filter((def) => def.cards.length);
+      if (!clusterDefs.length) throw new Error('Keine verwertbaren Cluster erhalten.');
+      cardManager.applyClusters(clusterDefs, camera);
+      setStatus(`${clusterDefs.length} Cluster angewendet – Karten wurden gruppiert und eingefärbt.`);
     } else if (action === 'summary') {
       setStatus('Claude fasst das Board zusammen…', 0);
       const result = await requestIdeas('summary', { ideas });
@@ -231,38 +297,45 @@ async function handleAction(action) {
   }
 }
 
-async function newCardFlow() {
+// Texteingabe: XR = Sprache mit Tastatur-Fallback, Desktop = Eingabefeld.
+async function getUserText() {
   if (renderer.xr.isPresenting) {
     if (isSpeechAvailable()) {
-      setStatus('🎤 Sprich deine Idee…', 0);
+      setStatus('🎤 Sprich jetzt…', 0);
       try {
         const text = await recognizeSpeech();
-        cardManager.spawnIdeas([text], camera);
-        setStatus('Karte erstellt.');
-        return;
+        setStatus('');
+        return text;
       } catch {
         setStatus('Spracheingabe fehlgeschlagen – Tastatur wird geöffnet.');
       }
     }
-    keyboard.open(camera, {
-      onSubmit: (text) => {
-        cardManager.spawnIdeas([text], camera);
-        setStatus('Karte erstellt.');
-      },
-      onCancel: () => setStatus(''),
+    return new Promise((resolve) => {
+      keyboard.open(camera, {
+        onSubmit: (text) => resolve(text),
+        onCancel: () => {
+          setStatus('');
+          resolve(null);
+        },
+      });
     });
-  } else {
-    const input = document.getElementById('idea-input');
-    const text = input.value.trim();
-    if (!text) {
-      setStatus('Bitte zuerst Text eingeben.');
-      input.focus();
-      return;
-    }
-    cardManager.spawnIdeas([text], camera);
-    input.value = '';
-    setStatus('Karte erstellt.');
   }
+  const input = document.getElementById('idea-input');
+  const text = input.value.trim();
+  if (!text) {
+    setStatus('Bitte zuerst Text ins Eingabefeld tippen.');
+    input.focus();
+    return null;
+  }
+  input.value = '';
+  return text;
+}
+
+async function newCardFlow() {
+  const text = await getUserText();
+  if (!text) return;
+  cardManager.spawnIdeas([text], camera);
+  setStatus('Karte erstellt.');
 }
 
 // --- Desktop-UI ---
@@ -271,7 +344,8 @@ document.getElementById('btn-new').addEventListener('click', () => handleAction(
 document.getElementById('btn-related').addEventListener('click', () => handleAction('related'));
 document.getElementById('btn-cluster').addEventListener('click', () => handleAction('cluster'));
 document.getElementById('btn-summary').addEventListener('click', () => handleAction('summary'));
-document.getElementById('btn-export').addEventListener('click', () => downloadBoard(cardManager));
+document.getElementById('btn-topic').addEventListener('click', () => handleAction('topic'));
+document.getElementById('btn-export').addEventListener('click', () => downloadBoard(boardToJSON()));
 document.getElementById('btn-clear').addEventListener('click', () => handleAction('clear'));
 document.getElementById('btn-env').addEventListener('click', () => handleAction('environment'));
 document.getElementById('idea-input').addEventListener('keydown', (e) => {
@@ -281,13 +355,28 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   try {
-    const count = await importBoardFile(file, cardManager);
-    setStatus(`Board importiert (${count} Karten).`);
+    applyBoardJSON(await importBoardFile(file));
+    setStatus(`Board importiert (${cardManager.cards.length} Karten).`);
   } catch (err) {
     setStatus(`Import fehlgeschlagen: ${err.message}`, 6000);
   }
   e.target.value = '';
 });
+
+// --- Verbindungsmodus: Quell-Karte gewählt, nächster Karten-Pick verbindet ---
+
+interactions.onCardPick = (card) => {
+  if (!linkSource) return false;
+  if (card === linkSource) {
+    linkSource = null;
+    setStatus('Verbinden abgebrochen.');
+    return true;
+  }
+  const result = connectionManager.toggle(linkSource, card);
+  setStatus(result === 'added' ? '🔗 Verbindung erstellt.' : 'Verbindung entfernt.');
+  linkSource = null;
+  return true;
+};
 
 // --- Kontextmenü (Rechtsklick auf Karte, Desktop) ---
 
@@ -320,7 +409,23 @@ contextMenu.addEventListener('click', (e) => {
   } else if (action === 'related') {
     cardManager.select(card);
     handleAction('related');
+  } else if (action === 'connect') {
+    cardManager.select(card);
+    startLinking();
   }
+});
+
+// Farbpunkte im Kontextmenü
+const colorRow = document.getElementById('color-row');
+CARD_COLORS.forEach((color, i) => {
+  const dot = document.createElement('span');
+  dot.className = 'color-dot';
+  dot.style.background = color.base;
+  dot.title = i === 0 ? 'Standardfarbe' : `Farbe ${i}`;
+  dot.addEventListener('click', () => {
+    contextCard?.setColor(i);
+  });
+  colorRow.appendChild(dot);
 });
 
 window.addEventListener(
@@ -374,6 +479,10 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     closeContextMenu();
     closeEditor(false);
+    if (linkSource) {
+      linkSource = null;
+      setStatus('Verbinden abgebrochen.');
+    }
     return;
   }
   if (!cardManager.selected) return;
@@ -440,25 +549,33 @@ renderer.xr.addEventListener('sessionend', () => {
 
 // --- Start: gespeichertes Board wiederherstellen, sonst Demo-Karten ---
 
-if (loadBoardLocal(cardManager) === null) {
+const savedBoard = loadBoardLocal();
+if (savedBoard === null) {
   cardManager.spawnIdeas(
     ['VR-Brainstorming-App', 'Zielgruppe: Remote-Teams', 'Feature: KI-Ideenassistent'],
     camera
   );
+} else {
+  try {
+    applyBoardJSON(savedBoard);
+  } catch {
+    // Defektes gespeichertes Board ignorieren
+  }
 }
 
 // Automatisches Speichern: alle 3 s bei Änderungen sowie beim Verlassen
 let lastSavedSnapshot = '';
 setInterval(() => {
-  const snapshot = JSON.stringify(cardManager.toJSON().cards);
+  const data = boardToJSON();
+  const snapshot = JSON.stringify([data.cards, data.connections]);
   if (snapshot !== lastSavedSnapshot) {
     lastSavedSnapshot = snapshot;
-    saveBoardLocal(cardManager);
+    saveBoardLocal(data);
   }
 }, 3000);
-addEventListener('beforeunload', () => saveBoardLocal(cardManager));
+addEventListener('beforeunload', () => saveBoardLocal(boardToJSON()));
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) saveBoardLocal(cardManager);
+  if (document.hidden) saveBoardLocal(boardToJSON());
 });
 
 addEventListener('resize', () => {
@@ -469,6 +586,7 @@ addEventListener('resize', () => {
 
 renderer.setAnimationLoop(() => {
   interactions.update();
+  connectionManager.update();
   if (!renderer.xr.isPresenting) controls.update();
   renderer.render(scene, camera);
 
@@ -489,6 +607,7 @@ window.__app = {
   camera,
   renderer,
   cardManager,
+  connectionManager,
   keyboard,
   wristMenu,
   handleAction,

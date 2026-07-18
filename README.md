@@ -17,20 +17,33 @@ Zusammenfassungen.
   – für volles Eintauchen in VR.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
-- **Handgelenk-Menü** (linker Controller): *Neue Karte*, *Verwandte Ideen*,
-  *Cluster*, *Zusammenfassen*, *Karte löschen*, *Alles löschen* (mit
+- **Handgelenk-Menü** (linker Controller, 2-Spalten-Raster): *Neue Karte*,
+  *Themen-Start*, *Verwandte Ideen*, *Cluster anwenden*, *Zusammenfassen*,
+  *Farbe*, *Verbinden*, *Karte löschen*, *Alles löschen* (mit
   Zweifach-Bestätigung), *Umgebung umschalten*. Buttons werden mit dem Ray des
   anderen Controllers geklickt.
-- **KI-Funktionen:** Der Client ruft `/api/generate` auf; der Server-Proxy nutzt die
-  Anthropic Messages API mit Structured Outputs (JSON-Schema) und liefert immer
-  `{ "ideas": [{ "text": "…" }] }`. Neue Ideen erscheinen als Karten im Halbkreis
-  vor dem Nutzer (aufeinanderfolgende Batches vertikal gestaffelt).
+- **KI-Funktionen** (Server-Proxy → Anthropic Messages API mit Structured
+  Outputs/JSON-Schema):
+  - **Themen-Start:** Thema nennen → Claude füllt das Board mit 8–10 Start-Ideen.
+  - **Verwandte Ideen:** 4–6 neue Ideen zur ausgewählten Karte, als Karten im
+    Halbkreis vor dem Nutzer (Batches vertikal gestaffelt).
+  - **Cluster anwenden:** Claude gruppiert die vorhandenen Karten thematisch –
+    die Karten werden räumlich in Cluster-Spalten sortiert, pro Cluster
+    eingefärbt und mit einer 📌-Titelkarte versehen.
+  - **Zusammenfassen:** Das ganze Board als eine Karte.
+- **Kartenfarben:** 7 Farben pro Karte – am Desktop über die Farbpunkte im
+  Rechtsklick-Menü, in VR über „🎨 Farbe“ (wechselt zyklisch). Cluster färben
+  automatisch.
+- **Verbindungslinien (Mindmap):** Karte auswählen → „🔗 Verbinden“ (Menü bzw.
+  Rechtsklick → „Verbinden mit…“) → Ziel-Karte anklicken. Nochmal verbinden
+  entfernt die Linie; Esc bricht ab. Linien folgen den Karten beim Verschieben.
 - **Texteingabe:** Web Speech API (Deutsch), Fallback auf eine virtuelle
   3D-Tastatur. *Hinweis: Der Quest-Browser unterstützt die Web Speech API derzeit
   nicht – dort öffnet sich automatisch die Tastatur.*
-- **Automatisches Speichern:** Das Board (Texte + Positionen) wird laufend im
-  Browser gespeichert (localStorage) und beim nächsten Öffnen wiederhergestellt –
-  auch nach einem Browser-Neustart. Gilt pro Gerät/Browser.
+- **Automatisches Speichern:** Das Board (Texte, Positionen, Farben und
+  Verbindungen) wird laufend im Browser gespeichert (localStorage) und beim
+  nächsten Öffnen wiederhergestellt – auch nach einem Browser-Neustart. Gilt pro
+  Gerät/Browser.
 - **Board-Export/-Import** als JSON (Desktop-Overlay, Buttons „Export“/„Import“) –
   z. B. um ein Board vom Desktop auf die Quest zu bringen oder zu archivieren.
 - **Desktop-Fallback:** Läuft ohne Headset im normalen Browser – Maus-Steuerung
@@ -86,9 +99,12 @@ Einfach `https://localhost:5173` öffnen:
 | Karte verschieben | Karte anklicken und ziehen |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Karte löschen | **Rechtsklick → „Karte löschen“** oder **Entf/Backspace** bei ausgewählter Karte |
-| Kontextmenü | **Rechtsklick** auf eine Karte: Bearbeiten · Verwandte Ideen · Löschen |
+| Kontextmenü | **Rechtsklick** auf eine Karte: Bearbeiten · Verwandte Ideen · Verbinden · Farbe · Löschen |
+| Karte einfärben | Rechtsklick → Farbpunkt anklicken |
+| Karten verbinden | Rechtsklick → „Verbinden mit…“ → Ziel-Karte anklicken (nochmal = Linie entfernen, Esc = abbrechen) |
 | Neue Karte | Text ins Eingabefeld, „Neue Karte“ oder Enter |
-| KI-Funktionen | Buttons „Verwandte Ideen“ / „Cluster“ / „Zusammenfassen“ |
+| Themen-Start | Thema ins Eingabefeld → „🚀 Themen-Start“ |
+| KI-Funktionen | Buttons „Verwandte Ideen“ / „Cluster anwenden“ / „Zusammenfassen“ |
 | Export/Import | Buttons im Overlay |
 
 ## Auf der Quest 3 öffnen
@@ -129,6 +145,9 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Karte auswählen | Kurz mit dem Trigger antippen (Cyan-Rahmen) |
 | Menü | Am **linken Handgelenk** – mit dem rechten Ray anvisieren und Trigger drücken |
 | Neue Karte | Menü → „＋ Neue Karte“ → sprechen bzw. virtuelle Tastatur |
+| Themen-Start | Menü → „🚀 Themen-Start“ → Thema sprechen/tippen |
+| Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
+| Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
 | Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |
 | Passthrough ↔ Virtuell | Menü → „🌐 Umgebung“ |
@@ -142,17 +161,23 @@ Die Position des Handgelenk-Menüs lässt sich in `src/wristMenu.js`
 `POST /api/generate` mit
 
 ```json
-{ "action": "related" | "cluster" | "summary", "selectedIdea": "…", "ideas": ["…", "…"] }
+{ "action": "related" | "cluster" | "summary" | "topic", "selectedIdea": "…", "topic": "…", "ideas": ["…", "…"] }
 ```
 
-antwortet immer mit
+antwortet für `related`/`summary`/`topic` mit
 
 ```json
 { "ideas": [{ "text": "…" }] }
 ```
 
-Der Server erzwingt das Format über Structured Outputs (`output_config.format`
-mit JSON-Schema) und parst defensiv nach.
+und für `cluster` mit Indizes in die mitgeschickte Ideen-Liste:
+
+```json
+{ "clusters": [{ "name": "…", "ideaIndexes": [0, 2, 5] }] }
+```
+
+Der Server erzwingt das jeweilige Format über Structured Outputs
+(`output_config.format` mit JSON-Schema) und parst defensiv nach.
 
 ## Troubleshooting
 

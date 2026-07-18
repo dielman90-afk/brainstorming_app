@@ -3,14 +3,25 @@ import { createTextPanel } from './textPanel.js';
 
 const CARD_W = 0.32;
 const CARD_H = 0.18;
-const CARD_BG = '#1e2733';
-const CARD_BG_HOVER = '#2b3b4e';
+
+// Farbpalette für Karten/Kategorien; Index 0 = Standard.
+// Cluster bekommen automatisch Farben ab Index 1.
+export const CARD_COLORS = [
+  { base: '#1e2733', hover: '#2b3b4e' }, // Standard (dunkel)
+  { base: '#1e3a5c', hover: '#2b4f7a' }, // Blau
+  { base: '#1d4d33', hover: '#2a6947' }, // Grün
+  { base: '#5c4a1e', hover: '#7a642b' }, // Ocker
+  { base: '#5c2b2b', hover: '#7a3d3d' }, // Rot
+  { base: '#462b5c', hover: '#5d3d7a' }, // Violett
+  { base: '#1e4d4d', hover: '#2b6969' }, // Türkis
+];
 
 export class IdeaCard {
   constructor(text) {
     this.id = crypto.randomUUID?.() ?? String(Math.random()).slice(2);
     this.text = text;
     this.hovered = false;
+    this.colorIndex = 0;
 
     this.panel = createTextPanel({ width: CARD_W, height: CARD_H, text });
 
@@ -31,6 +42,11 @@ export class IdeaCard {
     this.panel.setText(text);
   }
 
+  setColor(index) {
+    this.colorIndex = THREE.MathUtils.euclideanModulo(index, CARD_COLORS.length);
+    this._applyBackground();
+  }
+
   setSelected(selected) {
     this.border.visible = selected;
   }
@@ -38,7 +54,12 @@ export class IdeaCard {
   setHovered(hovered) {
     if (this.hovered === hovered) return;
     this.hovered = hovered;
-    this.panel.setColors({ background: hovered ? CARD_BG_HOVER : CARD_BG });
+    this._applyBackground();
+  }
+
+  _applyBackground() {
+    const color = CARD_COLORS[this.colorIndex];
+    this.panel.setColors({ background: this.hovered ? color.hover : color.base });
   }
 
   dispose() {
@@ -54,12 +75,14 @@ export class CardManager {
     this.cards = [];
     this.selected = null;
     this.spawnBatch = 0;
+    this.onCardRemoved = null;
   }
 
-  addCard(text, { position, quaternion } = {}) {
+  addCard(text, { position, quaternion, colorIndex } = {}) {
     const card = new IdeaCard(text);
     if (position) card.group.position.fromArray(position);
     if (quaternion) card.group.quaternion.fromArray(quaternion);
+    if (colorIndex) card.setColor(colorIndex);
     this.scene.add(card.group);
     this.cards.push(card);
     return card;
@@ -67,6 +90,7 @@ export class CardManager {
 
   removeCard(card) {
     if (this.selected === card) this.select(null);
+    this.onCardRemoved?.(card);
     card.group.removeFromParent();
     card.dispose();
     this.cards = this.cards.filter((c) => c !== card);
@@ -83,10 +107,7 @@ export class CardManager {
     this.selected?.setSelected(true);
   }
 
-  // Neue Karten im Halbkreis vor dem Nutzer platzieren.
-  // Aufeinanderfolgende Batches werden vertikal gestaffelt, damit sie nicht überlappen.
-  arrangeInArc(cards, camera, batch = 0) {
-    if (!cards.length) return;
+  _viewBasis(camera) {
     const camPos = new THREE.Vector3();
     camera.getWorldPosition(camPos);
     const dir = new THREE.Vector3();
@@ -94,8 +115,14 @@ export class CardManager {
     dir.y = 0;
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
     dir.normalize();
+    return { camPos, baseAngle: Math.atan2(dir.x, dir.z) };
+  }
 
-    const baseAngle = Math.atan2(dir.x, dir.z);
+  // Neue Karten im Halbkreis vor dem Nutzer platzieren.
+  // Aufeinanderfolgende Batches werden vertikal gestaffelt, damit sie nicht überlappen.
+  arrangeInArc(cards, camera, batch = 0) {
+    if (!cards.length) return;
+    const { camPos, baseAngle } = this._viewBasis(camera);
     const step = THREE.MathUtils.degToRad(24);
     const radius = 1.15;
     const rowOffset = (((batch + 1) % 3) - 1) * 0.24;
@@ -129,6 +156,37 @@ export class CardManager {
     this.spawnBatch = Math.ceil(this.cards.length / perRow);
   }
 
+  // Karten räumlich in Cluster-Spalten vor dem Nutzer gruppieren.
+  // clusterDefs: [{ name, colorIndex, cards: IdeaCard[] }]
+  applyClusters(clusterDefs, camera) {
+    const { camPos, baseAngle } = this._viewBasis(camera);
+    const n = clusterDefs.length;
+    const step = THREE.MathUtils.degToRad(n <= 2 ? 50 : n === 3 ? 40 : 32);
+    const radius = 1.5;
+    const titleY = THREE.MathUtils.clamp(camPos.y + 0.3, 1.0, 2.2);
+
+    clusterDefs.forEach((def, i) => {
+      const angle = baseAngle + (i - (n - 1) / 2) * step;
+      const cx = camPos.x + Math.sin(angle) * radius;
+      const cz = camPos.z + Math.cos(angle) * radius;
+      const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
+
+      const title = this.addCard(`📌 ${def.name}`, { colorIndex: def.colorIndex });
+      title.group.position.set(cx, titleY, cz);
+      title.group.lookAt(camPos.x, titleY, camPos.z);
+
+      const cols = def.cards.length > 4 ? 2 : 1;
+      def.cards.forEach((card, m) => {
+        card.setColor(def.colorIndex);
+        const row = Math.floor(m / cols);
+        const tOff = cols === 1 ? 0 : (m % 2 === 0 ? -0.19 : 0.19);
+        const y = titleY - 0.26 - row * 0.22;
+        card.group.position.set(cx + tangent.x * tOff, y, cz + tangent.z * tOff);
+        card.group.lookAt(camPos.x, y, camPos.z);
+      });
+    });
+  }
+
   toJSON() {
     return {
       version: 1,
@@ -138,6 +196,7 @@ export class CardManager {
       cards: this.cards.map((card) => ({
         id: card.id,
         text: card.text,
+        colorIndex: card.colorIndex,
         position: card.group.getWorldPosition(new THREE.Vector3()).toArray(),
         quaternion: card.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
       })),
@@ -151,7 +210,13 @@ export class CardManager {
     this.clear();
     for (const entry of data.cards) {
       if (typeof entry?.text !== 'string') continue;
-      this.addCard(entry.text, { position: entry.position, quaternion: entry.quaternion });
+      const card = this.addCard(entry.text, {
+        position: entry.position,
+        quaternion: entry.quaternion,
+        colorIndex: entry.colorIndex,
+      });
+      // IDs erhalten, damit gespeicherte Verbindungen weiter passen
+      if (typeof entry.id === 'string' && entry.id) card.id = entry.id;
     }
   }
 }

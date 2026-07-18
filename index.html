@@ -73,6 +73,23 @@
     }
     #context-menu button:hover { background: #e8f0f7; }
     #context-menu button.danger:hover { background: #fbe4e4; color: #b3261e; }
+    .color-row {
+      display: flex;
+      gap: 7px;
+      padding: 7px 10px;
+      border-top: 1px solid #e3ecf4;
+      border-bottom: 1px solid #e3ecf4;
+      margin: 4px 0;
+    }
+    .color-dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform 0.1s;
+    }
+    .color-dot:hover { transform: scale(1.2); border-color: #64778a; }
 
     #edit-box {
       position: fixed;
@@ -97,12 +114,15 @@
   <div id="overlay">
     <h1>🧠 WebXR Brainstorming</h1>
     <div class="row">
-      <input id="idea-input" type="text" placeholder="Neue Idee eingeben…" />
+      <input id="idea-input" type="text" placeholder="Idee oder Thema eingeben…" />
       <button id="btn-new">Neue Karte</button>
     </div>
     <div class="row">
+      <button id="btn-topic" title="Claude füllt das Board mit Start-Ideen zum Text im Eingabefeld">🚀 Themen-Start</button>
+    </div>
+    <div class="row">
       <button id="btn-related">Verwandte Ideen</button>
-      <button id="btn-cluster">Cluster</button>
+      <button id="btn-cluster">Cluster anwenden</button>
       <button id="btn-summary">Zusammenfassen</button>
     </div>
     <div class="row">
@@ -128,6 +148,8 @@
   <div id="context-menu" hidden>
     <button data-action="edit">✏️ Text bearbeiten</button>
     <button data-action="related">✨ Verwandte Ideen</button>
+    <button data-action="connect">🔗 Verbinden mit…</button>
+    <div class="color-row" id="color-row"></div>
     <button data-action="delete" class="danger">🗑️ Karte löschen</button>
   </div>
 

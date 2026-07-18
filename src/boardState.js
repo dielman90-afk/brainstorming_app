@@ -1,5 +1,9 @@
-export function downloadBoard(cardManager) {
-  const json = JSON.stringify(cardManager.toJSON(), null, 2);
+// Export/Import als Datei sowie automatisches Speichern im Browser.
+// "data" ist das komplette Board-JSON (Karten + Verbindungen), das main.js
+// über boardToJSON()/applyBoardJSON() zusammenstellt bzw. anwendet.
+
+export function downloadBoard(data) {
+  const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -8,33 +12,26 @@ export function downloadBoard(cardManager) {
   URL.revokeObjectURL(a.href);
 }
 
-export async function importBoardFile(file, cardManager) {
-  const text = await file.text();
-  const data = JSON.parse(text);
-  cardManager.loadJSON(data);
-  return cardManager.cards.length;
+export async function importBoardFile(file) {
+  return JSON.parse(await file.text());
 }
-
-// --- Automatisches Speichern im Browser (localStorage) ---
 
 const STORAGE_KEY = 'webxr-brainstorming-board';
 
-export function saveBoardLocal(cardManager) {
+export function saveBoardLocal(data) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(cardManager.toJSON()));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
     // localStorage voll oder blockiert – Autosave ist optional
   }
 }
 
 // Liefert null, wenn noch nie ein Board gespeichert wurde (dann Demo-Karten
-// zeigen); sonst die Anzahl geladener Karten (0 = bewusst leeres Board).
-export function loadBoardLocal(cardManager) {
+// zeigen); sonst das gespeicherte Board-JSON.
+export function loadBoardLocal() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    cardManager.loadJSON(JSON.parse(raw));
-    return cardManager.cards.length;
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
