@@ -27,7 +27,7 @@ export class IdeaCard {
 
     this.border = new THREE.Mesh(
       new THREE.PlaneGeometry(CARD_W + 0.02, CARD_H + 0.02),
-      new THREE.MeshBasicMaterial({ color: 0x4dd0e1, transparent: true, opacity: 0.9 })
+      new THREE.MeshBasicMaterial({ color: 0x4dd0e1, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
     );
     this.border.position.z = -0.002;
     this.border.visible = false;
