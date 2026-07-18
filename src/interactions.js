@@ -18,6 +18,9 @@ export class InteractionManager {
     this.drag = null;
     this.onCardContextMenu = null;
     this.onCardDoubleClick = null;
+    // Optionaler Interceptor: gibt true zurück, wenn ein Karten-Pick konsumiert
+    // wurde (z. B. Verbindungsmodus) – dann kein Grab/Drag.
+    this.onCardPick = null;
 
     this._initControllers();
     this._initPointer();
@@ -98,6 +101,7 @@ export class InteractionManager {
       return;
     }
     this.cardManager.select(hit.card);
+    if (this.onCardPick?.(hit.card)) return;
     controller.userData.grabbed = hit.card;
     controller.attach(hit.card.group);
   }
@@ -152,6 +156,7 @@ export class InteractionManager {
     // Rechtsklick: kein Drag – das contextmenu-Event öffnet gleich das Menü
     if (event.button === 2) return;
     this.cardManager.select(hit.card);
+    if (this.onCardPick?.(hit.card)) return;
     const normal = this.camera.getWorldDirection(new THREE.Vector3());
     this.drag = {
       card: hit.card,

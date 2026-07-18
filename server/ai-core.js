@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const MODEL = 'claude-sonnet-4-6';
 
-export const ACTIONS = ['related', 'cluster', 'summary'];
+export const ACTIONS = ['related', 'cluster', 'summary', 'topic'];
 
 const IDEAS_SCHEMA = {
   type: 'object',
@@ -23,6 +23,29 @@ const IDEAS_SCHEMA = {
   additionalProperties: false,
 };
 
+const CLUSTERS_SCHEMA = {
+  type: 'object',
+  properties: {
+    clusters: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          ideaIndexes: {
+            type: 'array',
+            items: { type: 'integer' },
+          },
+        },
+        required: ['name', 'ideaIndexes'],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ['clusters'],
+  additionalProperties: false,
+};
+
 const SYSTEM_PROMPT = `Du bist ein prägnanter, kreativer Brainstorming-Assistent für ein VR-Whiteboard.
 Antworte immer auf Deutsch. Jede Idee ist ein kurzer, eigenständiger Kartentext
 (maximal ca. 12 Wörter), ohne Nummerierung und ohne Markdown.`;
@@ -33,38 +56,64 @@ function badRequest(message) {
   return err;
 }
 
-function buildPrompt(action, { selectedIdea, ideas = [] }) {
+function buildPrompt(action, { selectedIdea, ideas = [], topic }) {
   const board = ideas.length
     ? `Aktuelle Karten auf dem Board:\n${ideas.map((t) => `- ${t}`).join('\n')}`
     : 'Das Board ist noch leer.';
   switch (action) {
     case 'related':
       return `${board}\n\nAusgewählte Karte: „${selectedIdea}“\n\nGeneriere 4 bis 6 neue, verwandte Ideen zur ausgewählten Karte. Vermeide Duplikate zu bestehenden Karten.`;
-    case 'cluster':
-      return `${board}\n\nGruppiere die Karten in 2 bis 4 thematische Cluster. Gib pro Cluster genau eine Idee zurück im Format: „Cluster <Name>: <welche Karten dazugehören>“.`;
+    case 'cluster': {
+      const numbered = ideas.map((t, i) => `${i}: ${t}`).join('\n');
+      return `Karten auf dem Board (mit Index):\n${numbered}\n\nGruppiere die Karten in 2 bis 4 thematische Cluster. Jede Karte gehört zu höchstens einem Cluster. Gib je Cluster einen kurzen, prägnanten Namen (1–3 Wörter) und die Liste der zugehörigen Karten-Indizes zurück.`;
+    }
     case 'summary':
       return `${board}\n\nFasse das gesamte Board als Text einer einzelnen Karte zusammen (2 bis 3 kurze Sätze). Gib genau eine Idee zurück.`;
+    case 'topic':
+      return `${board}\n\nBrainstorming-Thema: „${topic}“\n\nErzeuge 8 bis 10 vielfältige, konkrete Ideen als Startpunkt für dieses Thema. Decke unterschiedliche Blickwinkel ab (Nutzen, Umsetzung, Zielgruppen, ungewöhnliche Ansätze). Vermeide Duplikate zu bestehenden Karten.`;
     default:
       throw badRequest(`Unbekannte Aktion: ${action}`);
   }
 }
 
-function mockIdeas(action) {
+function mockPayload(action, payload) {
   if (action === 'summary') {
-    return [{ text: 'Mock-Zusammenfassung: Das Board dreht sich um eine VR-Brainstorming-App mit KI-Unterstützung.' }];
+    return { ideas: [{ text: 'Mock-Zusammenfassung: Das Board dreht sich um eine VR-Brainstorming-App mit KI-Unterstützung.' }] };
   }
   if (action === 'cluster') {
-    return [
-      { text: 'Cluster Produkt: Kernfunktionen der App' },
-      { text: 'Cluster Nutzer: Zielgruppen und Bedürfnisse' },
-    ];
+    const count = payload.ideas?.length ?? 0;
+    const a = [];
+    const b = [];
+    for (let i = 0; i < count; i++) (i % 2 === 0 ? a : b).push(i);
+    return {
+      clusters: [
+        { name: 'Mock-Cluster A', ideaIndexes: a },
+        { name: 'Mock-Cluster B', ideaIndexes: b },
+      ],
+    };
   }
-  return [
-    { text: 'Mock-Idee: Karten per Handtracking greifen' },
-    { text: 'Mock-Idee: Farben für Kategorien' },
-    { text: 'Mock-Idee: Timer für Brainstorming-Runden' },
-    { text: 'Mock-Idee: Mehrspieler-Modus im selben Raum' },
-  ];
+  if (action === 'topic') {
+    return {
+      ideas: [
+        { text: `Mock: Zielgruppen für „${payload.topic}“ definieren` },
+        { text: 'Mock: Schnellen Prototyp bauen' },
+        { text: 'Mock: Konkurrenzangebote analysieren' },
+        { text: 'Mock: Größtes Risiko benennen' },
+        { text: 'Mock: Partner und Unterstützer suchen' },
+        { text: 'Mock: Minimalversion in einer Woche' },
+        { text: 'Mock: Ungewöhnlichste Lösung skizzieren' },
+        { text: 'Mock: Erfolgsmessung festlegen' },
+      ],
+    };
+  }
+  return {
+    ideas: [
+      { text: 'Mock-Idee: Karten per Handtracking greifen' },
+      { text: 'Mock-Idee: Farben für Kategorien' },
+      { text: 'Mock-Idee: Timer für Brainstorming-Runden' },
+      { text: 'Mock-Idee: Mehrspieler-Modus im selben Raum' },
+    ],
+  };
 }
 
 function tryParse(s) {
@@ -75,7 +124,7 @@ function tryParse(s) {
   }
 }
 
-function parseIdeas(text) {
+function extractJson(text) {
   let data = tryParse(text);
   if (!data) {
     const stripped = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
@@ -86,8 +135,27 @@ function parseIdeas(text) {
     const end = text.lastIndexOf('}');
     if (start >= 0 && end > start) data = tryParse(text.slice(start, end + 1));
   }
-  if (!data || !Array.isArray(data.ideas)) {
-    throw new Error('Antwort von Claude konnte nicht als JSON gelesen werden.');
+  if (!data) throw new Error('Antwort von Claude konnte nicht als JSON gelesen werden.');
+  return data;
+}
+
+function parsePayload(action, text) {
+  const data = extractJson(text);
+  if (action === 'cluster') {
+    if (!Array.isArray(data.clusters)) {
+      throw new Error('Antwort von Claude enthielt keine Cluster.');
+    }
+    return {
+      clusters: data.clusters
+        .filter((c) => typeof c?.name === 'string' && c.name.trim() && Array.isArray(c?.ideaIndexes))
+        .map((c) => ({
+          name: c.name.trim(),
+          ideaIndexes: c.ideaIndexes.filter((i) => Number.isInteger(i)),
+        })),
+    };
+  }
+  if (!Array.isArray(data.ideas)) {
+    throw new Error('Antwort von Claude enthielt keine Ideen.');
   }
   return {
     ideas: data.ideas
@@ -120,9 +188,13 @@ let client;
 export async function generateIdeas(action, payload = {}) {
   if (!ACTIONS.includes(action)) throw badRequest(`Unbekannte Aktion: ${action}`);
   if (action === 'related' && !payload.selectedIdea) throw badRequest('selectedIdea fehlt.');
+  if (action === 'topic' && !payload.topic?.trim?.()) throw badRequest('topic fehlt.');
   if (!Array.isArray(payload.ideas)) payload.ideas = [];
+  if (action === 'cluster' && payload.ideas.length < 2) {
+    throw badRequest('Für Cluster werden mindestens 2 Karten benötigt.');
+  }
 
-  if (process.env.MOCK_AI === '1') return { ideas: mockIdeas(action) };
+  if (process.env.MOCK_AI === '1') return mockPayload(action, payload);
 
   if (!process.env.ANTHROPIC_API_KEY) {
     const e = new Error('ANTHROPIC_API_KEY ist nicht gesetzt (siehe .env.example). Zum Testen ohne Key: MOCK_AI=1.');
@@ -131,13 +203,14 @@ export async function generateIdeas(action, payload = {}) {
   }
   client ??= new Anthropic();
 
+  const schema = action === 'cluster' ? CLUSTERS_SCHEMA : IDEAS_SCHEMA;
   const request = {
     model: MODEL,
     max_tokens: 4096,
     thinking: { type: 'disabled' },
     output_config: {
       effort: 'low',
-      format: { type: 'json_schema', schema: IDEAS_SCHEMA },
+      format: { type: 'json_schema', schema },
     },
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content: buildPrompt(action, payload) }],
@@ -150,11 +223,14 @@ export async function generateIdeas(action, payload = {}) {
     if (err instanceof Anthropic.BadRequestError && String(err.message).includes('output_config')) {
       // Fallback, falls structured outputs nicht verfügbar sind: JSON per Prompt anfordern
       const { output_config, ...rest } = request;
+      const formatHint = action === 'cluster'
+        ? '{"clusters": [{"name": "...", "ideaIndexes": [0, 1]}]}'
+        : '{"ideas": [{"text": "..."}]}';
       response = await client.messages.create({
         ...rest,
         messages: [{
           role: 'user',
-          content: `${request.messages[0].content}\n\nAntworte ausschließlich mit JSON im Format {"ideas": [{"text": "..."}]}.`,
+          content: `${request.messages[0].content}\n\nAntworte ausschließlich mit JSON im Format ${formatHint}.`,
         }],
       }).catch((e2) => { throw mapApiError(e2); });
     } else {
@@ -166,5 +242,5 @@ export async function generateIdeas(action, payload = {}) {
     throw new Error('Claude hat die Anfrage abgelehnt.');
   }
   const textBlock = response.content.find((b) => b.type === 'text');
-  return parseIdeas(textBlock?.text ?? '');
+  return parsePayload(action, textBlock?.text ?? '');
 }

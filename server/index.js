@@ -17,8 +17,8 @@ app.get('/api/health', (req, res) => {
 
 app.post('/api/generate', async (req, res) => {
   try {
-    const { action, selectedIdea, ideas } = req.body ?? {};
-    const result = await generateIdeas(action, { selectedIdea, ideas });
+    const { action, ...payload } = req.body ?? {};
+    const result = await generateIdeas(action, payload);
     res.json(result);
   } catch (err) {
     console.error(`[api] ${err.message}`);

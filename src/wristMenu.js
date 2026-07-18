@@ -3,9 +3,12 @@ import { createTextPanel } from './textPanel.js';
 
 const ACTIONS = [
   { id: 'new', label: '＋ Neue Karte' },
+  { id: 'topic', label: '🚀 Themen-Start' },
   { id: 'related', label: '✨ Verwandte Ideen' },
-  { id: 'cluster', label: '🗂 Cluster' },
+  { id: 'cluster', label: '🗂 Cluster anwenden' },
   { id: 'summary', label: '📝 Zusammenfassen' },
+  { id: 'color', label: '🎨 Farbe' },
+  { id: 'connect', label: '🔗 Verbinden' },
   { id: 'delete', label: '🗑 Karte löschen' },
   { id: 'clear', label: '🧹 Alles löschen' },
   { id: 'environment', label: '🌐 Umgebung' },
@@ -25,11 +28,11 @@ export class WristMenu {
 
     // 2-Spalten-Raster; ein ungerader letzter Button bekommt die volle Breite
     const BTN_W = 0.115;
-    const BTN_H = 0.05;
-    const GAP = 0.007;
+    const BTN_H = 0.044;
+    const GAP = 0.006;
 
     const bg = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.26, 0.3),
+      new THREE.PlaneGeometry(0.26, 0.33),
       new THREE.MeshBasicMaterial({ color: 0x0b121a, transparent: true, opacity: 0.9 })
     );
     bg.position.z = -0.003;
@@ -42,10 +45,10 @@ export class WristMenu {
       background: 'rgba(0,0,0,0)',
       fontSize: 28,
     });
-    title.mesh.position.set(0, 0.125, 0.001);
+    title.mesh.position.set(0, 0.14, 0.001);
     this.group.add(title.mesh);
 
-    const topY = 0.08;
+    const topY = 0.105;
     ACTIONS.forEach((action, i) => {
       const row = Math.floor(i / 2);
       const isLastFullWidth = i === ACTIONS.length - 1 && ACTIONS.length % 2 === 1;
