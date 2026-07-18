@@ -39,6 +39,11 @@ export function createTextPanel({
   fontSize = 36,
   pxPerMeter = 1600,
   radius = 20,
+  // singleLine: Text bleibt einzeilig; die Schrift wird bei Bedarf verkleinert,
+  // damit sie in die Breite passt (kein Abschneiden mit „…“).
+  singleLine = false,
+  weight = 500,
+  padding = 44,
 } = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(2, Math.round(width * pxPerMeter));
@@ -61,18 +66,35 @@ export function createTextPanel({
 
   const state = { text, background, color };
 
+  const font = (px) => `${weight} ${px}px 'Segoe UI', system-ui, sans-serif`;
+
   function redraw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = state.background;
-    roundRect(ctx, 0, 0, canvas.width, canvas.height, Math.min(radius, canvas.height / 2));
-    ctx.fill();
+    if (state.background && state.background !== 'transparent') {
+      ctx.fillStyle = state.background;
+      roundRect(ctx, 0, 0, canvas.width, canvas.height, Math.min(radius, canvas.height / 2));
+      ctx.fill();
+    }
 
     ctx.fillStyle = state.color;
-    ctx.font = `500 ${fontSize}px 'Segoe UI', system-ui, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    const maxWidth = canvas.width - padding;
 
-    const maxWidth = canvas.width - 44;
+    if (singleLine) {
+      // Schriftgröße so weit reduzieren, bis der Text in eine Zeile passt
+      let fs = fontSize;
+      ctx.font = font(fs);
+      while (fs > 10 && ctx.measureText(state.text).width > maxWidth) {
+        fs -= 1;
+        ctx.font = font(fs);
+      }
+      ctx.fillText(state.text, canvas.width / 2, canvas.height / 2 + 1);
+      texture.needsUpdate = true;
+      return;
+    }
+
+    ctx.font = font(fontSize);
     const lineHeight = fontSize * 1.25;
     let lines = wrapLines(ctx, state.text, maxWidth);
     const maxLines = Math.max(1, Math.floor((canvas.height - 24) / lineHeight));

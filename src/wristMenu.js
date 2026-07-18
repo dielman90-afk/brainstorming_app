@@ -9,15 +9,59 @@ const ACTIONS = [
   { id: 'summary', label: '📝 Zusammenfassen' },
   { id: 'color', label: '🎨 Farbe' },
   { id: 'connect', label: '🔗 Verbinden' },
-  { id: 'delete', label: '🗑 Karte löschen' },
-  { id: 'clear', label: '🧹 Alles löschen' },
+  { id: 'delete', label: '🗑 Karte löschen', danger: true },
+  { id: 'clear', label: '🧹 Alles löschen', danger: true },
   { id: 'environment', label: '🌐 Umgebung' },
 ];
 
-const BTN_BG = '#27435c';
-const BTN_BG_HOVER = '#3a6b93';
+const COLORS = {
+  panelFill: 'rgba(13, 20, 30, 0.94)',
+  panelBorder: 'rgba(95, 170, 210, 0.55)',
+  accent: '#6fd7e6',
+  base: '#24384f',
+  hover: '#37587a',
+  dangerBase: '#4a2a34',
+  dangerHover: '#6d3a48',
+  text: '#eef3f8',
+};
 
-// Menü-Panel am linken Handgelenk; Buttons werden per Controller-Ray geklickt.
+// Abgerundetes Panel als Canvas-Textur (Füllung + feiner Rahmen + Glow)
+function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1400) {
+  const w = Math.round(width * pxPerMeter);
+  const h = Math.round(height * pxPerMeter);
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const r = 34;
+  const inset = 6;
+  const rr = (x, y, ww, hh, rad) => {
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + ww, y, x + ww, y + hh, rad);
+    ctx.arcTo(x + ww, y + hh, x, y + hh, rad);
+    ctx.arcTo(x, y + hh, x, y, rad);
+    ctx.arcTo(x, y, x + ww, y, rad);
+    ctx.closePath();
+  };
+  rr(inset, inset, w - inset * 2, h - inset * 2, r);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = border;
+  ctx.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true })
+  );
+  return mesh;
+}
+
+// Menü-Panel am Handgelenk; Buttons werden per Controller-Ray geklickt.
 export class WristMenu {
   constructor(onAction) {
     this.group = new THREE.Group();
@@ -26,48 +70,77 @@ export class WristMenu {
     this.buttons = [];
     this.attachedHand = null;
 
-    // 2-Spalten-Raster; ein ungerader letzter Button bekommt die volle Breite
-    const BTN_W = 0.115;
-    const BTN_H = 0.044;
-    const GAP = 0.006;
+    const BTN_W = 0.138;
+    const BTN_H = 0.05;
+    const GAP_X = 0.01;
+    const GAP_Y = 0.009;
+    const PAD = 0.022;
+    const HEADER_H = 0.042;
+    const rows = Math.ceil(ACTIONS.length / 2);
 
-    const bg = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.26, 0.33),
-      new THREE.MeshBasicMaterial({ color: 0x0b121a, transparent: true, opacity: 0.9 })
-    );
-    bg.position.z = -0.003;
-    this.group.add(bg);
+    const panelW = 2 * BTN_W + GAP_X + PAD * 2;
+    const panelH = PAD + HEADER_H + 0.014 + rows * BTN_H + (rows - 1) * GAP_Y + PAD;
+
+    const panel = makeRoundedPanel(panelW, panelH, {
+      fill: COLORS.panelFill,
+      border: COLORS.panelBorder,
+    });
+    panel.position.z = -0.004;
+    this.group.add(panel);
+
+    const top = panelH / 2;
+    const headerY = top - PAD - HEADER_H / 2;
 
     const title = createTextPanel({
-      width: 0.22,
-      height: 0.03,
-      text: 'Brainstorming',
-      background: 'rgba(0,0,0,0)',
-      fontSize: 28,
+      width: panelW - PAD * 2,
+      height: HEADER_H,
+      text: '🧠 Brainstorming',
+      background: 'transparent',
+      color: COLORS.accent,
+      weight: 700,
+      singleLine: true,
+      fontSize: 30,
     });
-    title.mesh.position.set(0, 0.14, 0.001);
+    title.mesh.position.set(0, headerY, 0.001);
     this.group.add(title.mesh);
 
-    const topY = 0.105;
+    // Trennlinie unter dem Header
+    const divider = new THREE.Mesh(
+      new THREE.PlaneGeometry(panelW - PAD * 2, 0.0016),
+      new THREE.MeshBasicMaterial({ color: 0x6fd7e6, transparent: true, opacity: 0.5 })
+    );
+    const dividerY = headerY - HEADER_H / 2 - 0.006;
+    divider.position.set(0, dividerY, 0.001);
+    this.group.add(divider);
+
+    const gridTopY = dividerY - 0.01 - BTN_H / 2;
+    const colX = (BTN_W + GAP_X) / 2;
+
     ACTIONS.forEach((action, i) => {
       const row = Math.floor(i / 2);
-      const isLastFullWidth = i === ACTIONS.length - 1 && ACTIONS.length % 2 === 1;
-      const width = isLastFullWidth ? BTN_W * 2 + GAP : BTN_W;
-      const x = isLastFullWidth ? 0 : (i % 2 === 0 ? -1 : 1) * (BTN_W + GAP) / 2;
+      const x = (i % 2 === 0 ? -1 : 1) * colX;
+      const y = gridTopY - row * (BTN_H + GAP_Y);
+      const base = action.danger ? COLORS.dangerBase : COLORS.base;
+      const hover = action.danger ? COLORS.dangerHover : COLORS.hover;
 
-      const panel = createTextPanel({
-        width,
+      const panelBtn = createTextPanel({
+        width: BTN_W,
         height: BTN_H,
         text: action.label,
-        background: BTN_BG,
-        fontSize: 22,
+        background: base,
+        color: COLORS.text,
+        weight: 600,
+        singleLine: true,
+        fontSize: 25,
+        padding: 24,
+        radius: 22,
       });
-      panel.mesh.position.set(x, topY - row * (BTN_H + GAP), 0.001);
-      panel.mesh.userData.onClick = () => onAction(action.id);
-      panel.mesh.userData.setHover = (hovered) =>
-        panel.setColors({ background: hovered ? BTN_BG_HOVER : BTN_BG });
-      this.group.add(panel.mesh);
-      this.buttons.push(panel.mesh);
+      panelBtn.mesh.position.set(x, y, 0.001);
+      panelBtn.mesh.userData.onClick = () => onAction(action.id);
+      panelBtn.mesh.userData.setHover = (hovered) =>
+        panelBtn.setColors({ background: hovered ? hover : base });
+      this.group.add(panelBtn.mesh);
+      this.buttons.push(panelBtn.mesh);
     });
   }
 
@@ -87,7 +160,7 @@ export class WristMenu {
     grip.add(this.group); // Object3D wird automatisch vom alten Grip gelöst
     this.attachedHand = handedness;
     // Über dem Handgelenk, zum Gesicht geneigt – Werte bei Bedarf anpassen
-    this.group.position.set(0, 0.08, 0.1);
+    this.group.position.set(0, 0.07, 0.11);
     this.group.rotation.set(-Math.PI / 3, 0, 0);
   }
 
