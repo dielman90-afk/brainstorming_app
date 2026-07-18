@@ -11,11 +11,15 @@ Zusammenfassungen.
 ## Features
 
 - **Mixed Reality / VR:** Startet bevorzugt als `immersive-ar` (Passthrough auf der
-  Quest 3), Fallback auf `immersive-vr` mit einfacher Raum-Umgebung.
+  Quest 3), Fallback auf `immersive-vr`. Über den Button **„🌐 Umgebung“**
+  (Handgelenk-Menü oder Desktop-Overlay) lässt sich jederzeit zwischen
+  Passthrough und einer virtuellen Umgebung (Gradient-Himmel + Boden) umschalten
+  – für volles Eintauchen in VR.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Handgelenk-Menü** (linker Controller): *Neue Karte*, *Verwandte Ideen*,
-  *Cluster*, *Zusammenfassen*, *Karte löschen*. Buttons werden mit dem Ray des
+  *Cluster*, *Zusammenfassen*, *Karte löschen*, *Alles löschen* (mit
+  Zweifach-Bestätigung), *Umgebung umschalten*. Buttons werden mit dem Ray des
   anderen Controllers geklickt.
 - **KI-Funktionen:** Der Client ruft `/api/generate` auf; der Server-Proxy nutzt die
   Anthropic Messages API mit Structured Outputs (JSON-Schema) und liefert immer
@@ -24,7 +28,11 @@ Zusammenfassungen.
 - **Texteingabe:** Web Speech API (Deutsch), Fallback auf eine virtuelle
   3D-Tastatur. *Hinweis: Der Quest-Browser unterstützt die Web Speech API derzeit
   nicht – dort öffnet sich automatisch die Tastatur.*
-- **Board-Export/-Import** als JSON (Desktop-Overlay, Buttons „Export“/„Import“).
+- **Automatisches Speichern:** Das Board (Texte + Positionen) wird laufend im
+  Browser gespeichert (localStorage) und beim nächsten Öffnen wiederhergestellt –
+  auch nach einem Browser-Neustart. Gilt pro Gerät/Browser.
+- **Board-Export/-Import** als JSON (Desktop-Overlay, Buttons „Export“/„Import“) –
+  z. B. um ein Board vom Desktop auf die Quest zu bringen oder zu archivieren.
 - **Desktop-Fallback:** Läuft ohne Headset im normalen Browser – Maus-Steuerung
   (Orbit), Karten per Klick auswählen und ziehen, alle Aktionen über das Overlay
   links oben. Ideal zum schnellen Iterieren.
@@ -122,6 +130,8 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Menü | Am **linken Handgelenk** – mit dem rechten Ray anvisieren und Trigger drücken |
 | Neue Karte | Menü → „＋ Neue Karte“ → sprechen bzw. virtuelle Tastatur |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
+| Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |
+| Passthrough ↔ Virtuell | Menü → „🌐 Umgebung“ |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
 Die Position des Handgelenk-Menüs lässt sich in `src/wristMenu.js`

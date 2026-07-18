@@ -133,11 +133,13 @@ export class CardManager {
     return {
       version: 1,
       exportedAt: new Date().toISOString(),
+      // Welt-Koordinaten, damit auch gerade gegriffene Karten (Parent =
+      // Controller) korrekt exportiert werden
       cards: this.cards.map((card) => ({
         id: card.id,
         text: card.text,
-        position: card.group.position.toArray(),
-        quaternion: card.group.quaternion.toArray(),
+        position: card.group.getWorldPosition(new THREE.Vector3()).toArray(),
+        quaternion: card.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
       })),
     };
   }
