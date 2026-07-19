@@ -472,6 +472,10 @@ window.addEventListener('keydown', (e) => {
     setStatus('Karte gelöscht.');
   } else if (e.key === 'F2') {
     openEditor(cardManager.selected);
+  } else if (e.key === '+' || e.key === '=') {
+    cardManager.selected.setScale(cardManager.selected.scale * 1.12);
+  } else if (e.key === '-') {
+    cardManager.selected.setScale(cardManager.selected.scale / 1.12);
   }
 });
 

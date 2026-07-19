@@ -99,9 +99,14 @@ export class VirtualKeyboard {
     this.group.visible = true;
   }
 
+  // close() informiert einen wartenden Aufrufer über onCancel (z. B. wenn die
+  // XR-Session endet, während die Tastatur offen ist) – sonst hinge dessen
+  // Eingabe-Promise für immer.
   close() {
-    this.group.visible = false;
+    const callbacks = this.callbacks;
     this.callbacks = null;
+    this.group.visible = false;
+    callbacks?.onCancel?.();
   }
 
   _updatePreview() {
@@ -122,14 +127,13 @@ export class VirtualKeyboard {
     const trimmed = this.text.trim();
     const finalText = trimmed ? trimmed[0].toUpperCase() + trimmed.slice(1) : '';
     const cb = this.callbacks;
+    this.callbacks = null; // vor close(), damit close() nicht zusätzlich onCancel feuert
     this.close();
     if (finalText) cb?.onSubmit?.(finalText);
     else cb?.onCancel?.();
   }
 
   _cancel() {
-    const cb = this.callbacks;
-    this.close();
-    cb?.onCancel?.();
+    this.close(); // feuert onCancel
   }
 }

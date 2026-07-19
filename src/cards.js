@@ -5,16 +5,29 @@ const CARD_W = 0.32;
 const CARD_H = 0.18;
 
 // Farbpalette für Karten/Kategorien; Index 0 = Standard.
-// Cluster bekommen automatisch Farben ab Index 1.
+// Cluster bekommen automatisch Farben ab Index 1. "accent" ist der helle
+// Farbstreifen am linken Kartenrand.
 export const CARD_COLORS = [
-  { base: '#1e2733', hover: '#2b3b4e' }, // Standard (dunkel)
-  { base: '#1e3a5c', hover: '#2b4f7a' }, // Blau
-  { base: '#1d4d33', hover: '#2a6947' }, // Grün
-  { base: '#5c4a1e', hover: '#7a642b' }, // Ocker
-  { base: '#5c2b2b', hover: '#7a3d3d' }, // Rot
-  { base: '#462b5c', hover: '#5d3d7a' }, // Violett
-  { base: '#1e4d4d', hover: '#2b6969' }, // Türkis
+  { base: '#1e2733', hover: '#2b3b4e', accent: '#8fa8c0' }, // Standard (dunkel)
+  { base: '#1e3a5c', hover: '#2b4f7a', accent: '#4da3ff' }, // Blau
+  { base: '#1d4d33', hover: '#2a6947', accent: '#4ad07a' }, // Grün
+  { base: '#5c4a1e', hover: '#7a642b', accent: '#eec04a' }, // Ocker
+  { base: '#5c2b2b', hover: '#7a3d3d', accent: '#ff7a7a' }, // Rot
+  { base: '#462b5c', hover: '#5d3d7a', accent: '#bd8bff' }, // Violett
+  { base: '#1e4d4d', hover: '#2b6969', accent: '#3fd9c8' }, // Türkis
 ];
+
+// Farbe aufhellen/abdunkeln (für den dezenten Vertikal-Verlauf der Kartenfläche)
+function shade(hex, factor) {
+  const c = new THREE.Color(hex).multiplyScalar(factor);
+  c.r = Math.min(1, c.r);
+  c.g = Math.min(1, c.g);
+  c.b = Math.min(1, c.b);
+  return `#${c.getHexString()}`;
+}
+
+const MIN_SCALE = 0.45;
+const MAX_SCALE = 2.2;
 
 export class IdeaCard {
   constructor(text) {
@@ -22,8 +35,17 @@ export class IdeaCard {
     this.text = text;
     this.hovered = false;
     this.colorIndex = 0;
+    this.scale = 1;
 
-    this.panel = createTextPanel({ width: CARD_W, height: CARD_H, text });
+    this.panel = createTextPanel({
+      width: CARD_W,
+      height: CARD_H,
+      text,
+      background: [shade(CARD_COLORS[0].base, 1.25), shade(CARD_COLORS[0].base, 0.8)],
+      accent: CARD_COLORS[0].accent,
+      border: 'rgba(255,255,255,0.10)',
+      radius: 28,
+    });
 
     this.border = new THREE.Mesh(
       new THREE.PlaneGeometry(CARD_W + 0.02, CARD_H + 0.02),
@@ -57,9 +79,18 @@ export class IdeaCard {
     this._applyBackground();
   }
 
+  setScale(value) {
+    this.scale = THREE.MathUtils.clamp(value, MIN_SCALE, MAX_SCALE);
+    this.group.scale.setScalar(this.scale);
+  }
+
   _applyBackground() {
     const color = CARD_COLORS[this.colorIndex];
-    this.panel.setColors({ background: this.hovered ? color.hover : color.base });
+    const base = this.hovered ? color.hover : color.base;
+    this.panel.setColors({
+      background: [shade(base, 1.25), shade(base, 0.8)],
+      accent: color.accent,
+    });
   }
 
   dispose() {
@@ -78,11 +109,12 @@ export class CardManager {
     this.onCardRemoved = null;
   }
 
-  addCard(text, { position, quaternion, colorIndex } = {}) {
+  addCard(text, { position, quaternion, colorIndex, scale } = {}) {
     const card = new IdeaCard(text);
     if (position) card.group.position.fromArray(position);
     if (quaternion) card.group.quaternion.fromArray(quaternion);
     if (colorIndex) card.setColor(colorIndex);
+    if (scale) card.setScale(scale);
     this.scene.add(card.group);
     this.cards.push(card);
     return card;
@@ -197,6 +229,7 @@ export class CardManager {
         id: card.id,
         text: card.text,
         colorIndex: card.colorIndex,
+        scale: card.scale,
         position: card.group.getWorldPosition(new THREE.Vector3()).toArray(),
         quaternion: card.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
       })),
@@ -214,6 +247,7 @@ export class CardManager {
         position: entry.position,
         quaternion: entry.quaternion,
         colorIndex: entry.colorIndex,
+        scale: entry.scale,
       });
       // IDs erhalten, damit gespeicherte Verbindungen weiter passen
       if (typeof entry.id === 'string' && entry.id) card.id = entry.id;

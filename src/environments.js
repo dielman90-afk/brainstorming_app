@@ -122,17 +122,186 @@ function makeTree(rand) {
   tree.add(trunk);
 
   const foliageColor = rand() > 0.5 ? 0x3e8e4f : 0x55a763;
-  const layers = 2 + Math.floor(rand() * 2);
-  for (let i = 0; i < layers; i++) {
-    const radius = 0.45 - i * 0.12;
-    const cone = new THREE.Mesh(
-      new THREE.ConeGeometry(radius, 0.55, 7),
-      new THREE.MeshLambertMaterial({ color: foliageColor, flatShading: true })
-    );
-    cone.position.y = trunkHeight + 0.15 + i * 0.32;
-    tree.add(cone);
+  if (rand() > 0.45) {
+    // Nadelbaum: gestapelte Kegel
+    const layers = 2 + Math.floor(rand() * 2);
+    for (let i = 0; i < layers; i++) {
+      const radius = 0.45 - i * 0.12;
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(radius, 0.55, 7),
+        new THREE.MeshLambertMaterial({ color: foliageColor, flatShading: true })
+      );
+      cone.position.y = trunkHeight + 0.15 + i * 0.32;
+      tree.add(cone);
+    }
+  } else {
+    // Laubbaum: knubbelige Ikosaeder-Krone aus zwei Blobs
+    const crownMaterial = new THREE.MeshLambertMaterial({ color: foliageColor, flatShading: true });
+    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34, 0), crownMaterial);
+    crown.position.y = trunkHeight + 0.24;
+    crown.scale.y = 0.85;
+    tree.add(crown);
+    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2, 0), crownMaterial);
+    blob.position.set(0.2 * (rand() > 0.5 ? 1 : -1), trunkHeight + 0.38, 0.12);
+    tree.add(blob);
   }
   return tree;
+}
+
+// Blumen und Grasbüschel auf der Hauptinsel (InstancedMesh = 2 Draw-Calls)
+function addGrassDecoration(group, rand, radius) {
+  const flowerColors = [0xfff3b0, 0xffb3c1, 0xcdb4f6, 0xf8f9fa, 0xffd166];
+  const flowers = new THREE.InstancedMesh(
+    new THREE.IcosahedronGeometry(0.02, 0),
+    new THREE.MeshLambertMaterial(),
+    42
+  );
+  flowers.name = 'flowers';
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  for (let i = 0; i < flowers.count; i++) {
+    const angle = rand() * Math.PI * 2;
+    const r = radius * (0.2 + rand() * 0.72);
+    dummy.position.set(Math.sin(angle) * r, 0.015, Math.cos(angle) * r);
+    dummy.scale.setScalar(0.8 + rand() * 0.7);
+    dummy.updateMatrix();
+    flowers.setMatrixAt(i, dummy.matrix);
+    flowers.setColorAt(i, color.setHex(flowerColors[Math.floor(rand() * flowerColors.length)]));
+  }
+  flowers.instanceMatrix.needsUpdate = true;
+  if (flowers.instanceColor) flowers.instanceColor.needsUpdate = true;
+  group.add(flowers);
+
+  const tufts = new THREE.InstancedMesh(
+    new THREE.ConeGeometry(0.022, 0.08, 5),
+    new THREE.MeshLambertMaterial({ color: 0x4c9a4a, flatShading: true }),
+    55
+  );
+  tufts.name = 'tufts';
+  for (let i = 0; i < tufts.count; i++) {
+    const angle = rand() * Math.PI * 2;
+    const r = radius * (0.15 + rand() * 0.78);
+    dummy.position.set(Math.sin(angle) * r, 0.035, Math.cos(angle) * r);
+    dummy.rotation.set((rand() - 0.5) * 0.4, rand() * Math.PI, (rand() - 0.5) * 0.4);
+    dummy.scale.setScalar(0.8 + rand() * 0.8);
+    dummy.updateMatrix();
+    tufts.setMatrixAt(i, dummy.matrix);
+  }
+  tufts.instanceMatrix.needsUpdate = true;
+  group.add(tufts);
+}
+
+// Wasserfall an der Inselkante: Partikelstrom + kleiner Quellteich
+function makeWaterfall(rand, islandRadius) {
+  const group = new THREE.Group();
+  group.name = 'waterfall';
+  const angle = 2.1;
+  const edgeX = Math.sin(angle) * (islandRadius - 0.35);
+  const edgeZ = Math.cos(angle) * (islandRadius - 0.35);
+  const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
+
+  const pond = new THREE.Mesh(
+    new THREE.CircleGeometry(0.5, 20),
+    new THREE.MeshLambertMaterial({ color: 0x7fc4e8 })
+  );
+  pond.rotation.x = -Math.PI / 2;
+  pond.position.set(edgeX * 0.92, 0.012, edgeZ * 0.92);
+  pond.scale.x = 1.5;
+  group.add(pond);
+
+  const count = 110;
+  const fallLength = 6;
+  const positions = new Float32Array(count * 3);
+  const meta = [];
+  for (let i = 0; i < count; i++) {
+    meta.push({
+      speed: 1.7 + rand() * 0.9,
+      offset: rand() * fallLength,
+      side: (rand() - 0.5) * 0.5,
+      jitter: (rand() - 0.5) * 0.1,
+    });
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  const drops = new THREE.Points(
+    geometry,
+    new THREE.PointsMaterial({
+      color: 0xbfe3f7,
+      size: 0.055,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+    })
+  );
+  drops.frustumCulled = false;
+  group.add(drops);
+
+  const outX = Math.sin(angle) * (islandRadius + 0.15);
+  const outZ = Math.cos(angle) * (islandRadius + 0.15);
+  return {
+    group,
+    update(time) {
+      const pos = geometry.attributes.position;
+      for (let i = 0; i < count; i++) {
+        const m = meta[i];
+        const fall = (m.offset + time * m.speed) % fallLength;
+        pos.setXYZ(
+          i,
+          outX + tangent.x * m.side + m.jitter * Math.sin(time * 3 + i),
+          -0.05 - fall,
+          outZ + tangent.z * m.side + m.jitter * Math.cos(time * 3 + i)
+        );
+      }
+      pos.needsUpdate = true;
+    },
+  };
+}
+
+// Vögel: einfache Zwei-Flügel-Silhouetten, die in der Ferne kreisen
+function makeBirds(rand) {
+  const group = new THREE.Group();
+  group.name = 'birds';
+  const material = new THREE.MeshBasicMaterial({ color: 0x33404d, side: THREE.DoubleSide });
+  const birds = [];
+  for (let i = 0; i < 3; i++) {
+    const bird = new THREE.Group();
+    const wings = [];
+    for (const dir of [-1, 1]) {
+      const pivot = new THREE.Group();
+      const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.09), material);
+      wing.position.x = dir * 0.13;
+      wing.rotation.x = -Math.PI / 2;
+      pivot.add(wing);
+      bird.add(pivot);
+      wings.push({ pivot, dir });
+    }
+    bird.userData = {
+      radius: 8 + rand() * 8,
+      height: 3.5 + rand() * 3.5,
+      speed: (0.12 + rand() * 0.1) * (rand() > 0.5 ? 1 : -1),
+      phase: rand() * Math.PI * 2,
+      wings,
+    };
+    group.add(bird);
+    birds.push(bird);
+  }
+  return {
+    group,
+    update(time) {
+      for (const bird of birds) {
+        const d = bird.userData;
+        const a = time * d.speed + d.phase;
+        bird.position.set(
+          Math.sin(a) * d.radius,
+          d.height + Math.sin(time * 1.3 + d.phase) * 0.35,
+          Math.cos(a) * d.radius
+        );
+        bird.rotation.y = a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
+        const flap = Math.sin(time * 9 + d.phase) * 0.55;
+        for (const { pivot, dir } of d.wings) pivot.rotation.z = flap * dir;
+      }
+    },
+  };
 }
 
 // Schwebende Insel: Grasplatte mit Erdrand + felsige, zerklüftete Unterseite
@@ -205,8 +374,13 @@ function createIslandEnvironment() {
   sunlight.position.set(10, 18, -8);
   group.add(sunlight);
 
-  // Hauptinsel, auf der der Nutzer steht
+  // Hauptinsel, auf der der Nutzer steht – mit Blumen, Gras und Wasserfall
   group.add(buildIsland(rand, { radius: 5, depth: 4.5, trees: 3, rocks: 5 }));
+  addGrassDecoration(group, rand, 4.4);
+  const waterfall = makeWaterfall(rand, 5);
+  group.add(waterfall.group);
+  const birds = makeBirds(rand);
+  group.add(birds.group);
 
   // Entfernte Mini-Inseln, die sanft auf und ab schweben
   const minis = [];
@@ -259,6 +433,8 @@ function createIslandEnvironment() {
         const x = cloud.userData.baseX + time * cloud.userData.speed;
         cloud.position.x = ((x % 60) + 60 + 30) % 60 - 30;
       }
+      waterfall.update(time);
+      birds.update(time);
     },
   };
 }
@@ -285,7 +461,8 @@ function createNightEnvironment() {
       const r = 36 + rand() * 2;
       const s = Math.sqrt(1 - u * u);
       positions[i * 3] = s * Math.cos(phi) * r;
-      positions[i * 3 + 1] = Math.abs(u) * r * (rand() > 0.15 ? 1 : -0.2);
+      // Immer über dem Horizont – Sterne unterhalb des Bodens wirkten fehlerhaft
+      positions[i * 3 + 1] = Math.max(0.03 * r, Math.abs(u) * r);
       positions[i * 3 + 2] = s * Math.sin(phi) * r;
     }
     const geometry = new THREE.BufferGeometry();
