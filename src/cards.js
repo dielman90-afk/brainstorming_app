@@ -4,17 +4,17 @@ import { createTextPanel } from './textPanel.js';
 const CARD_W = 0.32;
 const CARD_H = 0.18;
 
-// Farbpalette für Karten/Kategorien; Index 0 = Standard.
-// Cluster bekommen automatisch Farben ab Index 1. "accent" ist der helle
-// Farbstreifen am linken Kartenrand.
+// Farbpalette (Claude-Design „Soft Spatial Minimal"): einheitliche
+// Anthrazit-Glas-Basis, unterschieden nur über den hellen Akzentstreifen.
+// Index 0 = Standard (Amber); Cluster nutzen Farben ab Index 1.
 export const CARD_COLORS = [
-  { base: '#1e2733', hover: '#2b3b4e', accent: '#8fa8c0' }, // Standard (dunkel)
-  { base: '#1e3a5c', hover: '#2b4f7a', accent: '#4da3ff' }, // Blau
-  { base: '#1d4d33', hover: '#2a6947', accent: '#4ad07a' }, // Grün
-  { base: '#5c4a1e', hover: '#7a642b', accent: '#eec04a' }, // Ocker
-  { base: '#5c2b2b', hover: '#7a3d3d', accent: '#ff7a7a' }, // Rot
-  { base: '#462b5c', hover: '#5d3d7a', accent: '#bd8bff' }, // Violett
-  { base: '#1e4d4d', hover: '#2b6969', accent: '#3fd9c8' }, // Türkis
+  { base: '#28262e', hover: '#332f3a', accent: '#ffb454' }, // Amber (Standard)
+  { base: '#26262e', hover: '#31313a', accent: '#7dd3fc' }, // Blau
+  { base: '#26272c', hover: '#313339', accent: '#86efac' }, // Grün
+  { base: '#2a272e', hover: '#35313a', accent: '#c4b5fd' }, // Violett
+  { base: '#2b2529', hover: '#372f34', accent: '#fca5a5' }, // Rot
+  { base: '#2a262e', hover: '#35313b', accent: '#f0abfc' }, // Pink
+  { base: '#27262a', hover: '#323036', accent: '#e5e1e6' }, // Neutral
 ];
 
 // Farbe aufhellen/abdunkeln (für den dezenten Vertikal-Verlauf der Kartenfläche)
@@ -49,7 +49,7 @@ export class IdeaCard {
 
     this.border = new THREE.Mesh(
       new THREE.PlaneGeometry(CARD_W + 0.02, CARD_H + 0.02),
-      new THREE.MeshBasicMaterial({ color: 0x4dd0e1, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
+      new THREE.MeshBasicMaterial({ color: 0xffb454, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
     );
     this.border.position.z = -0.002;
     this.border.visible = false;

@@ -14,7 +14,7 @@ import { createTextPanel } from './textPanel.js';
 
 // --- Szene & Renderer ---
 
-const DESKTOP_BG = new THREE.Color(0xf5f7fa);
+const DESKTOP_BG = new THREE.Color(0x1a1920);
 
 const scene = new THREE.Scene();
 scene.background = DESKTOP_BG;
@@ -33,7 +33,7 @@ scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
 
 // Umgebungen: Passthrough/Weiß (-1) sowie drei virtuelle Welten aus
 // environments.js, per 🌐-Button zyklisch durchschaltbar.
-const grid = new THREE.GridHelper(8, 24, 0xb8c7d6, 0xdde6ee);
+const grid = new THREE.GridHelper(8, 24, 0x4a4550, 0x2b2830);
 scene.add(grid);
 
 const environments = createEnvironments(scene);
@@ -135,7 +135,7 @@ const hud = createTextPanel({
   width: 0.5,
   height: 0.07,
   text: '',
-  background: 'rgba(10,16,24,0.85)',
+  background: 'rgba(26,24,31,0.85)',
   fontSize: 30,
 });
 hud.mesh.position.set(0, -0.28, -0.9);
@@ -143,16 +143,19 @@ hud.mesh.visible = false;
 camera.add(hud.mesh);
 
 let hudTimer = 0;
+const statusBand = document.getElementById('status-band');
+const statusText = document.getElementById('status');
 function setStatus(message, ms = 3500) {
-  const el = document.getElementById('status');
-  if (el) el.textContent = message;
+  if (statusText) statusText.textContent = message;
+  statusBand?.classList.toggle('show', Boolean(message));
   hud.setText(message);
   hud.mesh.visible = Boolean(message);
   clearTimeout(hudTimer);
   if (message && ms) {
     hudTimer = setTimeout(() => {
       hud.mesh.visible = false;
-      if (el) el.textContent = '';
+      if (statusText) statusText.textContent = '';
+      statusBand?.classList.remove('show');
     }, ms);
   }
 }
@@ -434,7 +437,7 @@ const colorRow = document.getElementById('color-row');
 CARD_COLORS.forEach((color, i) => {
   const dot = document.createElement('span');
   dot.className = 'color-dot';
-  dot.style.background = color.base;
+  dot.style.background = color.accent;
   dot.title = i === 0 ? 'Standardfarbe' : `Farbe ${i}`;
   dot.addEventListener('click', () => {
     contextCard?.setColor(i);

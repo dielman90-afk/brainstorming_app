@@ -8,6 +8,10 @@ Zusammenfassungen.
 **Stack:** Three.js + WebXR · Vite · Node/Express-Proxy für die Anthropic Messages API
 (Modell `claude-sonnet-4-6`, API-Key nur serverseitig).
 
+**Design:** „Soft Spatial Minimal" aus [claude.ai/design](https://claude.ai/design) –
+warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
++ *Sora* (via Google Fonts; ohne Internet greift der System-Font-Fallback).
+
 ## Features
 
 - **Mixed Reality / VR:** Startet bevorzugt als `immersive-ar` (Passthrough auf der
