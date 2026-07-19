@@ -15,7 +15,7 @@ const ACTIONS = [
 ];
 
 const COLORS = {
-  panelFill: 'rgba(13, 20, 30, 0.94)',
+  panelFill: 'rgba(13, 20, 30, 0.98)',
   panelBorder: 'rgba(95, 170, 210, 0.55)',
   accent: '#6fd7e6',
   base: '#24384f',
@@ -61,6 +61,23 @@ function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1400) {
   return mesh;
 }
 
+// UI-Ebene "flach" halten: keine tiefenbasierte Sortierung (die bei bewegtem
+// Blickwinkel kippt und den Hintergrund über Buttons malt), sondern feste
+// Zeichenreihenfolge per renderOrder. depthWrite aus → reine Maler-Reihenfolge.
+function flatLayer(mesh, order) {
+  mesh.material.depthWrite = false;
+  mesh.material.depthTest = false;
+  mesh.renderOrder = order;
+  mesh.traverse((child) => {
+    if (child.material) {
+      child.material.depthWrite = false;
+      child.material.depthTest = false;
+      child.renderOrder = order;
+    }
+  });
+  return mesh;
+}
+
 // Menü-Panel am Handgelenk; Buttons werden per Controller-Ray geklickt.
 export class WristMenu {
   constructor(onAction) {
@@ -86,6 +103,7 @@ export class WristMenu {
       border: COLORS.panelBorder,
     });
     panel.position.z = -0.004;
+    flatLayer(panel, 20); // Hintergrund zuerst
     this.group.add(panel);
 
     const top = panelH / 2;
@@ -100,8 +118,10 @@ export class WristMenu {
       weight: 700,
       singleLine: true,
       fontSize: 30,
+      doubleSided: false,
     });
-    title.mesh.position.set(0, headerY, 0.001);
+    title.mesh.position.set(0, headerY, 0.002);
+    flatLayer(title.mesh, 22);
     this.group.add(title.mesh);
 
     // Trennlinie unter dem Header
@@ -110,7 +130,8 @@ export class WristMenu {
       new THREE.MeshBasicMaterial({ color: 0x6fd7e6, transparent: true, opacity: 0.5 })
     );
     const dividerY = headerY - HEADER_H / 2 - 0.006;
-    divider.position.set(0, dividerY, 0.001);
+    divider.position.set(0, dividerY, 0.002);
+    flatLayer(divider, 22);
     this.group.add(divider);
 
     const gridTopY = dividerY - 0.01 - BTN_H / 2;
@@ -134,8 +155,10 @@ export class WristMenu {
         fontSize: 25,
         padding: 24,
         radius: 22,
+        doubleSided: false,
       });
-      panelBtn.mesh.position.set(x, y, 0.001);
+      panelBtn.mesh.position.set(x, y, 0.002);
+      flatLayer(panelBtn.mesh, 21);
       panelBtn.mesh.userData.onClick = () => onAction(action.id);
       panelBtn.mesh.userData.setHover = (hovered) =>
         panelBtn.setColors({ background: hovered ? hover : base });
