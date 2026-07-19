@@ -20,9 +20,9 @@ const SIZES = [
   { label: 'L', width: 18 },
 ];
 
-const BTN_BG = '#243447';
-const BTN_BG_HOVER = '#31506e';
-const BTN_BG_ACTIVE = '#3d6c95';
+const BTN_BG = '#2c2933';
+const BTN_BG_HOVER = '#3b3644';
+const BTN_BG_ACTIVE = '#5c4420';
 
 export class Whiteboard {
   constructor(scene, { onSketch } = {}) {
@@ -60,8 +60,8 @@ export class Whiteboard {
 
     // Rahmen + Rückwand (Board wirkt von beiden Seiten solide)
     const frame = makeRoundedPanel(BOARD_W + 0.08, BOARD_H + 0.3, {
-      fill: 'rgba(16, 24, 34, 0.98)',
-      border: 'rgba(95, 170, 210, 0.5)',
+      fill: 'rgba(20, 18, 24, 0.98)',
+      border: 'rgba(255, 180, 84, 0.4)',
     });
     frame.material.alphaTest = 0.01;
     frame.position.z = -0.004;
@@ -69,7 +69,7 @@ export class Whiteboard {
 
     const back = new THREE.Mesh(
       new THREE.PlaneGeometry(BOARD_W + 0.08, BOARD_H + 0.3),
-      new THREE.MeshBasicMaterial({ color: 0x141c26 })
+      new THREE.MeshBasicMaterial({ color: 0x18161c })
     );
     back.rotation.y = Math.PI;
     back.position.z = -0.006;
@@ -80,8 +80,8 @@ export class Whiteboard {
       width: BOARD_W - 0.2,
       height: 0.06,
       text: '⠿  Whiteboard – greifen zum Verschieben',
-      background: '#1b2836',
-      color: '#9fb8cd',
+      background: '#1f1d25',
+      color: '#b6afbd',
       fontSize: 26,
       singleLine: true,
       doubleSided: false,
@@ -95,7 +95,7 @@ export class Whiteboard {
       setScale: (v) => this.setScale(v),
     };
     handle.mesh.userData.setHover = (h) =>
-      handle.setColors({ background: h ? '#27405b' : '#1b2836' });
+      handle.setColors({ background: h ? '#2c2833' : '#1f1d25' });
     this.handle = handle.mesh;
     this.group.add(handle.mesh);
 
@@ -201,7 +201,7 @@ export class Whiteboard {
     place(this._addButton({ label: '➖', onClick: () => this.setScale(this.scale / 1.15) }), 0.07);
     place(this._addButton({ label: '➕', onClick: () => this.setScale(this.scale * 1.15) }), 0.07);
     place(
-      this._addButton({ label: '🪄', background: '#2b5c3a', onClick: () => this.onSketch?.() }),
+      this._addButton({ label: '🪄', background: '#ffb454', color: '#231b10', onClick: () => this.onSketch?.() }),
       0.08
     );
 

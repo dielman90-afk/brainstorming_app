@@ -16,14 +16,14 @@ const ACTIONS = [
 ];
 
 const COLORS = {
-  panelFill: 'rgba(13, 20, 30, 0.98)',
-  panelBorder: 'rgba(95, 170, 210, 0.55)',
-  accent: '#6fd7e6',
-  base: '#24384f',
-  hover: '#37587a',
-  dangerBase: '#4a2a34',
-  dangerHover: '#6d3a48',
-  text: '#eef3f8',
+  panelFill: 'rgba(26, 24, 31, 0.98)',
+  panelBorder: 'rgba(255, 180, 84, 0.45)',
+  accent: '#ffd8a0',
+  base: '#2c2933',
+  hover: '#3b3644',
+  dangerBase: '#3a2830',
+  dangerHover: '#4e3540',
+  text: '#f0eef2',
 };
 
 // Abgerundetes Panel als Canvas-Textur (Füllung + feiner Rahmen + Glow)
@@ -128,7 +128,7 @@ export class WristMenu {
     // Trennlinie unter dem Header
     const divider = new THREE.Mesh(
       new THREE.PlaneGeometry(panelW - PAD * 2, 0.0016),
-      new THREE.MeshBasicMaterial({ color: 0x6fd7e6, transparent: true, opacity: 0.5 })
+      new THREE.MeshBasicMaterial({ color: 0xffb454, transparent: true, opacity: 0.5 })
     );
     const dividerY = headerY - HEADER_H / 2 - 0.006;
     divider.position.set(0, dividerY, 0.002);

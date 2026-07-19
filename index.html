@@ -5,62 +5,178 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:," />
   <title>WebXR Brainstorming</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet" />
   <style>
+    :root {
+      --accent: #ffb454;
+      --accent-soft: rgba(255, 180, 84, 0.16);
+      --accent-text: #ffd8a0;
+      --danger: #ff9b9b;
+      --text: #f0eef2;
+      --muted: #9a94a3;
+      --panel: rgba(26, 24, 31, 0.68);
+      --panel-solid: rgba(28, 26, 33, 0.92);
+      --border: rgba(255, 255, 255, 0.09);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --display: 'Space Grotesk', system-ui, sans-serif;
+      --body: 'Sora', system-ui, sans-serif;
+    }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #f5f7fa; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #100f13;
+      font-family: var(--body);
+    }
     canvas { display: block; }
+
     #overlay {
       position: fixed;
-      top: 12px;
-      left: 12px;
+      top: 22px;
+      left: 22px;
       z-index: 10;
-      width: 300px;
-      padding: 14px;
-      border-radius: 12px;
-      background: rgba(255, 255, 255, 0.92);
-      border: 1px solid #dde6ee;
-      box-shadow: 0 6px 24px rgba(20, 30, 40, 0.08);
-      color: #1c2733;
-      font: 14px/1.45 'Segoe UI', system-ui, sans-serif;
-      backdrop-filter: blur(6px);
+      width: 320px;
+      padding: 24px;
+      border-radius: 24px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      color: var(--text);
+      font: 14px/1.45 var(--body);
     }
-    #overlay h1 { margin: 0 0 10px; font-size: 17px; }
-    .row { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-    input[type="text"] {
-      flex: 1;
-      min-width: 0;
-      padding: 7px 9px;
-      border-radius: 8px;
-      border: 1px solid #c9d4df;
-      background: #ffffff;
-      color: #1c2733;
+    .eyebrow {
+      font: 400 12px var(--body);
+      color: var(--muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
     }
-    button, .file-btn {
-      padding: 7px 11px;
-      border-radius: 8px;
-      border: 1px solid #c9d4df;
-      background: #e8f0f7;
-      color: #1c2733;
-      cursor: pointer;
-      font: inherit;
+    #overlay h1 {
+      margin: 0 0 20px;
+      font: 600 23px/1.1 var(--display);
+      color: var(--text);
     }
-    button:hover, .file-btn:hover { background: #cfe0ef; }
-    button:disabled { opacity: 0.5; cursor: default; }
-    #xr-button { width: 100%; background: #d9f0e0; border-color: #a8d5b5; }
-    #xr-button:hover { background: #bfe4cb; }
-    #status { min-height: 20px; color: #2b6cb0; margin: 4px 0; }
-    .hint { margin: 6px 0 0; font-size: 12px; color: #64778a; }
 
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      font: 14px var(--body);
+      outline: none;
+      margin-bottom: 9px;
+    }
+    input[type="text"]::placeholder { color: #7a7580; }
+    input[type="text"]:focus { border-color: rgba(255, 180, 84, 0.5); }
+
+    .btn-primary {
+      width: 100%;
+      padding: 13px;
+      border-radius: 14px;
+      border: none;
+      background: var(--accent);
+      color: #231b10;
+      font: 600 14.5px var(--display);
+      cursor: pointer;
+      margin-bottom: 18px;
+    }
+    .btn-primary:hover { background: #ffc06f; }
+
+    .action-list { display: flex; flex-direction: column; margin-bottom: 16px; }
+    .action-list button {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      padding: 12px 4px;
+      border: none;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: none;
+      color: var(--text);
+      font: 400 14px var(--body);
+      text-align: left;
+      cursor: pointer;
+    }
+    .action-list button:last-child { border-bottom: none; }
+    .action-list button:hover { color: var(--accent-text); }
+    .action-list button .ic { color: #6f6a77; font-size: 15px; }
+    .action-list button:hover .ic { color: var(--accent); }
+
+    .mini-row { display: flex; gap: 8px; margin-bottom: 16px; }
+    .mini-row button, .mini-row .file-btn {
+      flex: 1;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid var(--border-strong);
+      background: rgba(255, 255, 255, 0.04);
+      color: #cdc9d2;
+      font: 500 12.5px var(--body);
+      cursor: pointer;
+      text-align: center;
+    }
+    .mini-row button:hover, .mini-row .file-btn:hover { background: rgba(255, 255, 255, 0.09); }
+
+    #xr-button {
+      width: 100%;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid var(--border-strong);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      font: 600 14.5px var(--display);
+      cursor: pointer;
+    }
+    #xr-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.11); }
+    #xr-button:disabled { opacity: 0.55; cursor: default; }
+
+    .hint { margin: 16px 0 0; font: 12px/1.5 var(--body); color: #7f7a87; }
+
+    /* Status-Band unten links */
+    #status-band {
+      position: fixed;
+      left: 22px;
+      bottom: 22px;
+      z-index: 10;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 16px;
+      border-radius: 14px;
+      background: rgba(26, 24, 31, 0.78);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: #c9c4d0;
+      font: 400 12.5px var(--body);
+      max-width: 60vw;
+    }
+    #status-band.show { display: flex; }
+    #status-band .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #86efac; box-shadow: 0 0 8px #86efac; flex: none;
+    }
+
+    /* Kontextmenü */
     #context-menu {
       position: fixed;
       z-index: 30;
-      min-width: 200px;
-      padding: 4px;
-      border-radius: 10px;
-      background: #ffffff;
-      border: 1px solid #c9d4df;
-      box-shadow: 0 8px 24px rgba(20, 30, 40, 0.18);
-      font: 14px 'Segoe UI', system-ui, sans-serif;
+      min-width: 216px;
+      padding: 7px;
+      border-radius: 16px;
+      background: var(--panel-solid);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      font: 14px var(--body);
+      color: var(--text);
     }
     #context-menu button {
       display: block;
@@ -68,84 +184,86 @@
       text-align: left;
       border: none;
       background: none;
-      padding: 8px 10px;
-      border-radius: 6px;
+      color: var(--text);
+      padding: 10px 13px;
+      border-radius: 11px;
+      font: 14px var(--body);
+      cursor: pointer;
     }
-    #context-menu button:hover { background: #e8f0f7; }
-    #context-menu button.danger:hover { background: #fbe4e4; color: #b3261e; }
+    #context-menu button:hover { background: rgba(255, 255, 255, 0.06); }
+    #context-menu button[data-action="related"] { background: var(--accent-soft); }
+    #context-menu button.danger { color: var(--danger); }
+    #context-menu button.danger:hover { background: rgba(255, 155, 155, 0.12); }
+
     .color-row {
       display: flex;
-      gap: 7px;
-      padding: 7px 10px;
-      border-top: 1px solid #e3ecf4;
-      border-bottom: 1px solid #e3ecf4;
-      margin: 4px 0;
+      gap: 10px;
+      padding: 12px 13px;
+      margin: 4px 4px;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
     }
     .color-dot {
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
+      width: 17px; height: 17px; border-radius: 50%;
       cursor: pointer;
       border: 2px solid transparent;
       transition: transform 0.1s;
     }
-    .color-dot:hover { transform: scale(1.2); border-color: #64778a; }
+    .color-dot:hover { transform: scale(1.18); }
 
+    /* Editor */
     #edit-box {
       position: fixed;
       z-index: 30;
       left: 50%;
-      top: 38%;
+      top: 40%;
       transform: translate(-50%, -50%);
-      width: 360px;
+      width: 344px;
       padding: 14px;
-      border-radius: 12px;
-      background: #ffffff;
-      border: 1px solid #c9d4df;
-      box-shadow: 0 12px 32px rgba(20, 30, 40, 0.2);
-      font: 14px 'Segoe UI', system-ui, sans-serif;
-      color: #1c2733;
+      border-radius: 16px;
+      background: var(--panel-solid);
+      border: 1px solid rgba(255, 180, 84, 0.4);
+      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: var(--text);
     }
-    #edit-box input { width: 100%; }
-    .hint-mini { font-size: 11px; color: #64778a; margin-top: 6px; }
+    #edit-box input { margin-bottom: 0; }
+    .hint-mini { font: 12px var(--body); color: var(--muted); margin-top: 9px; }
   </style>
 </head>
 <body>
   <div id="overlay">
-    <h1>🧠 WebXR Brainstorming</h1>
-    <div class="row">
-      <input id="idea-input" type="text" placeholder="Idee oder Thema eingeben…" />
-      <button id="btn-new">Neue Karte</button>
+    <div class="eyebrow">WebXR · Meta Quest 3</div>
+    <h1>Brainstorming</h1>
+    <input id="idea-input" type="text" placeholder="Idee oder Thema eingeben…" />
+    <button id="btn-topic" class="btn-primary">🚀 Themen-Start</button>
+
+    <div class="action-list">
+      <button id="btn-new">Neue Karte<span class="ic">＋</span></button>
+      <button id="btn-related">Verwandte Ideen<span class="ic">✨</span></button>
+      <button id="btn-cluster">Cluster anwenden<span class="ic">◇</span></button>
+      <button id="btn-summary">Zusammenfassen<span class="ic">≡</span></button>
+      <button id="btn-whiteboard">Whiteboard<span class="ic">📋</span></button>
+      <button id="btn-env">Umgebung<span class="ic">🌐</span></button>
     </div>
-    <div class="row">
-      <button id="btn-topic" title="Claude füllt das Board mit Start-Ideen zum Text im Eingabefeld">🚀 Themen-Start</button>
+
+    <div class="mini-row">
+      <button id="btn-export">Export</button>
+      <label class="file-btn">Import<input id="import-file" type="file" accept=".json,application/json" hidden /></label>
+      <button id="btn-clear" title="Alle Karten löschen">🧹</button>
     </div>
-    <div class="row">
-      <button id="btn-related">Verwandte Ideen</button>
-      <button id="btn-cluster">Cluster anwenden</button>
-      <button id="btn-summary">Zusammenfassen</button>
-    </div>
-    <div class="row">
-      <button id="btn-export">Export JSON</button>
-      <label class="file-btn">Import JSON<input id="import-file" type="file" accept=".json,application/json" hidden /></label>
-    </div>
-    <div class="row">
-      <button id="btn-whiteboard">📋 Whiteboard</button>
-      <button id="btn-clear">🧹 Alles löschen</button>
-      <button id="btn-env">🌐 Umgebung</button>
-    </div>
-    <div class="row">
-      <button id="xr-button" disabled>WebXR wird geprüft…</button>
-    </div>
-    <div id="status"></div>
+
+    <button id="xr-button" disabled>WebXR wird geprüft…</button>
+
     <p class="hint">
-      Ziehen = Umschauen · Klick auf Karte = auswählen · Karte ziehen = verschieben<br />
-      Doppelklick = bearbeiten · Rechtsklick = Menü · Entf = löschen ·
-      Mausrad über Karte oder +/− = Größe<br />
-      Das Board wird automatisch im Browser gespeichert.<br />
-      Quest 3: Trigger auf Karte = greifen · Stick hoch/runter beim Greifen = Größe · Menü am linken Handgelenk
+      Ziehen = Umschauen · Klick = auswählen · Ziehen = verschieben · Doppelklick = bearbeiten<br />
+      Rechtsklick = Menü · Entf = löschen · Mausrad über Karte / +/− = Größe<br />
+      Quest 3: Trigger = greifen · Stick beim Greifen = Größe · Menü am linken Handgelenk
     </p>
   </div>
+
+  <div id="status-band"><span class="dot"></span><span id="status"></span></div>
 
   <div id="context-menu" hidden>
     <button data-action="edit">✏️ Text bearbeiten</button>
@@ -157,7 +275,7 @@
 
   <div id="edit-box" hidden>
     <input id="edit-input" type="text" />
-    <div class="hint-mini">Enter = speichern · Esc = abbrechen</div>
+    <div class="hint-mini">Enter zum Speichern · Esc zum Abbrechen</div>
   </div>
 
   <script type="module" src="/src/main.js"></script>
