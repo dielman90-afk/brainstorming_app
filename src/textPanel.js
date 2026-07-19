@@ -46,6 +46,8 @@ export function createTextPanel({
   padding = 44,
   accent = null, // Farbstreifen am linken Rand (z. B. Kategorie-Farbe)
   border = null, // feiner Rahmen um das Panel
+  doubleSided = true, // Rückseiten-Ebene (für rundum lesbare Karten); für
+  // UI-Panels am Handgelenk unnötig und vermeidet Transparenz-Sortierprobleme
 } = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(2, Math.round(width * pxPerMeter));
@@ -62,9 +64,12 @@ export function createTextPanel({
 
   // Rückseite: zweite Ebene um 180° um Y gedreht, gleiche Textur. So bleibt der
   // Text von hinten lesbar (nicht gespiegelt) und die Karte ist rundum sichtbar.
-  const backMesh = new THREE.Mesh(geometry, material);
-  backMesh.rotation.y = Math.PI;
-  mesh.add(backMesh);
+  let backMesh = null;
+  if (doubleSided) {
+    backMesh = new THREE.Mesh(geometry, material);
+    backMesh.rotation.y = Math.PI;
+    mesh.add(backMesh);
+  }
 
   const state = { text, background, color, accent, border };
 
