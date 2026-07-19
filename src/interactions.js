@@ -59,7 +59,11 @@ export class InteractionManager {
       grip.add(modelFactory.createControllerModel(grip));
       controller.addEventListener('connected', (event) => {
         controller.userData.handedness = event.data?.handedness;
+        controller.userData.inputSource = event.data;
         this.onControllerConnected?.(event.data?.handedness, grip, controller);
+      });
+      controller.addEventListener('disconnected', () => {
+        controller.userData.inputSource = null;
       });
 
       this.scene.add(controller, grip);
@@ -121,6 +125,13 @@ export class InteractionManager {
       this._setHover(controller, hit);
       const ray = controller.getObjectByName('ray');
       if (ray) ray.scale.z = hit ? Math.max(hit.distance, 0.1) : 4;
+
+      // Gehaltene Karte per Daumenstick (hoch/runter) skalieren
+      const grabbed = controller.userData.grabbed;
+      const axes = controller.userData.inputSource?.gamepad?.axes;
+      if (grabbed && axes && axes.length >= 4 && Math.abs(axes[3]) > 0.25) {
+        grabbed.setScale(grabbed.scale * (1 - axes[3] * 0.02));
+      }
     }
   }
 
@@ -133,6 +144,20 @@ export class InteractionManager {
     window.addEventListener('pointerup', () => this._onPointerUp(), true);
     this.renderer.domElement.addEventListener('contextmenu', (e) => this._onContextMenu(e));
     this.renderer.domElement.addEventListener('dblclick', (e) => this._onDoubleClick(e));
+    window.addEventListener('wheel', (e) => this._onWheel(e), { capture: true, passive: false });
+  }
+
+  // Mausrad über einer Karte = Größe ändern (statt Kamera-Zoom)
+  _onWheel(event) {
+    if (this.renderer.xr.isPresenting) return;
+    if (event.target !== this.renderer.domElement) return;
+    this._setRayFromMouse(event);
+    const hit = this._firstInteractiveHit();
+    if (hit?.type !== 'card') return;
+    event.preventDefault();
+    event.stopPropagation();
+    const factor = Math.pow(1.1, -Math.sign(event.deltaY));
+    hit.card.setScale(hit.card.scale * factor);
   }
 
   _setRayFromMouse(event) {

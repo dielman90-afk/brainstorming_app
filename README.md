@@ -14,7 +14,8 @@ Zusammenfassungen.
   Quest 3), Fallback auf `immersive-vr`.
 - **Drei virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
   externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
-  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, treibenden
+  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Nadel- und
+  Laubbäumen, Blumen, Wasserfall samt Teich, kreisenden Vögeln, treibenden
   Wolken und schwebenden Mini-Inseln) → **🌌 Nachthimmel** (Sternenfeld, Mond,
   leuchtendes Boden-Grid) → **🌐 Studio** (schlichter heller Verlauf). Die
   Auswahl wird gemerkt; eine reine VR-Session startet direkt in der zuletzt
@@ -35,9 +36,13 @@ Zusammenfassungen.
     die Karten werden räumlich in Cluster-Spalten sortiert, pro Cluster
     eingefärbt und mit einer 📌-Titelkarte versehen.
   - **Zusammenfassen:** Das ganze Board als eine Karte.
-- **Kartenfarben:** 7 Farben pro Karte – am Desktop über die Farbpunkte im
-  Rechtsklick-Menü, in VR über „🎨 Farbe“ (wechselt zyklisch). Cluster färben
-  automatisch.
+- **Kartenfarben:** 7 Farben pro Karte (mit leuchtendem Akzentstreifen am linken
+  Rand) – am Desktop über die Farbpunkte im Rechtsklick-Menü, in VR über
+  „🎨 Farbe“ (wechselt zyklisch). Cluster färben automatisch.
+- **Kartengröße:** Jede Karte ist von 0,45× bis 2,2× skalierbar – am Desktop per
+  **Mausrad über der Karte** oder **+/−** (bei ausgewählter Karte), in VR per
+  **Daumenstick hoch/runter, während die Karte gegriffen ist**. Die Größe wird
+  gespeichert und exportiert.
 - **Verbindungslinien (Mindmap):** Karte auswählen → „🔗 Verbinden“ (Menü bzw.
   Rechtsklick → „Verbinden mit…“) → Ziel-Karte anklicken. Nochmal verbinden
   entfernt die Linie; Esc bricht ab. Linien folgen den Karten beim Verschieben.
@@ -103,6 +108,7 @@ Einfach `https://localhost:5173` öffnen:
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
+| Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |
 | Karte löschen | **Rechtsklick → „Karte löschen“** oder **Entf/Backspace** bei ausgewählter Karte |
 | Kontextmenü | **Rechtsklick** auf eine Karte: Bearbeiten · Verwandte Ideen · Verbinden · Farbe · Löschen |
 | Karte einfärben | Rechtsklick → Farbpunkt anklicken |
@@ -147,6 +153,7 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Aktion | Bedienung |
 |---|---|
 | Karte greifen/verschieben | Mit dem Controller-Ray anvisieren, **Trigger halten**, loslassen zum Ablegen |
+| Kartengröße | Karte greifen, dann **Daumenstick hoch/runter** |
 | Karte auswählen | Kurz mit dem Trigger antippen (Cyan-Rahmen) |
 | Menü | Am **linken Handgelenk** – mit dem rechten Ray anvisieren und Trigger drücken |
 | Neue Karte | Menü → „＋ Neue Karte“ → sprechen bzw. virtuelle Tastatur |

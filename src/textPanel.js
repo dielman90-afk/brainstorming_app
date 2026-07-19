@@ -44,6 +44,8 @@ export function createTextPanel({
   singleLine = false,
   weight = 500,
   padding = 44,
+  accent = null, // Farbstreifen am linken Rand (z. B. Kategorie-Farbe)
+  border = null, // feiner Rahmen um das Panel
 } = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(2, Math.round(width * pxPerMeter));
@@ -64,16 +66,39 @@ export function createTextPanel({
   backMesh.rotation.y = Math.PI;
   mesh.add(backMesh);
 
-  const state = { text, background, color };
+  const state = { text, background, color, accent, border };
 
   const font = (px) => `${weight} ${px}px 'Segoe UI', system-ui, sans-serif`;
 
   function redraw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const r = Math.min(radius, canvas.height / 2);
     if (state.background && state.background !== 'transparent') {
-      ctx.fillStyle = state.background;
-      roundRect(ctx, 0, 0, canvas.width, canvas.height, Math.min(radius, canvas.height / 2));
+      let fill = state.background;
+      // Array = vertikaler Verlauf [oben, unten]
+      if (Array.isArray(fill)) {
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, fill[0]);
+        gradient.addColorStop(1, fill[1]);
+        fill = gradient;
+      }
+      ctx.fillStyle = fill;
+      roundRect(ctx, 0, 0, canvas.width, canvas.height, r);
       ctx.fill();
+      if (state.accent) {
+        ctx.save();
+        roundRect(ctx, 0, 0, canvas.width, canvas.height, r);
+        ctx.clip();
+        ctx.fillStyle = state.accent;
+        ctx.fillRect(0, 0, 20, canvas.height);
+        ctx.restore();
+      }
+      if (state.border) {
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = state.border;
+        roundRect(ctx, 1.5, 1.5, canvas.width - 3, canvas.height - 3, r);
+        ctx.stroke();
+      }
     }
 
     ctx.fillStyle = state.color;
@@ -114,9 +139,10 @@ export function createTextPanel({
       state.text = t;
       redraw();
     },
-    setColors({ background, color: fg } = {}) {
+    setColors({ background, color: fg, accent: newAccent } = {}) {
       if (background) state.background = background;
       if (fg) state.color = fg;
+      if (newAccent !== undefined) state.accent = newAccent;
       redraw();
     },
     dispose() {

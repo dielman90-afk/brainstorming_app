@@ -5,11 +5,11 @@ const ACTIONS = [
   { id: 'new', label: '＋ Neue Karte' },
   { id: 'topic', label: '🚀 Themen-Start' },
   { id: 'related', label: '✨ Verwandte Ideen' },
-  { id: 'cluster', label: '🗂 Cluster anwenden' },
+  { id: 'cluster', label: '📂 Cluster anwenden' },
   { id: 'summary', label: '📝 Zusammenfassen' },
   { id: 'color', label: '🎨 Farbe' },
   { id: 'connect', label: '🔗 Verbinden' },
-  { id: 'delete', label: '🗑 Karte löschen', danger: true },
+  { id: 'delete', label: '🗑️ Karte löschen', danger: true },
   { id: 'clear', label: '🧹 Alles löschen', danger: true },
   { id: 'environment', label: '🌐 Umgebung' },
 ];
