@@ -9,6 +9,7 @@ const ACTIONS = [
   { id: 'summary', label: '📝 Zusammenfassen' },
   { id: 'color', label: '🎨 Farbe' },
   { id: 'connect', label: '🔗 Verbinden' },
+  { id: 'whiteboard', label: '📋 Whiteboard' },
   { id: 'delete', label: '🗑️ Karte löschen', danger: true },
   { id: 'clear', label: '🧹 Alles löschen', danger: true },
   { id: 'environment', label: '🌐 Umgebung' },
@@ -26,7 +27,7 @@ const COLORS = {
 };
 
 // Abgerundetes Panel als Canvas-Textur (Füllung + feiner Rahmen + Glow)
-function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1400) {
+export function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1400) {
   const w = Math.round(width * pxPerMeter);
   const h = Math.round(height * pxPerMeter);
   const canvas = document.createElement('canvas');
@@ -64,7 +65,7 @@ function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1400) {
 // UI-Ebene "flach" halten: keine tiefenbasierte Sortierung (die bei bewegtem
 // Blickwinkel kippt und den Hintergrund über Buttons malt), sondern feste
 // Zeichenreihenfolge per renderOrder. depthWrite aus → reine Maler-Reihenfolge.
-function flatLayer(mesh, order) {
+export function flatLayer(mesh, order) {
   mesh.material.depthWrite = false;
   mesh.material.depthTest = false;
   mesh.renderOrder = order;

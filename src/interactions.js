@@ -34,6 +34,8 @@ export class InteractionManager {
     let o = object;
     while (o) {
       if (o.userData.onClick) return { type: 'ui', object: o };
+      if (o.userData.drawSurface) return { type: 'draw', surface: o.userData.drawSurface, object: o };
+      if (o.userData.grabTarget) return { type: 'grab', target: o.userData.grabTarget, object: o };
       if (o.userData.card) return { type: 'card', card: o.userData.card };
       o = o.parent;
     }
@@ -82,7 +84,9 @@ export class InteractionManager {
     const hits = this.raycaster.intersectObjects(this._targets(), true);
     for (const hit of hits) {
       const interactive = this._findInteractive(hit.object);
-      if (interactive) return { ...interactive, distance: hit.distance, point: hit.point };
+      if (interactive) {
+        return { ...interactive, distance: hit.distance, point: hit.point, uv: hit.uv };
+      }
     }
     return null;
   }
@@ -104,6 +108,16 @@ export class InteractionManager {
       hit.object.userData.onClick();
       return;
     }
+    if (hit.type === 'draw') {
+      controller.userData.drawing = hit.surface;
+      hit.surface.strokeStart(hit.uv);
+      return;
+    }
+    if (hit.type === 'grab') {
+      controller.userData.grabbedTarget = hit.target;
+      controller.attach(hit.target.group);
+      return;
+    }
     this.cardManager.select(hit.card);
     if (this.onCardPick?.(hit.card)) return;
     controller.userData.grabbed = hit.card;
@@ -111,6 +125,15 @@ export class InteractionManager {
   }
 
   _onSelectEnd(controller) {
+    if (controller.userData.drawing) {
+      controller.userData.drawing.strokeEnd();
+      controller.userData.drawing = null;
+    }
+    const target = controller.userData.grabbedTarget;
+    if (target) {
+      this.scene.attach(target.group);
+      controller.userData.grabbedTarget = null;
+    }
     const card = controller.userData.grabbed;
     if (card) {
       this.scene.attach(card.group);
@@ -121,16 +144,28 @@ export class InteractionManager {
   update() {
     if (!this.renderer.xr.isPresenting) return;
     for (const controller of this.controllers) {
+      // Aktiver Zeichenstrich: Ray nur gegen die Zeichenfläche
+      if (controller.userData.drawing) {
+        this.tempMatrix.identity().extractRotation(controller.matrixWorld);
+        this.raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+        this.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(this.tempMatrix);
+        const hits = this.raycaster.intersectObject(controller.userData.drawing.surface, false);
+        if (hits[0]?.uv) controller.userData.drawing.strokeMove(hits[0].uv);
+        continue;
+      }
+
       const hit = this._xrRaycast(controller);
       this._setHover(controller, hit);
       const ray = controller.getObjectByName('ray');
       if (ray) ray.scale.z = hit ? Math.max(hit.distance, 0.1) : 4;
 
-      // Gehaltene Karte per Daumenstick (hoch/runter) skalieren
-      const grabbed = controller.userData.grabbed;
+      // Gehaltenes Objekt per Daumenstick (hoch/runter) skalieren
       const axes = controller.userData.inputSource?.gamepad?.axes;
-      if (grabbed && axes && axes.length >= 4 && Math.abs(axes[3]) > 0.25) {
-        grabbed.setScale(grabbed.scale * (1 - axes[3] * 0.02));
+      if (axes && axes.length >= 4 && Math.abs(axes[3]) > 0.25) {
+        const grabbed = controller.userData.grabbed;
+        const target = controller.userData.grabbedTarget;
+        if (grabbed) grabbed.setScale(grabbed.scale * (1 - axes[3] * 0.02));
+        else if (target) target.setScale(target.getScale() * (1 - axes[3] * 0.02));
       }
     }
   }
@@ -147,17 +182,22 @@ export class InteractionManager {
     window.addEventListener('wheel', (e) => this._onWheel(e), { capture: true, passive: false });
   }
 
-  // Mausrad über einer Karte = Größe ändern (statt Kamera-Zoom)
+  // Mausrad über Karte oder Griffleiste = Größe ändern (statt Kamera-Zoom)
   _onWheel(event) {
     if (this.renderer.xr.isPresenting) return;
     if (event.target !== this.renderer.domElement) return;
     this._setRayFromMouse(event);
     const hit = this._firstInteractiveHit();
-    if (hit?.type !== 'card') return;
-    event.preventDefault();
-    event.stopPropagation();
     const factor = Math.pow(1.1, -Math.sign(event.deltaY));
-    hit.card.setScale(hit.card.scale * factor);
+    if (hit?.type === 'card') {
+      event.preventDefault();
+      event.stopPropagation();
+      hit.card.setScale(hit.card.scale * factor);
+    } else if (hit?.type === 'grab') {
+      event.preventDefault();
+      event.stopPropagation();
+      hit.target.setScale(hit.target.getScale() * factor);
+    }
   }
 
   _setRayFromMouse(event) {
@@ -175,7 +215,32 @@ export class InteractionManager {
     if (event.button !== 0 && event.button !== 2) return;
     this._setRayFromMouse(event);
     const hit = this._firstInteractiveHit();
-    if (hit?.type !== 'card') return;
+    if (!hit) return;
+
+    // 3D-UI (Whiteboard-Toolbar) auch per Maus bedienbar
+    if (hit.type === 'ui' && event.button === 0) {
+      event.stopPropagation();
+      hit.object.userData.onClick();
+      return;
+    }
+    if (hit.type === 'draw' && event.button === 0) {
+      event.stopPropagation();
+      this.drawTarget = hit.surface;
+      hit.surface.strokeStart(hit.uv);
+      return;
+    }
+    if (hit.type === 'grab' && event.button === 0) {
+      event.stopPropagation();
+      const normal = this.camera.getWorldDirection(new THREE.Vector3());
+      this.dragGrab = {
+        target: hit.target,
+        plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.target.group.position),
+        offset: hit.target.group.position.clone().sub(hit.point),
+        point: new THREE.Vector3(),
+      };
+      return;
+    }
+    if (hit.type !== 'card') return;
     // Verhindert, dass OrbitControls die Geste übernimmt (Rotation/Pan)
     event.stopPropagation();
     // Rechtsklick: kein Drag – das contextmenu-Event öffnet gleich das Menü
@@ -193,6 +258,19 @@ export class InteractionManager {
 
   _onPointerMove(event) {
     if (this.renderer.xr.isPresenting) return;
+    if (this.drawTarget) {
+      this._setRayFromMouse(event);
+      const hits = this.raycaster.intersectObject(this.drawTarget.surface, false);
+      if (hits[0]?.uv) this.drawTarget.strokeMove(hits[0].uv);
+      return;
+    }
+    if (this.dragGrab) {
+      this._setRayFromMouse(event);
+      if (this.raycaster.ray.intersectPlane(this.dragGrab.plane, this.dragGrab.point)) {
+        this.dragGrab.target.group.position.copy(this.dragGrab.point.add(this.dragGrab.offset));
+      }
+      return;
+    }
     if (this.drag) {
       this._setRayFromMouse(event);
       if (this.raycaster.ray.intersectPlane(this.drag.plane, this.drag.point)) {
@@ -203,11 +281,17 @@ export class InteractionManager {
     if (event.target === this.renderer.domElement) {
       this._setRayFromMouse(event);
       const hit = this._firstInteractiveHit();
-      this.renderer.domElement.style.cursor = hit?.type === 'card' ? 'grab' : '';
+      const cursors = { card: 'grab', draw: 'crosshair', grab: 'grab', ui: 'pointer' };
+      this.renderer.domElement.style.cursor = cursors[hit?.type] ?? '';
     }
   }
 
   _onPointerUp() {
+    if (this.drawTarget) {
+      this.drawTarget.strokeEnd();
+      this.drawTarget = null;
+    }
+    this.dragGrab = null;
     this.drag = null;
   }
 
