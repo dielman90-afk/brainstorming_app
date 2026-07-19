@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const MODEL = 'claude-sonnet-4-6';
 
-export const ACTIONS = ['related', 'cluster', 'summary', 'topic'];
+export const ACTIONS = ['related', 'cluster', 'summary', 'topic', 'whiteboard'];
 
 const IDEAS_SCHEMA = {
   type: 'object',
@@ -71,6 +71,8 @@ function buildPrompt(action, { selectedIdea, ideas = [], topic }) {
       return `${board}\n\nFasse das gesamte Board als Text einer einzelnen Karte zusammen (2 bis 3 kurze Sätze). Gib genau eine Idee zurück.`;
     case 'topic':
       return `${board}\n\nBrainstorming-Thema: „${topic}“\n\nErzeuge 8 bis 10 vielfältige, konkrete Ideen als Startpunkt für dieses Thema. Decke unterschiedliche Blickwinkel ab (Nutzen, Umsetzung, Zielgruppen, ungewöhnliche Ansätze). Vermeide Duplikate zu bestehenden Karten.`;
+    case 'whiteboard':
+      return `${board}\n\nDas Bild zeigt eine Whiteboard-Skizze aus einer Brainstorming-Sitzung. Analysiere die Skizze – handgeschriebenen Text, Diagramme, Pfeile, Zeichnungen und Symbole – und extrahiere daraus 3 bis 8 konkrete Ideen als Karten. Interpretiere auch grobe Zeichnungen wohlwollend. Vermeide Duplikate zu bestehenden Karten.`;
     default:
       throw badRequest(`Unbekannte Aktion: ${action}`);
   }
@@ -89,6 +91,15 @@ function mockPayload(action, payload) {
       clusters: [
         { name: 'Mock-Cluster A', ideaIndexes: a },
         { name: 'Mock-Cluster B', ideaIndexes: b },
+      ],
+    };
+  }
+  if (action === 'whiteboard') {
+    return {
+      ideas: [
+        { text: 'Skizze: Zentrales Konzept aus der Zeichnung' },
+        { text: 'Skizze: Verbindung zwischen zwei Elementen' },
+        { text: 'Skizze: Offene Frage aus dem Diagramm' },
       ],
     };
   }
@@ -189,6 +200,10 @@ export async function generateIdeas(action, payload = {}) {
   if (!ACTIONS.includes(action)) throw badRequest(`Unbekannte Aktion: ${action}`);
   if (action === 'related' && !payload.selectedIdea) throw badRequest('selectedIdea fehlt.');
   if (action === 'topic' && !payload.topic?.trim?.()) throw badRequest('topic fehlt.');
+  if (action === 'whiteboard') {
+    if (typeof payload.image !== 'string' || !payload.image) throw badRequest('image (Base64-PNG) fehlt.');
+    if (payload.image.length > 8_000_000) throw badRequest('Bild ist zu groß.');
+  }
   if (!Array.isArray(payload.ideas)) payload.ideas = [];
   if (action === 'cluster' && payload.ideas.length < 2) {
     throw badRequest('Für Cluster werden mindestens 2 Karten benötigt.');
@@ -204,6 +219,17 @@ export async function generateIdeas(action, payload = {}) {
   client ??= new Anthropic();
 
   const schema = action === 'cluster' ? CLUSTERS_SCHEMA : IDEAS_SCHEMA;
+  // Whiteboard: Skizze als Bild (Vision) + Prompt; sonst reiner Text
+  const userContent =
+    action === 'whiteboard'
+      ? [
+          {
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/png', data: payload.image },
+          },
+          { type: 'text', text: buildPrompt(action, payload) },
+        ]
+      : buildPrompt(action, payload);
   const request = {
     model: MODEL,
     max_tokens: 4096,
@@ -213,7 +239,7 @@ export async function generateIdeas(action, payload = {}) {
       format: { type: 'json_schema', schema },
     },
     system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: buildPrompt(action, payload) }],
+    messages: [{ role: 'user', content: userContent }],
   };
 
   let response;
@@ -226,12 +252,13 @@ export async function generateIdeas(action, payload = {}) {
       const formatHint = action === 'cluster'
         ? '{"clusters": [{"name": "...", "ideaIndexes": [0, 1]}]}'
         : '{"ideas": [{"text": "..."}]}';
+      const hint = `\n\nAntworte ausschließlich mit JSON im Format ${formatHint}.`;
+      const fallbackContent = Array.isArray(userContent)
+        ? [...userContent.slice(0, -1), { type: 'text', text: buildPrompt(action, payload) + hint }]
+        : userContent + hint;
       response = await client.messages.create({
         ...rest,
-        messages: [{
-          role: 'user',
-          content: `${request.messages[0].content}\n\nAntworte ausschließlich mit JSON im Format ${formatHint}.`,
-        }],
+        messages: [{ role: 'user', content: fallbackContent }],
       }).catch((e2) => { throw mapApiError(e2); });
     } else {
       throw mapApiError(err);

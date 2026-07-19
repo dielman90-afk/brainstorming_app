@@ -9,6 +9,7 @@ import { isSpeechAvailable, recognizeSpeech } from './speech.js';
 import { requestAI, requestIdeas } from './ai.js';
 import { downloadBoard, importBoardFile, saveBoardLocal, loadBoardLocal } from './boardState.js';
 import { createEnvironments } from './environments.js';
+import { Whiteboard } from './whiteboard.js';
 import { createTextPanel } from './textPanel.js';
 
 // --- Szene & Renderer ---
@@ -94,13 +95,20 @@ const cardManager = new CardManager(scene);
 const connectionManager = new ConnectionManager(scene, cardManager);
 cardManager.onCardRemoved = (card) => connectionManager.removeForCard(card);
 
+const whiteboard = new Whiteboard(scene, { onSketch: () => handleAction('sketch') });
+
 function boardToJSON() {
-  return { ...cardManager.toJSON(), connections: connectionManager.toJSON() };
+  return {
+    ...cardManager.toJSON(),
+    connections: connectionManager.toJSON(),
+    whiteboard: whiteboard.toJSON(),
+  };
 }
 
 function applyBoardJSON(data) {
   cardManager.loadJSON(data);
   connectionManager.loadJSON(data?.connections ?? []);
+  whiteboard.loadJSON(data?.whiteboard);
 }
 
 const keyboard = new VirtualKeyboard(scene);
@@ -114,6 +122,7 @@ const interactions = new InteractionManager({
   getUiTargets: () => [
     ...(renderer.xr.isPresenting && wristMenu.group.visible ? wristMenu.buttons : []),
     ...keyboard.uiTargets,
+    ...whiteboard.uiTargets,
   ],
 });
 interactions.onControllerConnected = (handedness, grip) => {
@@ -174,6 +183,29 @@ async function handleAction(action) {
     }
     if (action === 'environment') {
       cycleEnvironment();
+      return;
+    }
+    if (action === 'whiteboard') {
+      const show = !whiteboard.group.visible;
+      whiteboard.setVisible(show);
+      if (show) whiteboard.placeInFront(camera);
+      setStatus(show ? '📋 Whiteboard eingeblendet – einfach drauf loszeichnen.' : 'Whiteboard ausgeblendet.');
+      return;
+    }
+    if (action === 'sketch') {
+      if (!whiteboard.hasContent) {
+        setStatus('Das Whiteboard ist leer – erst etwas zeichnen.');
+        return;
+      }
+      busy = true;
+      setStatus('Claude analysiert die Skizze…', 0);
+      const image = whiteboard.toDataURL().split(',')[1];
+      const result = await requestIdeas('whiteboard', {
+        image,
+        ideas: cardManager.cards.map((c) => c.text),
+      });
+      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      setStatus(`✨ ${result.length} Ideen aus der Skizze erstellt.`);
       return;
     }
     if (action === 'color') {
@@ -326,6 +358,7 @@ document.getElementById('btn-related').addEventListener('click', () => handleAct
 document.getElementById('btn-cluster').addEventListener('click', () => handleAction('cluster'));
 document.getElementById('btn-summary').addEventListener('click', () => handleAction('summary'));
 document.getElementById('btn-topic').addEventListener('click', () => handleAction('topic'));
+document.getElementById('btn-whiteboard').addEventListener('click', () => handleAction('whiteboard'));
 document.getElementById('btn-export').addEventListener('click', () => downloadBoard(boardToJSON()));
 document.getElementById('btn-clear').addEventListener('click', () => handleAction('clear'));
 document.getElementById('btn-env').addEventListener('click', () => handleAction('environment'));
@@ -606,6 +639,7 @@ window.__app = {
   connectionManager,
   keyboard,
   wristMenu,
+  whiteboard,
   controls,
   handleAction,
   setStatus,

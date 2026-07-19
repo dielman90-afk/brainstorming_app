@@ -144,10 +144,11 @@ export function createTextPanel({
       state.text = t;
       redraw();
     },
-    setColors({ background, color: fg, accent: newAccent } = {}) {
+    setColors({ background, color: fg, accent: newAccent, border: newBorder } = {}) {
       if (background) state.background = background;
       if (fg) state.color = fg;
       if (newAccent !== undefined) state.accent = newAccent;
+      if (newBorder !== undefined) state.border = newBorder;
       redraw();
     },
     dispose() {

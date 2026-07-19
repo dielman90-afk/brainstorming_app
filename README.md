@@ -49,10 +49,19 @@ Zusammenfassungen.
 - **Texteingabe:** Web Speech API (Deutsch), Fallback auf eine virtuelle
   3D-Tastatur. *Hinweis: Der Quest-Browser unterstützt die Web Speech API derzeit
   nicht – dort öffnet sich automatisch die Tastatur.*
-- **Automatisches Speichern:** Das Board (Texte, Positionen, Farben und
-  Verbindungen) wird laufend im Browser gespeichert (localStorage) und beim
-  nächsten Öffnen wiederhergestellt – auch nach einem Browser-Neustart. Gilt pro
-  Gerät/Browser.
+- **📋 Whiteboard:** Ein zeichenbares Board im Raum (ein-/ausblenden über Menü
+  bzw. Overlay-Button). Werkzeugleiste mit **Stift, Marker (halbtransparent),
+  Radierer, 6 Farben, 3 Strichstärken, Formen (Linie/Rechteck/Kreis mit
+  Live-Vorschau), Board wischen, Größe ➕/➖** und **🪄 „Zu Karten“**: Claude
+  analysiert die Skizze per Vision und erzeugt daraus 3–8 Ideen-Karten.
+  Zeichnen: am Desktop mit gedrückter Maustaste auf der Fläche, in VR mit
+  gehaltenem Trigger. Verschieben über die Griffleiste oben (greifen wie eine
+  Karte), Größe 0,6×–2,5× per ➕/➖, Mausrad über der Griffleiste oder Stick beim
+  Halten. Zeichnung, Position und Größe werden mitgespeichert und exportiert.
+- **Automatisches Speichern:** Das Board (Texte, Positionen, Farben,
+  Verbindungen und Whiteboard-Zeichnung) wird laufend im Browser gespeichert
+  (localStorage) und beim nächsten Öffnen wiederhergestellt – auch nach einem
+  Browser-Neustart. Gilt pro Gerät/Browser.
 - **Board-Export/-Import** als JSON (Desktop-Overlay, Buttons „Export“/„Import“) –
   z. B. um ein Board vom Desktop auf die Quest zu bringen oder zu archivieren.
 - **Desktop-Fallback:** Läuft ohne Headset im normalen Browser – Maus-Steuerung
@@ -73,6 +82,7 @@ Zusammenfassungen.
 │   ├── ai.js               Client für den Server-Proxy
 │   ├── boardState.js       JSON-Export/-Import + Autosave
 │   ├── environments.js     Drei prozedurale VR-Umgebungen (Insel, Nacht, Studio)
+│   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
 │   └── textPanel.js        Canvas-Textur-Panels für Text
 ├── server/
 │   ├── index.js            Express-Proxy (lokale Entwicklung)
@@ -173,8 +183,10 @@ Die Position des Handgelenk-Menüs lässt sich in `src/wristMenu.js`
 `POST /api/generate` mit
 
 ```json
-{ "action": "related" | "cluster" | "summary" | "topic", "selectedIdea": "…", "topic": "…", "ideas": ["…", "…"] }
+{ "action": "related" | "cluster" | "summary" | "topic" | "whiteboard", "selectedIdea": "…", "topic": "…", "image": "<Base64-PNG>", "ideas": ["…", "…"] }
 ```
+
+(`whiteboard` schickt den Board-Screenshot als Base64-PNG an Claude-Vision.)
 
 antwortet für `related`/`summary`/`topic` mit
 

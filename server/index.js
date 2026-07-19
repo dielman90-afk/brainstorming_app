@@ -5,7 +5,8 @@ import { generateIdeas } from './ai-core.js';
 
 const app = express();
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+// 10 MB wegen Whiteboard-Screenshots (Base64-PNG)
+app.use(express.json({ limit: '10mb' }));
 
 app.get('/api/health', (req, res) => {
   res.json({
