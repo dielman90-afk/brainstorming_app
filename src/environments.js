@@ -589,60 +589,150 @@ function createIslandEnvironment() {
   };
 }
 
-// Rötlicher, leicht hügeliger Mars-Untergrund (glatt schattiert, kein Raster)
+// --- Wertrauschen (value noise) + fBm für natürliches, weiches Gelände ---
+function smoothstep(a, b, t) {
+  const x = Math.max(0, Math.min(1, (t - a) / (b - a)));
+  return x * x * (3 - 2 * x);
+}
+function valueNoise2(x, z) {
+  const xi = Math.floor(x);
+  const zi = Math.floor(z);
+  const xf = x - xi;
+  const zf = z - zi;
+  const tl = hashNoise(xi, zi, 0);
+  const tr = hashNoise(xi + 1, zi, 0);
+  const bl = hashNoise(xi, zi + 1, 0);
+  const br = hashNoise(xi + 1, zi + 1, 0);
+  const u = xf * xf * (3 - 2 * xf);
+  const v = zf * zf * (3 - 2 * zf);
+  return (tl * (1 - u) + tr * u) * (1 - v) + (bl * (1 - u) + br * u) * v;
+}
+function fbm2(x, z) {
+  let sum = 0;
+  let amp = 0.5;
+  let freq = 1;
+  for (let o = 0; o < 4; o++) {
+    sum += (valueNoise2(x * freq, z * freq) - 0.5) * amp;
+    amp *= 0.5;
+    freq *= 2.03;
+  }
+  return sum;
+}
+// Kraterprofil (t = Abstand/Radius): Mulde innen, angehobener Wall am Rand.
+function craterProfile(t) {
+  if (t < 0.82) return -(1 - (t / 0.82) ** 2); // Schüssel: -1 … 0
+  if (t < 1.14) return 0.32 * Math.sin((Math.PI * (t - 0.82)) / 0.32); // Randwall
+  return 0;
+}
+
+// Natürlicher, rötlicher Mars-Untergrund: sanft gewelltes Gelände mit
+// Einschlagkratern, verstreuten Felsen und weichen Hügeln am Horizont.
+// Keine kastenförmigen Strukturen, kein Raster.
 function makeMarsGround(rand) {
   const group = new THREE.Group();
-  const geo = new THREE.CircleGeometry(20, 96);
+
+  const craters = [
+    { x: 9, z: -7, r: 3.0, depth: 0.9 },
+    { x: -11, z: 5, r: 4.2, depth: 1.15 },
+    { x: 5.5, z: 12, r: 2.4, depth: 0.7 },
+    { x: -6, z: -13, r: 3.4, depth: 0.9 },
+    { x: 15, z: 9, r: 5.0, depth: 1.3 },
+  ];
+
+  const heightAt = (x, z) => {
+    const big = fbm2(x * 0.05, z * 0.05) * 3.2; // weite, rollende Dünen
+    const med = fbm2(x * 0.16, z * 0.16) * 0.9; // mittlere Wellen
+    const fine = (hashNoise(x * 1.7, z * 1.7, 7) - 0.5) * 0.12; // Körnung
+    let h = big + med + fine;
+    for (const c of craters) {
+      const d = Math.hypot(x - c.x, z - c.z);
+      if (d < c.r * 1.2) h += craterProfile(d / c.r) * c.depth;
+    }
+    // Zentrum flach halten, damit man eben steht
+    return h * smoothstep(0.6, 4.5, Math.hypot(x, z));
+  };
+
+  // Dichtes Gitter (nicht CircleGeometry – die hat keine inneren Vertices)
+  const SIZE = 96;
+  const SEG = 150;
+  const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
   const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const base = new THREE.Color(0x9c4a2b);
+  const col = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
-    const y = pos.getY(i);
-    const r = Math.hypot(x, y);
-    // Dünen + feines Rauschen; Zentrum flach halten, damit man eben steht
-    const dunes = Math.sin(x * 0.35) * Math.cos(y * 0.42) * 0.45;
-    const grain = (hashNoise(x * 0.7, y * 0.7, 3) - 0.5) * 0.35;
-    const falloff = Math.min(1, r / 3);
-    pos.setZ(i, (dunes + grain) * falloff);
+    const z = pos.getY(i); // PlaneGeometry: y ist die zweite Ebenenachse
+    const h = heightAt(x, z);
+    pos.setZ(i, h);
+    // Leichte Farbmodulation: Höhen heller (Staub), Mulden dunkler
+    const shade = 0.82 + smoothstep(-2, 3, h) * 0.4 + (hashNoise(x * 2.1, z * 2.1, 9) - 0.5) * 0.12;
+    col.copy(base).multiplyScalar(shade);
+    colors[i * 3] = col.r;
+    colors[i * 3 + 1] = col.g;
+    colors[i * 3 + 2] = col.b;
   }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
   const ground = new THREE.Mesh(
     geo,
-    new THREE.MeshStandardMaterial({ color: 0xa24e2e, roughness: 1, metalness: 0 })
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 })
   );
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.03;
   group.add(ground);
 
-  // Verstreute Felsbrocken
-  const rockMat = new THREE.MeshStandardMaterial({ color: 0x7d3a24, roughness: 1, metalness: 0, flatShading: true });
-  const darkRockMat = new THREE.MeshStandardMaterial({ color: 0x5f2c1b, roughness: 1, metalness: 0, flatShading: true });
-  for (let i = 0; i < 26; i++) {
+  // Verstreute Felsbrocken (mehr Facetten = Stein statt Kristall, flach gelagert)
+  const rockColors = [0x843d24, 0x6f331f, 0x5a281a, 0x92472b];
+  for (let i = 0; i < 30; i++) {
     const a = rand() * Math.PI * 2;
-    const r = 3 + rand() * 15;
-    const s = 0.15 + rand() * 0.6;
+    const r = 3.5 + rand() * 16;
+    const bx = Math.cos(a) * r;
+    const bz = Math.sin(a) * r;
+    const s = 0.14 + rand() * 0.42;
+    const geoR = new THREE.IcosahedronGeometry(s, 1);
+    // Unregelmäßig verschieben, damit es kein glatter Edelstein ist
+    const rp = geoR.attributes.position;
+    for (let v = 0; v < rp.count; v++) {
+      const f = 0.78 + hashNoise(rp.getX(v) * 40, rp.getY(v) * 40, rp.getZ(v) * 40 + i) * 0.44;
+      rp.setXYZ(v, rp.getX(v) * f, rp.getY(v) * f, rp.getZ(v) * f);
+    }
+    geoR.computeVertexNormals();
     const rock = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(s, 0),
-      rand() > 0.5 ? rockMat : darkRockMat
+      geoR,
+      new THREE.MeshStandardMaterial({
+        color: rockColors[Math.floor(rand() * rockColors.length)],
+        roughness: 1,
+        metalness: 0,
+        flatShading: true,
+      })
     );
-    rock.position.set(Math.cos(a) * r, s * 0.35, Math.sin(a) * r);
+    rock.position.set(bx, heightAt(bx, bz) - 0.03 + s * 0.25, bz);
     rock.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
-    rock.scale.y = 0.6 + rand() * 0.6;
+    rock.scale.set(1 + rand() * 0.5, 0.45 + rand() * 0.4, 1 + rand() * 0.5);
     group.add(rock);
   }
 
-  // Ein paar größere Tafelberge/Mesas am Horizont
-  const mesaMat = new THREE.MeshStandardMaterial({ color: 0x8f4327, roughness: 1, metalness: 0, flatShading: true });
+  // Weiche, natürliche Hügel am Horizont (teilweise „vergrabene" Kuppeln) –
+  // ersetzt die alten kastenförmigen Tafelberge.
+  const hillMat = new THREE.MeshStandardMaterial({ color: 0x7a3820, roughness: 1, metalness: 0 });
   for (let i = 0; i < 6; i++) {
-    const a = rand() * Math.PI * 2;
-    const r = 22 + rand() * 10;
-    const h = 2 + rand() * 4;
-    const mesa = new THREE.Mesh(
-      displaceRadial(new THREE.CylinderGeometry(1.6 + rand() * 1.4, 2.4 + rand() * 1.6, h, 10, 1), 0.25),
-      mesaMat
-    );
-    mesa.position.set(Math.cos(a) * r, h / 2 - 0.5, Math.sin(a) * r);
-    mesa.rotation.y = rand() * Math.PI;
-    group.add(mesa);
+    const a = (i / 6) * Math.PI * 2 + rand() * 0.6;
+    const r = 26 + rand() * 12;
+    const R = 5 + rand() * 6;
+    const hGeo = new THREE.SphereGeometry(R, 20, 14);
+    const hp = hGeo.attributes.position;
+    for (let v = 0; v < hp.count; v++) {
+      const f = 1 + (valueNoise2(hp.getX(v) * 0.3 + i * 10, hp.getZ(v) * 0.3) - 0.5) * 0.5;
+      hp.setXYZ(v, hp.getX(v) * f, hp.getY(v), hp.getZ(v) * f);
+    }
+    hGeo.computeVertexNormals();
+    const hill = new THREE.Mesh(hGeo, hillMat);
+    const flat = 0.28 + rand() * 0.16;
+    hill.scale.y = flat;
+    // So weit eingraben, dass nur eine sanfte Kuppe herausschaut
+    hill.position.set(Math.cos(a) * r, -R * flat * 0.62, Math.sin(a) * r);
+    group.add(hill);
   }
 
   return group;
