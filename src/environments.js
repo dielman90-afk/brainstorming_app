@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 
-// Drei umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
+// Vier umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Wolken und schwebenden Mini-Inseln
 //   🌌 Nachthimmel  – Sternenfeld, Mond und leuchtendes Boden-Grid
 //   🌐 Studio       – die schlichte helle Gradient-Umgebung
+//   ⬜ Konstrukt    – nahtloser, komplett weißer Void („Matrix"-Ladeprogramm)
 // Jede Umgebung: { id, name, background, group, update?(time) }
 
 // Deterministisches Rauschen auf Positionsbasis – Nahtvertices (gleiche Position)
@@ -547,8 +548,62 @@ function createStudioEnvironment() {
   };
 }
 
+// ⬜ Konstrukt – der komplett weiße „Matrix"-Void: eine unendlich wirkende, nahtlose
+// weiße Leere ohne sichtbaren Horizont. Kuppel und Boden teilen sich denselben Weißton,
+// sodass keine Kante entsteht; ein hauchzarter, kühler Verlauf am Grund verhindert das
+// desorientierende „Whiteout" und lässt die Karten räumlich verankert wirken.
+function createMatrixEnvironment() {
+  const group = new THREE.Group();
+  group.name = 'env-matrix';
+
+  // Umgebende Kuppel: reines Weiß oben, minimal kühleres Weiß am unteren Rand.
+  group.add(makeDome(0xffffff, 0xeef1f4, 60));
+
+  // Nahtloser Boden im selben Weißton wie der Kuppelgrund → unsichtbarer Horizont.
+  const floor = new THREE.Mesh(
+    new THREE.CircleGeometry(60, 64),
+    new THREE.MeshBasicMaterial({ color: 0xf3f5f8 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -0.02;
+  group.add(floor);
+
+  // Sehr zarter Kontaktschatten unter dem Nutzer, damit „unten" spürbar bleibt,
+  // ohne den weißen Gesamteindruck zu brechen.
+  const contact = new THREE.Mesh(
+    new THREE.CircleGeometry(3.2, 48),
+    new THREE.MeshBasicMaterial({
+      map: makeGlowTexture('rgba(120,130,145,0.18)', 'rgba(120,130,145,0.06)'),
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+    })
+  );
+  contact.rotation.x = -Math.PI / 2;
+  contact.position.y = -0.018;
+  group.add(contact);
+
+  // Gleichmäßiges, nahezu schattenfreies Licht: Karten sind überall gut lesbar.
+  group.add(new THREE.HemisphereLight(0xffffff, 0xf0f2f5, 1.5));
+  const fill = new THREE.DirectionalLight(0xffffff, 0.55);
+  fill.position.set(2, 12, 6);
+  group.add(fill);
+
+  return {
+    id: 'matrix',
+    name: '⬜ Konstrukt',
+    background: new THREE.Color(0xffffff),
+    group,
+  };
+}
+
 export function createEnvironments(scene) {
-  const environments = [createIslandEnvironment(), createNightEnvironment(), createStudioEnvironment()];
+  const environments = [
+    createIslandEnvironment(),
+    createNightEnvironment(),
+    createStudioEnvironment(),
+    createMatrixEnvironment(),
+  ];
   for (const env of environments) {
     env.group.visible = false;
     scene.add(env.group);
