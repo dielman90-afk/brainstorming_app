@@ -75,6 +75,71 @@ function makeGlowTexture(inner, mid = inner, size = 128) {
   return texture;
 }
 
+// --- Gefälschter Kontaktschatten (Blob-Shadow) statt teurer Shadow-Maps ---
+// Eine geteilte dunkle Radial-Textur + geteilte Plane-Geometrie erden Objekte
+// nahezu kostenlos. Nur Skalierung/Position pro Instanz.
+let _shadowTexture = null;
+function shadowTexture() {
+  if (_shadowTexture) return _shadowTexture;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, 'rgba(0,0,0,0.5)');
+  g.addColorStop(0.55, 'rgba(0,0,0,0.24)');
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  _shadowTexture = new THREE.CanvasTexture(canvas);
+  _shadowTexture.colorSpace = THREE.SRGBColorSpace;
+  return _shadowTexture;
+}
+const _shadowGeo = new THREE.PlaneGeometry(1, 1);
+function makeBlobShadow(radius = 0.5, opacity = 1, y = 0.012) {
+  const mesh = new THREE.Mesh(
+    _shadowGeo,
+    new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      opacity,
+      depthWrite: false,
+      toneMapped: false,
+    })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.scale.setScalar(radius * 2);
+  mesh.position.y = y;
+  mesh.renderOrder = 1; // knapp über dem opaken Boden
+  return mesh;
+}
+
+// Weiche Vertex-Färbung (gebackenes AO / Mottling) auf eine Geometrie legen.
+// tint(x,y,z) → Faktor (multipliziert die Materialfarbe pro Vertex).
+function bakeVertexShade(geometry, tint) {
+  const pos = geometry.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const f = tint(pos.getX(i), pos.getY(i), pos.getZ(i));
+    colors[i * 3] = colors[i * 3 + 1] = colors[i * 3 + 2] = f;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+
+// Vertices bunt einfärben (feste Farbe) – für zusammengesetzte Geometrien (Pilze).
+function paintVertices(geometry, hex) {
+  const c = new THREE.Color(hex);
+  const pos = geometry.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return geometry;
+}
+
 // Vertices radial verschieben (organische Kanten). smooth=true behält die
 // Indizierung, damit die Wandflächen glatt statt facettiert schattiert werden.
 function displaceRadial(geometry, amount, yAmount = 0, smooth = false) {
@@ -335,10 +400,56 @@ function makeWaterfall(rand, islandRadius) {
   mist.scale.set(2.4, 2.4, 1);
   group.add(mist);
 
+  // Schaum an der Abbruchkante (pulsierendes weiches Glühen)
+  const foam = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(255,255,255,0.95)', 'rgba(235,248,255,0.5)'),
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.8,
+      fog: false,
+    })
+  );
+  foam.position.set(edgeX, 0.03, edgeZ);
+  foam.scale.set(1.3, 0.5, 1);
+  group.add(foam);
+
+  // Regenbogen im Sprühnebel: halber Ring, radial über Vertex-Farben eingefärbt
+  const rainbowGeo = new THREE.RingGeometry(1.0, 1.42, 48, 6, 0, Math.PI);
+  const rp = rainbowGeo.attributes.position;
+  const rColors = new Float32Array(rp.count * 3);
+  const rc = new THREE.Color();
+  for (let i = 0; i < rp.count; i++) {
+    const rr = Math.hypot(rp.getX(i), rp.getY(i));
+    const t = THREE.MathUtils.clamp((rr - 1.0) / 0.42, 0, 1); // innen 0 … außen 1
+    rc.setHSL((270 * (1 - t)) / 360, 0.9, 0.6); // violett innen → rot außen
+    rColors[i * 3] = rc.r;
+    rColors[i * 3 + 1] = rc.g;
+    rColors[i * 3 + 2] = rc.b;
+  }
+  rainbowGeo.setAttribute('color', new THREE.BufferAttribute(rColors, 3));
+  const rainbow = new THREE.Mesh(
+    rainbowGeo,
+    new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.42,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false,
+    })
+  );
+  rainbow.position.set(outX, -1.4, outZ);
+  rainbow.lookAt(0, -0.4, 0); // zum Inselzentrum ausrichten
+  group.add(rainbow);
+
   return {
     group,
     update(time) {
       waterTex.offset.y = -time * 0.35;
+      foam.material.opacity = 0.65 + Math.sin(time * 4) * 0.2;
+      rainbow.material.opacity = 0.38 + Math.sin(time * 0.7) * 0.08;
       const pos = geometry.attributes.position;
       for (let i = 0; i < count; i++) {
         const m = meta[i];
@@ -403,6 +514,62 @@ function makeBirds(rand) {
   };
 }
 
+// Bunte Schmetterlinge, die nah über der Insel gaukeln (Vögel-Muster, kleiner
+// und schneller flatternd).
+function makeButterflies(rand) {
+  const group = new THREE.Group();
+  group.name = 'butterflies';
+  const colors = [0xff7aa2, 0xffd166, 0x8ec7ff, 0xc4a2ff, 0xff9e6b];
+  const items = [];
+  for (let i = 0; i < 5; i++) {
+    const b = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({
+      color: colors[i % colors.length],
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.95,
+    });
+    const wings = [];
+    for (const dir of [-1, 1]) {
+      const pivot = new THREE.Group();
+      const wing = new THREE.Mesh(new THREE.CircleGeometry(0.07, 10), mat);
+      wing.position.x = dir * 0.05;
+      wing.rotation.x = -Math.PI / 2;
+      wing.scale.set(0.8, 1, 1.25);
+      pivot.add(wing);
+      b.add(pivot);
+      wings.push({ pivot, dir });
+    }
+    b.userData = {
+      radius: 2 + rand() * 4,
+      height: 0.7 + rand() * 1.6,
+      speed: (0.3 + rand() * 0.3) * (rand() > 0.5 ? 1 : -1),
+      phase: rand() * Math.PI * 2,
+      bob: rand() * Math.PI * 2,
+      wings,
+    };
+    group.add(b);
+    items.push(b);
+  }
+  return {
+    group,
+    update(time) {
+      for (const b of items) {
+        const d = b.userData;
+        const a = time * d.speed + d.phase;
+        b.position.set(
+          Math.sin(a) * d.radius,
+          d.height + Math.sin(time * 1.6 + d.bob) * 0.5,
+          Math.cos(a) * d.radius
+        );
+        b.rotation.y = a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
+        const flap = Math.sin(time * 14 + d.phase) * 0.9 + 0.35;
+        for (const { pivot, dir } of d.wings) pivot.rotation.z = flap * dir;
+      }
+    },
+  };
+}
+
 // Volumetrisch wirkende Wolke: Cluster weicher Kugeln zu EINEM Mesh verschmolzen.
 // Als echtes 3D-Objekt (kein Billboard-Sprite) dreht sie sich NICHT mit der
 // Kopfbewegung – sie bleibt fest im Raum stehen.
@@ -432,57 +599,173 @@ function makeCloud(rand, size = 1) {
   return cloud;
 }
 
+// Hängende Ranken/Wurzeln unter dem Inselrand, zu EINEM Mesh verschmolzen.
+function makeVines(rand, radius, count) {
+  const geos = [];
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + (rand() - 0.5) * 0.4;
+    const rr = radius * (0.72 + rand() * 0.22);
+    const len = 0.7 + rand() * 1.8;
+    const g = new THREE.CylinderGeometry(0.012, 0.05, len, 5, 1);
+    g.translate(0, -len / 2, 0); // oben am Rand, hängt nach unten
+    g.applyMatrix4(new THREE.Matrix4().makeRotationZ((rand() - 0.5) * 0.4));
+    g.translate(Math.cos(a) * rr, -0.34, Math.sin(a) * rr);
+    geos.push(g);
+    // kleiner Blattknubbel am Ende
+    if (rand() > 0.4) {
+      const leaf = new THREE.IcosahedronGeometry(0.06 + rand() * 0.05, 0);
+      leaf.translate(Math.cos(a) * rr, -0.34 - len, Math.sin(a) * rr);
+      geos.push(leaf);
+    }
+  }
+  // Cylinder ist indiziert, Icosaeder nicht → vor dem Merge vereinheitlichen
+  const merged = mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)));
+  return new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ color: 0x4e6b3a, roughness: 1, metalness: 0 }));
+}
+
 // Schwebende Insel: Grasplatte mit Erdrand + felsige, zerklüftete Unterseite
-function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4 } = {}) {
+function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4, vines = 9 } = {}) {
   const island = new THREE.Group();
 
-  // Grasfläche + Erdrand glatt schattiert (smooth=true) → weniger facettiert
-  const capGeometry = displaceRadial(
-    new THREE.CylinderGeometry(radius, radius * 0.94, 0.32, 48, 1),
-    0.08,
-    0,
-    true
+  // Grasfläche + Erdrand glatt schattiert (smooth=true) → weniger facettiert.
+  // Gebackenes Vertex-Shading: Rand/Unterseite dezent dunkler + leichtes Mottling.
+  const capGeometry = bakeVertexShade(
+    displaceRadial(new THREE.CylinderGeometry(radius, radius * 0.94, 0.32, 48, 1), 0.08, 0, true),
+    (x, y, z) => {
+      const edge = Math.min(1, Math.hypot(x, z) / radius); // 0 Mitte … 1 Rand
+      const low = y < 0 ? 0.82 : 1; // Erdrand unten leicht abdunkeln
+      const mott = 0.94 + hashNoise(x * 3, y, z * 3) * 0.12;
+      return Math.min(1.05, (1 - edge * 0.12) * low * mott);
+    }
   );
+  const capMat = (color, rough = 1) =>
+    new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0, vertexColors: true });
   const cap = new THREE.Mesh(capGeometry, [
-    new THREE.MeshStandardMaterial({ color: 0x8a6844, roughness: 1, metalness: 0 }), // Erdrand
-    new THREE.MeshStandardMaterial({ color: 0x6cbb5c, roughness: 0.95, metalness: 0 }), // Gras
-    new THREE.MeshStandardMaterial({ color: 0x6b4f34, roughness: 1, metalness: 0 }), // Unterseite
+    capMat(0x8a6844), // Erdrand
+    capMat(0x6cbb5c, 0.95), // Gras
+    capMat(0x6b4f34), // Unterseite
   ]);
   cap.position.y = -0.18; // Grasfläche liegt bei y ≈ -0.02
   island.add(cap);
 
-  const rockGeometry = displaceRadial(new THREE.ConeGeometry(radius * 0.92, depth, 32, 6), 0.3, 0.25);
+  // Fels-Unterseite mit gebackenem AO (dunkler zur Spitze) für mehr Tiefe
+  const rockGeometry = bakeVertexShade(
+    displaceRadial(new THREE.ConeGeometry(radius * 0.92, depth, 32, 6), 0.3, 0.25),
+    (x, y) => 0.7 + ((y + depth / 2) / depth) * 0.4 // Basis heller, Spitze dunkler
+  );
   const rock = new THREE.Mesh(
     rockGeometry,
-    new THREE.MeshStandardMaterial({ color: 0x7d6f5c, roughness: 1, metalness: 0, flatShading: true })
+    new THREE.MeshStandardMaterial({ color: 0x7d6f5c, roughness: 1, metalness: 0, flatShading: true, vertexColors: true })
   );
   rock.rotation.x = Math.PI; // Spitze nach unten
   rock.position.y = -0.3 - depth / 2;
   island.add(rock);
 
+  island.add(makeVines(rand, radius, vines));
+
   for (let i = 0; i < trees; i++) {
     const tree = makeTree(rand);
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.55 + rand() * 0.3);
-    tree.position.set(Math.sin(angle) * r, -0.02, Math.cos(angle) * r);
+    const tx = Math.sin(angle) * r;
+    const tz = Math.cos(angle) * r;
+    tree.position.set(tx, -0.02, tz);
     tree.rotation.y = rand() * Math.PI * 2;
     island.add(tree);
+    const shadow = makeBlobShadow(0.45, 0.6, -0.005);
+    shadow.position.set(tx, -0.005, tz);
+    island.add(shadow);
   }
 
   for (let i = 0; i < rocks; i++) {
+    const s = 0.12 + rand() * 0.2;
     const stone = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.12 + rand() * 0.2, 0),
+      new THREE.IcosahedronGeometry(s, 0),
       new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 1, metalness: 0, flatShading: true })
     );
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.5 + rand() * 0.4);
-    stone.position.set(Math.sin(angle) * r, 0.03, Math.cos(angle) * r);
+    const sx = Math.sin(angle) * r;
+    const sz = Math.cos(angle) * r;
+    stone.position.set(sx, 0.03, sz);
     stone.scale.y = 0.6 + rand() * 0.5;
     stone.rotation.set(rand(), rand(), rand());
     island.add(stone);
+    const shadow = makeBlobShadow(s * 1.6, 0.5, -0.005);
+    shadow.position.set(sx, -0.005, sz);
+    island.add(shadow);
   }
 
   return island;
+}
+
+// Unterwuchs: instanzierte Büsche + Pilze (wenige Draw-Calls) auf der Hauptinsel.
+function addUndergrowth(group, rand, radius) {
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+
+  const bushColors = [0x4f9a4a, 0x3e8e4f, 0x5fb069, 0x6cbb5c];
+  const bushes = new THREE.InstancedMesh(
+    new THREE.IcosahedronGeometry(0.16, 1),
+    new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, vertexColors: false }),
+    22
+  );
+  bushes.name = 'bushes';
+  for (let i = 0; i < bushes.count; i++) {
+    const angle = rand() * Math.PI * 2;
+    const r = radius * (0.25 + rand() * 0.72);
+    dummy.position.set(Math.sin(angle) * r, 0.02, Math.cos(angle) * r);
+    dummy.scale.set(0.7 + rand() * 0.9, 0.55 + rand() * 0.5, 0.7 + rand() * 0.9);
+    dummy.rotation.y = rand() * Math.PI;
+    dummy.updateMatrix();
+    bushes.setMatrixAt(i, dummy.matrix);
+    bushes.setColorAt(i, color.setHex(bushColors[Math.floor(rand() * bushColors.length)]));
+  }
+  bushes.instanceMatrix.needsUpdate = true;
+  if (bushes.instanceColor) bushes.instanceColor.needsUpdate = true;
+  group.add(bushes);
+
+  // Pilz: verschmolzene Geometrie mit Vertex-Farben (weißer Stiel, roter Hut)
+  const stem = new THREE.CylinderGeometry(0.02, 0.028, 0.09, 6);
+  stem.translate(0, 0.045, 0);
+  paintVertices(stem, 0xf1ebde);
+  const cap = new THREE.SphereGeometry(0.06, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2);
+  cap.scale(1, 0.7, 1);
+  cap.translate(0, 0.09, 0);
+  paintVertices(cap, 0xd7402f);
+  const mushGeo = mergeGeometries([stem, cap]);
+  const mushrooms = new THREE.InstancedMesh(
+    mushGeo,
+    new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0, vertexColors: true }),
+    14
+  );
+  mushrooms.name = 'mushrooms';
+  for (let i = 0; i < mushrooms.count; i++) {
+    const angle = rand() * Math.PI * 2;
+    const r = radius * (0.2 + rand() * 0.75);
+    dummy.position.set(Math.sin(angle) * r, 0.0, Math.cos(angle) * r);
+    dummy.scale.setScalar(0.7 + rand() * 0.8);
+    dummy.rotation.set(0, rand() * Math.PI, 0);
+    dummy.updateMatrix();
+    mushrooms.setMatrixAt(i, dummy.matrix);
+  }
+  mushrooms.instanceMatrix.needsUpdate = true;
+  group.add(mushrooms);
+}
+
+// Ferne, tri-arme Insel-Silhouette (nur Gras-Disc + Fels-Kegel) für Tiefe/Parallaxe.
+const FAR_GRASS_MAT = new THREE.MeshStandardMaterial({ color: 0x6fae74, roughness: 1, metalness: 0 });
+const FAR_ROCK_MAT = new THREE.MeshStandardMaterial({ color: 0x6f6353, roughness: 1, metalness: 0, flatShading: true });
+function makeFarIsland(rand) {
+  const g = new THREE.Group();
+  const r = 1.6 + rand() * 1.6;
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.9, 0.4, 10), FAR_GRASS_MAT);
+  g.add(cap);
+  const rock = new THREE.Mesh(new THREE.ConeGeometry(r * 0.9, 2.2 + rand() * 1.8, 8), FAR_ROCK_MAT);
+  rock.rotation.x = Math.PI;
+  rock.position.y = -0.2 - (1.1 + rand() * 0.9);
+  g.add(rock);
+  return g;
 }
 
 function createIslandEnvironment() {
@@ -513,13 +796,44 @@ function createIslandEnvironment() {
   fill.position.set(-6, -10, 4);
   group.add(fill);
 
+  // Warmes Rim-/Backlight zum Abheben der Silhouetten (billiger Realismus-Boost)
+  const rim = new THREE.DirectionalLight(0xfff0d6, 0.5);
+  rim.position.set(-14, 8, 18);
+  group.add(rim);
+
+  // Weiche Horizont-Dunstschicht für Tiefe
+  const haze = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(226,240,250,0.55)', 'rgba(210,230,245,0.22)'),
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.6,
+      fog: false,
+    })
+  );
+  haze.position.set(0, 3, -30);
+  haze.scale.set(90, 22, 1);
+  group.add(haze);
+
   // Hauptinsel, auf der der Nutzer steht – mit Blumen, Gras, Fluss und Wasserfall
-  group.add(buildIsland(rand, { radius: 5, depth: 4.5, trees: 3, rocks: 5 }));
+  group.add(buildIsland(rand, { radius: 5, depth: 4.5, trees: 3, rocks: 5, vines: 11 }));
   addGrassDecoration(group, rand, 4.4);
+  addUndergrowth(group, rand, 4.4);
   const waterfall = makeWaterfall(rand, 5);
   group.add(waterfall.group);
   const birds = makeBirds(rand);
   group.add(birds.group);
+  const butterflies = makeButterflies(rand);
+  group.add(butterflies.group);
+
+  // Ferne Insel-Silhouetten (stark im Nebel) für Parallaxe/Tiefe
+  for (let i = 0; i < 6; i++) {
+    const far = makeFarIsland(rand);
+    const a = (i / 6) * Math.PI * 2 + rand() * 0.5;
+    const d = 36 + rand() * 8;
+    far.position.set(Math.cos(a) * d, -2 + rand() * 8, Math.sin(a) * d);
+    group.add(far);
+  }
 
   // Entfernte Mini-Inseln, die sanft auf und ab schweben
   const minis = [];
@@ -585,6 +899,7 @@ function createIslandEnvironment() {
       }
       waterfall.update(time);
       birds.update(time);
+      butterflies.update(time);
     },
   };
 }
@@ -940,6 +1255,125 @@ function makeTorii() {
   return group;
 }
 
+// Bambushalm (segmentierter Stiel + wenige Blätter), zu 1 Mesh verschmolzen.
+const BAMBOO_MAT = new THREE.MeshStandardMaterial({ color: 0x8fae55, roughness: 0.85, metalness: 0 });
+function makeBambooStalk(rand) {
+  const geos = [];
+  const segs = 5 + Math.floor(rand() * 4);
+  const rad = 0.035 + rand() * 0.02;
+  let y = 0;
+  for (let s = 0; s < segs; s++) {
+    const segH = 0.34 + rand() * 0.14;
+    const c = new THREE.CylinderGeometry(rad * 0.96, rad, segH, 7);
+    c.translate(0, y + segH / 2, 0);
+    geos.push(c);
+    const knot = new THREE.CylinderGeometry(rad * 1.15, rad * 1.15, 0.03, 7);
+    knot.translate(0, y + segH, 0);
+    geos.push(knot);
+    y += segH;
+  }
+  // ein paar Blätter oben
+  for (let l = 0; l < 3; l++) {
+    const leaf = new THREE.ConeGeometry(0.05, 0.34, 4);
+    leaf.translate(0, 0.17, 0);
+    const m = new THREE.Matrix4()
+      .makeRotationZ(0.7 + rand() * 0.5)
+      .premultiply(new THREE.Matrix4().makeRotationY(rand() * Math.PI * 2));
+    leaf.applyMatrix4(m);
+    leaf.translate(0, y - 0.1 - l * 0.12, 0);
+    geos.push(leaf);
+  }
+  const stalk = new THREE.Mesh(mergeGeometries(geos), BAMBOO_MAT);
+  stalk.userData.height = y;
+  return stalk;
+}
+
+// Bambushain: mehrere Halme, die in update sanft wiegen.
+function makeBambooGrove(rand, cx, cz) {
+  const group = new THREE.Group();
+  group.position.set(cx, 0, cz);
+  const stalks = [];
+  for (let i = 0; i < 13; i++) {
+    const stalk = makeBambooStalk(rand);
+    const a = rand() * Math.PI * 2;
+    const r = rand() * 1.3;
+    stalk.position.set(Math.cos(a) * r, 0, Math.sin(a) * r);
+    stalk.scale.setScalar(0.8 + rand() * 0.6);
+    stalk.userData.phase = rand() * Math.PI * 2;
+    stalk.userData.sway = 0.02 + rand() * 0.03;
+    group.add(stalk);
+    stalks.push(stalk);
+  }
+  const shadow = makeBlobShadow(1.4, 0.4, 0.02);
+  group.add(shadow);
+  return {
+    group,
+    update(time) {
+      for (const s of stalks) {
+        s.rotation.z = Math.sin(time * 0.9 + s.userData.phase) * s.userData.sway;
+        s.rotation.x = Math.cos(time * 0.7 + s.userData.phase) * s.userData.sway * 0.6;
+      }
+    },
+  };
+}
+
+// Ahorn (Momiji) mit roter/oranger Krone als Farbkontrast.
+function makeMaple(rand) {
+  const tree = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.1, 0.16, 1.5, 8),
+    new THREE.MeshStandardMaterial({ color: 0x5b4636, roughness: 0.9, metalness: 0 })
+  );
+  trunk.position.y = 0.75;
+  trunk.rotation.z = -0.08;
+  tree.add(trunk);
+  const leafColors = [0xd8442a, 0xe86a2a, 0xc23a2a, 0xf0913a];
+  const canopy = [
+    [0, 1.7, 0, 0.62], [0.5, 1.55, 0.15, 0.42], [-0.45, 1.6, -0.2, 0.46],
+    [0.15, 1.95, -0.15, 0.4], [-0.2, 1.85, 0.35, 0.38],
+  ];
+  for (const [x, y, z, r] of canopy) {
+    const blob = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(r, 1),
+      new THREE.MeshStandardMaterial({ color: leafColors[Math.floor(rand() * leafColors.length)], roughness: 0.85, metalness: 0 })
+    );
+    blob.position.set(x, y, z);
+    blob.scale.y = 0.9;
+    tree.add(blob);
+  }
+  return tree;
+}
+
+// Seerosenblatt (flache Scheibe mit Kerbe) + optional Lotusblüte.
+const LILY_MAT = new THREE.MeshStandardMaterial({ color: 0x3f8f4d, roughness: 0.8, metalness: 0, side: THREE.DoubleSide });
+function makeLilyPad(rand) {
+  const pad = new THREE.Mesh(new THREE.CircleGeometry(0.16 + rand() * 0.1, 20, 0.5, Math.PI * 1.85), LILY_MAT);
+  pad.rotation.x = -Math.PI / 2;
+  pad.rotation.z = rand() * Math.PI * 2;
+  return pad;
+}
+function makeLotus() {
+  const g = new THREE.Group();
+  const petalMat = new THREE.MeshStandardMaterial({ color: 0xff9dc2, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
+  for (let ring = 0; ring < 2; ring++) {
+    const n = ring === 0 ? 6 : 5;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + ring * 0.5;
+      const petal = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 4), petalMat);
+      petal.position.set(Math.cos(a) * (0.05 + ring * 0.04), 0.05 + ring * 0.03, Math.sin(a) * (0.05 + ring * 0.04));
+      petal.rotation.set(Math.PI / 2 - (0.7 - ring * 0.3), 0, -a);
+      g.add(petal);
+    }
+  }
+  const center = new THREE.Mesh(
+    new THREE.SphereGeometry(0.04, 8, 6),
+    new THREE.MeshStandardMaterial({ color: 0xffe066, roughness: 0.6 })
+  );
+  center.position.y = 0.07;
+  g.add(center);
+  return g;
+}
+
 function createZenEnvironment() {
   const rand = mulberry32(70707070);
   const group = new THREE.Group();
@@ -964,6 +1398,11 @@ function createZenEnvironment() {
   sunSprite.position.set(-22, 10, -18);
   sunSprite.scale.set(9, 9, 1);
   group.add(sunSprite);
+
+  // Warmes Rim-/Backlight zum Abheben der Silhouetten
+  const rim = new THREE.DirectionalLight(0xffdcb0, 0.45);
+  rim.position.set(16, 6, 14);
+  group.add(rim);
 
   // Sandfläche (flach, geharkt)
   const sand = new THREE.Mesh(
@@ -994,9 +1433,15 @@ function createZenEnvironment() {
   ];
   for (const sg of stoneGroups) {
     for (let i = 0; i < sg.n; i++) {
-      const s = makeZenStone(rand, 0.28 + rand() * 0.45, i === 0 ? 0x807a72 : 0x938c83);
-      s.position.set(sg.x + (rand() - 0.5) * 0.9, 0.12 + rand() * 0.1, sg.z + (rand() - 0.5) * 0.9);
+      const size = 0.28 + rand() * 0.45;
+      const s = makeZenStone(rand, size, i === 0 ? 0x807a72 : 0x938c83);
+      const px = sg.x + (rand() - 0.5) * 0.9;
+      const pz = sg.z + (rand() - 0.5) * 0.9;
+      s.position.set(px, 0.12 + rand() * 0.1, pz);
       group.add(s);
+      const sh = makeBlobShadow(size * 1.5, 0.5);
+      sh.position.set(px, 0.015, pz);
+      group.add(sh);
     }
   }
 
@@ -1036,21 +1481,71 @@ function createZenEnvironment() {
     s.position.set(pondCenter.x + Math.cos(a) * 2.0, 0.05, pondCenter.z + Math.sin(a) * 1.7);
     group.add(s);
   }
-  // Koi-Fische
-  const kois = [];
-  const koiColors = [0xff7a3d, 0xffffff, 0xffb066];
+  // Seerosenblätter + Lotusblüten auf der Wasseroberfläche
+  for (let i = 0; i < 7; i++) {
+    const pad = makeLilyPad(rand);
+    const a = rand() * Math.PI * 2;
+    const r = rand() * 1.5;
+    pad.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.03, pondCenter.z + Math.sin(a) * r);
+    group.add(pad);
+  }
   for (let i = 0; i < 3; i++) {
+    const lotus = makeLotus();
+    const a = rand() * Math.PI * 2;
+    const r = 0.3 + rand() * 1.1;
+    lotus.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.04, pondCenter.z + Math.sin(a) * r);
+    group.add(lotus);
+  }
+  // Wasser-Ringe: wachsen & blenden aus (dort, wo Koi auftauchen)
+  const ripples = [];
+  const rippleMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false,
+    toneMapped: false,
+    side: THREE.DoubleSide,
+  });
+  for (let i = 0; i < 3; i++) {
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 28), rippleMat.clone());
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.025;
+    ring.userData = { phase: rand() * 1000, period: 3 + rand() * 2 };
+    group.add(ring);
+    ripples.push(ring);
+  }
+  // Koi-Fische (mit Flossen, Fleck, Schwanzwedeln)
+  const kois = [];
+  const koiColors = [0xff7a3d, 0xffffff, 0xffb066, 0xff6a5a, 0xffd0a0];
+  for (let i = 0; i < 5; i++) {
     const koi = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: koiColors[i % 3], roughness: 0.6, metalness: 0 });
+    const bodyMat = new THREE.MeshStandardMaterial({ color: koiColors[i % koiColors.length], roughness: 0.55, metalness: 0 });
     const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), bodyMat);
-    body.scale.set(0.55, 0.28, 1);
+    body.scale.set(0.5, 0.26, 1);
     koi.add(body);
+    // Schwanz mit eigenem Pivot (wedelt)
+    const tailPivot = new THREE.Group();
+    tailPivot.position.z = -0.11;
     const tail = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.16, 6), bodyMat);
     tail.rotation.x = -Math.PI / 2;
-    tail.position.z = -0.16;
-    tail.scale.set(1, 0.4, 1);
-    koi.add(tail);
-    koi.userData = { radius: 0.6 + i * 0.35, speed: (0.35 + rand() * 0.25) * (i % 2 ? 1 : -1), phase: rand() * 6.28 };
+    tail.position.z = -0.06;
+    tail.scale.set(1, 0.35, 1);
+    tailPivot.add(tail);
+    koi.add(tailPivot);
+    // Seitenflossen
+    for (const dir of [-1, 1]) {
+      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.1, 4), bodyMat);
+      fin.rotation.z = dir * Math.PI / 2;
+      fin.position.set(dir * 0.06, 0, 0.02);
+      koi.add(fin);
+    }
+    // Kontrastfleck
+    const patchColor = koiColors[i % 2 === 0 ? 1 : 0];
+    const patch = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshStandardMaterial({ color: patchColor, roughness: 0.55 }));
+    patch.scale.set(0.5, 0.2, 0.7);
+    patch.position.set(0.01, 0.03, 0.03);
+    koi.add(patch);
+    koi.userData = { radius: 0.55 + i * 0.22, speed: (0.32 + rand() * 0.25) * (i % 2 ? 1 : -1), phase: rand() * 6.28, tail: tailPivot };
     group.add(koi);
     kois.push(koi);
   }
@@ -1077,15 +1572,82 @@ function createZenEnvironment() {
   }
   sakura.position.set(-4.5, 0, 2.5);
   group.add(sakura);
+  const sakuraShadow = makeBlobShadow(1.3, 0.4);
+  sakuraShadow.position.set(-4.4, 0.015, 2.5);
+  group.add(sakuraShadow);
 
-  // Steinlaterne + Torii
+  // Ahorn (Momiji) als Farbkontrast gegenüber der Sakura
+  const maple = makeMaple(rand);
+  maple.position.set(4.8, 0, 3.2);
+  group.add(maple);
+  const mapleShadow = makeBlobShadow(1.0, 0.4);
+  mapleShadow.position.set(4.8, 0.015, 3.2);
+  group.add(mapleShadow);
+
+  // Bambushain (wiegt in update)
+  const bamboo = makeBambooGrove(rand, -6.5, -3.5);
+  group.add(bamboo.group);
+
+  // Steinlaterne + Torii (mit Kontaktschatten)
   const lantern = makeLantern();
   lantern.position.set(1.6, 0, -1.8);
   group.add(lantern);
+  const lanternShadow = makeBlobShadow(0.4, 0.5);
+  lanternShadow.position.set(1.6, 0.015, -1.8);
+  group.add(lanternShadow);
   const torii = makeTorii();
   torii.position.set(-2, 0, -9);
   torii.rotation.y = 0.35;
   group.add(torii);
+  const toriiShadow = makeBlobShadow(1.8, 0.35);
+  toriiShadow.position.set(-2, 0.015, -9);
+  toriiShadow.scale.x *= 2; // länglich unter dem Tor
+  group.add(toriiShadow);
+
+  // Warm glühende Staubpartikel im tiefen Sonnenlicht
+  const DUST = 70;
+  const dustPos = new Float32Array(DUST * 3);
+  const dustMeta = [];
+  for (let i = 0; i < DUST; i++) {
+    dustMeta.push({ x: (rand() - 0.5) * 24, y: 0.3 + rand() * 3, z: (rand() - 0.5) * 24, sp: 0.1 + rand() * 0.2, ph: rand() * 6.28 });
+  }
+  const dustGeo = new THREE.BufferGeometry();
+  dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+  const dust = new THREE.Points(
+    dustGeo,
+    new THREE.PointsMaterial({
+      map: makeGlowTexture('rgba(255,240,210,0.9)', 'rgba(255,220,170,0.4)', 32),
+      color: 0xffe6c0,
+      size: 0.08,
+      transparent: true,
+      opacity: 0.7,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      sizeAttenuation: true,
+      fog: false,
+    })
+  );
+  dust.frustumCulled = false;
+  group.add(dust);
+
+  // Zarter, tief liegender Bodennebel (langsam driftende Weichnebel-Sprites)
+  const mistSprites = [];
+  const mistMat = () =>
+    new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(255,246,230,0.4)', 'rgba(250,235,210,0.16)'),
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.5,
+      fog: false,
+    });
+  for (let i = 0; i < 5; i++) {
+    const s = new THREE.Sprite(mistMat());
+    s.userData = { x: (rand() - 0.5) * 20, z: (rand() - 0.5) * 20, drift: (rand() - 0.5) * 0.15, ph: rand() * 6.28 };
+    s.position.set(s.userData.x, 0.35, s.userData.z);
+    s.scale.set(7 + rand() * 4, 2.2, 1);
+    group.add(s);
+    mistSprites.push(s);
+  }
 
   // Treibende Kirschblütenblätter
   const PET = 120;
@@ -1127,16 +1689,46 @@ function createZenEnvironment() {
     update(time) {
       waterTex.offset.y = -time * 0.03;
       waterTex.offset.x = Math.sin(time * 0.1) * 0.02;
+      bamboo.update(time);
       for (const koi of kois) {
         const d = koi.userData;
         const a = time * d.speed + d.phase;
         koi.position.set(
           pondCenter.x + Math.cos(a) * d.radius * 1.15,
-          0.0,
+          Math.sin(time * 2 + d.phase) * 0.01,
           pondCenter.z + Math.sin(a) * d.radius
         );
         koi.rotation.y = -a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
-        koi.position.y = 0.0 + Math.sin(time * 2 + d.phase) * 0.01;
+        d.tail.rotation.y = Math.sin(time * 8 + d.phase) * 0.5; // Schwanzwedeln
+      }
+      // Wasser-Ringe: wachsen von klein → groß und blenden aus
+      for (const ring of ripples) {
+        const t = ((time + ring.userData.phase) % ring.userData.period) / ring.userData.period;
+        const koi = kois[Math.floor(ring.userData.phase) % kois.length];
+        if (t < 0.02) {
+          ring.position.x = koi.position.x;
+          ring.position.z = koi.position.z;
+        }
+        const s = 0.08 + t * 0.5;
+        ring.scale.setScalar(s);
+        ring.material.opacity = 0.35 * (1 - t);
+      }
+      // Staub sanft driften lassen
+      const dp = dustGeo.attributes.position;
+      for (let i = 0; i < DUST; i++) {
+        const m = dustMeta[i];
+        dp.setXYZ(
+          i,
+          m.x + Math.sin(time * 0.3 + m.ph) * 0.6,
+          m.y + Math.sin(time * m.sp + m.ph) * 0.3,
+          m.z + Math.cos(time * 0.25 + m.ph) * 0.6
+        );
+      }
+      dp.needsUpdate = true;
+      // Bodennebel driftet
+      for (const s of mistSprites) {
+        s.position.x = s.userData.x + Math.sin(time * 0.08 + s.userData.ph) * 3 * s.userData.drift * 6;
+        s.material.opacity = 0.4 + Math.sin(time * 0.4 + s.userData.ph) * 0.12;
       }
       const H = 9;
       const p = petalGeo.attributes.position;
