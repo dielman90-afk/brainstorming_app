@@ -184,7 +184,7 @@ interactions.onControllerConnected = (handedness, grip) => {
 
 // Fortbewegung: VR über den Player-Rig (Gleiten/Snap-Turn/Teleport),
 // Desktop über WASD/Pfeile (siehe Animationsschleife).
-const locomotion = new Locomotion({ renderer, player, scene, controllers: interactions.controllers });
+const locomotion = new Locomotion({ renderer, player, camera, controllers: interactions.controllers });
 
 const UP = new THREE.Vector3(0, 1, 0);
 const moveKeys = { forward: false, back: false, left: false, right: false, up: false, down: false };

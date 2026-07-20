@@ -4,186 +4,116 @@ import * as THREE from 'three';
 // enthält). Da three.js die Parent-Matrix auf die XR-Kamera anwendet, bewegt
 // das Verschieben/Drehen dieser Gruppe den Nutzer durch die Welt.
 //
-//   • Linker Stick  → sanftes Gleiten in Blickrichtung
+//   • Linker Stick  → sanftes Gleiten in Blickrichtung (analog dosierbar)
 //   • Rechter Stick → ruckartiges Drehen (Snap-Turn, komfortabler)
-//   • Griff-Taste   → Teleport: Bodenpunkt anvisieren, loslassen = hinspringen
 //
-// Snap-Turn und Teleport rechnen um die Kopfposition, damit man sich nicht
-// „aus dem Körper heraus" dreht/springt.
+// Wichtig: Die Blickrichtung/Kopfposition wird aus der NUTZER-Kamera gelesen
+// (Kind des Rigs) – NICHT aus renderer.xr.getCamera(). Deren getWorldQuaternion
+// verwirft den Rig-Offset, wodurch die Bewegung nicht der Blickrichtung folgt.
+// Snap-Turn dreht um die Kopfposition, damit man sich nicht „aus dem Körper" dreht.
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SNAP_ANGLE = THREE.MathUtils.degToRad(30);
-const MOVE_SPEED = 2.6; // m/s
-const DEADZONE = 0.15;
+const MOVE_SPEED = 2.4; // m/s bei vollem Stickausschlag
+const DEADZONE = 0.18;
 const TURN_ON = 0.7;
-const TURN_OFF = 0.3;
-const TELE_MIN = 0.4;
-const TELE_MAX = 26;
+const TURN_OFF = 0.35;
+
+function deadzone(v) {
+  const a = Math.abs(v);
+  if (a < DEADZONE) return 0;
+  return Math.sign(v) * ((a - DEADZONE) / (1 - DEADZONE));
+}
 
 export class Locomotion {
-  constructor({ renderer, player, scene, controllers }) {
+  constructor({ renderer, player, camera, controllers }) {
     this.renderer = renderer;
     this.player = player;
-    this.scene = scene;
+    this.camera = camera; // Nutzer-Kamera (Kind des Rigs) – korrekte Weltpose
     this.controllers = controllers; // Referenz auf interactions.controllers
     this._snapArmed = false;
-    this._teleAiming = false;
-    this._teleTarget = null;
 
-    // Teleport-Markierung (Ring am Boden)
-    this.marker = new THREE.Group();
-    this.marker.visible = false;
-    const ring = new THREE.Mesh(
-      new THREE.RingGeometry(0.22, 0.32, 32),
-      new THREE.MeshBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthTest: false })
-    );
-    ring.rotation.x = -Math.PI / 2;
-    ring.renderOrder = 999;
-    this.marker.add(ring);
-    const dot = new THREE.Mesh(
-      new THREE.CircleGeometry(0.06, 20),
-      new THREE.MeshBasicMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthTest: false })
-    );
-    dot.rotation.x = -Math.PI / 2;
-    dot.renderOrder = 999;
-    this.marker.add(dot);
-    scene.add(this.marker);
-
-    this._v = new THREE.Vector3();
     this._fwd = new THREE.Vector3();
     this._right = new THREE.Vector3();
+    this._v = new THREE.Vector3();
     this._head = new THREE.Vector3();
-    this._origin = new THREE.Vector3();
-    this._dir = new THREE.Vector3();
-    this._rot = new THREE.Matrix4();
     this._q = new THREE.Quaternion();
-  }
-
-  _xrCam() {
-    return this.renderer.xr.getCamera();
-  }
-
-  _headWorld(out) {
-    this._xrCam().getWorldPosition(out);
-    return out;
   }
 
   _grabbing(c) {
     return Boolean(c.userData.grabbed || c.userData.grabbedTarget || c.userData.drawing);
   }
 
-  update(dt) {
-    if (!this.renderer.xr.isPresenting) {
-      this.marker.visible = false;
-      return;
+  // Thumbstick robust auslesen (xr-standard: axes[2]/[3]; Fallback [0]/[1])
+  _stick(gp) {
+    const a = gp.axes || [];
+    let x = a[2] ?? 0;
+    let y = a[3] ?? 0;
+    if (Math.abs(x) < 1e-3 && Math.abs(y) < 1e-3) {
+      x = a[0] ?? 0;
+      y = a[1] ?? 0;
     }
-    let anyAiming = false;
-    let teleportPoint = null;
+    return { x, y };
+  }
+
+  update(dt) {
+    if (!this.renderer.xr.isPresenting) return;
 
     for (const c of this.controllers) {
-      const src = c.userData.inputSource;
-      const gp = src?.gamepad;
-      if (!gp) continue;
-      const hand = c.userData.handedness;
-      const axes = gp.axes || [];
-      const buttons = gp.buttons || [];
-      // Thumbstick liegt bei xr-standard auf axes[2]/axes[3]
-      const sx = axes[2] ?? 0;
-      const sy = axes[3] ?? 0;
+      const gp = c.userData.inputSource?.gamepad;
+      if (!gp || this._grabbing(c)) continue;
+      const { x, y } = this._stick(gp);
 
-      if (hand === 'left' && !this._grabbing(c)) {
-        this._glide(sx, sy, dt);
-      }
-      if (hand === 'right' && !this._grabbing(c)) {
-        this._snap(sx);
-      }
-
-      // Teleport per Griff-Taste (squeeze = buttons[1]) an beiden Controllern
-      const squeeze = buttons[1]?.pressed;
-      if (squeeze) {
-        anyAiming = true;
-        const p = this._aimGround(c);
-        if (p) teleportPoint = p;
-      }
-    }
-
-    // Markierung anzeigen / Teleport beim Loslassen ausführen
-    if (anyAiming) {
-      this._teleAiming = true;
-      if (teleportPoint) {
-        this._teleTarget = teleportPoint.clone();
-        this.marker.position.copy(teleportPoint);
-        this.marker.visible = true;
+      if (c.userData.handedness === 'right') {
+        this._snap(x); // rechter Stick = drehen
       } else {
-        this._teleTarget = null;
-        this.marker.visible = false;
+        this._glide(deadzone(x), deadzone(y), dt); // links/unbekannt = gehen
       }
-    } else {
-      if (this._teleAiming && this._teleTarget) this._teleportTo(this._teleTarget);
-      this._teleAiming = false;
-      this._teleTarget = null;
-      this.marker.visible = false;
     }
   }
 
-  _glide(sx, sy, dt) {
-    const mag = Math.hypot(sx, sy);
-    if (mag < DEADZONE) return;
-    this._xrCam().getWorldQuaternion(this._q);
+  _glide(mvx, mvy, dt) {
+    if (mvx === 0 && mvy === 0) return;
+    // Blickrichtung (horizontal) aus der Nutzer-Kamera
+    this.camera.getWorldQuaternion(this._q);
     this._fwd.set(0, 0, -1).applyQuaternion(this._q);
     this._fwd.y = 0;
-    if (this._fwd.lengthSq() < 1e-6) return;
+    if (this._fwd.lengthSq() < 1e-6) return; // schaut senkrecht → keine Richtung
     this._fwd.normalize();
     this._right.crossVectors(this._fwd, UP).normalize();
-    // Stick nach oben = -sy = vorwärts
-    this._v.copy(this._right).multiplyScalar(sx).addScaledVector(this._fwd, -sy);
+    // Stick nach oben (mvy < 0) = vorwärts; rechts (mvx > 0) = seitlich rechts
+    this._v.copy(this._right).multiplyScalar(mvx).addScaledVector(this._fwd, -mvy);
+    const len = this._v.length();
+    if (len < 1e-4) return;
+    if (len > 1) this._v.multiplyScalar(1 / len); // Diagonale nicht schneller
     this.player.position.addScaledVector(this._v, MOVE_SPEED * dt);
   }
 
-  _snap(sx) {
+  _snap(x) {
     if (!this._snapArmed) {
-      if (sx > TURN_ON) {
-        this._rotateAroundHead(-SNAP_ANGLE);
+      if (x > TURN_ON) {
+        this._rotateAroundHead(-SNAP_ANGLE); // Stick rechts = nach rechts drehen
         this._snapArmed = true;
-      } else if (sx < -TURN_ON) {
+      } else if (x < -TURN_ON) {
         this._rotateAroundHead(SNAP_ANGLE);
         this._snapArmed = true;
       }
-    } else if (Math.abs(sx) < TURN_OFF) {
-      this._snapArmed = false;
+    } else if (Math.abs(x) < TURN_OFF) {
+      this._snapArmed = false; // erst nach Zurückschnappen wieder auslösbar
     }
   }
 
   _rotateAroundHead(theta) {
-    const head = this._headWorld(this._head);
+    // Kopfposition aus der Nutzer-Kamera (inkl. Rig-Offset)
+    this.camera.getWorldPosition(this._head);
     const p = this.player;
-    p.position.sub(head).applyAxisAngle(UP, theta).add(head);
+    p.position.sub(this._head).applyAxisAngle(UP, theta).add(this._head);
     p.rotateOnWorldAxis(UP, theta);
-  }
-
-  // Strahl vom Controller auf die Bodenebene (y = 0)
-  _aimGround(c) {
-    this._rot.extractRotation(c.matrixWorld);
-    this._origin.setFromMatrixPosition(c.matrixWorld);
-    this._dir.set(0, 0, -1).applyMatrix4(this._rot).normalize();
-    if (this._dir.y > -0.02) return null; // zeigt nicht nach unten
-    const t = -this._origin.y / this._dir.y;
-    if (t < TELE_MIN || t > TELE_MAX) return null;
-    return this._origin.clone().addScaledVector(this._dir, t).setY(0.02);
-  }
-
-  _teleportTo(point) {
-    const head = this._headWorld(this._head);
-    this.player.position.x += point.x - head.x;
-    this.player.position.z += point.z - head.z;
   }
 
   reset() {
     this.player.position.set(0, 0, 0);
     this.player.quaternion.identity();
     this._snapArmed = false;
-    this._teleAiming = false;
-    this._teleTarget = null;
-    this.marker.visible = false;
   }
 }

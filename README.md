@@ -32,8 +32,8 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   (Gruppe mit Kamera + Controllern) bewegt den Nutzer durch die Welt. **Desktop:**
   WASD/Pfeile bewegen, Q/E runter/hoch – die gewohnte Orbit-Ansicht und
   Karten-Bedienung bleiben erhalten. **VR:** linker Stick = sanftes Gleiten in
-  Blickrichtung, rechter Stick = Snap-Turn (komfortables ruckartiges Drehen),
-  Griff-Taste = Teleport (Bodenpunkt anvisieren, loslassen = hinspringen).
+  Blickrichtung (analog dosierbar), rechter Stick = Snap-Turn (komfortables
+  ruckartiges Drehen).
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Handgelenk-Menü** (linker Controller, 2-Spalten-Raster): *Neue Karte*,
@@ -100,7 +100,7 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 │   ├── main.js             Szene, XR-Session (AR→VR-Fallback), Verdrahtung
 │   ├── cards.js            IdeaCard + CardManager (Halbkreis-Anordnung, Serialisierung)
 │   ├── interactions.js     Controller-Raycasting/Grab + Maus-Fallback
-│   ├── locomotion.js       Fortbewegung (Player-Rig): VR-Gleiten/Snap-Turn/Teleport
+│   ├── locomotion.js       Fortbewegung (Player-Rig): VR-Gleiten + Snap-Turn
 │   ├── wristMenu.js        Menü-Panel am Handgelenk
 │   ├── keyboard.js         Virtuelle 3D-Tastatur (Fallback)
 │   ├── speech.js           Web Speech API Wrapper
@@ -190,9 +190,8 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 
 | Aktion | Bedienung |
 |---|---|
-| **Bewegen (Gleiten)** | **Linker Daumenstick** – gleitet in Blickrichtung durch die Welt |
+| **Bewegen (Gleiten)** | **Linker Daumenstick** – gleitet in Blickrichtung durch die Welt (analog dosierbar) |
 | **Drehen (Snap-Turn)** | **Rechter Daumenstick links/rechts** – dreht ruckartig (komfortabel) |
-| **Teleport** | **Griff-Taste halten** → Bodenpunkt anvisieren (Ring) → loslassen = hinspringen |
 | Karte greifen/verschieben | Mit dem Controller-Ray anvisieren, **Trigger halten**, loslassen zum Ablegen |
 | Kartengröße | Karte greifen, dann **Daumenstick hoch/runter** |
 | Karte auswählen | Kurz mit dem Trigger antippen (Cyan-Rahmen) |
