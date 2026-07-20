@@ -18,14 +18,18 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   Quest 3), Fallback auf `immersive-vr`.
 - **Vier virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
   externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
-  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Blumen,
-  Fluss samt Wasserfall, kreisenden Vögeln, 3D-Wolken – auch unter den Inseln –
-  und schwebenden Mini-Inseln) → **🌌 Nachthimmel** (Sternenfeld, Mond und
-  natürlicher **Mars-Untergrund** mit Kratern, Felsen und Hügeln) →
-  **🪷 Zen-Garten** (geharkter Sand, Koi-Teich, Steinlaterne, Torii,
-  Kirschblütenbaum mit treibenden Blütenblättern) → **🌐 Studio** (schlichter
-  heller Verlauf). Keine Umgebung hat ein Boden-Raster; filmisches Tone-Mapping
-  und weiche Beleuchtung sorgen für einen weniger blockigen Look. Die Auswahl
+  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Büschen,
+  Pilzen, Blumen, Fluss samt Wasserfall mit Schaum & Regenbogen, hängenden Ranken
+  unter den Inseln, kreisenden Vögeln, Schmetterlingen, 3D-Wolken – auch unter den
+  Inseln –, fernen Insel-Silhouetten und schwebenden Mini-Inseln) →
+  **🌌 Nachthimmel** (Sternenfeld, Mond und natürlicher **Mars-Untergrund** mit
+  Kratern, Felsen und Hügeln) → **🪷 Zen-Garten** (geharkter Sand, Koi-Teich mit
+  Seerosen, Lotus & Wasser-Ringen, Bambushain, Kirschblüten- und Ahornbaum,
+  Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel) →
+  **🌐 Studio** (schlichter heller Verlauf). Keine Umgebung hat ein Boden-Raster;
+  filmisches Tone-Mapping, weiche Beleuchtung, gebackenes Vertex-Shading und
+  gefälschte Kontaktschatten (Blob-Shadows) sorgen für Tiefe ohne teure
+  Echtzeit-Schatten. Die Auswahl
   wird gemerkt; eine reine VR-Session startet direkt in der zuletzt genutzten
   Umgebung (sonst Himmelsinsel).
 - **Fortbewegung durch die Landschaft** (`src/locomotion.js`): Ein Player-Rig
