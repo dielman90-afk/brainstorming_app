@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk';
 
 const MODEL = 'claude-sonnet-4-6';
 
-export const ACTIONS = ['related', 'cluster', 'summary', 'topic', 'whiteboard'];
+export const ACTIONS = ['related', 'cluster', 'summary', 'topic', 'whiteboard', 'critic'];
 
 const IDEAS_SCHEMA = {
   type: 'object',
@@ -63,6 +63,8 @@ function buildPrompt(action, { selectedIdea, ideas = [], topic }) {
   switch (action) {
     case 'related':
       return `${board}\n\nAusgewählte Karte: „${selectedIdea}“\n\nGeneriere 4 bis 6 neue, verwandte Ideen zur ausgewählten Karte. Vermeide Duplikate zu bestehenden Karten.`;
+    case 'critic':
+      return `${board}\n\nAusgewählte Karte: „${selectedIdea}“\n\nDu bist der Advocatus Diaboli (Devil's Advocate). Nenne 3 bis 5 kritische Einwände, Risiken, Schwachstellen oder Gegenargumente zur ausgewählten Karte. Sei sachlich und konstruktiv – keine Beleidigungen, sondern echte Denkanstöße. Jeder Einwand ist ein kurzer Kartentext (max. ca. 12 Wörter), ohne einleitende Floskeln.`;
     case 'cluster': {
       const numbered = ideas.map((t, i) => `${i}: ${t}`).join('\n');
       return `Karten auf dem Board (mit Index):\n${numbered}\n\nGruppiere die Karten in 2 bis 4 thematische Cluster. Jede Karte gehört zu höchstens einem Cluster. Gib je Cluster einen kurzen, prägnanten Namen (1–3 Wörter) und die Liste der zugehörigen Karten-Indizes zurück.`;
@@ -100,6 +102,16 @@ function mockPayload(action, payload) {
         { text: 'Skizze: Zentrales Konzept aus der Zeichnung' },
         { text: 'Skizze: Verbindung zwischen zwei Elementen' },
         { text: 'Skizze: Offene Frage aus dem Diagramm' },
+      ],
+    };
+  }
+  if (action === 'critic') {
+    return {
+      ideas: [
+        { text: `Mock-Kritik: „${payload.selectedIdea}“ – Wer braucht das wirklich?` },
+        { text: 'Mock-Kritik: Zu teuer in der Umsetzung?' },
+        { text: 'Mock-Kritik: Gibt es das schon von der Konkurrenz?' },
+        { text: 'Mock-Kritik: Größtes Risiko bei der Skalierung?' },
       ],
     };
   }
@@ -198,7 +210,9 @@ let client;
 
 export async function generateIdeas(action, payload = {}) {
   if (!ACTIONS.includes(action)) throw badRequest(`Unbekannte Aktion: ${action}`);
-  if (action === 'related' && !payload.selectedIdea) throw badRequest('selectedIdea fehlt.');
+  if ((action === 'related' || action === 'critic') && !payload.selectedIdea) {
+    throw badRequest('selectedIdea fehlt.');
+  }
   if (action === 'topic' && !payload.topic?.trim?.()) throw badRequest('topic fehlt.');
   if (action === 'whiteboard') {
     if (typeof payload.image !== 'string' || !payload.image) throw badRequest('image (Base64-PNG) fehlt.');

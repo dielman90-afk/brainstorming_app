@@ -16,21 +16,26 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 
 - **Mixed Reality / VR:** Startet bevorzugt als `immersive-ar` (Passthrough auf der
   Quest 3), Fallback auf `immersive-vr`.
-- **Drei virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
+- **Vier virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
   externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
-  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Nadel- und
-  Laubbäumen, Blumen, Wasserfall samt Teich, kreisenden Vögeln, treibenden
-  Wolken und schwebenden Mini-Inseln) → **🌌 Nachthimmel** (Sternenfeld, Mond,
-  leuchtendes Boden-Grid) → **🌐 Studio** (schlichter heller Verlauf). Die
-  Auswahl wird gemerkt; eine reine VR-Session startet direkt in der zuletzt
-  genutzten Umgebung (sonst Himmelsinsel).
+  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Blumen,
+  Fluss samt Wasserfall, kreisenden Vögeln, 3D-Wolken – auch unter den Inseln –
+  und schwebenden Mini-Inseln) → **🌌 Nachthimmel** (Sternenfeld, Mond und
+  natürlicher **Mars-Untergrund** mit Kratern, Felsen und Hügeln) →
+  **🪷 Zen-Garten** (geharkter Sand, Koi-Teich, Steinlaterne, Torii,
+  Kirschblütenbaum mit treibenden Blütenblättern) → **🌐 Studio** (schlichter
+  heller Verlauf). Keine Umgebung hat ein Boden-Raster; filmisches Tone-Mapping
+  und weiche Beleuchtung sorgen für einen weniger blockigen Look. Die Auswahl
+  wird gemerkt; eine reine VR-Session startet direkt in der zuletzt genutzten
+  Umgebung (sonst Himmelsinsel).
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Handgelenk-Menü** (linker Controller, 2-Spalten-Raster): *Neue Karte*,
-  *Themen-Start*, *Verwandte Ideen*, *Cluster anwenden*, *Zusammenfassen*,
-  *Farbe*, *Verbinden*, *Karte löschen*, *Alles löschen* (mit
-  Zweifach-Bestätigung), *Umgebung umschalten*. Buttons werden mit dem Ray des
-  anderen Controllers geklickt.
+  *Themen-Start*, *Verwandte Ideen*, *Kritiker*, *Cluster anwenden*,
+  *Zusammenfassen*, *Farbe*, *Verbinden*, *Zone*, *Timer*, *Whiteboard*,
+  *Karte löschen*, *Alles löschen* (mit Zweifach-Bestätigung),
+  *Umgebung umschalten*. Buttons werden mit dem Ray des anderen Controllers
+  geklickt.
 - **KI-Funktionen** (Server-Proxy → Anthropic Messages API mit Structured
   Outputs/JSON-Schema):
   - **Themen-Start:** Thema nennen → Claude füllt das Board mit 8–10 Start-Ideen.
@@ -40,6 +45,8 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
     die Karten werden räumlich in Cluster-Spalten sortiert, pro Cluster
     eingefärbt und mit einer 📌-Titelkarte versehen.
   - **Zusammenfassen:** Das ganze Board als eine Karte.
+  - **😈 Kritiker (Advocatus Diaboli):** Nennt 3–5 kritische Einwände, Risiken
+    oder Gegenargumente zur ausgewählten Karte – als rote Karten.
 - **Kartenfarben:** 7 Farben pro Karte (mit leuchtendem Akzentstreifen am linken
   Rand) – am Desktop über die Farbpunkte im Rechtsklick-Menü, in VR über
   „🎨 Farbe“ (wechselt zyklisch). Cluster färben automatisch.
@@ -62,8 +69,15 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   gehaltenem Trigger. Verschieben über die Griffleiste oben (greifen wie eine
   Karte), Größe 0,6×–2,5× per ➕/➖, Mausrad über der Griffleiste oder Stick beim
   Halten. Zeichnung, Position und Größe werden mitgespeichert und exportiert.
+- **🗂️ Zonen / Rahmen:** Beschriftete, halbtransparente Flächen zum räumlichen
+  Gruppieren von Karten (z. B. „To Do / Doing / Done“). Greifbar zum Verschieben,
+  skalierbar, per ✎ umbenennbar, 🎨 einfärbbar und ✕ löschbar. Werden im Board
+  gespeichert und exportiert.
+- **⏱️ Timer / Timebox:** Schwebende Uhr für moderierte Runden mit Presets
+  (1/3/5/10 min), Start/Pause, Reset, Fortschrittsbalken und Gong bei Ablauf.
+  Über das Menü ein-/ausblendbar, greifbar zum Positionieren.
 - **Automatisches Speichern:** Das Board (Texte, Positionen, Farben,
-  Verbindungen und Whiteboard-Zeichnung) wird laufend im Browser gespeichert
+  Verbindungen, Zonen und Whiteboard-Zeichnung) wird laufend im Browser gespeichert
   (localStorage) und beim nächsten Öffnen wiederhergestellt – auch nach einem
   Browser-Neustart. Gilt pro Gerät/Browser.
 - **Board-Export/-Import** als JSON (Desktop-Overlay, Buttons „Export“/„Import“) –
@@ -85,8 +99,10 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 │   ├── speech.js           Web Speech API Wrapper
 │   ├── ai.js               Client für den Server-Proxy
 │   ├── boardState.js       JSON-Export/-Import + Autosave
-│   ├── environments.js     Drei prozedurale VR-Umgebungen (Insel, Nacht, Studio)
+│   ├── environments.js     Vier prozedurale VR-Umgebungen (Insel, Mars-Nacht, Zen, Studio)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
+│   ├── zones.js            Räumliche Zonen/Rahmen zum Gruppieren von Karten
+│   ├── timer.js            Schwebende Timebox-Uhr mit Gong
 │   └── textPanel.js        Canvas-Textur-Panels für Text
 ├── server/
 │   ├── index.js            Express-Proxy (lokale Entwicklung)
@@ -124,12 +140,12 @@ Einfach `https://localhost:5173` öffnen:
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |
 | Karte löschen | **Rechtsklick → „Karte löschen“** oder **Entf/Backspace** bei ausgewählter Karte |
-| Kontextmenü | **Rechtsklick** auf eine Karte: Bearbeiten · Verwandte Ideen · Verbinden · Farbe · Löschen |
+| Kontextmenü | **Rechtsklick** auf eine Karte: Bearbeiten · Verwandte Ideen · Kritiker · Verbinden · Farbe · Löschen |
 | Karte einfärben | Rechtsklick → Farbpunkt anklicken |
 | Karten verbinden | Rechtsklick → „Verbinden mit…“ → Ziel-Karte anklicken (nochmal = Linie entfernen, Esc = abbrechen) |
 | Neue Karte | Text ins Eingabefeld, „Neue Karte“ oder Enter |
 | Themen-Start | Thema ins Eingabefeld → „🚀 Themen-Start“ |
-| KI-Funktionen | Buttons „Verwandte Ideen“ / „Cluster anwenden“ / „Zusammenfassen“ |
+| KI-Funktionen | Buttons „Verwandte Ideen“ / „Kritiker“ / „Cluster anwenden“ / „Zusammenfassen“ |
 | Export/Import | Buttons im Overlay |
 
 ## Auf der Quest 3 öffnen
@@ -176,7 +192,7 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
 | Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |
-| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel → Studio) |
+| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Studio) |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
 Die Position des Handgelenk-Menüs lässt sich in `src/wristMenu.js`

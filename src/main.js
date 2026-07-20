@@ -10,6 +10,8 @@ import { requestAI, requestIdeas } from './ai.js';
 import { downloadBoard, importBoardFile, saveBoardLocal, loadBoardLocal } from './boardState.js';
 import { createEnvironments } from './environments.js';
 import { Whiteboard } from './whiteboard.js';
+import { ZoneManager } from './zones.js';
+import { Timer } from './timer.js';
 import { createTextPanel } from './textPanel.js';
 
 // --- Szene & Renderer ---
@@ -124,11 +126,23 @@ cardManager.onCardRemoved = (card) => connectionManager.removeForCard(card);
 
 const whiteboard = new Whiteboard(scene, { onSketch: () => handleAction('sketch') });
 
+const zoneManager = new ZoneManager(scene);
+zoneManager.onRename = async (zone) => {
+  const text = await getUserText();
+  if (text) {
+    zone.setTitle(text);
+    setStatus('Zone umbenannt.');
+  }
+};
+
+const timer = new Timer(scene);
+
 function boardToJSON() {
   return {
     ...cardManager.toJSON(),
     connections: connectionManager.toJSON(),
     whiteboard: whiteboard.toJSON(),
+    zones: zoneManager.toJSON(),
   };
 }
 
@@ -136,6 +150,7 @@ function applyBoardJSON(data) {
   cardManager.loadJSON(data);
   connectionManager.loadJSON(data?.connections ?? []);
   whiteboard.loadJSON(data?.whiteboard);
+  zoneManager.loadJSON(data?.zones ?? []);
 }
 
 const keyboard = new VirtualKeyboard(scene);
@@ -150,6 +165,8 @@ const interactions = new InteractionManager({
     ...(renderer.xr.isPresenting && wristMenu.group.visible ? wristMenu.buttons : []),
     ...keyboard.uiTargets,
     ...whiteboard.uiTargets,
+    ...zoneManager.uiTargets,
+    ...timer.uiTargets,
   ],
 });
 interactions.onControllerConnected = (handedness, grip) => {
@@ -245,6 +262,34 @@ async function handleAction(action) {
         return;
       }
       selected.setColor(selected.colorIndex + 1);
+      return;
+    }
+    if (action === 'zone') {
+      const zone = zoneManager.addZone({ title: 'Neue Zone', colorIndex: zoneManager.zones.length });
+      zone.placeInFront(camera);
+      setStatus('🗂️ Zone erstellt – Karten davor gruppieren. ✎ zum Umbenennen.');
+      return;
+    }
+    if (action === 'timer') {
+      const shown = timer.toggle(camera);
+      setStatus(shown ? '⏱️ Timebox eingeblendet.' : 'Timebox ausgeblendet.');
+      return;
+    }
+    if (action === 'critic') {
+      const selected = cardManager.selected;
+      if (!selected) {
+        setStatus('Bitte zuerst eine Karte auswählen.');
+        return;
+      }
+      busy = true;
+      setStatus('😈 Advocatus Diaboli prüft die Idee…', 0);
+      const result = await requestIdeas('critic', {
+        selectedIdea: selected.text,
+        ideas: cardManager.cards.map((c) => c.text),
+      });
+      const cards = cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      for (const card of cards) card.setColor(4); // Rot = kritische Einwände
+      setStatus(`😈 ${result.length} kritische Einwände zu „${selected.text}“`);
       return;
     }
     if (action === 'connect') {
@@ -385,8 +430,11 @@ async function newCardFlow() {
 
 document.getElementById('btn-new').addEventListener('click', () => handleAction('new'));
 document.getElementById('btn-related').addEventListener('click', () => handleAction('related'));
+document.getElementById('btn-critic').addEventListener('click', () => handleAction('critic'));
 document.getElementById('btn-cluster').addEventListener('click', () => handleAction('cluster'));
 document.getElementById('btn-summary').addEventListener('click', () => handleAction('summary'));
+document.getElementById('btn-zone').addEventListener('click', () => handleAction('zone'));
+document.getElementById('btn-timer').addEventListener('click', () => handleAction('timer'));
 document.getElementById('btn-topic').addEventListener('click', () => handleAction('topic'));
 document.getElementById('btn-whiteboard').addEventListener('click', () => handleAction('whiteboard'));
 document.getElementById('btn-export').addEventListener('click', () => downloadBoard(boardToJSON()));
@@ -453,6 +501,9 @@ contextMenu.addEventListener('click', (e) => {
   } else if (action === 'related') {
     cardManager.select(card);
     handleAction('related');
+  } else if (action === 'critic') {
+    cardManager.select(card);
+    handleAction('critic');
   } else if (action === 'connect') {
     cardManager.select(card);
     startLinking();
@@ -623,7 +674,7 @@ if (savedBoard === null) {
 let lastSavedSnapshot = '';
 setInterval(() => {
   const data = boardToJSON();
-  const snapshot = JSON.stringify([data.cards, data.connections]);
+  const snapshot = JSON.stringify([data.cards, data.connections, data.zones]);
   if (snapshot !== lastSavedSnapshot) {
     lastSavedSnapshot = snapshot;
     saveBoardLocal(data);
@@ -643,9 +694,11 @@ addEventListener('resize', () => {
 const clock = new THREE.Clock();
 
 renderer.setAnimationLoop(() => {
+  const elapsed = clock.getElapsedTime();
   interactions.update();
   connectionManager.update();
-  if (envIndex >= 0) environments[envIndex].update?.(clock.getElapsedTime());
+  if (envIndex >= 0) environments[envIndex].update?.(elapsed);
+  timer.update(elapsed);
   if (!renderer.xr.isPresenting) controls.update();
   renderer.render(scene, camera);
 
@@ -670,6 +723,8 @@ window.__app = {
   keyboard,
   wristMenu,
   whiteboard,
+  zoneManager,
+  timer,
   controls,
   handleAction,
   setStatus,
