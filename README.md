@@ -28,6 +28,12 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   und weiche Beleuchtung sorgen für einen weniger blockigen Look. Die Auswahl
   wird gemerkt; eine reine VR-Session startet direkt in der zuletzt genutzten
   Umgebung (sonst Himmelsinsel).
+- **Fortbewegung durch die Landschaft** (`src/locomotion.js`): Ein Player-Rig
+  (Gruppe mit Kamera + Controllern) bewegt den Nutzer durch die Welt. **Desktop:**
+  WASD/Pfeile bewegen, Q/E runter/hoch – die gewohnte Orbit-Ansicht und
+  Karten-Bedienung bleiben erhalten. **VR:** linker Stick = sanftes Gleiten in
+  Blickrichtung, rechter Stick = Snap-Turn (komfortables ruckartiges Drehen),
+  Griff-Taste = Teleport (Bodenpunkt anvisieren, loslassen = hinspringen).
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Handgelenk-Menü** (linker Controller, 2-Spalten-Raster): *Neue Karte*,
@@ -94,6 +100,7 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 │   ├── main.js             Szene, XR-Session (AR→VR-Fallback), Verdrahtung
 │   ├── cards.js            IdeaCard + CardManager (Halbkreis-Anordnung, Serialisierung)
 │   ├── interactions.js     Controller-Raycasting/Grab + Maus-Fallback
+│   ├── locomotion.js       Fortbewegung (Player-Rig): VR-Gleiten/Snap-Turn/Teleport
 │   ├── wristMenu.js        Menü-Panel am Handgelenk
 │   ├── keyboard.js         Virtuelle 3D-Tastatur (Fallback)
 │   ├── speech.js           Web Speech API Wrapper
@@ -135,6 +142,7 @@ Einfach `https://localhost:5173` öffnen:
 | Aktion | Bedienung |
 |---|---|
 | Umschauen | Linke Maustaste ziehen (Orbit), Scrollen = Zoom |
+| **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
@@ -182,6 +190,9 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 
 | Aktion | Bedienung |
 |---|---|
+| **Bewegen (Gleiten)** | **Linker Daumenstick** – gleitet in Blickrichtung durch die Welt |
+| **Drehen (Snap-Turn)** | **Rechter Daumenstick links/rechts** – dreht ruckartig (komfortabel) |
+| **Teleport** | **Griff-Taste halten** → Bodenpunkt anvisieren (Ring) → loslassen = hinspringen |
 | Karte greifen/verschieben | Mit dem Controller-Ray anvisieren, **Trigger halten**, loslassen zum Ablegen |
 | Kartengröße | Karte greifen, dann **Daumenstick hoch/runter** |
 | Karte auswählen | Kurz mit dem Trigger antippen (Cyan-Rahmen) |

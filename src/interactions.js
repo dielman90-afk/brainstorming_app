@@ -3,9 +3,12 @@ import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFa
 
 // Ray-Casting + Grab für XR-Controller sowie Maus-Fallback am Desktop.
 export class InteractionManager {
-  constructor({ renderer, scene, camera, cardManager, getUiTargets }) {
+  constructor({ renderer, scene, camera, cardManager, getUiTargets, xrRoot }) {
     this.renderer = renderer;
     this.scene = scene;
+    // Controller/Grips hängen am Player-Rig (falls vorhanden), damit sie sich
+    // bei der Fortbewegung mit dem Nutzer mitbewegen; sonst direkt an der Szene.
+    this.xrRoot = xrRoot || scene;
     this.camera = camera;
     this.cardManager = cardManager;
     this.getUiTargets = getUiTargets;
@@ -68,7 +71,7 @@ export class InteractionManager {
         controller.userData.inputSource = null;
       });
 
-      this.scene.add(controller, grip);
+      this.xrRoot.add(controller, grip);
       this.controllers.push(controller);
     }
   }
