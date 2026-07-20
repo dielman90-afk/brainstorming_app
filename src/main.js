@@ -12,6 +12,7 @@ import { createEnvironments } from './environments.js';
 import { Whiteboard } from './whiteboard.js';
 import { ZoneManager } from './zones.js';
 import { Timer } from './timer.js';
+import { Locomotion } from './locomotion.js';
 import { createTextPanel } from './textPanel.js';
 
 // --- Szene & Renderer ---
@@ -23,7 +24,14 @@ scene.background = DESKTOP_BG;
 
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 60);
 camera.position.set(0, 1.6, 1.2);
-scene.add(camera);
+
+// Player-Rig: Kamera (und in XR die Controller) hängen hier. three.js wendet die
+// Parent-Matrix auf die XR-Kamera an → Verschieben/Drehen dieser Gruppe bewegt
+// den Nutzer durch die Welt (Grundlage für Desktop- und VR-Fortbewegung).
+const player = new THREE.Group();
+player.name = 'player';
+player.add(camera);
+scene.add(player);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(devicePixelRatio);
@@ -161,6 +169,7 @@ const interactions = new InteractionManager({
   scene,
   camera,
   cardManager,
+  xrRoot: player,
   getUiTargets: () => [
     ...(renderer.xr.isPresenting && wristMenu.group.visible ? wristMenu.buttons : []),
     ...keyboard.uiTargets,
@@ -172,6 +181,57 @@ const interactions = new InteractionManager({
 interactions.onControllerConnected = (handedness, grip) => {
   wristMenu.registerGrip(handedness, grip);
 };
+
+// Fortbewegung: VR über den Player-Rig (Gleiten/Snap-Turn/Teleport),
+// Desktop über WASD/Pfeile (siehe Animationsschleife).
+const locomotion = new Locomotion({ renderer, player, scene, controllers: interactions.controllers });
+
+const UP = new THREE.Vector3(0, 1, 0);
+const moveKeys = { forward: false, back: false, left: false, right: false, up: false, down: false };
+const MOVE_KEYMAP = {
+  KeyW: 'forward', ArrowUp: 'forward',
+  KeyS: 'back', ArrowDown: 'back',
+  KeyA: 'left', ArrowLeft: 'left',
+  KeyD: 'right', ArrowRight: 'right',
+  KeyE: 'up', KeyQ: 'down',
+};
+function isTypingTarget() {
+  const tag = document.activeElement?.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA';
+}
+window.addEventListener('keydown', (e) => {
+  if (isTypingTarget()) return;
+  const k = MOVE_KEYMAP[e.code];
+  if (k) moveKeys[k] = true;
+});
+window.addEventListener('keyup', (e) => {
+  const k = MOVE_KEYMAP[e.code];
+  if (k) moveKeys[k] = false;
+});
+
+// Desktop: Standpunkt (Kamera + Orbit-Ziel) gemeinsam durch die Welt schieben,
+// sodass die gewohnte Orbit-Ansicht und Karten-Bedienung erhalten bleiben.
+const _moveFwd = new THREE.Vector3();
+const _moveRight = new THREE.Vector3();
+const _moveDelta = new THREE.Vector3();
+function updateDesktopMovement(dt) {
+  const f = (moveKeys.forward ? 1 : 0) - (moveKeys.back ? 1 : 0);
+  const s = (moveKeys.right ? 1 : 0) - (moveKeys.left ? 1 : 0);
+  const u = (moveKeys.up ? 1 : 0) - (moveKeys.down ? 1 : 0);
+  if (!f && !s && !u) return;
+  camera.getWorldDirection(_moveFwd);
+  _moveFwd.y = 0;
+  if (_moveFwd.lengthSq() < 1e-6) _moveFwd.set(0, 0, -1);
+  _moveFwd.normalize();
+  _moveRight.crossVectors(_moveFwd, UP).normalize();
+  _moveDelta.set(0, 0, 0).addScaledVector(_moveFwd, f).addScaledVector(_moveRight, s);
+  if (_moveDelta.lengthSq() > 0) _moveDelta.normalize();
+  const speed = 3.4;
+  _moveDelta.multiplyScalar(speed * dt);
+  _moveDelta.y += u * speed * dt;
+  camera.position.add(_moveDelta);
+  controls.target.add(_moveDelta);
+}
 
 // --- Status: DOM-Zeile am Desktop + schwebendes HUD in XR ---
 
@@ -629,6 +689,7 @@ let recenterOnNextFrame = false;
 
 renderer.xr.addEventListener('sessionstart', () => {
   controls.enabled = false;
+  locomotion.reset(); // Fortbewegungs-Rig zentriert starten
   if (xrMode === 'immersive-ar') {
     // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
     envIndex = -1;
@@ -645,6 +706,11 @@ renderer.xr.addEventListener('sessionstart', () => {
 
 renderer.xr.addEventListener('sessionend', () => {
   controls.enabled = true;
+  // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
+  locomotion.reset();
+  camera.position.set(0, 1.6, 1.2);
+  controls.target.set(0, 1.4, -0.6);
+  controls.update();
   envIndex = savedEnvIndex() ?? -1;
   applyEnvironment();
   wristMenu.setVisible(false);
@@ -692,14 +758,23 @@ addEventListener('resize', () => {
 });
 
 const clock = new THREE.Clock();
+let elapsed = 0;
 
 renderer.setAnimationLoop(() => {
-  const elapsed = clock.getElapsedTime();
+  // getDelta() ist die einzige Zeitquelle; elapsed wird selbst akkumuliert
+  // (getElapsedTime würde den Delta verbrauchen und dt auf 0 setzen).
+  const dt = Math.min(0.1, clock.getDelta());
+  elapsed += dt;
   interactions.update();
   connectionManager.update();
   if (envIndex >= 0) environments[envIndex].update?.(elapsed);
   timer.update(elapsed);
-  if (!renderer.xr.isPresenting) controls.update();
+  if (renderer.xr.isPresenting) {
+    locomotion.update(dt);
+  } else {
+    updateDesktopMovement(dt);
+    controls.update();
+  }
   renderer.render(scene, camera);
 
   // Nach dem ersten gerenderten XR-Frame hat die XR-Kamera eine gültige Pose –
@@ -725,6 +800,8 @@ window.__app = {
   whiteboard,
   zoneManager,
   timer,
+  player,
+  locomotion,
   controls,
   handleAction,
   setStatus,
