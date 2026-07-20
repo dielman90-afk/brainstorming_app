@@ -57,7 +57,7 @@ export function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1
   texture.colorSpace = THREE.SRGBColorSpace;
   const mesh = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({ map: texture, transparent: true })
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false })
   );
   return mesh;
 }

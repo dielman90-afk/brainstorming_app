@@ -27,14 +27,38 @@ const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.xr.enabled = true;
+// Filmisches Tone-Mapping für weichere Lichtverläufe (weg vom flachen Look).
+// UI/Karten sind per material.toneMapped = false ausgenommen, bleiben also knackig.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
 
 // Umgebungen: Passthrough/Weiß (-1) sowie drei virtuelle Welten aus
 // environments.js, per 🌐-Button zyklisch durchschaltbar.
-const grid = new THREE.GridHelper(8, 24, 0x4a4550, 0x2b2830);
-scene.add(grid);
+// Dezenter, weicher Boden statt Raster für die schlichte Desktop-/Weiß-Ansicht.
+function makeDesktopFloor() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(128, 128, 8, 128, 128, 128);
+  g.addColorStop(0, '#2b2933');
+  g.addColorStop(1, 'rgba(18, 17, 22, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(
+    new THREE.CircleGeometry(6, 64),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = -0.01;
+  return mesh;
+}
+const desktopFloor = makeDesktopFloor();
+scene.add(desktopFloor);
 
 const environments = createEnvironments(scene);
 const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
@@ -47,13 +71,16 @@ function applyEnvironment() {
   });
   if (envIndex >= 0) {
     scene.background = environments[envIndex].background;
-    grid.visible = false;
+    scene.fog = environments[envIndex].fog ?? null;
+    desktopFloor.visible = false;
   } else if (inPassthrough) {
     scene.background = null;
-    grid.visible = false;
+    scene.fog = null;
+    desktopFloor.visible = false;
   } else {
     scene.background = DESKTOP_BG;
-    grid.visible = true;
+    scene.fog = null;
+    desktopFloor.visible = true;
   }
 }
 
@@ -646,5 +673,5 @@ window.__app = {
   controls,
   handleAction,
   setStatus,
-  env: { environments, grid, current: () => envIndex, cycle: cycleEnvironment },
+  env: { environments, desktopFloor, current: () => envIndex, cycle: cycleEnvironment },
 };
