@@ -1,10 +1,12 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // Drei umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
-//   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Wolken und schwebenden Mini-Inseln
-//   🌌 Nachthimmel  – Sternenfeld, Mond und leuchtendes Boden-Grid
+//   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
+//   🌌 Nachthimmel  – Sternenfeld, Mond und rötlicher Mars-Untergrund
 //   🌐 Studio       – die schlichte helle Gradient-Umgebung
 // Jede Umgebung: { id, name, background, group, update?(time) }
+// Keine Umgebung besitzt ein Boden-Raster.
 
 // Deterministisches Rauschen auf Positionsbasis – Nahtvertices (gleiche Position)
 // verschieben sich identisch, es entstehen keine Risse im Mesh.
@@ -24,12 +26,14 @@ function mulberry32(seed) {
 }
 
 // Himmelskuppel mit vertikalem Farbverlauf (von innen sichtbar)
-function makeDome(topColor, bottomColor, radius = 40) {
+function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44) {
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
+    fog: false,
     uniforms: {
       topColor: { value: new THREE.Color(topColor) },
+      horizonColor: { value: new THREE.Color(horizonColor) },
       bottomColor: { value: new THREE.Color(bottomColor) },
     },
     vertexShader: `
@@ -40,14 +44,18 @@ function makeDome(topColor, bottomColor, radius = 40) {
       }`,
     fragmentShader: `
       uniform vec3 topColor;
+      uniform vec3 horizonColor;
       uniform vec3 bottomColor;
       varying vec3 vPos;
       void main() {
-        float h = normalize(vPos).y * 0.5 + 0.5;
-        gl_FragColor = vec4(mix(bottomColor, topColor, pow(h, 1.5)), 1.0);
+        float h = normalize(vPos).y;
+        vec3 col = h > 0.0
+          ? mix(horizonColor, topColor, pow(h, 0.8))
+          : mix(horizonColor, bottomColor, pow(-h, 0.8));
+        gl_FragColor = vec4(col, 1.0);
       }`,
   });
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(radius, 32, 16), material);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(radius, 40, 24), material);
   dome.renderOrder = -1; // zuerst zeichnen, damit Sterne/Sprites darüber liegen
   return dome;
 }
@@ -67,33 +75,9 @@ function makeGlowTexture(inner, mid = inner, size = 128) {
   return texture;
 }
 
-function makeCloudTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 128;
-  const ctx = canvas.getContext('2d');
-  const blobs = [
-    [70, 80, 50],
-    [128, 60, 62],
-    [190, 82, 48],
-    [100, 66, 40],
-    [160, 88, 44],
-  ];
-  for (const [x, y, r] of blobs) {
-    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(255,255,255,0.95)');
-    g.addColorStop(0.7, 'rgba(255,255,255,0.45)');
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 256, 128);
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-// Vertices radial verschieben (organische Kanten), dann Flat-Shading-Facetten
-function displaceRadial(geometry, amount, yAmount = 0) {
+// Vertices radial verschieben (organische Kanten). smooth=true behält die
+// Indizierung, damit die Wandflächen glatt statt facettiert schattiert werden.
+function displaceRadial(geometry, amount, yAmount = 0, smooth = false) {
   const pos = geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
@@ -106,6 +90,10 @@ function displaceRadial(geometry, amount, yAmount = 0) {
     pos.setZ(i, z * n);
     if (yAmount) pos.setY(i, y + (hashNoise(z, x, y) - 0.5) * yAmount);
   }
+  if (smooth) {
+    geometry.computeVertexNormals();
+    return geometry;
+  }
   const nonIndexed = geometry.toNonIndexed();
   nonIndexed.computeVertexNormals();
   return nonIndexed;
@@ -115,34 +103,35 @@ function makeTree(rand) {
   const tree = new THREE.Group();
   const trunkHeight = 0.5 + rand() * 0.5;
   const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.08, trunkHeight, 6),
-    new THREE.MeshLambertMaterial({ color: 0x6b4a2f, flatShading: true })
+    new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8),
+    new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.9, metalness: 0 })
   );
   trunk.position.y = trunkHeight / 2;
   tree.add(trunk);
 
-  const foliageColor = rand() > 0.5 ? 0x3e8e4f : 0x55a763;
+  const foliageColor = rand() > 0.5 ? 0x3e8e4f : 0x57ab68;
+  const foliageMaterial = new THREE.MeshStandardMaterial({
+    color: foliageColor,
+    roughness: 0.85,
+    metalness: 0,
+  });
   if (rand() > 0.45) {
-    // Nadelbaum: gestapelte Kegel
+    // Nadelbaum: gestapelte, glatt schattierte Kegel
     const layers = 2 + Math.floor(rand() * 2);
     for (let i = 0; i < layers; i++) {
       const radius = 0.45 - i * 0.12;
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry(radius, 0.55, 7),
-        new THREE.MeshLambertMaterial({ color: foliageColor, flatShading: true })
-      );
+      const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, 0.6, 14), foliageMaterial);
       cone.position.y = trunkHeight + 0.15 + i * 0.32;
       tree.add(cone);
     }
   } else {
-    // Laubbaum: knubbelige Ikosaeder-Krone aus zwei Blobs
-    const crownMaterial = new THREE.MeshLambertMaterial({ color: foliageColor, flatShading: true });
-    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34, 0), crownMaterial);
-    crown.position.y = trunkHeight + 0.24;
-    crown.scale.y = 0.85;
+    // Laubbaum: weiche, runde Krone aus zwei Icosaeder-Blobs (detail 1 = glatter)
+    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(0.36, 1), foliageMaterial);
+    crown.position.y = trunkHeight + 0.26;
+    crown.scale.y = 0.88;
     tree.add(crown);
-    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(0.2, 0), crownMaterial);
-    blob.position.set(0.2 * (rand() > 0.5 ? 1 : -1), trunkHeight + 0.38, 0.12);
+    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 1), foliageMaterial);
+    blob.position.set(0.2 * (rand() > 0.5 ? 1 : -1), trunkHeight + 0.4, 0.12);
     tree.add(blob);
   }
   return tree;
@@ -152,9 +141,9 @@ function makeTree(rand) {
 function addGrassDecoration(group, rand, radius) {
   const flowerColors = [0xfff3b0, 0xffb3c1, 0xcdb4f6, 0xf8f9fa, 0xffd166];
   const flowers = new THREE.InstancedMesh(
-    new THREE.IcosahedronGeometry(0.02, 0),
-    new THREE.MeshLambertMaterial(),
-    42
+    new THREE.IcosahedronGeometry(0.025, 0),
+    new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0, emissiveIntensity: 0.2 }),
+    54
   );
   flowers.name = 'flowers';
   const dummy = new THREE.Object3D();
@@ -162,7 +151,7 @@ function addGrassDecoration(group, rand, radius) {
   for (let i = 0; i < flowers.count; i++) {
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.2 + rand() * 0.72);
-    dummy.position.set(Math.sin(angle) * r, 0.015, Math.cos(angle) * r);
+    dummy.position.set(Math.sin(angle) * r, 0.02, Math.cos(angle) * r);
     dummy.scale.setScalar(0.8 + rand() * 0.7);
     dummy.updateMatrix();
     flowers.setMatrixAt(i, dummy.matrix);
@@ -173,15 +162,15 @@ function addGrassDecoration(group, rand, radius) {
   group.add(flowers);
 
   const tufts = new THREE.InstancedMesh(
-    new THREE.ConeGeometry(0.022, 0.08, 5),
-    new THREE.MeshLambertMaterial({ color: 0x4c9a4a, flatShading: true }),
-    55
+    new THREE.ConeGeometry(0.024, 0.09, 6),
+    new THREE.MeshStandardMaterial({ color: 0x4c9a4a, roughness: 0.9, metalness: 0 }),
+    70
   );
   tufts.name = 'tufts';
   for (let i = 0; i < tufts.count; i++) {
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.15 + rand() * 0.78);
-    dummy.position.set(Math.sin(angle) * r, 0.035, Math.cos(angle) * r);
+    dummy.position.set(Math.sin(angle) * r, 0.045, Math.cos(angle) * r);
     dummy.rotation.set((rand() - 0.5) * 0.4, rand() * Math.PI, (rand() - 0.5) * 0.4);
     dummy.scale.setScalar(0.8 + rand() * 0.8);
     dummy.updateMatrix();
@@ -191,25 +180,120 @@ function addGrassDecoration(group, rand, radius) {
   group.add(tufts);
 }
 
-// Wasserfall an der Inselkante: Partikelstrom + kleiner Quellteich
+// Sanft animiertes Wasser: hellblaue Fläche mit fließenden Strähnen (Canvas-Textur,
+// deren V-Offset über die Zeit scrollt).
+function makeWaterTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const bg = ctx.createLinearGradient(0, 0, 0, 256);
+  bg.addColorStop(0, '#8fd2f0');
+  bg.addColorStop(1, '#5fb6e6');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, 64, 256);
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 8; i++) {
+    const x = 6 + Math.random() * 52;
+    ctx.globalAlpha = 0.3 + Math.random() * 0.4;
+    ctx.beginPath();
+    ctx.moveTo(x, -10);
+    for (let y = -10; y < 270; y += 20) {
+      ctx.lineTo(x + Math.sin(y * 0.08) * 4, y);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+// Kleiner Fluss von der Inselmitte zur Kante + Wasserfall über den Rand.
+// Ursprung: eine Quelle in der Mitte, aus der ein schmaler Bach zur Klippe läuft
+// und dort als Partikelstrom in die Tiefe stürzt.
 function makeWaterfall(rand, islandRadius) {
   const group = new THREE.Group();
   group.name = 'waterfall';
   const angle = 2.1;
-  const edgeX = Math.sin(angle) * (islandRadius - 0.35);
-  const edgeZ = Math.cos(angle) * (islandRadius - 0.35);
+  const edgeX = Math.sin(angle) * (islandRadius - 0.5);
+  const edgeZ = Math.cos(angle) * (islandRadius - 0.5);
   const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
 
-  const pond = new THREE.Mesh(
-    new THREE.CircleGeometry(0.5, 20),
-    new THREE.MeshLambertMaterial({ color: 0x7fc4e8 })
-  );
+  const waterTex = makeWaterTexture();
+  const waterMat = new THREE.MeshStandardMaterial({
+    map: waterTex,
+    color: 0xffffff,
+    roughness: 0.25,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.9,
+  });
+
+  // --- Quelle in der Inselmitte ---
+  const spring = new THREE.Mesh(new THREE.CircleGeometry(0.32, 24), waterMat);
+  spring.rotation.x = -Math.PI / 2;
+  spring.position.set(0.1, 0.02, 0.2);
+  group.add(spring);
+  // Kleiner Steinkranz um die Quelle
+  const ringMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 1, metalness: 0 });
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2 + rand();
+    const stone = new THREE.Mesh(new THREE.IcosahedronGeometry(0.07 + rand() * 0.05, 0), ringMat);
+    stone.position.set(0.1 + Math.cos(a) * 0.34, 0.03, 0.2 + Math.sin(a) * 0.34);
+    stone.rotation.set(rand(), rand(), rand());
+    group.add(stone);
+  }
+
+  // --- Flussbett als Band entlang einer weichen Kurve (Mitte → Klippe) ---
+  const curve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.1, 0.02, 0.2),
+    new THREE.Vector3(edgeX * 0.35 + 0.3, 0.02, edgeZ * 0.35 - 0.2),
+    new THREE.Vector3(edgeX * 0.7 - 0.2, 0.02, edgeZ * 0.7 + 0.3),
+    new THREE.Vector3(edgeX, 0.02, edgeZ),
+  ]);
+  const SEG = 60;
+  const up = new THREE.Vector3(0, 1, 0);
+  const riverPos = [];
+  const riverUv = [];
+  const riverIdx = [];
+  for (let i = 0; i <= SEG; i++) {
+    const t = i / SEG;
+    const p = curve.getPoint(t);
+    const tan = curve.getTangent(t);
+    const side = new THREE.Vector3().crossVectors(tan, up).normalize();
+    const halfW = 0.14 + t * 0.34; // schmal an der Quelle, breiter zur Klippe
+    riverPos.push(
+      p.x - side.x * halfW, 0.022, p.z - side.z * halfW,
+      p.x + side.x * halfW, 0.022, p.z + side.z * halfW
+    );
+    const v = t * 8;
+    riverUv.push(0, v, 1, v);
+    if (i < SEG) {
+      const a = i * 2;
+      riverIdx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  const riverGeo = new THREE.BufferGeometry();
+  riverGeo.setAttribute('position', new THREE.Float32BufferAttribute(riverPos, 3));
+  riverGeo.setAttribute('uv', new THREE.Float32BufferAttribute(riverUv, 2));
+  riverGeo.setIndex(riverIdx);
+  riverGeo.computeVertexNormals();
+  const river = new THREE.Mesh(riverGeo, waterMat);
+  group.add(river);
+
+  // --- Auffangbecken an der Kante, kurz bevor das Wasser stürzt ---
+  const pond = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), waterMat);
   pond.rotation.x = -Math.PI / 2;
-  pond.position.set(edgeX * 0.92, 0.012, edgeZ * 0.92);
-  pond.scale.x = 1.5;
+  pond.position.set(edgeX, 0.02, edgeZ);
+  pond.scale.x = 1.4;
   group.add(pond);
 
-  const count = 110;
+  // --- Sturz: Partikelstrom über die Klippe ---
+  const count = 150;
   const fallLength = 6;
   const positions = new Float32Array(count * 3);
   const meta = [];
@@ -217,7 +301,7 @@ function makeWaterfall(rand, islandRadius) {
     meta.push({
       speed: 1.7 + rand() * 0.9,
       offset: rand() * fallLength,
-      side: (rand() - 0.5) * 0.5,
+      side: (rand() - 0.5) * 0.7,
       jitter: (rand() - 0.5) * 0.1,
     });
   }
@@ -226,8 +310,8 @@ function makeWaterfall(rand, islandRadius) {
   const drops = new THREE.Points(
     geometry,
     new THREE.PointsMaterial({
-      color: 0xbfe3f7,
-      size: 0.055,
+      color: 0xdff2fc,
+      size: 0.06,
       transparent: true,
       opacity: 0.85,
       depthWrite: false,
@@ -236,11 +320,25 @@ function makeWaterfall(rand, islandRadius) {
   drops.frustumCulled = false;
   group.add(drops);
 
+  // Feiner Sprühnebel am Fuß des Wasserfalls
+  const mist = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(255,255,255,0.5)', 'rgba(220,240,255,0.2)'),
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.55,
+    })
+  );
   const outX = Math.sin(angle) * (islandRadius + 0.15);
   const outZ = Math.cos(angle) * (islandRadius + 0.15);
+  mist.position.set(outX, -1.2, outZ);
+  mist.scale.set(2.4, 2.4, 1);
+  group.add(mist);
+
   return {
     group,
     update(time) {
+      waterTex.offset.y = -time * 0.35;
       const pos = geometry.attributes.position;
       for (let i = 0; i < count; i++) {
         const m = meta[i];
@@ -253,6 +351,7 @@ function makeWaterfall(rand, islandRadius) {
         );
       }
       pos.needsUpdate = true;
+      mist.material.opacity = 0.45 + Math.sin(time * 2) * 0.1;
     },
   };
 }
@@ -263,7 +362,7 @@ function makeBirds(rand) {
   group.name = 'birds';
   const material = new THREE.MeshBasicMaterial({ color: 0x33404d, side: THREE.DoubleSide });
   const birds = [];
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     const bird = new THREE.Group();
     const wings = [];
     for (const dir of [-1, 1]) {
@@ -304,23 +403,58 @@ function makeBirds(rand) {
   };
 }
 
+// Volumetrisch wirkende Wolke: Cluster weicher Kugeln zu EINEM Mesh verschmolzen.
+// Als echtes 3D-Objekt (kein Billboard-Sprite) dreht sie sich NICHT mit der
+// Kopfbewegung – sie bleibt fest im Raum stehen.
+const CLOUD_MATERIAL = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  roughness: 1,
+  metalness: 0,
+  flatShading: false,
+});
+
+function makeCloud(rand, size = 1) {
+  const geos = [];
+  const puffs = 5 + Math.floor(rand() * 4);
+  for (let i = 0; i < puffs; i++) {
+    const s = (0.7 + rand() * 1.0) * size;
+    const g = new THREE.SphereGeometry(s, 12, 10);
+    g.translate(
+      (rand() - 0.5) * 3.4 * size,
+      (rand() - 0.5) * 0.7 * size,
+      (rand() - 0.5) * 1.8 * size
+    );
+    geos.push(g);
+  }
+  const merged = mergeGeometries(geos);
+  const cloud = new THREE.Mesh(merged, CLOUD_MATERIAL);
+  cloud.scale.y = 0.62; // flach drücken → Wolkenform
+  return cloud;
+}
+
 // Schwebende Insel: Grasplatte mit Erdrand + felsige, zerklüftete Unterseite
 function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4 } = {}) {
   const island = new THREE.Group();
 
-  const capGeometry = displaceRadial(new THREE.CylinderGeometry(radius, radius * 0.94, 0.3, 28, 1), 0.1);
+  // Grasfläche + Erdrand glatt schattiert (smooth=true) → weniger facettiert
+  const capGeometry = displaceRadial(
+    new THREE.CylinderGeometry(radius, radius * 0.94, 0.32, 48, 1),
+    0.08,
+    0,
+    true
+  );
   const cap = new THREE.Mesh(capGeometry, [
-    new THREE.MeshLambertMaterial({ color: 0x7a5c3d, flatShading: true }), // Erdrand
-    new THREE.MeshLambertMaterial({ color: 0x69b45a, flatShading: true }), // Gras
-    new THREE.MeshLambertMaterial({ color: 0x6b4f34, flatShading: true }), // Unterseite
+    new THREE.MeshStandardMaterial({ color: 0x8a6844, roughness: 1, metalness: 0 }), // Erdrand
+    new THREE.MeshStandardMaterial({ color: 0x6cbb5c, roughness: 0.95, metalness: 0 }), // Gras
+    new THREE.MeshStandardMaterial({ color: 0x6b4f34, roughness: 1, metalness: 0 }), // Unterseite
   ]);
-  cap.position.y = -0.17; // Grasfläche liegt bei y ≈ -0.02
+  cap.position.y = -0.18; // Grasfläche liegt bei y ≈ -0.02
   island.add(cap);
 
-  const rockGeometry = displaceRadial(new THREE.ConeGeometry(radius * 0.92, depth, 24, 5), 0.3, 0.25);
+  const rockGeometry = displaceRadial(new THREE.ConeGeometry(radius * 0.92, depth, 32, 6), 0.3, 0.25);
   const rock = new THREE.Mesh(
     rockGeometry,
-    new THREE.MeshLambertMaterial({ color: 0x7d6f5c, flatShading: true })
+    new THREE.MeshStandardMaterial({ color: 0x7d6f5c, roughness: 1, metalness: 0, flatShading: true })
   );
   rock.rotation.x = Math.PI; // Spitze nach unten
   rock.position.y = -0.3 - depth / 2;
@@ -330,7 +464,7 @@ function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4 } = {})
     const tree = makeTree(rand);
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.55 + rand() * 0.3);
-    tree.position.set(Math.sin(angle) * r, -0.03, Math.cos(angle) * r);
+    tree.position.set(Math.sin(angle) * r, -0.02, Math.cos(angle) * r);
     tree.rotation.y = rand() * Math.PI * 2;
     island.add(tree);
   }
@@ -338,11 +472,11 @@ function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4 } = {})
   for (let i = 0; i < rocks; i++) {
     const stone = new THREE.Mesh(
       new THREE.IcosahedronGeometry(0.12 + rand() * 0.2, 0),
-      new THREE.MeshLambertMaterial({ color: 0x8a8f96, flatShading: true })
+      new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 1, metalness: 0, flatShading: true })
     );
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.5 + rand() * 0.4);
-    stone.position.set(Math.sin(angle) * r, 0.02, Math.cos(angle) * r);
+    stone.position.set(Math.sin(angle) * r, 0.03, Math.cos(angle) * r);
     stone.scale.y = 0.6 + rand() * 0.5;
     stone.rotation.set(rand(), rand(), rand());
     island.add(stone);
@@ -356,25 +490,30 @@ function createIslandEnvironment() {
   const group = new THREE.Group();
   group.name = 'env-island';
 
-  group.add(makeDome(0x3f83c9, 0xcfe8f7));
+  group.add(makeDome(0x3f83c9, 0xdceff7, 0xcfe8f7));
 
   const sun = new THREE.Sprite(
     new THREE.SpriteMaterial({
       map: makeGlowTexture('rgba(255,250,225,1)', 'rgba(255,238,180,0.55)'),
       transparent: true,
       depthWrite: false,
+      fog: false,
     })
   );
   sun.position.set(18, 24, -24);
-  sun.scale.set(10, 10, 1);
+  sun.scale.set(11, 11, 1);
   group.add(sun);
 
-  group.add(new THREE.HemisphereLight(0xd9ecff, 0x9c8a6f, 1.1));
-  const sunlight = new THREE.DirectionalLight(0xfff2d9, 1.6);
+  group.add(new THREE.HemisphereLight(0xdcefff, 0x8f9b7a, 1.15));
+  const sunlight = new THREE.DirectionalLight(0xfff2d9, 1.9);
   sunlight.position.set(10, 18, -8);
   group.add(sunlight);
+  // Sanftes Fülllicht von unten, damit Wolken- und Inselunterseiten nicht absaufen
+  const fill = new THREE.DirectionalLight(0xbfd4e8, 0.35);
+  fill.position.set(-6, -10, 4);
+  group.add(fill);
 
-  // Hauptinsel, auf der der Nutzer steht – mit Blumen, Gras und Wasserfall
+  // Hauptinsel, auf der der Nutzer steht – mit Blumen, Gras, Fluss und Wasserfall
   group.add(buildIsland(rand, { radius: 5, depth: 4.5, trees: 3, rocks: 5 }));
   addGrassDecoration(group, rand, 4.4);
   const waterfall = makeWaterfall(rand, 5);
@@ -389,6 +528,7 @@ function createIslandEnvironment() {
     { angle: 2.4, dist: 19, y: 2.0, scale: 0.5 },
     { angle: 3.9, dist: 23, y: -3.0, scale: 0.65 },
     { angle: 5.2, dist: 16, y: 3.5, scale: 0.3 },
+    { angle: 1.5, dist: 26, y: -5.5, scale: 0.55 },
   ];
   miniConfigs.forEach((cfg, i) => {
     const mini = buildIsland(rand, { radius: 5, depth: 4, trees: 2, rocks: 2 });
@@ -400,38 +540,48 @@ function createIslandEnvironment() {
     minis.push(mini);
   });
 
-  // Treibende Wolken
-  const cloudMaterial = new THREE.SpriteMaterial({
-    map: makeCloudTexture(),
-    transparent: true,
-    opacity: 0.85,
-    depthWrite: false,
-  });
+  // Wolken in mehreren Höhenschichten – auch UNTER den Inseln sichtbar.
   const clouds = [];
-  for (let i = 0; i < 10; i++) {
-    const cloud = new THREE.Sprite(cloudMaterial);
-    cloud.name = `cloud-${i}`;
-    const width = 5 + rand() * 5;
-    cloud.scale.set(width, width * 0.45, 1);
-    cloud.userData.baseX = (rand() - 0.5) * 60;
-    cloud.userData.speed = 0.15 + rand() * 0.25;
-    cloud.position.set(cloud.userData.baseX, 4 + rand() * 9, (rand() - 0.5) * 56);
-    group.add(cloud);
-    clouds.push(cloud);
+  const cloudLayers = [
+    { count: 9, yMin: 5, yMax: 13, rMin: 15, rMax: 36, size: 1.2 }, // hoch am Himmel
+    { count: 7, yMin: -2, yMax: 3.5, rMin: 16, rMax: 32, size: 1.0 }, // auf Augenhöhe
+    { count: 9, yMin: -13, yMax: -4, rMin: 8, rMax: 28, size: 1.35 }, // tief unter den Inseln
+  ];
+  for (const layer of cloudLayers) {
+    for (let i = 0; i < layer.count; i++) {
+      const cloud = makeCloud(rand, layer.size);
+      const a = rand() * Math.PI * 2;
+      const r = layer.rMin + rand() * (layer.rMax - layer.rMin);
+      const y = layer.yMin + rand() * (layer.yMax - layer.yMin);
+      cloud.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
+      cloud.rotation.y = rand() * Math.PI * 2;
+      cloud.userData.baseX = cloud.position.x;
+      cloud.userData.baseZ = cloud.position.z;
+      cloud.userData.speed = 0.1 + rand() * 0.22;
+      cloud.userData.range = 26;
+      clouds.push(cloud);
+      group.add(cloud);
+    }
   }
+
+  // Leichter Tiefennebel (fern), damit ferne Inseln/Wolken sanft ausblenden –
+  // Karten in Reichweite (< 12 m) bleiben unberührt.
+  const fog = new THREE.Fog(0xcfe4f2, 18, 46);
 
   return {
     id: 'island',
     name: '🏝 Himmelsinsel',
-    background: new THREE.Color(0x8fc4e8),
+    background: new THREE.Color(0x9cc9e8),
+    fog,
     group,
     update(time) {
       for (const mini of minis) {
         mini.position.y = mini.userData.baseY + Math.sin(time * 0.4 + mini.userData.phase) * 0.5;
       }
       for (const cloud of clouds) {
+        const range = cloud.userData.range;
         const x = cloud.userData.baseX + time * cloud.userData.speed;
-        cloud.position.x = ((x % 60) + 60 + 30) % 60 - 30;
+        cloud.position.x = ((x + range) % (range * 2) + range * 2) % (range * 2) - range;
       }
       waterfall.update(time);
       birds.update(time);
@@ -439,12 +589,72 @@ function createIslandEnvironment() {
   };
 }
 
+// Rötlicher, leicht hügeliger Mars-Untergrund (glatt schattiert, kein Raster)
+function makeMarsGround(rand) {
+  const group = new THREE.Group();
+  const geo = new THREE.CircleGeometry(20, 96);
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const r = Math.hypot(x, y);
+    // Dünen + feines Rauschen; Zentrum flach halten, damit man eben steht
+    const dunes = Math.sin(x * 0.35) * Math.cos(y * 0.42) * 0.45;
+    const grain = (hashNoise(x * 0.7, y * 0.7, 3) - 0.5) * 0.35;
+    const falloff = Math.min(1, r / 3);
+    pos.setZ(i, (dunes + grain) * falloff);
+  }
+  geo.computeVertexNormals();
+  const ground = new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({ color: 0xa24e2e, roughness: 1, metalness: 0 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.03;
+  group.add(ground);
+
+  // Verstreute Felsbrocken
+  const rockMat = new THREE.MeshStandardMaterial({ color: 0x7d3a24, roughness: 1, metalness: 0, flatShading: true });
+  const darkRockMat = new THREE.MeshStandardMaterial({ color: 0x5f2c1b, roughness: 1, metalness: 0, flatShading: true });
+  for (let i = 0; i < 26; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = 3 + rand() * 15;
+    const s = 0.15 + rand() * 0.6;
+    const rock = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(s, 0),
+      rand() > 0.5 ? rockMat : darkRockMat
+    );
+    rock.position.set(Math.cos(a) * r, s * 0.35, Math.sin(a) * r);
+    rock.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
+    rock.scale.y = 0.6 + rand() * 0.6;
+    group.add(rock);
+  }
+
+  // Ein paar größere Tafelberge/Mesas am Horizont
+  const mesaMat = new THREE.MeshStandardMaterial({ color: 0x8f4327, roughness: 1, metalness: 0, flatShading: true });
+  for (let i = 0; i < 6; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = 22 + rand() * 10;
+    const h = 2 + rand() * 4;
+    const mesa = new THREE.Mesh(
+      displaceRadial(new THREE.CylinderGeometry(1.6 + rand() * 1.4, 2.4 + rand() * 1.6, h, 10, 1), 0.25),
+      mesaMat
+    );
+    mesa.position.set(Math.cos(a) * r, h / 2 - 0.5, Math.sin(a) * r);
+    mesa.rotation.y = rand() * Math.PI;
+    group.add(mesa);
+  }
+
+  return group;
+}
+
 function createNightEnvironment() {
   const rand = mulberry32(42424242);
   const group = new THREE.Group();
   group.name = 'env-night';
 
-  group.add(makeDome(0x16244a, 0x04070d));
+  // Nachthimmel mit rötlich getöntem Mars-Horizont
+  group.add(makeDome(0x0b1533, 0x2a1512, 0x160a08));
 
   const starTexture = makeGlowTexture('rgba(255,255,255,1)', 'rgba(210,225,255,0.6)', 64);
   const starsGroup = new THREE.Group();
@@ -455,14 +665,12 @@ function createNightEnvironment() {
   for (const shell of shells) {
     const positions = new Float32Array(shell.count * 3);
     for (let i = 0; i < shell.count; i++) {
-      // Gleichverteilung auf Kugelschale, leicht über dem Horizont bevorzugt
       const u = rand() * 2 - 1;
       const phi = rand() * Math.PI * 2;
-      const r = 36 + rand() * 2;
+      const r = 38 + rand() * 2;
       const s = Math.sqrt(1 - u * u);
       positions[i * 3] = s * Math.cos(phi) * r;
-      // Immer über dem Horizont – Sterne unterhalb des Bodens wirkten fehlerhaft
-      positions[i * 3 + 1] = Math.max(0.03 * r, Math.abs(u) * r);
+      positions[i * 3 + 1] = Math.max(0.05 * r, Math.abs(u) * r);
       positions[i * 3 + 2] = s * Math.sin(phi) * r;
     }
     const geometry = new THREE.BufferGeometry();
@@ -477,6 +685,7 @@ function createNightEnvironment() {
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         sizeAttenuation: true,
+        fog: false,
       })
     );
     starsGroup.add(stars);
@@ -484,8 +693,8 @@ function createNightEnvironment() {
   group.add(starsGroup);
 
   const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(1.4, 24, 16),
-    new THREE.MeshBasicMaterial({ color: 0xe8ecf2 })
+    new THREE.SphereGeometry(1.4, 32, 20),
+    new THREE.MeshBasicMaterial({ color: 0xe8ecf2, fog: false })
   );
   moon.position.set(14, 16, -24);
   group.add(moon);
@@ -494,28 +703,30 @@ function createNightEnvironment() {
       map: makeGlowTexture('rgba(220,232,255,0.9)', 'rgba(180,200,255,0.35)'),
       transparent: true,
       depthWrite: false,
+      fog: false,
     })
   );
   moonGlow.position.copy(moon.position);
   moonGlow.scale.set(8, 8, 1);
   group.add(moonGlow);
 
-  const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(11, 48),
-    new THREE.MeshBasicMaterial({ color: 0x0a1220 })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.02;
-  group.add(floor);
+  // Beleuchtung, damit der Mars-Untergrund plastisch (rötlich) erscheint
+  group.add(new THREE.HemisphereLight(0x3a4a72, 0x2a120a, 0.7));
+  const moonLight = new THREE.DirectionalLight(0xcdd9ff, 0.7);
+  moonLight.position.copy(moon.position);
+  group.add(moonLight);
+  // Warmes, sehr schwaches Bodenlicht für die typische Marsröte
+  const groundGlow = new THREE.DirectionalLight(0xff7a4d, 0.25);
+  groundGlow.position.set(-8, 3, 6);
+  group.add(groundGlow);
 
-  const glowGrid = new THREE.GridHelper(22, 44, 0x00e5cc, 0x0d4a5a);
-  glowGrid.position.y = -0.015;
-  group.add(glowGrid);
+  group.add(makeMarsGround(rand));
 
   return {
     id: 'night',
     name: '🌌 Nachthimmel',
-    background: new THREE.Color(0x04070d),
+    background: new THREE.Color(0x0a0605),
+    fog: new THREE.Fog(0x1c0d09, 22, 48),
     group,
     update(time) {
       starsGroup.rotation.y = time * 0.004;
@@ -523,21 +734,40 @@ function createNightEnvironment() {
   };
 }
 
+// Weiche, radiale Bodentextur (kein Raster) für das Studio
+function makeSoftFloorTexture(center, edge) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(128, 128, 10, 128, 128, 128);
+  g.addColorStop(0, center);
+  g.addColorStop(1, edge);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 function createStudioEnvironment() {
   const group = new THREE.Group();
   group.name = 'env-studio';
 
-  group.add(makeDome(0x6f9dc9, 0xeaf1f8));
+  group.add(makeDome(0x6f9dc9, 0xf2f7fb, 0xeaf1f8));
+
+  group.add(new THREE.HemisphereLight(0xffffff, 0xc7d2dc, 1.2));
 
   const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(8, 48),
-    new THREE.MeshBasicMaterial({ color: 0xf0f4f8 })
+    new THREE.CircleGeometry(9, 64),
+    new THREE.MeshStandardMaterial({
+      map: makeSoftFloorTexture('#ffffff', '#d3deea'),
+      roughness: 0.9,
+      metalness: 0,
+    })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.02;
   group.add(floor);
-
-  group.add(new THREE.GridHelper(8, 24, 0xb8c7d6, 0xdde6ee));
 
   return {
     id: 'studio',
