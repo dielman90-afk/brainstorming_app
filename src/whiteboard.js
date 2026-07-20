@@ -34,6 +34,15 @@ const BTN_ACTIVE = '#ffb454';
 const TXT = '#eef1f5';
 const TXT_ACTIVE = '#231a0c';
 
+// Feste Zeichenreihenfolge für alle (durchscheinenden) Whiteboard-Ebenen.
+// Ohne diese sortiert Three.js die transparenten Flächen nach Kameradistanz;
+// bei bewegtem Blick kippt die Reihenfolge und die fast opake Leiste wird mal
+// über, mal unter den Buttons gemalt – die Toolbar „flackert" durchsichtig.
+// depthWrite bleibt aus (Ebenen verdecken sich nicht gegenseitig über die
+// Tiefe), depthTest bleibt an (das Board wird korrekt von näheren Objekten im
+// Raum verdeckt). Gleiche Technik wie beim Handgelenk-Menü.
+const LAYER = { back: 1, frame: 2, surface: 3, panel: 4, divider: 5, button: 6 };
+
 function roundRectPath(ctx, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
@@ -205,11 +214,13 @@ export class Whiteboard {
       })
     );
     this.surface.userData.drawSurface = this;
+    this._layer(this.surface, LAYER.surface);
     this.group.add(this.surface);
 
     // Dezenter, weich abgerundeter Rahmen mit Schlagschatten (statt harter Kanten)
     const frame = this._makeFrame();
     frame.position.z = -0.006;
+    this._layer(frame, LAYER.frame);
     this.group.add(frame);
 
     // Rückwand, damit das Board von hinten solide wirkt
@@ -220,6 +231,7 @@ export class Whiteboard {
     back.material.toneMapped = false;
     back.rotation.y = Math.PI;
     back.position.z = -0.01;
+    this._layer(back, LAYER.back);
     this.group.add(back);
 
     // Griffleiste oben: greifen = verschieben, Stick beim Halten = Größe
@@ -239,7 +251,9 @@ export class Whiteboard {
       doubleSided: false,
     });
     handleLabel.mesh.position.z = 0.001;
+    this._layer(handleLabel.mesh, LAYER.button);
     handleBg.add(handleLabel.mesh);
+    this._layer(handleBg, LAYER.panel);
     handleBg.position.set(0, BOARD_H / 2 + 0.06, 0.004);
     handleBg.userData.grabTarget = {
       group: this.group,
@@ -253,6 +267,18 @@ export class Whiteboard {
 
     this._buildToolbar();
     scene.add(this.group);
+  }
+
+  // Ebene in die feste Zeichenreihenfolge einordnen (siehe LAYER-Kommentar).
+  _layer(mesh, order) {
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of mats) {
+      if (!m) continue;
+      m.transparent = true;
+      m.depthWrite = false;
+    }
+    mesh.renderOrder = order;
+    return mesh;
   }
 
   // --- Rahmen mit weichem Schatten ---
@@ -375,6 +401,7 @@ export class Whiteboard {
     mesh.userData.setHover = (h) => render(this._isActive(key) ? 'active' : h ? 'hover' : 'base');
     render(this._isActive(key) ? 'active' : 'base');
 
+    this._layer(mesh, LAYER.button);
     this._renderers.push({ key, render });
     this.buttons.push(mesh);
     this.group.add(mesh);
@@ -439,6 +466,7 @@ export class Whiteboard {
     const bar = makeRoundedPanel(barW, barH, { fill: BAR_FILL, border: BAR_BORDER });
     bar.material.toneMapped = false;
     bar.position.set(0, y, 0.001);
+    this._layer(bar, LAYER.panel);
     this.group.add(bar);
 
     // Buttons platzieren
@@ -454,6 +482,7 @@ export class Whiteboard {
         new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.12, toneMapped: false })
       );
       div.position.set(x, y, 0.003);
+      this._layer(div, LAYER.divider);
       this.group.add(div);
       x += SEP / 2 + 0.001;
     };
