@@ -824,6 +824,337 @@ function createNightEnvironment() {
   };
 }
 
+// --- Zen-Garten ---
+
+// Sandfläche mit weichen, geharkten Wellenlinien (konzentrisch, organisch – kein Raster)
+function makeSandTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 1024;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 1024, 1024);
+  g.addColorStop(0, '#e7d4b0');
+  g.addColorStop(1, '#dcc59c');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 1024, 1024);
+  // körnung
+  ctx.fillStyle = 'rgba(150,120,80,0.05)';
+  for (let i = 0; i < 2600; i++) {
+    ctx.fillRect(Math.random() * 1024, Math.random() * 1024, 2, 2);
+  }
+  // konzentrische Harkspuren um mehrere Zentren
+  ctx.strokeStyle = 'rgba(180,150,110,0.5)';
+  ctx.lineWidth = 2.5;
+  const centers = [
+    [512, 512], [250, 300], [780, 700], [720, 260],
+  ];
+  for (const [cx, cy] of centers) {
+    for (let r = 22; r < 220; r += 22) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function makeZenStone(rand, size, color = 0x8b8680) {
+  const geo = new THREE.IcosahedronGeometry(size, 1);
+  const pos = geo.attributes.position;
+  for (let v = 0; v < pos.count; v++) {
+    const f = 0.82 + hashNoise(pos.getX(v) * 30, pos.getY(v) * 30, pos.getZ(v) * 30) * 0.36;
+    pos.setXYZ(v, pos.getX(v) * f, pos.getY(v) * f, pos.getZ(v) * f);
+  }
+  geo.computeVertexNormals();
+  const stone = new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({ color, roughness: 1, metalness: 0, flatShading: true })
+  );
+  stone.scale.y = 0.55 + rand() * 0.3;
+  stone.rotation.set(rand(), rand() * Math.PI * 2, rand());
+  return stone;
+}
+
+// Steinlaterne (Ishidōrō): gestapelte Steinelemente mit warmem Glimmen
+function makeLantern() {
+  const group = new THREE.Group();
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9a938a, roughness: 1, metalness: 0 });
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.12, 8), stoneMat);
+  base.position.y = 0.06;
+  group.add(base);
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.42, 8), stoneMat);
+  post.position.y = 0.33;
+  group.add(post);
+  const platform = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.14, 0.06, 8), stoneMat);
+  platform.position.y = 0.57;
+  group.add(platform);
+  // Lichtkasten mit warmem Glimmen
+  const box = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.13, 0.13, 0.18, 6),
+    new THREE.MeshStandardMaterial({ color: 0xffcf8a, emissive: 0xff9e3d, emissiveIntensity: 0.9, roughness: 0.7 })
+  );
+  box.position.y = 0.69;
+  group.add(box);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.16, 6), stoneMat);
+  roof.position.y = 0.86;
+  group.add(roof);
+  const finial = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), stoneMat);
+  finial.position.y = 0.96;
+  group.add(finial);
+  const glow = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(255,200,120,0.9)', 'rgba(255,150,60,0.35)'),
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+    })
+  );
+  glow.position.y = 0.69;
+  glow.scale.set(1.2, 1.2, 1);
+  group.add(glow);
+  return group;
+}
+
+// Torii-Tor als ruhiger Landmark am Rand
+function makeTorii() {
+  const group = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0xb23a1f, roughness: 0.85, metalness: 0 });
+  const h = 3.2;
+  const span = 2.4;
+  for (const sx of [-1, 1]) {
+    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, h, 12), mat);
+    pillar.position.set(sx * span * 0.5, h / 2, 0);
+    group.add(pillar);
+  }
+  const topBeam = new THREE.Mesh(new THREE.BoxGeometry(span + 1.1, 0.3, 0.42), mat);
+  topBeam.position.y = h - 0.05;
+  topBeam.rotation.z = 0.02;
+  group.add(topBeam);
+  const lintel = new THREE.Mesh(new THREE.BoxGeometry(span + 0.2, 0.22, 0.34), mat);
+  lintel.position.y = h - 0.6;
+  group.add(lintel);
+  const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.5, 0.3), mat);
+  ridge.position.y = h - 0.32;
+  group.add(ridge);
+  return group;
+}
+
+function createZenEnvironment() {
+  const rand = mulberry32(70707070);
+  const group = new THREE.Group();
+  group.name = 'env-zen';
+
+  // Warme, ruhige Spätnachmittags-Kuppel
+  group.add(makeDome(0x8fb6d8, 0xf6e3c6, 0xe4cba2));
+
+  // Weiches, warmes Licht
+  group.add(new THREE.HemisphereLight(0xffe9cf, 0xb8a888, 1.05));
+  const sun = new THREE.DirectionalLight(0xffe0b3, 1.7);
+  sun.position.set(-12, 9, -6);
+  group.add(sun);
+  const sunSprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(255,240,210,1)', 'rgba(255,210,150,0.5)'),
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+    })
+  );
+  sunSprite.position.set(-22, 10, -18);
+  sunSprite.scale.set(9, 9, 1);
+  group.add(sunSprite);
+
+  // Sandfläche (flach, geharkt)
+  const sand = new THREE.Mesh(
+    new THREE.CircleGeometry(20, 72),
+    new THREE.MeshStandardMaterial({ map: makeSandTexture(), roughness: 1, metalness: 0 })
+  );
+  sand.rotation.x = -Math.PI / 2;
+  sand.position.y = -0.02;
+  group.add(sand);
+
+  // Moosinseln (leicht grüne Flecken)
+  const mossMat = new THREE.MeshStandardMaterial({ color: 0x6e8f52, roughness: 1, metalness: 0 });
+  for (let i = 0; i < 5; i++) {
+    const a = rand() * Math.PI * 2;
+    const r = 2 + rand() * 7;
+    const moss = new THREE.Mesh(new THREE.CircleGeometry(0.5 + rand() * 0.8, 20), mossMat);
+    moss.rotation.x = -Math.PI / 2;
+    moss.position.set(Math.cos(a) * r, -0.01, Math.sin(a) * r);
+    moss.scale.set(1 + rand() * 0.6, 1, 0.7 + rand() * 0.5);
+    group.add(moss);
+  }
+
+  // Stein-Arrangements (klassisch asymmetrische Gruppen)
+  const stoneGroups = [
+    { x: -3.5, z: -2.5, n: 3 },
+    { x: 4, z: 1.5, n: 2 },
+    { x: 1, z: -4.5, n: 3 },
+  ];
+  for (const sg of stoneGroups) {
+    for (let i = 0; i < sg.n; i++) {
+      const s = makeZenStone(rand, 0.28 + rand() * 0.45, i === 0 ? 0x807a72 : 0x938c83);
+      s.position.set(sg.x + (rand() - 0.5) * 0.9, 0.12 + rand() * 0.1, sg.z + (rand() - 0.5) * 0.9);
+      group.add(s);
+    }
+  }
+
+  // Trittstein-Pfad
+  for (let i = 0; i < 6; i++) {
+    const step = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.26, 0.26, 0.06, 12),
+      new THREE.MeshStandardMaterial({ color: 0x7f7a73, roughness: 1, metalness: 0 })
+    );
+    step.position.set(-1.5 + i * 0.85, 0.01, 3.2 - i * 0.5 + Math.sin(i) * 0.2);
+    step.scale.set(1 + rand() * 0.2, 1, 0.85);
+    group.add(step);
+  }
+
+  // Koi-Teich
+  const pondCenter = new THREE.Vector3(3.2, 0, -1.2);
+  const waterTex = makeWaterTexture();
+  const pond = new THREE.Mesh(
+    new THREE.CircleGeometry(1.7, 40),
+    new THREE.MeshStandardMaterial({
+      map: waterTex,
+      color: 0x9fd0e0,
+      roughness: 0.2,
+      metalness: 0.1,
+      transparent: true,
+      opacity: 0.72,
+    })
+  );
+  pond.rotation.x = -Math.PI / 2;
+  pond.position.set(pondCenter.x, 0.01, pondCenter.z);
+  pond.scale.set(1.2, 1, 1);
+  group.add(pond);
+  // Steinrand um den Teich
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const s = makeZenStone(rand, 0.12 + rand() * 0.08, 0x8f8880);
+    s.position.set(pondCenter.x + Math.cos(a) * 2.0, 0.05, pondCenter.z + Math.sin(a) * 1.7);
+    group.add(s);
+  }
+  // Koi-Fische
+  const kois = [];
+  const koiColors = [0xff7a3d, 0xffffff, 0xffb066];
+  for (let i = 0; i < 3; i++) {
+    const koi = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: koiColors[i % 3], roughness: 0.6, metalness: 0 });
+    const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), bodyMat);
+    body.scale.set(0.55, 0.28, 1);
+    koi.add(body);
+    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.16, 6), bodyMat);
+    tail.rotation.x = -Math.PI / 2;
+    tail.position.z = -0.16;
+    tail.scale.set(1, 0.4, 1);
+    koi.add(tail);
+    koi.userData = { radius: 0.6 + i * 0.35, speed: (0.35 + rand() * 0.25) * (i % 2 ? 1 : -1), phase: rand() * 6.28 };
+    group.add(koi);
+    kois.push(koi);
+  }
+
+  // Kirschblütenbaum (Sakura)
+  const sakura = new THREE.Group();
+  const trunk = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.14, 0.2, 1.8, 8),
+    new THREE.MeshStandardMaterial({ color: 0x5b4636, roughness: 0.9, metalness: 0 })
+  );
+  trunk.position.y = 0.9;
+  trunk.rotation.z = 0.12;
+  sakura.add(trunk);
+  const blossomMat = new THREE.MeshStandardMaterial({ color: 0xffc4dd, roughness: 0.85, metalness: 0 });
+  const blossomPositions = [
+    [0, 2.1, 0, 0.9], [0.6, 1.9, 0.2, 0.6], [-0.5, 2.0, -0.3, 0.7],
+    [0.3, 2.4, -0.2, 0.55], [-0.3, 2.3, 0.4, 0.5], [0.1, 1.8, 0.5, 0.45],
+  ];
+  for (const [bx, by, bz, br] of blossomPositions) {
+    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(br, 1), blossomMat);
+    blob.position.set(bx, by, bz);
+    blob.scale.y = 0.85;
+    sakura.add(blob);
+  }
+  sakura.position.set(-4.5, 0, 2.5);
+  group.add(sakura);
+
+  // Steinlaterne + Torii
+  const lantern = makeLantern();
+  lantern.position.set(1.6, 0, -1.8);
+  group.add(lantern);
+  const torii = makeTorii();
+  torii.position.set(-2, 0, -9);
+  torii.rotation.y = 0.35;
+  group.add(torii);
+
+  // Treibende Kirschblütenblätter
+  const PET = 120;
+  const petalPos = new Float32Array(PET * 3);
+  const petalMeta = [];
+  for (let i = 0; i < PET; i++) {
+    petalMeta.push({
+      x: (rand() - 0.5) * 22,
+      z: (rand() - 0.5) * 22,
+      y0: rand() * 9,
+      speed: 0.25 + rand() * 0.4,
+      sway: rand() * 6.28,
+      swayAmp: 0.25 + rand() * 0.5,
+    });
+  }
+  const petalGeo = new THREE.BufferGeometry();
+  petalGeo.setAttribute('position', new THREE.BufferAttribute(petalPos, 3));
+  const petals = new THREE.Points(
+    petalGeo,
+    new THREE.PointsMaterial({
+      map: makeGlowTexture('rgba(255,200,222,1)', 'rgba(255,175,205,0.7)', 48),
+      color: 0xffd0e2,
+      size: 0.14,
+      transparent: true,
+      opacity: 0.95,
+      depthWrite: false,
+      sizeAttenuation: true,
+    })
+  );
+  petals.frustumCulled = false;
+  group.add(petals);
+
+  return {
+    id: 'zen',
+    name: '🪷 Zen-Garten',
+    background: new THREE.Color(0xe9d3ae),
+    fog: new THREE.Fog(0xecd9bb, 20, 46),
+    group,
+    update(time) {
+      waterTex.offset.y = -time * 0.03;
+      waterTex.offset.x = Math.sin(time * 0.1) * 0.02;
+      for (const koi of kois) {
+        const d = koi.userData;
+        const a = time * d.speed + d.phase;
+        koi.position.set(
+          pondCenter.x + Math.cos(a) * d.radius * 1.15,
+          0.0,
+          pondCenter.z + Math.sin(a) * d.radius
+        );
+        koi.rotation.y = -a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
+        koi.position.y = 0.0 + Math.sin(time * 2 + d.phase) * 0.01;
+      }
+      const H = 9;
+      const p = petalGeo.attributes.position;
+      for (let i = 0; i < PET; i++) {
+        const m = petalMeta[i];
+        const y = ((m.y0 - time * m.speed) % H + H) % H;
+        p.setXYZ(
+          i,
+          m.x + Math.sin(time * 0.6 + m.sway) * m.swayAmp,
+          y,
+          m.z + Math.cos(time * 0.5 + m.sway) * m.swayAmp
+        );
+      }
+      p.needsUpdate = true;
+    },
+  };
+}
+
 // Weiche, radiale Bodentextur (kein Raster) für das Studio
 function makeSoftFloorTexture(center, edge) {
   const canvas = document.createElement('canvas');
@@ -868,7 +1199,12 @@ function createStudioEnvironment() {
 }
 
 export function createEnvironments(scene) {
-  const environments = [createIslandEnvironment(), createNightEnvironment(), createStudioEnvironment()];
+  const environments = [
+    createIslandEnvironment(),
+    createNightEnvironment(),
+    createZenEnvironment(),
+    createStudioEnvironment(),
+  ];
   for (const env of environments) {
     env.group.visible = false;
     scene.add(env.group);
