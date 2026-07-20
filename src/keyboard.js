@@ -1,8 +1,14 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
+import { flatLayer } from './wristMenu.js';
 
 const KEY = 0.052;
 const GAP = 0.007;
+
+// Feste Zeichenreihenfolge gegen Transparenz-Flackern (wie Menü/Whiteboard):
+// Hintergrund unten, Tasten oben. Über den Menü-Ordnungen (20–22), damit die
+// modale Tastatur zuoberst liegt.
+const KB_LAYER = { bg: 30, preview: 31, key: 32 };
 
 const ROWS = [
   ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
@@ -31,9 +37,10 @@ export class VirtualKeyboard {
 
     const bg = new THREE.Mesh(
       new THREE.PlaneGeometry(boardW, boardH),
-      new THREE.MeshBasicMaterial({ color: 0x0b121a, transparent: true, opacity: 0.92 })
+      new THREE.MeshBasicMaterial({ color: 0x0b121a, transparent: true, opacity: 0.97 })
     );
     bg.position.z = -0.004;
+    flatLayer(bg, KB_LAYER.bg);
     this.group.add(bg);
 
     this.preview = createTextPanel({
@@ -42,8 +49,10 @@ export class VirtualKeyboard {
       text: '▏',
       background: '#16222f',
       fontSize: 34,
+      doubleSided: false,
     });
     this.preview.mesh.position.set(0, boardH / 2 - 0.06, 0.002);
+    flatLayer(this.preview.mesh, KB_LAYER.preview);
     this.group.add(this.preview.mesh);
 
     const top = boardH / 2 - 0.13 - KEY / 2;
@@ -66,11 +75,19 @@ export class VirtualKeyboard {
   }
 
   _addKey(label, x, y, width, onClick, bgColor = KEY_BG) {
-    const panel = createTextPanel({ width, height: KEY, text: label, background: bgColor, fontSize: 30 });
+    const panel = createTextPanel({
+      width,
+      height: KEY,
+      text: label,
+      background: bgColor,
+      fontSize: 30,
+      doubleSided: false,
+    });
     panel.mesh.position.set(x, y, 0.002);
     panel.mesh.userData.onClick = onClick;
     panel.mesh.userData.setHover = (hovered) =>
       panel.setColors({ background: hovered ? KEY_BG_HOVER : bgColor });
+    flatLayer(panel.mesh, KB_LAYER.key);
     this.group.add(panel.mesh);
     this.keys.push(panel.mesh);
   }
