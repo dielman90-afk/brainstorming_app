@@ -16,14 +16,17 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 
 - **Mixed Reality / VR:** Startet bevorzugt als `immersive-ar` (Passthrough auf der
   Quest 3), Fallback auf `immersive-vr`.
-- **Drei virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
+- **Vier virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
   externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
   Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Nadel- und
   Laubbäumen, Blumen, Wasserfall samt Teich, kreisenden Vögeln, treibenden
   Wolken und schwebenden Mini-Inseln) → **🌌 Nachthimmel** (Sternenfeld, Mond,
-  leuchtendes Boden-Grid) → **🌐 Studio** (schlichter heller Verlauf). Die
-  Auswahl wird gemerkt; eine reine VR-Session startet direkt in der zuletzt
-  genutzten Umgebung (sonst Himmelsinsel).
+  leuchtendes Boden-Grid) → **🌐 Studio** (schlichter heller Verlauf) →
+  **⬜ Konstrukt** (nahtloser, komplett weißer Void im Stil des „Matrix“-
+  Ladeprogramms – Kuppel und Boden im selben Weißton, kein sichtbarer Horizont,
+  gleichmäßiges schattenfreies Licht). Die Auswahl wird gemerkt; eine reine
+  VR-Session startet direkt in der zuletzt genutzten Umgebung (sonst
+  Himmelsinsel).
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Handgelenk-Menü** (linker Controller, 2-Spalten-Raster): *Neue Karte*,
