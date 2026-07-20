@@ -708,7 +708,7 @@ function addUndergrowth(group, rand, radius) {
   const bushes = new THREE.InstancedMesh(
     new THREE.IcosahedronGeometry(0.16, 1),
     new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, vertexColors: false }),
-    22
+    10
   );
   bushes.name = 'bushes';
   for (let i = 0; i < bushes.count; i++) {
@@ -737,7 +737,7 @@ function addUndergrowth(group, rand, radius) {
   const mushrooms = new THREE.InstancedMesh(
     mushGeo,
     new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0, vertexColors: true }),
-    14
+    6
   );
   mushrooms.name = 'mushrooms';
   for (let i = 0; i < mushrooms.count; i++) {
@@ -751,21 +751,6 @@ function addUndergrowth(group, rand, radius) {
   }
   mushrooms.instanceMatrix.needsUpdate = true;
   group.add(mushrooms);
-}
-
-// Ferne, tri-arme Insel-Silhouette (nur Gras-Disc + Fels-Kegel) für Tiefe/Parallaxe.
-const FAR_GRASS_MAT = new THREE.MeshStandardMaterial({ color: 0x6fae74, roughness: 1, metalness: 0 });
-const FAR_ROCK_MAT = new THREE.MeshStandardMaterial({ color: 0x6f6353, roughness: 1, metalness: 0, flatShading: true });
-function makeFarIsland(rand) {
-  const g = new THREE.Group();
-  const r = 1.6 + rand() * 1.6;
-  const cap = new THREE.Mesh(new THREE.CylinderGeometry(r, r * 0.9, 0.4, 10), FAR_GRASS_MAT);
-  g.add(cap);
-  const rock = new THREE.Mesh(new THREE.ConeGeometry(r * 0.9, 2.2 + rand() * 1.8, 8), FAR_ROCK_MAT);
-  rock.rotation.x = Math.PI;
-  rock.position.y = -0.2 - (1.1 + rand() * 0.9);
-  g.add(rock);
-  return g;
 }
 
 function createIslandEnvironment() {
@@ -825,15 +810,6 @@ function createIslandEnvironment() {
   group.add(birds.group);
   const butterflies = makeButterflies(rand);
   group.add(butterflies.group);
-
-  // Ferne Insel-Silhouetten (stark im Nebel) für Parallaxe/Tiefe
-  for (let i = 0; i < 6; i++) {
-    const far = makeFarIsland(rand);
-    const a = (i / 6) * Math.PI * 2 + rand() * 0.5;
-    const d = 36 + rand() * 8;
-    far.position.set(Math.cos(a) * d, -2 + rand() * 8, Math.sin(a) * d);
-    group.add(far);
-  }
 
   // Entfernte Mini-Inseln, die sanft auf und ab schweben
   const minis = [];
