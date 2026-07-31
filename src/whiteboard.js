@@ -5,24 +5,178 @@ import { makeRoundedPanel } from './wristMenu.js';
 // Zeichenbares Whiteboard im Raum: Stift/Marker/Radierer, Farben, Strichstärken,
 // Formen (Linie/Rechteck/Kreis mit Live-Vorschau), Wischen, Skalieren und
 // KI-Skizzenanalyse ("Zu Karten"). Griffleiste oben zum Verschieben.
+//
+// Modernes Design: große, weich abgerundete Zeichenfläche (keine harten Kanten),
+// dezenter Rahmen mit Schlagschatten und eine gruppierte Icon-Werkzeugleiste mit
+// klaren Vektor-Symbolen.
 
-const BOARD_W = 1.6;
-const BOARD_H = 1.0;
-const CANVAS_W = 2048;
-const CANVAS_H = 1280;
+const BOARD_W = 1.92;
+const BOARD_H = 1.16;
+const CANVAS_W = 2304;
+const CANVAS_H = 1392;
+const BOARD_RADIUS = 96; // Eckenradius der Zeichenfläche (px)
 const MIN_SCALE = 0.6;
 const MAX_SCALE = 2.5;
 
 export const PEN_COLORS = ['#111827', '#e03131', '#1971c2', '#2f9e44', '#f76707', '#9c36b5'];
 const SIZES = [
-  { label: 'S', width: 4 },
-  { label: 'M', width: 9 },
-  { label: 'L', width: 18 },
+  { label: 'S', width: 4, dot: 8 },
+  { label: 'M', width: 9, dot: 14 },
+  { label: 'L', width: 18, dot: 20 },
 ];
 
-const BTN_BG = '#2c2933';
-const BTN_BG_HOVER = '#3b3644';
-const BTN_BG_ACTIVE = '#5c4420';
+// Werkzeugleisten-Farbwelt (passend zum "Soft Spatial Minimal"-Theme)
+const BAR_FILL = 'rgba(22, 20, 27, 0.97)';
+const BAR_BORDER = 'rgba(255, 255, 255, 0.12)';
+const BTN_BASE = 'rgba(255, 255, 255, 0.06)';
+const BTN_HOVER = 'rgba(255, 255, 255, 0.15)';
+const BTN_ACTIVE = '#ffb454';
+const TXT = '#eef1f5';
+const TXT_ACTIVE = '#231a0c';
+
+// Feste Zeichenreihenfolge für alle (durchscheinenden) Whiteboard-Ebenen.
+// Ohne diese sortiert Three.js die transparenten Flächen nach Kameradistanz;
+// bei bewegtem Blick kippt die Reihenfolge und die fast opake Leiste wird mal
+// über, mal unter den Buttons gemalt – die Toolbar „flackert" durchsichtig.
+// depthWrite bleibt aus (Ebenen verdecken sich nicht gegenseitig über die
+// Tiefe), depthTest bleibt an (das Board wird korrekt von näheren Objekten im
+// Raum verdeckt). Gleiche Technik wie beim Handgelenk-Menü.
+const LAYER = { back: 1, frame: 2, surface: 3, panel: 4, divider: 5, button: 6 };
+
+function roundRectPath(ctx, x, y, w, h, r) {
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
+}
+
+function sparkle(ctx, cx, cy, R, r) {
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const ang = (i * Math.PI) / 4 - Math.PI / 2;
+    const rad = i % 2 ? r : R;
+    const x = cx + Math.cos(ang) * rad;
+    const y = cy + Math.sin(ang) * rad;
+    i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+}
+
+// Vektor-Glyphen, gezeichnet in einem 100×100-Koordinatenraum.
+const GLYPHS = {
+  pen(ctx) {
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(76, 24);
+    ctx.lineTo(44, 56);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(40, 52);
+    ctx.lineTo(48, 60);
+    ctx.lineTo(24, 76);
+    ctx.closePath();
+    ctx.fill();
+  },
+  marker(ctx) {
+    ctx.save();
+    ctx.translate(50, 50);
+    ctx.rotate(-Math.PI / 4);
+    ctx.translate(-50, -50);
+    roundRectPath(ctx, 38, 20, 24, 32, 7);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(38, 52);
+    ctx.lineTo(62, 52);
+    ctx.lineTo(56, 72);
+    ctx.lineTo(44, 72);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  },
+  eraser(ctx) {
+    ctx.lineWidth = 7;
+    ctx.save();
+    ctx.translate(50, 50);
+    ctx.rotate(-0.42);
+    ctx.translate(-50, -50);
+    roundRectPath(ctx, 22, 40, 56, 24, 7);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(48, 40);
+    ctx.lineTo(48, 64);
+    ctx.stroke();
+    ctx.restore();
+  },
+  line(ctx) {
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(24, 76);
+    ctx.lineTo(76, 24);
+    ctx.stroke();
+  },
+  rect(ctx) {
+    ctx.lineWidth = 8;
+    roundRectPath(ctx, 24, 30, 52, 40, 8);
+    ctx.stroke();
+  },
+  circle(ctx) {
+    ctx.lineWidth = 8;
+    ctx.beginPath();
+    ctx.arc(50, 50, 27, 0, Math.PI * 2);
+    ctx.stroke();
+  },
+  trash(ctx) {
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    ctx.moveTo(26, 33);
+    ctx.lineTo(74, 33);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(42, 33);
+    ctx.lineTo(42, 26);
+    ctx.lineTo(58, 26);
+    ctx.lineTo(58, 33);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(33, 33);
+    ctx.lineTo(37, 76);
+    ctx.lineTo(63, 76);
+    ctx.lineTo(67, 33);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(45, 42);
+    ctx.lineTo(46, 67);
+    ctx.moveTo(55, 42);
+    ctx.lineTo(54, 67);
+    ctx.stroke();
+  },
+  minus(ctx) {
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(30, 50);
+    ctx.lineTo(70, 50);
+    ctx.stroke();
+  },
+  plus(ctx) {
+    ctx.lineWidth = 9;
+    ctx.beginPath();
+    ctx.moveTo(30, 50);
+    ctx.lineTo(70, 50);
+    ctx.moveTo(50, 30);
+    ctx.lineTo(50, 70);
+    ctx.stroke();
+  },
+  wand(ctx) {
+    sparkle(ctx, 42, 44, 20, 7);
+    sparkle(ctx, 72, 28, 9, 3.2);
+    sparkle(ctx, 70, 64, 7, 2.6);
+  },
+};
 
 export class Whiteboard {
   constructor(scene, { onSketch } = {}) {
@@ -37,101 +191,225 @@ export class Whiteboard {
     this.sizeIndex = 1;
     this.hasContent = false;
     this.buttons = [];
-    this._toggleButtons = new Map(); // key -> panel (für Aktiv-Hervorhebung)
+    this._renderers = []; // { key, kind, render(state) }
     this._stroke = null;
 
-    // Zeichenfläche (Canvas-Textur, opak weiß)
+    // Zeichenfläche (Canvas-Textur mit runden Ecken auf transparentem Grund)
     this.canvas = document.createElement('canvas');
     this.canvas.width = CANVAS_W;
     this.canvas.height = CANVAS_H;
     this.ctx = this.canvas.getContext('2d');
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    this._fillBoard();
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.anisotropy = 8;
     this.texture.colorSpace = THREE.SRGBColorSpace;
 
     this.surface = new THREE.Mesh(
       new THREE.PlaneGeometry(BOARD_W, BOARD_H),
-      new THREE.MeshBasicMaterial({ map: this.texture })
+      new THREE.MeshBasicMaterial({
+        map: this.texture,
+        transparent: true,
+        alphaTest: 0.5, // saubere runde Ecken, keine Sortierprobleme
+        toneMapped: false,
+      })
     );
     this.surface.userData.drawSurface = this;
+    this._layer(this.surface, LAYER.surface);
     this.group.add(this.surface);
 
-    // Rahmen + Rückwand (Board wirkt von beiden Seiten solide)
-    const frame = makeRoundedPanel(BOARD_W + 0.08, BOARD_H + 0.3, {
-      fill: 'rgba(20, 18, 24, 0.98)',
-      border: 'rgba(255, 180, 84, 0.4)',
-    });
-    frame.material.alphaTest = 0.01;
-    frame.position.z = -0.004;
+    // Dezenter, weich abgerundeter Rahmen mit Schlagschatten (statt harter Kanten)
+    const frame = this._makeFrame();
+    frame.position.z = -0.006;
+    this._layer(frame, LAYER.frame);
     this.group.add(frame);
 
-    const back = new THREE.Mesh(
-      new THREE.PlaneGeometry(BOARD_W + 0.08, BOARD_H + 0.3),
-      new THREE.MeshBasicMaterial({ color: 0x18161c })
-    );
+    // Rückwand, damit das Board von hinten solide wirkt
+    const back = makeRoundedPanel(BOARD_W + 0.05, BOARD_H + 0.05, {
+      fill: '#17151b',
+      border: 'rgba(255,255,255,0.05)',
+    });
+    back.material.toneMapped = false;
     back.rotation.y = Math.PI;
-    back.position.z = -0.006;
+    back.position.z = -0.01;
+    this._layer(back, LAYER.back);
     this.group.add(back);
 
     // Griffleiste oben: greifen = verschieben, Stick beim Halten = Größe
-    const handle = createTextPanel({
-      width: BOARD_W - 0.2,
-      height: 0.06,
-      text: '⠿  Whiteboard – greifen zum Verschieben',
-      background: '#1f1d25',
-      color: '#b6afbd',
-      fontSize: 26,
+    const handleBg = makeRoundedPanel(0.44, 0.062, {
+      fill: 'rgba(28, 25, 33, 0.96)',
+      border: 'rgba(255,255,255,0.12)',
+    });
+    handleBg.material.toneMapped = false;
+    const handleLabel = createTextPanel({
+      width: 0.42,
+      height: 0.055,
+      text: '⠿  Whiteboard',
+      background: 'transparent',
+      color: '#c8c2d0',
+      fontSize: 24,
       singleLine: true,
       doubleSided: false,
-      radius: 18,
     });
-    handle.mesh.material.alphaTest = 0.01;
-    handle.mesh.position.set(0, BOARD_H / 2 + 0.055, 0.002);
-    handle.mesh.userData.grabTarget = {
+    handleLabel.mesh.position.z = 0.001;
+    this._layer(handleLabel.mesh, LAYER.button);
+    handleBg.add(handleLabel.mesh);
+    this._layer(handleBg, LAYER.panel);
+    handleBg.position.set(0, BOARD_H / 2 + 0.06, 0.004);
+    handleBg.userData.grabTarget = {
       group: this.group,
       getScale: () => this.scale,
       setScale: (v) => this.setScale(v),
     };
-    handle.mesh.userData.setHover = (h) =>
-      handle.setColors({ background: h ? '#2c2833' : '#1f1d25' });
-    this.handle = handle.mesh;
-    this.group.add(handle.mesh);
+    handleBg.userData.setHover = (h) =>
+      handleLabel.setColors({ color: h ? '#ffffff' : '#c8c2d0' });
+    this.handle = handleBg;
+    this.group.add(handleBg);
 
     this._buildToolbar();
     scene.add(this.group);
   }
 
-  // --- Werkzeugleiste ---
+  // Ebene in die feste Zeichenreihenfolge einordnen (siehe LAYER-Kommentar).
+  _layer(mesh, order) {
+    const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+    for (const m of mats) {
+      if (!m) continue;
+      m.transparent = true;
+      m.depthWrite = false;
+    }
+    mesh.renderOrder = order;
+    return mesh;
+  }
 
-  _addButton({ key, label, width = 0.08, background = BTN_BG, color = '#eef3f8', onClick }) {
-    const panel = createTextPanel({
-      width,
-      height: 0.07,
-      text: label,
-      background,
-      color,
-      fontSize: 34,
-      weight: 600,
-      singleLine: true,
-      padding: 10,
-      radius: 16,
-      doubleSided: false,
-    });
-    panel.mesh.material.alphaTest = 0.01;
-    panel.mesh.userData.onClick = onClick;
-    panel.mesh.userData.setHover = (h) => {
-      if (key && this._isActive(key)) return; // aktive Buttons behalten Hervorhebung
-      panel.setColors({ background: h ? BTN_BG_HOVER : background });
+  // --- Rahmen mit weichem Schatten ---
+
+  _makeFrame() {
+    const pad = 0.16;
+    const pxPerMeter = 900;
+    const outerW = BOARD_W + 0.05 + pad * 2;
+    const outerH = BOARD_H + 0.05 + pad * 2;
+    const W = Math.round(outerW * pxPerMeter);
+    const H = Math.round(outerH * pxPerMeter);
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const bx = pad * pxPerMeter;
+    const by = pad * pxPerMeter;
+    const bw = (BOARD_W + 0.05) * pxPerMeter;
+    const bh = (BOARD_H + 0.05) * pxPerMeter;
+    const r = 74;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+    ctx.shadowBlur = 70;
+    ctx.shadowOffsetY = 26;
+    roundRectPath(ctx, bx, by, bw, bh, r);
+    ctx.fillStyle = 'rgba(32, 29, 38, 0.98)';
+    ctx.fill();
+    ctx.restore();
+
+    // feiner heller Lichtrand oben für Tiefe
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.13)';
+    roundRectPath(ctx, bx + 1.5, by + 1.5, bw - 3, bh - 3, r);
+    ctx.stroke();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.anisotropy = 4;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    return new THREE.Mesh(
+      new THREE.PlaneGeometry(outerW, outerH),
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false })
+    );
+  }
+
+  // --- Icon-Buttons ---
+
+  _boardPath(ctx) {
+    roundRectPath(ctx, 4, 4, CANVAS_W - 8, CANVAS_H - 8, BOARD_RADIUS);
+  }
+
+  _makeButton({ key, kind, glyph, colorHex, dot, width, height = 0.086, onClick }) {
+    const pxPerMeter = 1500;
+    const W = Math.round(width * pxPerMeter);
+    const H = Math.round(height * pxPerMeter);
+    const canvas = document.createElement('canvas');
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.anisotropy = 4;
+    texture.colorSpace = THREE.SRGBColorSpace;
+
+    const render = (state) => {
+      ctx.clearRect(0, 0, W, H);
+      const active = state === 'active';
+      const hover = state === 'hover';
+      const rad = Math.min(W, H) * 0.28;
+
+      if (kind === 'color') {
+        // dezenter Chip-Hintergrund
+        roundRectPath(ctx, 3, 3, W - 6, H - 6, rad);
+        ctx.fillStyle = active ? 'rgba(255,180,84,0.22)' : hover ? BTN_HOVER : BTN_BASE;
+        ctx.fill();
+        // Farbkreis
+        const cx = W / 2;
+        const cy = H / 2;
+        const cr = Math.min(W, H) * 0.28;
+        ctx.beginPath();
+        ctx.arc(cx, cy, cr, 0, Math.PI * 2);
+        ctx.fillStyle = colorHex;
+        ctx.fill();
+        // Ring
+        ctx.lineWidth = active ? 5 : 3;
+        ctx.strokeStyle = active ? '#ffffff' : hover ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.25)';
+        ctx.beginPath();
+        ctx.arc(cx, cy, cr + (active ? 5 : 3), 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        roundRectPath(ctx, 3, 3, W - 6, H - 6, rad);
+        ctx.fillStyle = active ? BTN_ACTIVE : hover ? BTN_HOVER : BTN_BASE;
+        ctx.fill();
+        const fg = active ? TXT_ACTIVE : TXT;
+        ctx.strokeStyle = fg;
+        ctx.fillStyle = fg;
+        if (kind === 'size') {
+          ctx.beginPath();
+          ctx.arc(W / 2, H / 2, dot, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (glyph) {
+          const s = Math.min(W, H) * 0.62;
+          ctx.save();
+          ctx.translate(W / 2, H / 2);
+          ctx.scale(s / 100, s / 100);
+          ctx.translate(-50, -50);
+          ctx.lineJoin = 'round';
+          ctx.lineCap = 'round';
+          GLYPHS[glyph](ctx);
+          ctx.restore();
+        }
+      }
+      texture.needsUpdate = true;
     };
-    if (key) this._toggleButtons.set(key, { panel, background });
-    this.buttons.push(panel.mesh);
-    this.group.add(panel.mesh);
-    return panel.mesh;
+
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false })
+    );
+    mesh.userData.onClick = onClick;
+    mesh.userData.setHover = (h) => render(this._isActive(key) ? 'active' : h ? 'hover' : 'base');
+    render(this._isActive(key) ? 'active' : 'base');
+
+    this._layer(mesh, LAYER.button);
+    this._renderers.push({ key, render });
+    this.buttons.push(mesh);
+    this.group.add(mesh);
+    return mesh;
   }
 
   _isActive(key) {
+    if (!key) return false;
     if (key.startsWith('tool:')) return this.tool === key.slice(5);
     if (key.startsWith('color:')) return this.colorIndex === Number(key.slice(6));
     if (key.startsWith('size:')) return this.sizeIndex === Number(key.slice(5));
@@ -139,71 +417,90 @@ export class Whiteboard {
   }
 
   _refreshToolbar() {
-    for (const [key, { panel, background }] of this._toggleButtons) {
-      if (key.startsWith('color:')) {
-        panel.setColors({ border: this._isActive(key) ? '#ffffff' : 'rgba(255,255,255,0.15)' });
-      } else {
-        panel.setColors({ background: this._isActive(key) ? BTN_BG_ACTIVE : background });
-      }
+    for (const { key, render } of this._renderers) {
+      render(this._isActive(key) ? 'active' : 'base');
     }
   }
 
   _buildToolbar() {
-    const y = -BOARD_H / 2 - 0.06;
-    const GAP = 0.008;
-    // Gesamtbreite der Leiste ≈ 1.43 m → zentriert unter dem Board
-    let x = -0.715;
-    const place = (mesh, width) => {
-      mesh.position.set(x + width / 2, y, 0.002);
-      x += width + GAP;
+    const SQ = 0.086; // quadratische Werkzeug-Buttons
+    const CH = 0.062; // schmale Chips (Farbe/Größe)
+    const GAP = 0.012;
+    const SEP = 0.026;
+
+    // Erst die Buttons definieren, dann Gesamtbreite → zentriert platzieren
+    const specs = [];
+    for (const [tool, glyph] of [['pen', 'pen'], ['marker', 'marker'], ['eraser', 'eraser']]) {
+      specs.push({ w: SQ, make: () => this._makeButton({ key: `tool:${tool}`, kind: 'tool', glyph, width: SQ, onClick: () => this.setTool(tool) }) });
+    }
+    specs.push({ sep: true });
+    PEN_COLORS.forEach((color, i) => {
+      specs.push({ w: CH, make: () => this._makeButton({ key: `color:${i}`, kind: 'color', colorHex: color, width: CH, onClick: () => this.setColor(i) }) });
+    });
+    specs.push({ sep: true });
+    SIZES.forEach((size, i) => {
+      specs.push({ w: CH, make: () => this._makeButton({ key: `size:${i}`, kind: 'size', dot: size.dot, width: CH, onClick: () => this.setSize(i) }) });
+    });
+    specs.push({ sep: true });
+    for (const [tool, glyph] of [['line', 'line'], ['rect', 'rect'], ['circle', 'circle']]) {
+      specs.push({ w: SQ, make: () => this._makeButton({ key: `tool:${tool}`, kind: 'tool', glyph, width: SQ, onClick: () => this.setTool(tool) }) });
+    }
+    specs.push({ sep: true });
+    specs.push({ w: SQ, make: () => this._makeButton({ kind: 'action', glyph: 'trash', width: SQ, onClick: () => this.clearBoard() }) });
+    specs.push({ w: SQ, make: () => this._makeButton({ kind: 'action', glyph: 'minus', width: SQ, onClick: () => this.setScale(this.scale / 1.15) }) });
+    specs.push({ w: SQ, make: () => this._makeButton({ kind: 'action', glyph: 'plus', width: SQ, onClick: () => this.setScale(this.scale * 1.15) }) });
+
+    // Gesamtbreite berechnen
+    let total = 0;
+    specs.forEach((s, i) => {
+      if (s.sep) total += SEP;
+      else total += s.w + (i > 0 && !specs[i - 1]?.sep ? GAP : 0);
+    });
+    // AI-Button separat rechts, mit etwas Abstand
+    const aiW = SQ + 0.04;
+    const barH = 0.13;
+    const y = -BOARD_H / 2 - 0.098;
+    const barW = total + aiW + SEP + 0.05;
+
+    // Werkzeugleisten-Hintergrund (eine weiche Pille statt vieler Kästchen)
+    const bar = makeRoundedPanel(barW, barH, { fill: BAR_FILL, border: BAR_BORDER });
+    bar.material.toneMapped = false;
+    bar.position.set(0, y, 0.001);
+    this._layer(bar, LAYER.panel);
+    this.group.add(bar);
+
+    // Buttons platzieren
+    let x = -barW / 2 + 0.028;
+    const place = (mesh, w) => {
+      mesh.position.set(x + w / 2, y, 0.004);
+      x += w;
     };
-    const sep = () => {
-      x += 0.014;
+    const addDivider = () => {
+      x += SEP / 2 - 0.001;
+      const div = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.002, barH * 0.5),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.12, toneMapped: false })
+      );
+      div.position.set(x, y, 0.003);
+      this._layer(div, LAYER.divider);
+      this.group.add(div);
+      x += SEP / 2 + 0.001;
     };
 
-    for (const [tool, label] of [
-      ['pen', '✏️'],
-      ['marker', '🖊️'],
-      ['eraser', '🧻'],
-    ]) {
-      place(this._addButton({ key: `tool:${tool}`, label, onClick: () => this.setTool(tool) }), 0.08);
-    }
-    sep();
-    PEN_COLORS.forEach((color, i) => {
-      place(
-        this._addButton({
-          key: `color:${i}`,
-          label: '',
-          width: 0.05,
-          background: color,
-          onClick: () => this.setColor(i),
-        }),
-        0.05
-      );
+    specs.forEach((s, i) => {
+      if (s.sep) {
+        addDivider();
+        return;
+      }
+      if (i > 0 && !specs[i - 1]?.sep) x += GAP;
+      place(s.make(), s.w);
     });
-    sep();
-    SIZES.forEach((size, i) => {
-      place(
-        this._addButton({ key: `size:${i}`, label: size.label, width: 0.05, onClick: () => this.setSize(i) }),
-        0.05
-      );
-    });
-    sep();
-    for (const [tool, label] of [
-      ['line', '╱'],
-      ['rect', '▭'],
-      ['circle', '◯'],
-    ]) {
-      place(this._addButton({ key: `tool:${tool}`, label, onClick: () => this.setTool(tool) }), 0.08);
-    }
-    sep();
-    place(this._addButton({ label: '🧽', onClick: () => this.clearBoard() }), 0.08);
-    place(this._addButton({ label: '➖', onClick: () => this.setScale(this.scale / 1.15) }), 0.07);
-    place(this._addButton({ label: '➕', onClick: () => this.setScale(this.scale * 1.15) }), 0.07);
-    place(
-      this._addButton({ label: '🪄', background: '#ffb454', color: '#231b10', onClick: () => this.onSketch?.() }),
-      0.08
-    );
+
+    // Prominenter KI-Button ("Zu Karten")
+    addDivider();
+    x += 0.008;
+    const ai = this._makeButton({ kind: 'ai', glyph: 'wand', width: aiW, height: 0.092, onClick: () => this.onSketch?.() });
+    ai.position.set(x + aiW / 2, y, 0.004);
 
     this._refreshToolbar();
   }
@@ -310,19 +607,25 @@ export class Whiteboard {
   }
 
   _segment(a, b) {
-    this._applyStyle();
     const ctx = this.ctx;
+    ctx.save();
+    this._boardPath(ctx);
+    ctx.clip();
+    this._applyStyle();
     ctx.beginPath();
     ctx.moveTo(a.x, a.y);
     ctx.lineTo(b.x, b.y);
     ctx.stroke();
-    ctx.globalAlpha = 1;
+    ctx.restore();
     this._markDirty();
   }
 
   _shape(a, b) {
-    this._applyStyle();
     const ctx = this.ctx;
+    ctx.save();
+    this._boardPath(ctx);
+    ctx.clip();
+    this._applyStyle();
     ctx.beginPath();
     if (this.tool === 'line') {
       ctx.moveTo(a.x, a.y);
@@ -341,7 +644,16 @@ export class Whiteboard {
       );
     }
     ctx.stroke();
+    ctx.restore();
+  }
+
+  _fillBoard() {
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
     ctx.globalAlpha = 1;
+    this._boardPath(ctx);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
   }
 
   _markDirty() {
@@ -350,9 +662,7 @@ export class Whiteboard {
   }
 
   clearBoard() {
-    this.ctx.globalAlpha = 1;
-    this.ctx.fillStyle = '#ffffff';
-    this.ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+    this._fillBoard();
     this.texture.needsUpdate = true;
     // hasContent bleibt true, damit der geleerte Stand auch gespeichert wird
   }
@@ -367,10 +677,12 @@ export class Whiteboard {
     return new Promise((resolve) => {
       const img = new Image();
       img.onload = () => {
-        this.ctx.globalAlpha = 1;
-        this.ctx.fillStyle = '#ffffff';
-        this.ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        this._fillBoard();
+        this.ctx.save();
+        this._boardPath(this.ctx);
+        this.ctx.clip();
         this.ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H);
+        this.ctx.restore();
         this.texture.needsUpdate = true;
         this.hasContent = true;
         resolve(true);

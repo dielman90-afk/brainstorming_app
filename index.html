@@ -48,7 +48,22 @@
       -webkit-backdrop-filter: blur(24px);
       color: var(--text);
       font: 14px/1.45 var(--body);
+      /* body hat overflow:hidden – das Panel muss sich deshalb selbst scrollen
+         lassen, sonst sind auf niedrigen Fenstern die unteren Bedienelemente
+         (XR-Button, Hinweise) schlicht nicht erreichbar. */
+      max-height: calc(100vh - 44px);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
     }
+    #overlay::-webkit-scrollbar { width: 8px; }
+    #overlay::-webkit-scrollbar-track { background: transparent; }
+    #overlay::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.18);
+      border-radius: 8px;
+    }
+    #overlay::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
     .eyebrow {
       font: 400 12px var(--body);
       color: var(--muted);
@@ -121,7 +136,8 @@
       cursor: pointer;
       text-align: center;
     }
-    .mini-row button:hover, .mini-row .file-btn:hover { background: rgba(255, 255, 255, 0.09); }
+    .mini-row button:hover:not(:disabled), .mini-row .file-btn:hover { background: rgba(255, 255, 255, 0.09); }
+    .mini-row button:disabled { opacity: 0.38; cursor: default; }
 
     #xr-button {
       width: 100%;
@@ -138,12 +154,13 @@
 
     .hint { margin: 16px 0 0; font: 12px/1.5 var(--body); color: #7f7a87; }
 
-    /* Status-Band unten links */
+    /* Status-Band unten – rechts neben dem Overlay, das jetzt bis zum unteren
+       Fensterrand reichen kann. */
     #status-band {
       position: fixed;
-      left: 22px;
+      left: 364px;
       bottom: 22px;
-      z-index: 10;
+      z-index: 20;
       display: none;
       align-items: center;
       gap: 10px;
@@ -155,13 +172,26 @@
       -webkit-backdrop-filter: blur(20px);
       color: #c9c4d0;
       font: 400 12.5px var(--body);
-      max-width: 60vw;
+      max-width: calc(100vw - 386px);
+    }
+    @media (max-width: 760px) {
+      #status-band { left: 22px; max-width: calc(100vw - 44px); }
     }
     #status-band.show { display: flex; }
     #status-band .dot {
       width: 7px; height: 7px; border-radius: 50%;
       background: #86efac; box-shadow: 0 0 8px #86efac; flex: none;
     }
+    /* Während Claude arbeitet, wird aus dem Punkt ein laufender Ring. */
+    #status-band.busy .dot {
+      width: 13px; height: 13px;
+      background: none;
+      box-shadow: none;
+      border: 2px solid rgba(255, 180, 84, 0.25);
+      border-top-color: var(--accent);
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
 
     /* Kontextmenü */
     #context-menu {
@@ -242,14 +272,27 @@
     <div class="action-list">
       <button id="btn-new">Neue Karte<span class="ic">＋</span></button>
       <button id="btn-related">Verwandte Ideen<span class="ic">✨</span></button>
+      <button id="btn-critic">Kritiker<span class="ic">😈</span></button>
       <button id="btn-cluster">Cluster anwenden<span class="ic">◇</span></button>
       <button id="btn-summary">Zusammenfassen<span class="ic">≡</span></button>
+      <button id="btn-zone">Zone<span class="ic">🗂️</span></button>
+      <button id="btn-timer">Timer<span class="ic">⏱️</span></button>
       <button id="btn-whiteboard">Whiteboard<span class="ic">📋</span></button>
       <button id="btn-env">Umgebung<span class="ic">🌐</span></button>
     </div>
 
     <div class="mini-row">
-      <button id="btn-export">Export</button>
+      <button id="btn-undo" title="Letzte Änderung rückgängig (Strg+Z)" disabled>↶ Rückgängig</button>
+      <button id="btn-redo" title="Wiederherstellen (Strg+Umschalt+Z)" disabled>↷ Wiederholen</button>
+    </div>
+
+    <div class="mini-row">
+      <button id="btn-save" title="Sicherungspunkt im Browser anlegen">💾 Sichern</button>
+      <button id="btn-load" title="Letzten Sicherungspunkt laden">📂 Laden</button>
+    </div>
+
+    <div class="mini-row">
+      <button id="btn-export" title="Board als JSON-Datei herunterladen">Export</button>
       <label class="file-btn">Import<input id="import-file" type="file" accept=".json,application/json" hidden /></label>
       <button id="btn-clear" title="Alle Karten löschen">🧹</button>
     </div>
@@ -258,8 +301,9 @@
 
     <p class="hint">
       Ziehen = Umschauen · Klick = auswählen · Ziehen = verschieben · Doppelklick = bearbeiten<br />
-      Rechtsklick = Menü · Entf = löschen · Mausrad über Karte / +/− = Größe<br />
-      Quest 3: Trigger = greifen · Stick beim Greifen = Größe · Menü am linken Handgelenk
+      <b>WASD / Pfeile = bewegen · Q/E = runter/hoch</b> · Rechtsklick = Menü · Entf = löschen · Mausrad / +/− = Größe<br />
+      Strg+Z = rückgängig · Strg+Umschalt+Z = wiederholen<br />
+      Quest 3: linker Stick = gehen · rechter Stick = drehen · Trigger = greifen · Menü an der linken Hand
     </p>
   </div>
 
@@ -268,6 +312,7 @@
   <div id="context-menu" hidden>
     <button data-action="edit">✏️ Text bearbeiten</button>
     <button data-action="related">✨ Verwandte Ideen</button>
+    <button data-action="critic">😈 Kritiker</button>
     <button data-action="connect">🔗 Verbinden mit…</button>
     <div class="color-row" id="color-row"></div>
     <button data-action="delete" class="danger">🗑️ Karte löschen</button>

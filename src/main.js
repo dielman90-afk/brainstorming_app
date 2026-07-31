@@ -7,10 +7,21 @@ import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
 import { isSpeechAvailable, recognizeSpeech } from './speech.js';
 import { requestAI, requestIdeas } from './ai.js';
-import { downloadBoard, importBoardFile, saveBoardLocal, loadBoardLocal } from './boardState.js';
+import {
+  downloadBoard,
+  importBoardFile,
+  saveBoardLocal,
+  loadBoardLocal,
+  saveSnapshot,
+  loadSnapshot,
+} from './boardState.js';
 import { createEnvironments } from './environments.js';
 import { Whiteboard } from './whiteboard.js';
-import { createTextPanel } from './textPanel.js';
+import { ZoneManager } from './zones.js';
+import { Timer } from './timer.js';
+import { Locomotion } from './locomotion.js';
+import { History } from './history.js';
+import { Hud } from './hud.js';
 
 // --- Szene & Renderer ---
 
@@ -19,22 +30,57 @@ const DESKTOP_BG = new THREE.Color(0x1a1920);
 const scene = new THREE.Scene();
 scene.background = DESKTOP_BG;
 
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 60);
+// far reicht bis hinter die größte Himmelskuppel (44 m × Weltmaßstab 4 = 176 m)
+// plus Reserve; bei 60 wurden die skalierte Insel und der Konstrukt-Boden
+// abgeschnitten. near bleibt bei 5 cm – dort sitzt praktisch die gesamte
+// Tiefengenauigkeit, ein größeres far kostet sie kaum.
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 260);
 camera.position.set(0, 1.6, 1.2);
-scene.add(camera);
+
+// Player-Rig: Kamera (und in XR die Controller) hängen hier. three.js wendet die
+// Parent-Matrix auf die XR-Kamera an → Verschieben/Drehen dieser Gruppe bewegt
+// den Nutzer durch die Welt (Grundlage für Desktop- und VR-Fortbewegung).
+const player = new THREE.Group();
+player.name = 'player';
+player.add(camera);
+scene.add(player);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.xr.enabled = true;
+// Filmisches Tone-Mapping für weichere Lichtverläufe (weg vom flachen Look).
+// UI/Karten sind per material.toneMapped = false ausgenommen, bleiben also knackig.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
 
-// Umgebungen: Passthrough/Weiß (-1) sowie drei virtuelle Welten aus
+// Umgebungen: Passthrough/Weiß (-1) sowie die virtuellen Welten aus
 // environments.js, per 🌐-Button zyklisch durchschaltbar.
-const grid = new THREE.GridHelper(8, 24, 0x4a4550, 0x2b2830);
-scene.add(grid);
+// Dezenter, weicher Boden statt Raster für die schlichte Desktop-/Weiß-Ansicht.
+function makeDesktopFloor() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(128, 128, 8, 128, 128, 128);
+  g.addColorStop(0, '#2b2933');
+  g.addColorStop(1, 'rgba(18, 17, 22, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(
+    new THREE.CircleGeometry(6, 64),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = -0.01;
+  return mesh;
+}
+const desktopFloor = makeDesktopFloor();
+scene.add(desktopFloor);
 
 const environments = createEnvironments(scene);
 const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
@@ -47,13 +93,16 @@ function applyEnvironment() {
   });
   if (envIndex >= 0) {
     scene.background = environments[envIndex].background;
-    grid.visible = false;
+    scene.fog = environments[envIndex].fog ?? null;
+    desktopFloor.visible = false;
   } else if (inPassthrough) {
     scene.background = null;
-    grid.visible = false;
+    scene.fog = null;
+    desktopFloor.visible = false;
   } else {
     scene.background = DESKTOP_BG;
-    grid.visible = true;
+    scene.fog = null;
+    desktopFloor.visible = true;
   }
 }
 
@@ -97,11 +146,24 @@ cardManager.onCardRemoved = (card) => connectionManager.removeForCard(card);
 
 const whiteboard = new Whiteboard(scene, { onSketch: () => handleAction('sketch') });
 
+const zoneManager = new ZoneManager(scene);
+zoneManager.onRename = async (zone) => {
+  const text = await getUserText();
+  if (text) {
+    zone.setTitle(text);
+    commit('Zone umbenannt');
+    setStatus('Zone umbenannt.');
+  }
+};
+
+const timer = new Timer(scene);
+
 function boardToJSON() {
   return {
     ...cardManager.toJSON(),
     connections: connectionManager.toJSON(),
     whiteboard: whiteboard.toJSON(),
+    zones: zoneManager.toJSON(),
   };
 }
 
@@ -109,6 +171,7 @@ function applyBoardJSON(data) {
   cardManager.loadJSON(data);
   connectionManager.loadJSON(data?.connections ?? []);
   whiteboard.loadJSON(data?.whiteboard);
+  zoneManager.loadJSON(data?.zones ?? []);
 }
 
 const keyboard = new VirtualKeyboard(scene);
@@ -119,28 +182,76 @@ const interactions = new InteractionManager({
   scene,
   camera,
   cardManager,
+  xrRoot: player,
   getUiTargets: () => [
     ...(renderer.xr.isPresenting && wristMenu.group.visible ? wristMenu.buttons : []),
     ...keyboard.uiTargets,
     ...whiteboard.uiTargets,
+    ...zoneManager.uiTargets,
+    ...timer.uiTargets,
+    ...hud.uiTargets,
   ],
 });
-interactions.onControllerConnected = (handedness, grip) => {
-  wristMenu.registerGrip(handedness, grip);
+interactions.onInputConnected = ({ handedness, grip, hand }) => {
+  wristMenu.registerSource(handedness, { grip, hand });
 };
+
+// Fortbewegung: VR über den Player-Rig (Gleiten/Snap-Turn/Teleport),
+// Desktop über WASD/Pfeile (siehe Animationsschleife).
+const locomotion = new Locomotion({ renderer, player, camera, controllers: interactions.controllers });
+
+const UP = new THREE.Vector3(0, 1, 0);
+const moveKeys = { forward: false, back: false, left: false, right: false, up: false, down: false };
+const MOVE_KEYMAP = {
+  KeyW: 'forward', ArrowUp: 'forward',
+  KeyS: 'back', ArrowDown: 'back',
+  KeyA: 'left', ArrowLeft: 'left',
+  KeyD: 'right', ArrowRight: 'right',
+  KeyE: 'up', KeyQ: 'down',
+};
+function isTypingTarget() {
+  const tag = document.activeElement?.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA';
+}
+window.addEventListener('keydown', (e) => {
+  if (isTypingTarget()) return;
+  // Strg/Cmd gehört den Kürzeln (Strg+Z, Strg+A …), nicht der Fortbewegung.
+  if (e.ctrlKey || e.metaKey) return;
+  const k = MOVE_KEYMAP[e.code];
+  if (k) moveKeys[k] = true;
+});
+window.addEventListener('keyup', (e) => {
+  const k = MOVE_KEYMAP[e.code];
+  if (k) moveKeys[k] = false;
+});
+
+// Desktop: Standpunkt (Kamera + Orbit-Ziel) gemeinsam durch die Welt schieben,
+// sodass die gewohnte Orbit-Ansicht und Karten-Bedienung erhalten bleiben.
+const _moveFwd = new THREE.Vector3();
+const _moveRight = new THREE.Vector3();
+const _moveDelta = new THREE.Vector3();
+function updateDesktopMovement(dt) {
+  const f = (moveKeys.forward ? 1 : 0) - (moveKeys.back ? 1 : 0);
+  const s = (moveKeys.right ? 1 : 0) - (moveKeys.left ? 1 : 0);
+  const u = (moveKeys.up ? 1 : 0) - (moveKeys.down ? 1 : 0);
+  if (!f && !s && !u) return;
+  camera.getWorldDirection(_moveFwd);
+  _moveFwd.y = 0;
+  if (_moveFwd.lengthSq() < 1e-6) _moveFwd.set(0, 0, -1);
+  _moveFwd.normalize();
+  _moveRight.crossVectors(_moveFwd, UP).normalize();
+  _moveDelta.set(0, 0, 0).addScaledVector(_moveFwd, f).addScaledVector(_moveRight, s);
+  if (_moveDelta.lengthSq() > 0) _moveDelta.normalize();
+  const speed = 3.4;
+  _moveDelta.multiplyScalar(speed * dt);
+  _moveDelta.y += u * speed * dt;
+  camera.position.add(_moveDelta);
+  controls.target.add(_moveDelta);
+}
 
 // --- Status: DOM-Zeile am Desktop + schwebendes HUD in XR ---
 
-const hud = createTextPanel({
-  width: 0.5,
-  height: 0.07,
-  text: '',
-  background: 'rgba(26,24,31,0.85)',
-  fontSize: 30,
-});
-hud.mesh.position.set(0, -0.28, -0.9);
-hud.mesh.visible = false;
-camera.add(hud.mesh);
+const hud = new Hud(camera);
 
 let hudTimer = 0;
 const statusBand = document.getElementById('status-band');
@@ -148,17 +259,84 @@ const statusText = document.getElementById('status');
 function setStatus(message, ms = 3500) {
   if (statusText) statusText.textContent = message;
   statusBand?.classList.toggle('show', Boolean(message));
-  hud.setText(message);
-  hud.mesh.visible = Boolean(message);
+  hud.setStatus(message, ms);
   clearTimeout(hudTimer);
   if (message && ms) {
     hudTimer = setTimeout(() => {
-      hud.mesh.visible = false;
       if (statusText) statusText.textContent = '';
       statusBand?.classList.remove('show');
     }, ms);
   }
 }
+
+// Ladeanzeige: 3D-Panel im Blickfeld plus Zustand am Desktop-Band.
+function setBusyLabel(label) {
+  hud.setBusy(label);
+  statusBand?.classList.toggle('busy', Boolean(label));
+}
+
+function showError(message, error) {
+  console.error(error ?? message);
+  hud.showError(message);
+  setStatus(`Fehler: ${message}`, 8000);
+}
+
+// --- Undo/Redo ---
+//
+// Gesichert werden Karten und Verbindungen. Die Whiteboard-Zeichnung bleibt
+// bewusst außen vor: Sie ist ein PNG pro Schritt und würde den Verlauf sprengen.
+const history = new History({
+  capture: () => ({
+    cards: cardManager.toJSON().cards,
+    connections: connectionManager.toJSON(),
+    zones: zoneManager.toJSON(),
+  }),
+  restore: (state) => {
+    cardManager.applyState(state.cards);
+    connectionManager.loadJSON(state.connections);
+    zoneManager.loadJSON(state.zones);
+  },
+});
+
+function commit(label) {
+  history.commit(label);
+  updateHistoryButtons();
+}
+
+// Fortlaufende Gesten (Mausrad, Daumenstick) erzeugen sonst pro Frame einen
+// Schritt – erst nach einer kurzen Pause wird daraus ein Verlaufseintrag.
+let commitTimer = 0;
+let pendingCommit = null;
+function commitSoon(label, delay = 700) {
+  pendingCommit = label;
+  clearTimeout(commitTimer);
+  commitTimer = setTimeout(flushCommit, delay);
+}
+
+// Vor Undo/Redo nachholen, sonst würde ein Zurückspringen die noch offene
+// Größenänderung überspringen statt sie rückgängig zu machen.
+function flushCommit() {
+  if (!pendingCommit) return;
+  clearTimeout(commitTimer);
+  const label = pendingCommit;
+  pendingCommit = null;
+  commit(label);
+}
+
+function updateHistoryButtons() {
+  const undo = document.getElementById('btn-undo');
+  const redo = document.getElementById('btn-redo');
+  if (undo) undo.disabled = !history.canUndo;
+  if (redo) redo.disabled = !history.canRedo;
+}
+
+interactions.onCardMoved = () => commit('Karte verschoben');
+interactions.onCardScaled = () => commitSoon('Kartengröße');
+// Zonen hängen ebenfalls im Verlauf; die Whiteboard-Griffleiste löst hier zwar
+// auch aus, ändert aber nichts am gesicherten Zustand und erzeugt keinen Schritt.
+interactions.onGrabMoved = () => commit('Zone verschoben');
+interactions.onGrabScaled = () => commitSoon('Zonengröße');
+zoneManager.onChange = (label) => commit(label);
 
 // --- Aktionen (Wrist-Menü in XR, DOM-Buttons am Desktop) ---
 
@@ -177,8 +355,22 @@ function startLinking() {
   setStatus('🔗 Verbinden: Ziel-Karte anklicken (gleiche Karte oder Esc = abbrechen)', 0);
 }
 
+// Meldet Wiederholversuche an die Ladeanzeige, damit eine hakelige Verbindung
+// sichtbar wird statt sich als scheinbarer Stillstand zu zeigen.
+function aiProgress(label) {
+  return {
+    onProgress: ({ attempt, maxAttempts, waitMs, message }) => {
+      setBusyLabel(`${label} – Versuch ${attempt + 1}/${maxAttempts} in ${Math.ceil(waitMs / 1000)} s`);
+      setStatus(`⚠️ ${message} Neuer Versuch…`, 0);
+    },
+  };
+}
+
 async function handleAction(action) {
-  if (busy) return;
+  if (busy) {
+    setStatus('Claude arbeitet noch – einen Moment.');
+    return;
+  }
   try {
     if (action === 'new') {
       await newCardFlow();
@@ -186,6 +378,46 @@ async function handleAction(action) {
     }
     if (action === 'environment') {
       cycleEnvironment();
+      return;
+    }
+    if (action === 'undo') {
+      flushCommit();
+      const label = history.undo();
+      updateHistoryButtons();
+      setStatus(label ? `↶ Rückgängig: ${label}` : 'Kein Schritt zum Rückgängigmachen.');
+      return;
+    }
+    if (action === 'redo') {
+      flushCommit();
+      const label = history.redo();
+      updateHistoryButtons();
+      setStatus(label ? `↷ Wiederhergestellt: ${label}` : 'Kein Schritt zum Wiederherstellen.');
+      return;
+    }
+    if (action === 'save') {
+      const entry = saveSnapshot(boardToJSON());
+      setStatus(`💾 Sicherungspunkt angelegt (${entry.cards} Karten).`);
+      return;
+    }
+    if (action === 'load') {
+      const entry = loadSnapshot(0);
+      if (!entry) {
+        setStatus('Noch kein Sicherungspunkt vorhanden – erst „💾 Sichern".');
+        return;
+      }
+      applyBoardJSON(entry.data);
+      commit('Sicherungspunkt geladen');
+      const time = new Date(entry.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      setStatus(`📂 Sicherungspunkt von ${time} geladen (${cardManager.cards.length} Karten).`);
+      return;
+    }
+    if (action === 'export') {
+      const count = downloadBoard(boardToJSON());
+      setStatus(
+        renderer.xr.isPresenting
+          ? `⬇️ ${count} Karten als JSON exportiert – die Datei liegt nach der Sitzung in den Downloads.`
+          : `⬇️ ${count} Karten als JSON exportiert.`
+      );
       return;
     }
     if (action === 'whiteboard') {
@@ -202,12 +434,15 @@ async function handleAction(action) {
       }
       busy = true;
       setStatus('Claude analysiert die Skizze…', 0);
+      setBusyLabel('Claude liest die Skizze…');
       const image = whiteboard.toDataURL().split(',')[1];
-      const result = await requestIdeas('whiteboard', {
-        image,
-        ideas: cardManager.cards.map((c) => c.text),
-      });
+      const result = await requestIdeas(
+        'whiteboard',
+        { image, ideas: cardManager.cards.map((c) => c.text) },
+        aiProgress('Claude liest die Skizze…')
+      );
       cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      commit('Ideen aus Skizze');
       setStatus(`✨ ${result.length} Ideen aus der Skizze erstellt.`);
       return;
     }
@@ -218,6 +453,39 @@ async function handleAction(action) {
         return;
       }
       selected.setColor(selected.colorIndex + 1);
+      commit('Kartenfarbe');
+      return;
+    }
+    if (action === 'zone') {
+      const zone = zoneManager.addZone({ title: 'Neue Zone', colorIndex: zoneManager.zones.length });
+      zone.placeInFront(camera);
+      commit('Zone erstellt');
+      setStatus('🗂️ Zone erstellt – Karten davor gruppieren. ✎ zum Umbenennen.');
+      return;
+    }
+    if (action === 'timer') {
+      const shown = timer.toggle(camera);
+      setStatus(shown ? '⏱️ Timebox eingeblendet.' : 'Timebox ausgeblendet.');
+      return;
+    }
+    if (action === 'critic') {
+      const selected = cardManager.selected;
+      if (!selected) {
+        setStatus('Bitte zuerst eine Karte auswählen.');
+        return;
+      }
+      busy = true;
+      setStatus('😈 Advocatus Diaboli prüft die Idee…', 0);
+      setBusyLabel('😈 Advocatus Diaboli prüft…');
+      const result = await requestIdeas(
+        'critic',
+        { selectedIdea: selected.text, ideas: cardManager.cards.map((c) => c.text) },
+        aiProgress('😈 Advocatus Diaboli prüft…')
+      );
+      const cards = cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      for (const card of cards) card.setColor(4); // Rot = kritische Einwände
+      commit('Kritische Einwände');
+      setStatus(`😈 ${result.length} kritische Einwände zu „${selected.text}“`);
       return;
     }
     if (action === 'connect') {
@@ -229,11 +497,14 @@ async function handleAction(action) {
       if (!topic) return;
       busy = true;
       setStatus(`Claude erstellt ein Start-Board zu „${topic}“…`, 0);
-      const result = await requestIdeas('topic', {
-        topic,
-        ideas: cardManager.cards.map((c) => c.text),
-      });
+      setBusyLabel(`Start-Board zu „${topic}“…`);
+      const result = await requestIdeas(
+        'topic',
+        { topic, ideas: cardManager.cards.map((c) => c.text) },
+        aiProgress(`Start-Board zu „${topic}“…`)
+      );
       cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      commit(`Themen-Start „${topic}“`);
       setStatus(`Start-Board zu „${topic}“: ${result.length} Ideen.`);
       return;
     }
@@ -249,7 +520,8 @@ async function handleAction(action) {
       }
       clearArmedAt = 0;
       cardManager.clear();
-      setStatus('Alle Karten gelöscht.');
+      commit('Alles löschen');
+      setStatus('Alle Karten gelöscht – „↶ Rückgängig" holt sie zurück.');
       return;
     }
     if (action === 'delete') {
@@ -259,6 +531,7 @@ async function handleAction(action) {
         return;
       }
       cardManager.removeCard(selected);
+      commit('Karte gelöscht');
       setStatus('Karte gelöscht.');
       return;
     }
@@ -275,8 +548,14 @@ async function handleAction(action) {
         return;
       }
       setStatus('Claude generiert verwandte Ideen…', 0);
-      const result = await requestIdeas('related', { selectedIdea: selected.text, ideas });
+      setBusyLabel('Claude sucht verwandte Ideen…');
+      const result = await requestIdeas(
+        'related',
+        { selectedIdea: selected.text, ideas },
+        aiProgress('Claude sucht verwandte Ideen…')
+      );
       cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      commit('Verwandte Ideen');
       setStatus(`${result.length} neue Ideen zu „${selected.text}“`);
     } else if (action === 'cluster') {
       if (ideas.length < 2) {
@@ -284,9 +563,14 @@ async function handleAction(action) {
         return;
       }
       setStatus('Claude gruppiert die Karten…', 0);
+      setBusyLabel('Claude gruppiert die Karten…');
       // Snapshot, damit die Indizes der Antwort zu den gesendeten Ideen passen
       const snapshot = [...cardManager.cards];
-      const data = await requestAI('cluster', { ideas: snapshot.map((c) => c.text) });
+      const data = await requestAI(
+        'cluster',
+        { ideas: snapshot.map((c) => c.text) },
+        aiProgress('Claude gruppiert die Karten…')
+      );
       const clusterDefs = (data.clusters ?? [])
         .map((cl, i) => ({
           name: cl.name,
@@ -298,18 +582,21 @@ async function handleAction(action) {
         .filter((def) => def.cards.length);
       if (!clusterDefs.length) throw new Error('Keine verwertbaren Cluster erhalten.');
       cardManager.applyClusters(clusterDefs, camera);
+      commit('Cluster angewendet');
       setStatus(`${clusterDefs.length} Cluster angewendet – Karten wurden gruppiert und eingefärbt.`);
     } else if (action === 'summary') {
       setStatus('Claude fasst das Board zusammen…', 0);
-      const result = await requestIdeas('summary', { ideas });
+      setBusyLabel('Claude fasst zusammen…');
+      const result = await requestIdeas('summary', { ideas }, aiProgress('Claude fasst zusammen…'));
       cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      commit('Zusammenfassung');
       setStatus('Zusammenfassung erstellt.');
     }
   } catch (err) {
-    console.error(err);
-    setStatus(`Fehler: ${err.message}`, 6000);
+    showError(err.message, err);
   } finally {
     busy = false;
+    setBusyLabel(null);
   }
 }
 
@@ -351,20 +638,33 @@ async function newCardFlow() {
   const text = await getUserText();
   if (!text) return;
   cardManager.spawnIdeas([text], camera);
+  commit('Neue Karte');
   setStatus('Karte erstellt.');
 }
 
 // --- Desktop-UI ---
 
-document.getElementById('btn-new').addEventListener('click', () => handleAction('new'));
-document.getElementById('btn-related').addEventListener('click', () => handleAction('related'));
-document.getElementById('btn-cluster').addEventListener('click', () => handleAction('cluster'));
-document.getElementById('btn-summary').addEventListener('click', () => handleAction('summary'));
-document.getElementById('btn-topic').addEventListener('click', () => handleAction('topic'));
-document.getElementById('btn-whiteboard').addEventListener('click', () => handleAction('whiteboard'));
-document.getElementById('btn-export').addEventListener('click', () => downloadBoard(boardToJSON()));
-document.getElementById('btn-clear').addEventListener('click', () => handleAction('clear'));
-document.getElementById('btn-env').addEventListener('click', () => handleAction('environment'));
+const DESKTOP_BUTTONS = {
+  'btn-new': 'new',
+  'btn-related': 'related',
+  'btn-critic': 'critic',
+  'btn-cluster': 'cluster',
+  'btn-summary': 'summary',
+  'btn-zone': 'zone',
+  'btn-timer': 'timer',
+  'btn-topic': 'topic',
+  'btn-whiteboard': 'whiteboard',
+  'btn-export': 'export',
+  'btn-clear': 'clear',
+  'btn-env': 'environment',
+  'btn-undo': 'undo',
+  'btn-redo': 'redo',
+  'btn-save': 'save',
+  'btn-load': 'load',
+};
+for (const [id, action] of Object.entries(DESKTOP_BUTTONS)) {
+  document.getElementById(id)?.addEventListener('click', () => handleAction(action));
+}
 document.getElementById('idea-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleAction('new');
 });
@@ -373,9 +673,10 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
   if (!file) return;
   try {
     applyBoardJSON(await importBoardFile(file));
+    commit('Board importiert');
     setStatus(`Board importiert (${cardManager.cards.length} Karten).`);
   } catch (err) {
-    setStatus(`Import fehlgeschlagen: ${err.message}`, 6000);
+    showError(`Import fehlgeschlagen: ${err.message}`, err);
   }
   e.target.value = '';
 });
@@ -390,6 +691,7 @@ interactions.onCardPick = (card) => {
     return true;
   }
   const result = connectionManager.toggle(linkSource, card);
+  commit(result === 'added' ? 'Verbindung erstellt' : 'Verbindung entfernt');
   setStatus(result === 'added' ? '🔗 Verbindung erstellt.' : 'Verbindung entfernt.');
   linkSource = null;
   return true;
@@ -422,10 +724,14 @@ contextMenu.addEventListener('click', (e) => {
     openEditor(card);
   } else if (action === 'delete') {
     cardManager.removeCard(card);
+    commit('Karte gelöscht');
     setStatus('Karte gelöscht.');
   } else if (action === 'related') {
     cardManager.select(card);
     handleAction('related');
+  } else if (action === 'critic') {
+    cardManager.select(card);
+    handleAction('critic');
   } else if (action === 'connect') {
     cardManager.select(card);
     startLinking();
@@ -440,7 +746,9 @@ CARD_COLORS.forEach((color, i) => {
   dot.style.background = color.accent;
   dot.title = i === 0 ? 'Standardfarbe' : `Farbe ${i}`;
   dot.addEventListener('click', () => {
-    contextCard?.setColor(i);
+    if (!contextCard) return;
+    contextCard.setColor(i);
+    commit('Kartenfarbe');
   });
   colorRow.appendChild(dot);
 });
@@ -472,6 +780,7 @@ function closeEditor(save) {
     const text = editInput.value.trim();
     if (text) {
       editingCard.setText(text);
+      commit('Kartentext');
       setStatus('Karte aktualisiert.');
     }
   }
@@ -492,10 +801,28 @@ interactions.onCardDoubleClick = (card) => openEditor(card);
 
 window.addEventListener('keydown', (e) => {
   const tag = document.activeElement?.tagName;
+  // In einem Textfeld gehört Strg+Z der Texteingabe, nicht dem Board.
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+  if (e.ctrlKey || e.metaKey) {
+    const key = e.key.toLowerCase();
+    if (key === 'z') {
+      e.preventDefault();
+      handleAction(e.shiftKey ? 'redo' : 'undo');
+      return;
+    }
+    if (key === 'y') {
+      e.preventDefault();
+      handleAction('redo');
+      return;
+    }
+    return;
+  }
+
   if (e.key === 'Escape') {
     closeContextMenu();
     closeEditor(false);
+    hud.hideError();
     if (linkSource) {
       linkSource = null;
       setStatus('Verbinden abgebrochen.');
@@ -505,13 +832,16 @@ window.addEventListener('keydown', (e) => {
   if (!cardManager.selected) return;
   if (e.key === 'Delete' || e.key === 'Backspace') {
     cardManager.removeCard(cardManager.selected);
+    commit('Karte gelöscht');
     setStatus('Karte gelöscht.');
   } else if (e.key === 'F2') {
     openEditor(cardManager.selected);
   } else if (e.key === '+' || e.key === '=') {
     cardManager.selected.setScale(cardManager.selected.scale * 1.12);
+    commitSoon('Kartengröße');
   } else if (e.key === '-') {
     cardManager.selected.setScale(cardManager.selected.scale / 1.12);
+    commitSoon('Kartengröße');
   }
 });
 
@@ -551,6 +881,7 @@ let recenterOnNextFrame = false;
 
 renderer.xr.addEventListener('sessionstart', () => {
   controls.enabled = false;
+  locomotion.reset(); // Fortbewegungs-Rig zentriert starten
   if (xrMode === 'immersive-ar') {
     // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
     envIndex = -1;
@@ -567,6 +898,11 @@ renderer.xr.addEventListener('sessionstart', () => {
 
 renderer.xr.addEventListener('sessionend', () => {
   controls.enabled = true;
+  // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
+  locomotion.reset();
+  camera.position.set(0, 1.6, 1.2);
+  controls.target.set(0, 1.4, -0.6);
+  controls.update();
   envIndex = savedEnvIndex() ?? -1;
   applyEnvironment();
   wristMenu.setVisible(false);
@@ -592,11 +928,15 @@ if (savedBoard === null) {
   }
 }
 
+// Ausgangspunkt für Undo/Redo: der wiederhergestellte Stand.
+history.reset('Sitzungsstart');
+updateHistoryButtons();
+
 // Automatisches Speichern: alle 3 s bei Änderungen sowie beim Verlassen
 let lastSavedSnapshot = '';
 setInterval(() => {
   const data = boardToJSON();
-  const snapshot = JSON.stringify([data.cards, data.connections]);
+  const snapshot = JSON.stringify([data.cards, data.connections, data.zones]);
   if (snapshot !== lastSavedSnapshot) {
     lastSavedSnapshot = snapshot;
     saveBoardLocal(data);
@@ -614,12 +954,28 @@ addEventListener('resize', () => {
 });
 
 const clock = new THREE.Clock();
+let elapsed = 0;
 
 renderer.setAnimationLoop(() => {
+  // getDelta() ist die einzige Zeitquelle; elapsed wird selbst akkumuliert
+  // (getElapsedTime würde den Delta verbrauchen und dt auf 0 setzen).
+  const dt = Math.min(0.1, clock.getDelta());
+  elapsed += dt;
+  // In XR sitzt die echte Kopfpose in der XR-Kamera, nicht in `camera`.
+  const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+
   interactions.update();
+  wristMenu.update(viewCamera);
+  hud.update(dt);
   connectionManager.update();
-  if (envIndex >= 0) environments[envIndex].update?.(clock.getElapsedTime());
-  if (!renderer.xr.isPresenting) controls.update();
+  if (envIndex >= 0) environments[envIndex].update?.(elapsed);
+  timer.update(elapsed);
+  if (renderer.xr.isPresenting) {
+    locomotion.update(dt);
+  } else {
+    updateDesktopMovement(dt);
+    controls.update();
+  }
   renderer.render(scene, camera);
 
   // Nach dem ersten gerenderten XR-Frame hat die XR-Kamera eine gültige Pose –
@@ -628,6 +984,7 @@ renderer.setAnimationLoop(() => {
     const xrCam = renderer.xr.getCamera();
     if (xrCam.cameras?.length) {
       cardManager.repositionAllInArc(xrCam);
+      commit('Karten vor den Nutzer geholt');
       recenterOnNextFrame = false;
     }
   }
@@ -643,8 +1000,17 @@ window.__app = {
   keyboard,
   wristMenu,
   whiteboard,
+  zoneManager,
+  timer,
+  player,
+  locomotion,
+  interactions,
   controls,
   handleAction,
   setStatus,
-  env: { environments, grid, current: () => envIndex, cycle: cycleEnvironment },
+  history,
+  hud,
+  boardToJSON,
+  applyBoardJSON,
+  env: { environments, desktopFloor, current: () => envIndex, cycle: cycleEnvironment },
 };

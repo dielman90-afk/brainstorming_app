@@ -16,21 +16,66 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 
 - **Mixed Reality / VR:** Startet bevorzugt als `immersive-ar` (Passthrough auf der
   Quest 3), Fallback auf `immersive-vr`.
-- **Drei virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
+- **Vier virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
   externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
-  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Nadel- und
-  Laubbäumen, Blumen, Wasserfall samt Teich, kreisenden Vögeln, treibenden
-  Wolken und schwebenden Mini-Inseln) → **🌌 Nachthimmel** (Sternenfeld, Mond,
-  leuchtendes Boden-Grid) → **🌐 Studio** (schlichter heller Verlauf). Die
-  Auswahl wird gemerkt; eine reine VR-Session startet direkt in der zuletzt
-  genutzten Umgebung (sonst Himmelsinsel).
+  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Büschen,
+  Pilzen, Blumen, Fluss samt Wasserfall mit Schaum & Regenbogen, hängenden Ranken
+  unter den Inseln, kreisenden Vögeln, Schmetterlingen, 3D-Wolken – auch unter den
+  Inseln – und schwebenden Mini-Inseln) →
+  **🌌 Nachthimmel** (Sternenfeld, Mond und natürlicher **Mars-Untergrund** mit
+  Kratern, Felsen und Hügeln) → **🪷 Zen-Garten** (geharkter Sand, Koi-Teich mit
+  Seerosen, Lotus & Wasser-Ringen, Bambushain, Kirschblüten- und Ahornbaum,
+  Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel) →
+  **🌐 Studio** (schlichter heller Verlauf) → **⬜ Konstrukt** (nahtloser,
+  komplett weißer Void im Stil des „Matrix“-Ladeprogramms – Kuppel und Boden im
+  selben Weißton, kein sichtbarer Horizont, gleichmäßiges schattenfreies Licht).
+  Keine Umgebung hat ein Boden-Raster; filmisches Tone-Mapping, weiche
+  Beleuchtung, gebackenes Vertex-Shading und gefälschte Kontaktschatten
+  (Blob-Shadows) sorgen für Tiefe ohne teure Echtzeit-Schatten. Die Auswahl wird
+  gemerkt; eine reine VR-Session startet direkt in der zuletzt genutzten Umgebung
+  (sonst Himmelsinsel).
+- **Weltmaßstab:** Die Himmelsinsel ist 1:1 zum Nutzer bemaßt – Bäume rund 6 m,
+  die Hauptinsel gut 40 m breit, Büsche auf Schulterhöhe. Sie war ursprünglich
+  als Diorama modelliert (Bäume 1,6 m, Insel 10 m), wodurch man in VR wie ein
+  Riese über der Landschaft stand. Der Faktor sitzt als `WORLD_SCALE` in
+  `createIslandEnvironment` und skaliert die komplette Gruppe, sodass
+  Lichtrichtungen, Blickwinkel und Silhouetten unverändert bleiben; die
+  Nebeldistanzen gehen denselben Weg mit. Die Karten sind davon unberührt – sie
+  bleiben handgroß und in Reichweite.
+- **Fortbewegung durch die Landschaft** (`src/locomotion.js`): Ein Player-Rig
+  (Gruppe mit Kamera + Controllern) bewegt den Nutzer durch die Welt. **Desktop:**
+  WASD/Pfeile bewegen, Q/E runter/hoch – die gewohnte Orbit-Ansicht und
+  Karten-Bedienung bleiben erhalten. **VR:** linker Stick = sanftes Gleiten in
+  Blickrichtung (analog dosierbar), rechter Stick = Snap-Turn (komfortables
+  ruckartiges Drehen).
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
-- **Handgelenk-Menü** (linker Controller, 2-Spalten-Raster): *Neue Karte*,
-  *Themen-Start*, *Verwandte Ideen*, *Cluster anwenden*, *Zusammenfassen*,
-  *Farbe*, *Verbinden*, *Karte löschen*, *Alles löschen* (mit
-  Zweifach-Bestätigung), *Umgebung umschalten*. Buttons werden mit dem Ray des
-  anderen Controllers geklickt.
+- **Hand-Menü** (`src/wristMenu.js`) auf zwei Reitern à fünf Reihen, damit das
+  Panel trotz 19 Aktionen kompakt bleibt:
+  - **💡 Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
+    *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Karte löschen*
+  - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
+    *Umgebung*, *Sichern*, *Laden*, *Als Datei*, *Alles löschen* (mit
+    Zweifach-Bestätigung)
+
+  Das Menü sitzt **mit Controllern** über dem Handrücken der linken Hand und
+  reicht nach vorn ins Blickfeld (statt hinter dem Handgelenk Richtung
+  Ellenbogen). **Ohne Controller** – also bei Hand-Tracking – schwebt es
+  verkleinert über der **offenen Handfläche** und blendet sich automatisch ein,
+  sobald die flache Hand zum Gesicht zeigt; bei Faust oder abgewandter Hand
+  verschwindet es wieder. Buttons werden mit dem Ray der anderen Hand
+  angevisiert und per Trigger bzw. Pinch geklickt. Die Hände werden bei
+  Hand-Tracking als Gelenk-Kugeln dargestellt (prozedural, ohne externe Assets).
+- **Undo/Redo:** Vollständiger Verlauf über *Anlegen, Löschen, „Alles löschen",
+  Verschieben, Größe, Farbe, Text, Cluster, Verbindungen, Zonen, Import und
+  Laden* –
+  am Desktop per **Strg+Z / Strg+Umschalt+Z** (oder Strg+Y) und über die Buttons
+  im Overlay, in VR über *„↶ Rückgängig"* / *„↷ Wiederholen"* im Menü. Intern
+  sichert `src/history.js` pro Schritt einen Board-Snapshot (bis zu 60 Schritte);
+  beim Zurücksetzen werden bestehende Karten anhand ihrer ID aktualisiert statt
+  neu aufgebaut, damit Auswahl und Objekt-Identität erhalten bleiben. Die
+  Whiteboard-Zeichnung ist bewusst *nicht* Teil des Verlaufs (ein PNG pro
+  Schritt).
 - **KI-Funktionen** (Server-Proxy → Anthropic Messages API mit Structured
   Outputs/JSON-Schema):
   - **Themen-Start:** Thema nennen → Claude füllt das Board mit 8–10 Start-Ideen.
@@ -40,6 +85,22 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
     die Karten werden räumlich in Cluster-Spalten sortiert, pro Cluster
     eingefärbt und mit einer 📌-Titelkarte versehen.
   - **Zusammenfassen:** Das ganze Board als eine Karte.
+  - **😈 Kritiker (Advocatus Diaboli):** Nennt 3–5 kritische Einwände, Risiken
+    oder Gegenargumente zur ausgewählten Karte – als rote Karten.
+
+  **Fehlerbehandlung und Ladeanzeige:** Jede Anfrage hat eine harte Zeitgrenze
+  (45 s, für die Whiteboard-Vision 90 s) und wird bei Zeitüberschreitung,
+  Verbindungsabbruch, `429` oder `5xx` bis zu dreimal mit wachsender Wartezeit
+  wiederholt; ein `4xx` gilt als endgültig und wird nicht wiederholt. Während
+  Claude arbeitet, läuft im Blickfeld eine **Ladeanzeige** mit Aktion,
+  Sekundenzähler und – bei einem Wiederholversuch – dessen Nummer und Wartezeit
+  (am Desktop zusätzlich als Ring im Status-Band). Schlägt eine Anfrage
+  endgültig fehl, erscheint statt eines stillen Abbruchs eine **Fehlerkarte** im
+  Raum mit Klartext („Server nicht erreichbar", „Zeitüberschreitung nach 45 s",
+  der Serverfehler selbst); sie lässt sich anklicken bzw. mit Esc schließen und
+  verschwindet sonst nach 10 s. Serverseitig bricht die Anfrage etwas früher ab
+  als im Client, damit eine sprechende Meldung ankommt statt eines abgebrochenen
+  `fetch`.
 - **Kartenfarben:** 7 Farben pro Karte (mit leuchtendem Akzentstreifen am linken
   Rand) – am Desktop über die Farbpunkte im Rechtsklick-Menü, in VR über
   „🎨 Farbe“ (wechselt zyklisch). Cluster färben automatisch.
@@ -62,15 +123,32 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   gehaltenem Trigger. Verschieben über die Griffleiste oben (greifen wie eine
   Karte), Größe 0,6×–2,5× per ➕/➖, Mausrad über der Griffleiste oder Stick beim
   Halten. Zeichnung, Position und Größe werden mitgespeichert und exportiert.
+- **🗂️ Zonen / Rahmen:** Beschriftete, halbtransparente Flächen zum räumlichen
+  Gruppieren von Karten (z. B. „To Do / Doing / Done“). Greifbar zum Verschieben,
+  skalierbar, per ✎ umbenennbar, 🎨 einfärbbar und ✕ löschbar. Werden im Board
+  gespeichert und exportiert.
+- **⏱️ Timer / Timebox:** Schwebende Uhr für moderierte Runden mit Presets
+  (1/3/5/10 min), Start/Pause, Reset, Fortschrittsbalken und Gong bei Ablauf.
+  Über das Menü ein-/ausblendbar, greifbar zum Positionieren.
 - **Automatisches Speichern:** Das Board (Texte, Positionen, Farben,
-  Verbindungen und Whiteboard-Zeichnung) wird laufend im Browser gespeichert
+  Verbindungen, Zonen und Whiteboard-Zeichnung) wird laufend im Browser gespeichert
   (localStorage) und beim nächsten Öffnen wiederhergestellt – auch nach einem
   Browser-Neustart. Gilt pro Gerät/Browser.
-- **Board-Export/-Import** als JSON (Desktop-Overlay, Buttons „Export“/„Import“) –
-  z. B. um ein Board vom Desktop auf die Quest zu bringen oder zu archivieren.
+- **Board-Export/-Import** als JSON – am Desktop über „Export“/„Import“ im
+  Overlay, in VR über *„⬇️ Als Datei"* im Menü (die Datei landet im
+  Download-Ordner des Quest-Browsers und ist nach der Sitzung dort zu finden).
+  Importiertes JSON wird vor dem Anwenden geprüft; ein defektes Board erzeugt
+  eine klare Meldung statt eines halb geladenen Zustands.
+- **Sicherungspunkte** (*„💾 Sichern"* / *„📂 Laden"*): manuelle Wiederherstellungs-
+  punkte im Browser-Speicher, die letzten drei werden behalten. Das ist der Weg,
+  der **auch mitten in einer XR-Sitzung** funktioniert – ein Datei-Dialog würde
+  die immersive Sitzung verlassen. Ist der Speicher voll, werden erst ältere
+  Punkte und zuletzt die Whiteboard-Zeichnung geopfert, bevor aufgegeben wird.
 - **Desktop-Fallback:** Läuft ohne Headset im normalen Browser – Maus-Steuerung
   (Orbit), Karten per Klick auswählen und ziehen, alle Aktionen über das Overlay
-  links oben. Ideal zum schnellen Iterieren.
+  links oben. Ideal zum schnellen Iterieren. Das Overlay ist auf die Fensterhöhe
+  begrenzt und **scrollt bei Bedarf selbst**, damit auch auf niedrigen Fenstern
+  alle Bedienelemente bis hinunter zum XR-Button erreichbar bleiben.
 
 ## Projektstruktur
 
@@ -79,14 +157,19 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 ├── src/
 │   ├── main.js             Szene, XR-Session (AR→VR-Fallback), Verdrahtung
 │   ├── cards.js            IdeaCard + CardManager (Halbkreis-Anordnung, Serialisierung)
-│   ├── interactions.js     Controller-Raycasting/Grab + Maus-Fallback
-│   ├── wristMenu.js        Menü-Panel am Handgelenk
+│   ├── interactions.js     Controller-/Hand-Raycasting, Grab + Maus-Fallback
+│   ├── locomotion.js       Fortbewegung (Player-Rig): VR-Gleiten + Snap-Turn
+│   ├── wristMenu.js        Menü-Panel an Controller bzw. Handfläche
+│   ├── history.js          Undo/Redo (Board-Snapshots)
+│   ├── hud.js              Statuszeile, Ladeanzeige und Fehlerkarte im Blickfeld
 │   ├── keyboard.js         Virtuelle 3D-Tastatur (Fallback)
 │   ├── speech.js           Web Speech API Wrapper
-│   ├── ai.js               Client für den Server-Proxy
-│   ├── boardState.js       JSON-Export/-Import + Autosave
-│   ├── environments.js     Drei prozedurale VR-Umgebungen (Insel, Nacht, Studio)
+│   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
+│   ├── boardState.js       JSON-Export/-Import, Sicherungspunkte + Autosave
+│   ├── environments.js     Fünf prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Studio, Konstrukt)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
+│   ├── zones.js            Räumliche Zonen/Rahmen zum Gruppieren von Karten
+│   ├── timer.js            Schwebende Timebox-Uhr mit Gong
 │   └── textPanel.js        Canvas-Textur-Panels für Text
 ├── server/
 │   ├── index.js            Express-Proxy (lokale Entwicklung)
@@ -119,18 +202,22 @@ Einfach `https://localhost:5173` öffnen:
 | Aktion | Bedienung |
 |---|---|
 | Umschauen | Linke Maustaste ziehen (Orbit), Scrollen = Zoom |
+| **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |
 | Karte löschen | **Rechtsklick → „Karte löschen“** oder **Entf/Backspace** bei ausgewählter Karte |
-| Kontextmenü | **Rechtsklick** auf eine Karte: Bearbeiten · Verwandte Ideen · Verbinden · Farbe · Löschen |
+| Kontextmenü | **Rechtsklick** auf eine Karte: Bearbeiten · Verwandte Ideen · Kritiker · Verbinden · Farbe · Löschen |
 | Karte einfärben | Rechtsklick → Farbpunkt anklicken |
 | Karten verbinden | Rechtsklick → „Verbinden mit…“ → Ziel-Karte anklicken (nochmal = Linie entfernen, Esc = abbrechen) |
 | Neue Karte | Text ins Eingabefeld, „Neue Karte“ oder Enter |
 | Themen-Start | Thema ins Eingabefeld → „🚀 Themen-Start“ |
-| KI-Funktionen | Buttons „Verwandte Ideen“ / „Cluster anwenden“ / „Zusammenfassen“ |
+| KI-Funktionen | Buttons „Verwandte Ideen“ / „Kritiker“ / „Cluster anwenden“ / „Zusammenfassen“ |
+| **Rückgängig / Wiederholen** | **Strg+Z** / **Strg+Umschalt+Z** (auch Strg+Y) oder die Buttons im Overlay |
+| Sicherungspunkt | „💾 Sichern“ / „📂 Laden“ im Overlay |
 | Export/Import | Buttons im Overlay |
+| Fehlerkarte schließen | Anklicken oder **Esc** |
 
 ## Auf der Quest 3 öffnen
 
@@ -166,33 +253,45 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 
 | Aktion | Bedienung |
 |---|---|
+| **Bewegen (Gleiten)** | **Linker Daumenstick** – gleitet in Blickrichtung durch die Welt (analog dosierbar) |
+| **Drehen (Snap-Turn)** | **Rechter Daumenstick links/rechts** – dreht ruckartig (komfortabel) |
 | Karte greifen/verschieben | Mit dem Controller-Ray anvisieren, **Trigger halten**, loslassen zum Ablegen |
 | Kartengröße | Karte greifen, dann **Daumenstick hoch/runter** |
 | Karte auswählen | Kurz mit dem Trigger antippen (Cyan-Rahmen) |
-| Menü | Am **linken Handgelenk** – mit dem rechten Ray anvisieren und Trigger drücken |
+| Menü **mit Controllern** | Über dem Handrücken der **linken Hand** – mit dem rechten Ray anvisieren und Trigger drücken |
+| Menü **ohne Controller** | **Linke Handfläche öffnen und zum Gesicht drehen** – das Menü erscheint darüber. Klicken per **Pinch** (Daumen + Zeigefinger) der anderen Hand |
+| Menüseite wechseln | Reiter **„💡 Ideen“** bzw. **„🗂 Board“** oben im Panel antippen |
 | Neue Karte | Menü → „＋ Neue Karte“ → sprechen bzw. virtuelle Tastatur |
 | Themen-Start | Menü → „🚀 Themen-Start“ → Thema sprechen/tippen |
 | Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
 | Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |
-| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel → Studio) |
+| **Rückgängig / Wiederholen** | Menü → „🗂 Board“ → **„↶ Rückgängig“** / **„↷ Wiederholen“** |
+| Board sichern / laden | Menü → „🗂 Board“ → „💾 Sichern“ / „📂 Laden“ |
+| Board als Datei | Menü → „🗂 Board“ → „⬇️ Als Datei“ (liegt nach der Sitzung in den Downloads) |
+| Fehlerkarte schließen | Die rote Karte im Blickfeld antippen (verschwindet sonst nach 10 s) |
+| Zone / Timer | Menü → „🗂 Board“ → „🗂️ Zone“ bzw. „⏱️ Timer“ |
+| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Studio → Konstrukt) |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
-Die Position des Handgelenk-Menüs lässt sich in `src/wristMenu.js`
-(`attachToGrip`, Konstanten für Position/Rotation) anpassen.
+Die Platzierung des Menüs lässt sich in `src/wristMenu.js` über die Konstanten
+oben in der Datei anpassen: `GRIP_POSITION`/`GRIP_TILT_X` für den Sitz am
+Controller, `PALM_SCALE`/`PALM_LIFT`/`PALM_FORWARD` für die Handfläche sowie
+`FACING_*`/`OPEN_*` für die Schwellen, ab denen die offene Hand das Menü
+einblendet.
 
 ## API-Vertrag
 
 `POST /api/generate` mit
 
 ```json
-{ "action": "related" | "cluster" | "summary" | "topic" | "whiteboard", "selectedIdea": "…", "topic": "…", "image": "<Base64-PNG>", "ideas": ["…", "…"] }
+{ "action": "related" | "critic" | "cluster" | "summary" | "topic" | "whiteboard", "selectedIdea": "…", "topic": "…", "image": "<Base64-PNG>", "ideas": ["…", "…"] }
 ```
 
 (`whiteboard` schickt den Board-Screenshot als Base64-PNG an Claude-Vision.)
 
-antwortet für `related`/`summary`/`topic` mit
+antwortet für `related`/`critic`/`summary`/`topic`/`whiteboard` mit
 
 ```json
 { "ideas": [{ "text": "…" }] }
@@ -214,8 +313,20 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   Desktop-Browser → Desktop-Modus ist gewollt).
 - **Zertifikatswarnung auf der Quest:** Normal bei mkcert – einmalig
   „Trotzdem fortfahren“. Wer das vermeiden will, deployt auf Netlify (Variante B).
-- **KI-Buttons melden Fehler:** `ANTHROPIC_API_KEY` in `.env` prüfen (bzw. in den
-  Netlify-Umgebungsvariablen), oder mit `MOCK_AI=1` ohne Key testen.
+- **KI-Buttons melden Fehler:** Die Fehlerkarte nennt die Ursache im Klartext.
+  „Server nicht erreichbar" → läuft der Proxy (`npm run dev`)? „ANTHROPIC_API_KEY
+  ist nicht gesetzt" → Key in `.env` bzw. in den Netlify-Umgebungsvariablen
+  eintragen, oder mit `MOCK_AI=1` ohne Key testen. Zeitüberschreitungen und
+  Rate-Limits werden automatisch bis zu dreimal wiederholt, bevor die Fehlerkarte
+  erscheint.
+- **Aus Versehen alles gelöscht:** **Strg+Z** bzw. „↶ Rückgängig" im Menü holt
+  auch ein komplett geleertes Board zurück. Der Verlauf gilt pro Sitzung – nach
+  einem Reload hilft „📂 Laden" (letzter Sicherungspunkt) oder ein JSON-Import.
+- **Menü erscheint bei Hand-Tracking nicht:** Es zeigt sich nur bei **flacher,
+  offener linker Hand, deren Innenfläche zum Gesicht zeigt** – Faust und
+  Handrücken blenden es bewusst aus. Wenn gar keine Hände getrackt werden, sind
+  im Quest-System die Handbewegungen abzuschalten oder die Controller abzulegen
+  (`hand-tracking` wird als optionales WebXR-Feature angefragt).
 - **Spracheingabe reagiert nicht:** Der Quest-Browser unterstützt die Web Speech
   API nicht – die virtuelle Tastatur öffnet sich automatisch. Am Desktop braucht
   Chrome eine Mikrofon-Freigabe.

@@ -58,7 +58,7 @@ export function createTextPanel({
   texture.anisotropy = 4;
   texture.colorSpace = THREE.SRGBColorSpace;
 
-  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true });
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false });
   const geometry = new THREE.PlaneGeometry(width, height);
   const mesh = new THREE.Mesh(geometry, material);
 
