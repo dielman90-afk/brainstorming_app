@@ -393,10 +393,17 @@ export class WristMenu {
     if (this._side.lengthSq() < 1e-8) return false;
     this._side.normalize();
 
-    // Flächennormale; die Reihenfolge des Kreuzprodukts hängt an der Händigkeit,
-    // damit sie bei beiden Händen aus der Handfläche heraus zeigt.
-    if (source.handedness === 'right') this._normal.crossVectors(this._forward, this._side);
-    else this._normal.crossVectors(this._side, this._forward);
+    // Flächennormale, die aus der HANDFLÄCHE herauszeigt (nicht aus dem
+    // Handrücken). Die Reihenfolge des Kreuzprodukts hängt an der Händigkeit.
+    //
+    // Probe rechte Hand über den Handschlag: Finger nach vorn F = -Z, Daumen
+    // nach oben, Handfläche nach links N = -X. Der Zeigefinger liegt auf der
+    // Daumenseite, also S = +Y, und cross(S, F) = Y × (-Z) = -X = N.
+    // Die linke Hand ist gespiegelt. Merkhilfe: Legt man beide Handflächen vor
+    // dem Gesicht auf, zeigen die Daumen nach außen – links nach links, rechts
+    // nach rechts.
+    if (source.handedness === 'right') this._normal.crossVectors(this._side, this._forward);
+    else this._normal.crossVectors(this._forward, this._side);
     if (this._normal.lengthSq() < 1e-8) return false;
     this._normal.normalize();
 
