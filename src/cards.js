@@ -240,17 +240,54 @@ export class CardManager {
     if (!data || !Array.isArray(data.cards)) {
       throw new Error('Ungültiges Board-Format.');
     }
-    this.clear();
-    for (const entry of data.cards) {
+    this.applyState(data.cards);
+  }
+
+  // Board auf eine Kartenliste (Format wie in toJSON().cards) bringen.
+  //
+  // Bewusst kein „alles löschen und neu aufbauen": Karten mit bekannter ID
+  // werden an Ort und Stelle aktualisiert. Dadurch bleiben Objekt-Identität und
+  // Auswahl erhalten und es entsteht kein Flackern – wichtig, weil Undo/Redo
+  // diesen Weg für jeden Schritt nutzt.
+  applyState(entries) {
+    if (!Array.isArray(entries)) throw new Error('Ungültiges Board-Format.');
+    const byId = new Map(this.cards.map((card) => [card.id, card]));
+    const ordered = [];
+    const keep = new Set();
+
+    for (const entry of entries) {
       if (typeof entry?.text !== 'string') continue;
-      const card = this.addCard(entry.text, {
-        position: entry.position,
-        quaternion: entry.quaternion,
-        colorIndex: entry.colorIndex,
-        scale: entry.scale,
-      });
-      // IDs erhalten, damit gespeicherte Verbindungen weiter passen
-      if (typeof entry.id === 'string' && entry.id) card.id = entry.id;
+      const colorIndex = entry.colorIndex ?? 0;
+      const scale = entry.scale ?? 1;
+      let card = typeof entry.id === 'string' ? byId.get(entry.id) : undefined;
+
+      if (card) {
+        if (card.text !== entry.text) card.setText(entry.text);
+        if (card.colorIndex !== colorIndex) card.setColor(colorIndex);
+        if (card.scale !== scale) card.setScale(scale);
+        // Gerade gegriffene Karten hängen am Controller – zurück in die Szene,
+        // sonst wären die gespeicherten Weltkoordinaten relativ zur Hand.
+        if (card.group.parent !== this.scene) this.scene.attach(card.group);
+        if (entry.position) card.group.position.fromArray(entry.position);
+        if (entry.quaternion) card.group.quaternion.fromArray(entry.quaternion);
+      } else {
+        card = this.addCard(entry.text, {
+          position: entry.position,
+          quaternion: entry.quaternion,
+          colorIndex,
+          scale,
+        });
+        // IDs erhalten, damit gespeicherte Verbindungen weiter passen
+        if (typeof entry.id === 'string' && entry.id) card.id = entry.id;
+      }
+      keep.add(card);
+      ordered.push(card);
     }
+
+    for (const card of [...this.cards]) {
+      if (!keep.has(card)) this.removeCard(card);
+    }
+    this.cards = ordered;
+    this.spawnBatch = Math.ceil(ordered.length / 6);
   }
 }
