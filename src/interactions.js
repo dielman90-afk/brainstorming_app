@@ -1,5 +1,10 @@
 import * as THREE from 'three';
 import { XRControllerModelFactory } from 'three/addons/webxr/XRControllerModelFactory.js';
+import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
+
+// Bewegung unterhalb dieser Schwelle gilt als „nur angetippt" und landet nicht
+// im Undo-Verlauf (ein Grab setzt die Matrix minimal neu, auch ohne Bewegung).
+const MOVE_EPSILON_SQ = 1e-6;
 
 // Ray-Casting + Grab für XR-Controller sowie Maus-Fallback am Desktop.
 export class InteractionManager {
@@ -9,15 +14,19 @@ export class InteractionManager {
     this.camera = camera;
     this.cardManager = cardManager;
     this.getUiTargets = getUiTargets;
-    this.onControllerConnected = null;
+    this.onInputConnected = null;
 
     this.raycaster = new THREE.Raycaster();
     this.tempMatrix = new THREE.Matrix4();
     this.pointer = new THREE.Vector2();
     this.controllers = [];
+    this.hands = [];
     this.drag = null;
     this.onCardContextMenu = null;
     this.onCardDoubleClick = null;
+    // Melden abgeschlossene Änderungen, damit main.js einen Undo-Schritt sichert.
+    this.onCardMoved = null;
+    this.onCardScaled = null;
     // Optionaler Interceptor: gibt true zurück, wenn ein Karten-Pick konsumiert
     // wurde (z. B. Verbindungsmodus) – dann kein Grab/Drag.
     this.onCardPick = null;
@@ -44,6 +53,7 @@ export class InteractionManager {
 
   _initControllers() {
     const modelFactory = new XRControllerModelFactory();
+    const handFactory = new XRHandModelFactory();
     for (let i = 0; i < 2; i++) {
       const controller = this.renderer.xr.getController(i);
       const line = new THREE.Line(
@@ -59,17 +69,31 @@ export class InteractionManager {
 
       const grip = this.renderer.xr.getControllerGrip(i);
       grip.add(modelFactory.createControllerModel(grip));
+
+      // Hand-Tracking: dieselbe Slot-Nummer liefert den XRHandSpace. Das
+      // Kugel-Profil ist rein prozedural – keine externen Assets, damit die App
+      // auch offline auf der Quest vollständig lädt.
+      const hand = this.renderer.xr.getHand(i);
+      hand.add(handFactory.createHandModel(hand, 'spheres'));
+
       controller.addEventListener('connected', (event) => {
         controller.userData.handedness = event.data?.handedness;
         controller.userData.inputSource = event.data;
-        this.onControllerConnected?.(event.data?.handedness, grip, controller);
+        this.onInputConnected?.({
+          handedness: event.data?.handedness,
+          grip,
+          hand,
+          controller,
+          isHand: Boolean(event.data?.hand),
+        });
       });
       controller.addEventListener('disconnected', () => {
         controller.userData.inputSource = null;
       });
 
-      this.scene.add(controller, grip);
+      this.scene.add(controller, grip, hand);
       this.controllers.push(controller);
+      this.hands.push(hand);
     }
   }
 
@@ -121,6 +145,7 @@ export class InteractionManager {
     this.cardManager.select(hit.card);
     if (this.onCardPick?.(hit.card)) return;
     controller.userData.grabbed = hit.card;
+    controller.userData.grabStart = hit.card.group.getWorldPosition(new THREE.Vector3());
     controller.attach(hit.card.group);
   }
 
@@ -138,6 +163,11 @@ export class InteractionManager {
     if (card) {
       this.scene.attach(card.group);
       controller.userData.grabbed = null;
+      const start = controller.userData.grabStart;
+      if (start && card.group.position.distanceToSquared(start) > MOVE_EPSILON_SQ) {
+        this.onCardMoved?.(card);
+      }
+      controller.userData.grabStart = null;
     }
   }
 
@@ -164,8 +194,12 @@ export class InteractionManager {
       if (axes && axes.length >= 4 && Math.abs(axes[3]) > 0.25) {
         const grabbed = controller.userData.grabbed;
         const target = controller.userData.grabbedTarget;
-        if (grabbed) grabbed.setScale(grabbed.scale * (1 - axes[3] * 0.02));
-        else if (target) target.setScale(target.getScale() * (1 - axes[3] * 0.02));
+        if (grabbed) {
+          grabbed.setScale(grabbed.scale * (1 - axes[3] * 0.02));
+          this.onCardScaled?.(grabbed);
+        } else if (target) {
+          target.setScale(target.getScale() * (1 - axes[3] * 0.02));
+        }
       }
     }
   }
@@ -193,6 +227,7 @@ export class InteractionManager {
       event.preventDefault();
       event.stopPropagation();
       hit.card.setScale(hit.card.scale * factor);
+      this.onCardScaled?.(hit.card);
     } else if (hit?.type === 'grab') {
       event.preventDefault();
       event.stopPropagation();
@@ -253,6 +288,7 @@ export class InteractionManager {
       plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.card.group.position),
       offset: hit.card.group.position.clone().sub(hit.point),
       point: new THREE.Vector3(),
+      start: hit.card.group.position.clone(),
     };
   }
 
@@ -292,7 +328,13 @@ export class InteractionManager {
       this.drawTarget = null;
     }
     this.dragGrab = null;
-    this.drag = null;
+    if (this.drag) {
+      const { card, start } = this.drag;
+      this.drag = null;
+      if (card.group.position.distanceToSquared(start) > MOVE_EPSILON_SQ) {
+        this.onCardMoved?.(card);
+      }
+    }
   }
 
   _onContextMenu(event) {
