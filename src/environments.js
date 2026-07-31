@@ -856,9 +856,19 @@ function createIslandEnvironment() {
     }
   }
 
+  // Weltmaßstab: Die Insel war als Diorama modelliert – Bäume nur rund 1,6 m
+  // hoch, also auf Augenhöhe eines stehenden Nutzers, und die Hauptinsel gerade
+  // 10 m breit. In VR fühlt man sich dadurch riesig. Die ganze Gruppe wird
+  // deshalb hochskaliert; Bäume erreichen so gut 6 m, die Insel rund 40 m, und
+  // die Komposition (Lichtrichtungen, Winkel, Silhouetten) bleibt exakt
+  // erhalten, weil alles denselben Faktor bekommt.
+  const WORLD_SCALE = 4;
+  group.scale.setScalar(WORLD_SCALE);
+
   // Leichter Tiefennebel (fern), damit ferne Inseln/Wolken sanft ausblenden –
-  // Karten in Reichweite (< 12 m) bleiben unberührt.
-  const fog = new THREE.Fog(0xcfe4f2, 18, 46);
+  // Karten in Reichweite bleiben unberührt. Die Distanzen sind Weltkoordinaten
+  // und müssen den Maßstab mitgehen, sonst versinkt die Insel im Nebel.
+  const fog = new THREE.Fog(0xcfe4f2, 18 * WORLD_SCALE, 46 * WORLD_SCALE);
 
   return {
     id: 'island',

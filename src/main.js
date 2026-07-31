@@ -30,7 +30,11 @@ const DESKTOP_BG = new THREE.Color(0x1a1920);
 const scene = new THREE.Scene();
 scene.background = DESKTOP_BG;
 
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 60);
+// far reicht bis hinter die größte Himmelskuppel (44 m × Weltmaßstab 4 = 176 m)
+// plus Reserve; bei 60 wurden die skalierte Insel und der Konstrukt-Boden
+// abgeschnitten. near bleibt bei 5 cm – dort sitzt praktisch die gesamte
+// Tiefengenauigkeit, ein größeres far kostet sie kaum.
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 260);
 camera.position.set(0, 1.6, 1.2);
 
 // Player-Rig: Kamera (und in XR die Controller) hängen hier. three.js wendet die
