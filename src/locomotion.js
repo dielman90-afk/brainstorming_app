@@ -6,6 +6,10 @@ import * as THREE from 'three';
 //
 //   • Linker Stick  → sanftes Gleiten in Blickrichtung (analog dosierbar)
 //   • Rechter Stick → ruckartiges Drehen (Snap-Turn, komfortabler)
+//   • Ohne Controller (Hand-Tracking): ins Leere pinchen und ziehen – man greift
+//     die Welt und zieht sich daran entlang. Mit beiden Händen kommt Drehen
+//     dazu. Hände liefern kein Gamepad, ohne diesen Weg käme man mit reinem
+//     Hand-Tracking überhaupt nicht von der Stelle.
 //
 // Wichtig: Die Blickrichtung/Kopfposition wird aus der NUTZER-Kamera gelesen
 // (Kind des Rigs) – NICHT aus renderer.xr.getCamera(). Deren getWorldQuaternion
@@ -18,6 +22,11 @@ const MOVE_SPEED = 2.4; // m/s bei vollem Stickausschlag
 const DEADZONE = 0.18;
 const TURN_ON = 0.7;
 const TURN_OFF = 0.35;
+// Handtracking springt gelegentlich. Ein Ruck von mehr als 15 cm in einem Frame
+// wäre keine echte Handbewegung – begrenzen, statt den Nutzer zu schleudern.
+const HAND_STEP_MAX = 0.15;
+// Ebenso bei der Drehung: mehr als ~29° pro Frame ist ein Tracking-Aussetzer.
+const HAND_TURN_MAX = 0.5;
 
 function deadzone(v) {
   const a = Math.abs(v);
@@ -37,7 +46,13 @@ export class Locomotion {
     this._right = new THREE.Vector3();
     this._v = new THREE.Vector3();
     this._head = new THREE.Vector3();
+    this._mid = new THREE.Vector3();
     this._q = new THREE.Quaternion();
+    this._drag = null; // { mid, angle, count } – Bezug des laufenden Hand-Zugs
+  }
+
+  _isHand(c) {
+    return Boolean(c.userData.inputSource?.hand);
   }
 
   _grabbing(c) {
@@ -70,6 +85,63 @@ export class Locomotion {
         this._glide(deadzone(x), deadzone(y), dt); // links/unbekannt = gehen
       }
     }
+
+    this._handDrag();
+  }
+
+  // Fortbewegung ohne Controller: Die Welt wird gegriffen und herangezogen.
+  //
+  // Gerechnet wird in Rig-Koordinaten. Die Hände hängen als Kinder am Player-Rig,
+  // ihre lokale Position ändert sich also nicht dadurch, dass wir das Rig
+  // verschieben – deshalb genügt der Zuwachs von Frame zu Frame und es kann
+  // keine Rückkopplung entstehen.
+  _handDrag() {
+    const hands = this.controllers.filter(
+      (c) => this._isHand(c) && c.userData.emptySelect && !this._grabbing(c)
+    );
+    if (!hands.length) {
+      this._drag = null;
+      return;
+    }
+
+    this._mid.set(0, 0, 0);
+    for (const c of hands) this._mid.add(c.position);
+    this._mid.multiplyScalar(1 / hands.length);
+
+    // Zweihändig: Winkel der Verbindungslinie liefert die Drehung.
+    const angle =
+      hands.length >= 2
+        ? Math.atan2(
+            hands[1].position.x - hands[0].position.x,
+            hands[1].position.z - hands[0].position.z
+          )
+        : null;
+
+    // Erster Frame eines Zugs – oder Wechsel zwischen ein- und zweihändig:
+    // nur den Bezug setzen, sonst gäbe es einen Sprung.
+    if (!this._drag || this._drag.count !== hands.length) {
+      this._drag = { mid: this._mid.clone(), angle, count: hands.length };
+      return;
+    }
+
+    // Hand nach hinten ziehen = Welt kommt entgegen = man bewegt sich vorwärts.
+    // Nur horizontal, wie beim Stick – sonst hebt man unbeabsichtigt ab.
+    this._v.copy(this._mid).sub(this._drag.mid);
+    this._v.y = 0;
+    const step = this._v.length();
+    if (step > HAND_STEP_MAX) this._v.multiplyScalar(HAND_STEP_MAX / step);
+    this._v.applyQuaternion(this.player.quaternion);
+    this.player.position.sub(this._v);
+
+    if (angle !== null && this._drag.angle !== null) {
+      let d = angle - this._drag.angle;
+      if (d > Math.PI) d -= Math.PI * 2;
+      if (d < -Math.PI) d += Math.PI * 2;
+      if (Math.abs(d) < HAND_TURN_MAX) this._rotateAroundHead(-d);
+    }
+
+    this._drag.mid.copy(this._mid);
+    this._drag.angle = angle;
   }
 
   _glide(mvx, mvy, dt) {
@@ -115,5 +187,6 @@ export class Locomotion {
     this.player.position.set(0, 0, 0);
     this.player.quaternion.identity();
     this._snapArmed = false;
+    this._drag = null;
   }
 }
