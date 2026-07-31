@@ -674,6 +674,46 @@ for (const [id, action] of Object.entries(DESKTOP_BUTTONS)) {
 document.getElementById('idea-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleAction('new');
 });
+
+// --- Overlay ein-/ausklappen (Desktop) ---
+//
+// Eingeklappt bleibt nur der Knopf stehen, das Board bekommt die volle Fläche.
+// Der Zustand hält über einen Reload – wer das Menü weghaben will, will es
+// beim nächsten Öffnen meist immer noch weg.
+
+const MENU_STORAGE_KEY = 'webxr-brainstorming-menu-collapsed';
+const collapseButton = document.getElementById('btn-collapse');
+
+function applyMenuCollapsed(collapsed) {
+  document.body.classList.toggle('menu-collapsed', collapsed);
+  if (!collapseButton) return;
+  collapseButton.textContent = collapsed ? '☰' : '‹';
+  collapseButton.title = collapsed ? 'Menü ausklappen (M)' : 'Menü einklappen (M)';
+  collapseButton.setAttribute('aria-expanded', String(!collapsed));
+}
+
+function setMenuCollapsed(collapsed) {
+  applyMenuCollapsed(collapsed);
+  try {
+    localStorage.setItem(MENU_STORAGE_KEY, collapsed ? '1' : '0');
+  } catch {
+    // Merken des Zustands ist optional
+  }
+}
+
+function toggleMenu() {
+  setMenuCollapsed(!document.body.classList.contains('menu-collapsed'));
+}
+
+collapseButton?.addEventListener('click', toggleMenu);
+
+let menuCollapsedAtStart = false;
+try {
+  menuCollapsedAtStart = localStorage.getItem(MENU_STORAGE_KEY) === '1';
+} catch {
+  menuCollapsedAtStart = false;
+}
+applyMenuCollapsed(menuCollapsedAtStart);
 document.getElementById('import-file').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
@@ -822,6 +862,13 @@ window.addEventListener('keydown', (e) => {
       handleAction('redo');
       return;
     }
+    return;
+  }
+
+  // Menü ein-/ausklappen. Bewusst ohne Modifikator und vor der Auswahl-Prüfung,
+  // damit es auch bei leerem Board greift.
+  if (e.key === 'm' || e.key === 'M') {
+    toggleMenu();
     return;
   }
 
