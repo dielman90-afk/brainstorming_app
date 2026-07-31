@@ -272,8 +272,11 @@
     <div class="action-list">
       <button id="btn-new">Neue Karte<span class="ic">＋</span></button>
       <button id="btn-related">Verwandte Ideen<span class="ic">✨</span></button>
+      <button id="btn-critic">Kritiker<span class="ic">😈</span></button>
       <button id="btn-cluster">Cluster anwenden<span class="ic">◇</span></button>
       <button id="btn-summary">Zusammenfassen<span class="ic">≡</span></button>
+      <button id="btn-zone">Zone<span class="ic">🗂️</span></button>
+      <button id="btn-timer">Timer<span class="ic">⏱️</span></button>
       <button id="btn-whiteboard">Whiteboard<span class="ic">📋</span></button>
       <button id="btn-env">Umgebung<span class="ic">🌐</span></button>
     </div>
@@ -298,9 +301,9 @@
 
     <p class="hint">
       Ziehen = Umschauen · Klick = auswählen · Ziehen = verschieben · Doppelklick = bearbeiten<br />
-      Rechtsklick = Menü · Entf = löschen · Mausrad über Karte / +/− = Größe<br />
+      <b>WASD / Pfeile = bewegen · Q/E = runter/hoch</b> · Rechtsklick = Menü · Entf = löschen · Mausrad / +/− = Größe<br />
       Strg+Z = rückgängig · Strg+Umschalt+Z = wiederholen<br />
-      Quest 3: Trigger = greifen · Stick beim Greifen = Größe · Menü an der linken Hand
+      Quest 3: linker Stick = gehen · rechter Stick = drehen · Trigger = greifen · Menü an der linken Hand
     </p>
   </div>
 
@@ -309,6 +312,7 @@
   <div id="context-menu" hidden>
     <button data-action="edit">✏️ Text bearbeiten</button>
     <button data-action="related">✨ Verwandte Ideen</button>
+    <button data-action="critic">😈 Kritiker</button>
     <button data-action="connect">🔗 Verbinden mit…</button>
     <div class="color-row" id="color-row"></div>
     <button data-action="delete" class="danger">🗑️ Karte löschen</button>

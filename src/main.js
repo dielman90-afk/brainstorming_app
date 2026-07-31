@@ -17,6 +17,9 @@ import {
 } from './boardState.js';
 import { createEnvironments } from './environments.js';
 import { Whiteboard } from './whiteboard.js';
+import { ZoneManager } from './zones.js';
+import { Timer } from './timer.js';
+import { Locomotion } from './locomotion.js';
 import { History } from './history.js';
 import { Hud } from './hud.js';
 
@@ -29,20 +32,51 @@ scene.background = DESKTOP_BG;
 
 const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 60);
 camera.position.set(0, 1.6, 1.2);
-scene.add(camera);
+
+// Player-Rig: Kamera (und in XR die Controller) hängen hier. three.js wendet die
+// Parent-Matrix auf die XR-Kamera an → Verschieben/Drehen dieser Gruppe bewegt
+// den Nutzer durch die Welt (Grundlage für Desktop- und VR-Fortbewegung).
+const player = new THREE.Group();
+player.name = 'player';
+player.add(camera);
+scene.add(player);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
 renderer.setPixelRatio(devicePixelRatio);
 renderer.setSize(innerWidth, innerHeight);
 renderer.xr.enabled = true;
+// Filmisches Tone-Mapping für weichere Lichtverläufe (weg vom flachen Look).
+// UI/Karten sind per material.toneMapped = false ausgenommen, bleiben also knackig.
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
 
 // Umgebungen: Passthrough/Weiß (-1) sowie die virtuellen Welten aus
 // environments.js, per 🌐-Button zyklisch durchschaltbar.
-const grid = new THREE.GridHelper(8, 24, 0x4a4550, 0x2b2830);
-scene.add(grid);
+// Dezenter, weicher Boden statt Raster für die schlichte Desktop-/Weiß-Ansicht.
+function makeDesktopFloor() {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createRadialGradient(128, 128, 8, 128, 128, 128);
+  g.addColorStop(0, '#2b2933');
+  g.addColorStop(1, 'rgba(18, 17, 22, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 256, 256);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mesh = new THREE.Mesh(
+    new THREE.CircleGeometry(6, 64),
+    new THREE.MeshBasicMaterial({ map: tex, transparent: true, toneMapped: false })
+  );
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = -0.01;
+  return mesh;
+}
+const desktopFloor = makeDesktopFloor();
+scene.add(desktopFloor);
 
 const environments = createEnvironments(scene);
 const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
@@ -55,13 +89,16 @@ function applyEnvironment() {
   });
   if (envIndex >= 0) {
     scene.background = environments[envIndex].background;
-    grid.visible = false;
+    scene.fog = environments[envIndex].fog ?? null;
+    desktopFloor.visible = false;
   } else if (inPassthrough) {
     scene.background = null;
-    grid.visible = false;
+    scene.fog = null;
+    desktopFloor.visible = false;
   } else {
     scene.background = DESKTOP_BG;
-    grid.visible = true;
+    scene.fog = null;
+    desktopFloor.visible = true;
   }
 }
 
@@ -105,11 +142,24 @@ cardManager.onCardRemoved = (card) => connectionManager.removeForCard(card);
 
 const whiteboard = new Whiteboard(scene, { onSketch: () => handleAction('sketch') });
 
+const zoneManager = new ZoneManager(scene);
+zoneManager.onRename = async (zone) => {
+  const text = await getUserText();
+  if (text) {
+    zone.setTitle(text);
+    commit('Zone umbenannt');
+    setStatus('Zone umbenannt.');
+  }
+};
+
+const timer = new Timer(scene);
+
 function boardToJSON() {
   return {
     ...cardManager.toJSON(),
     connections: connectionManager.toJSON(),
     whiteboard: whiteboard.toJSON(),
+    zones: zoneManager.toJSON(),
   };
 }
 
@@ -117,6 +167,7 @@ function applyBoardJSON(data) {
   cardManager.loadJSON(data);
   connectionManager.loadJSON(data?.connections ?? []);
   whiteboard.loadJSON(data?.whiteboard);
+  zoneManager.loadJSON(data?.zones ?? []);
 }
 
 const keyboard = new VirtualKeyboard(scene);
@@ -127,16 +178,72 @@ const interactions = new InteractionManager({
   scene,
   camera,
   cardManager,
+  xrRoot: player,
   getUiTargets: () => [
     ...(renderer.xr.isPresenting && wristMenu.group.visible ? wristMenu.buttons : []),
     ...keyboard.uiTargets,
     ...whiteboard.uiTargets,
+    ...zoneManager.uiTargets,
+    ...timer.uiTargets,
     ...hud.uiTargets,
   ],
 });
 interactions.onInputConnected = ({ handedness, grip, hand }) => {
   wristMenu.registerSource(handedness, { grip, hand });
 };
+
+// Fortbewegung: VR über den Player-Rig (Gleiten/Snap-Turn/Teleport),
+// Desktop über WASD/Pfeile (siehe Animationsschleife).
+const locomotion = new Locomotion({ renderer, player, camera, controllers: interactions.controllers });
+
+const UP = new THREE.Vector3(0, 1, 0);
+const moveKeys = { forward: false, back: false, left: false, right: false, up: false, down: false };
+const MOVE_KEYMAP = {
+  KeyW: 'forward', ArrowUp: 'forward',
+  KeyS: 'back', ArrowDown: 'back',
+  KeyA: 'left', ArrowLeft: 'left',
+  KeyD: 'right', ArrowRight: 'right',
+  KeyE: 'up', KeyQ: 'down',
+};
+function isTypingTarget() {
+  const tag = document.activeElement?.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA';
+}
+window.addEventListener('keydown', (e) => {
+  if (isTypingTarget()) return;
+  // Strg/Cmd gehört den Kürzeln (Strg+Z, Strg+A …), nicht der Fortbewegung.
+  if (e.ctrlKey || e.metaKey) return;
+  const k = MOVE_KEYMAP[e.code];
+  if (k) moveKeys[k] = true;
+});
+window.addEventListener('keyup', (e) => {
+  const k = MOVE_KEYMAP[e.code];
+  if (k) moveKeys[k] = false;
+});
+
+// Desktop: Standpunkt (Kamera + Orbit-Ziel) gemeinsam durch die Welt schieben,
+// sodass die gewohnte Orbit-Ansicht und Karten-Bedienung erhalten bleiben.
+const _moveFwd = new THREE.Vector3();
+const _moveRight = new THREE.Vector3();
+const _moveDelta = new THREE.Vector3();
+function updateDesktopMovement(dt) {
+  const f = (moveKeys.forward ? 1 : 0) - (moveKeys.back ? 1 : 0);
+  const s = (moveKeys.right ? 1 : 0) - (moveKeys.left ? 1 : 0);
+  const u = (moveKeys.up ? 1 : 0) - (moveKeys.down ? 1 : 0);
+  if (!f && !s && !u) return;
+  camera.getWorldDirection(_moveFwd);
+  _moveFwd.y = 0;
+  if (_moveFwd.lengthSq() < 1e-6) _moveFwd.set(0, 0, -1);
+  _moveFwd.normalize();
+  _moveRight.crossVectors(_moveFwd, UP).normalize();
+  _moveDelta.set(0, 0, 0).addScaledVector(_moveFwd, f).addScaledVector(_moveRight, s);
+  if (_moveDelta.lengthSq() > 0) _moveDelta.normalize();
+  const speed = 3.4;
+  _moveDelta.multiplyScalar(speed * dt);
+  _moveDelta.y += u * speed * dt;
+  camera.position.add(_moveDelta);
+  controls.target.add(_moveDelta);
+}
 
 // --- Status: DOM-Zeile am Desktop + schwebendes HUD in XR ---
 
@@ -175,10 +282,15 @@ function showError(message, error) {
 // Gesichert werden Karten und Verbindungen. Die Whiteboard-Zeichnung bleibt
 // bewusst außen vor: Sie ist ein PNG pro Schritt und würde den Verlauf sprengen.
 const history = new History({
-  capture: () => ({ cards: cardManager.toJSON().cards, connections: connectionManager.toJSON() }),
+  capture: () => ({
+    cards: cardManager.toJSON().cards,
+    connections: connectionManager.toJSON(),
+    zones: zoneManager.toJSON(),
+  }),
   restore: (state) => {
     cardManager.applyState(state.cards);
     connectionManager.loadJSON(state.connections);
+    zoneManager.loadJSON(state.zones);
   },
 });
 
@@ -216,6 +328,11 @@ function updateHistoryButtons() {
 
 interactions.onCardMoved = () => commit('Karte verschoben');
 interactions.onCardScaled = () => commitSoon('Kartengröße');
+// Zonen hängen ebenfalls im Verlauf; die Whiteboard-Griffleiste löst hier zwar
+// auch aus, ändert aber nichts am gesicherten Zustand und erzeugt keinen Schritt.
+interactions.onGrabMoved = () => commit('Zone verschoben');
+interactions.onGrabScaled = () => commitSoon('Zonengröße');
+zoneManager.onChange = (label) => commit(label);
 
 // --- Aktionen (Wrist-Menü in XR, DOM-Buttons am Desktop) ---
 
@@ -333,6 +450,38 @@ async function handleAction(action) {
       }
       selected.setColor(selected.colorIndex + 1);
       commit('Kartenfarbe');
+      return;
+    }
+    if (action === 'zone') {
+      const zone = zoneManager.addZone({ title: 'Neue Zone', colorIndex: zoneManager.zones.length });
+      zone.placeInFront(camera);
+      commit('Zone erstellt');
+      setStatus('🗂️ Zone erstellt – Karten davor gruppieren. ✎ zum Umbenennen.');
+      return;
+    }
+    if (action === 'timer') {
+      const shown = timer.toggle(camera);
+      setStatus(shown ? '⏱️ Timebox eingeblendet.' : 'Timebox ausgeblendet.');
+      return;
+    }
+    if (action === 'critic') {
+      const selected = cardManager.selected;
+      if (!selected) {
+        setStatus('Bitte zuerst eine Karte auswählen.');
+        return;
+      }
+      busy = true;
+      setStatus('😈 Advocatus Diaboli prüft die Idee…', 0);
+      setBusyLabel('😈 Advocatus Diaboli prüft…');
+      const result = await requestIdeas(
+        'critic',
+        { selectedIdea: selected.text, ideas: cardManager.cards.map((c) => c.text) },
+        aiProgress('😈 Advocatus Diaboli prüft…')
+      );
+      const cards = cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      for (const card of cards) card.setColor(4); // Rot = kritische Einwände
+      commit('Kritische Einwände');
+      setStatus(`😈 ${result.length} kritische Einwände zu „${selected.text}“`);
       return;
     }
     if (action === 'connect') {
@@ -494,8 +643,11 @@ async function newCardFlow() {
 const DESKTOP_BUTTONS = {
   'btn-new': 'new',
   'btn-related': 'related',
+  'btn-critic': 'critic',
   'btn-cluster': 'cluster',
   'btn-summary': 'summary',
+  'btn-zone': 'zone',
+  'btn-timer': 'timer',
   'btn-topic': 'topic',
   'btn-whiteboard': 'whiteboard',
   'btn-export': 'export',
@@ -573,6 +725,9 @@ contextMenu.addEventListener('click', (e) => {
   } else if (action === 'related') {
     cardManager.select(card);
     handleAction('related');
+  } else if (action === 'critic') {
+    cardManager.select(card);
+    handleAction('critic');
   } else if (action === 'connect') {
     cardManager.select(card);
     startLinking();
@@ -722,6 +877,7 @@ let recenterOnNextFrame = false;
 
 renderer.xr.addEventListener('sessionstart', () => {
   controls.enabled = false;
+  locomotion.reset(); // Fortbewegungs-Rig zentriert starten
   if (xrMode === 'immersive-ar') {
     // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
     envIndex = -1;
@@ -738,6 +894,11 @@ renderer.xr.addEventListener('sessionstart', () => {
 
 renderer.xr.addEventListener('sessionend', () => {
   controls.enabled = true;
+  // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
+  locomotion.reset();
+  camera.position.set(0, 1.6, 1.2);
+  controls.target.set(0, 1.4, -0.6);
+  controls.update();
   envIndex = savedEnvIndex() ?? -1;
   applyEnvironment();
   wristMenu.setVisible(false);
@@ -771,7 +932,7 @@ updateHistoryButtons();
 let lastSavedSnapshot = '';
 setInterval(() => {
   const data = boardToJSON();
-  const snapshot = JSON.stringify([data.cards, data.connections]);
+  const snapshot = JSON.stringify([data.cards, data.connections, data.zones]);
   if (snapshot !== lastSavedSnapshot) {
     lastSavedSnapshot = snapshot;
     saveBoardLocal(data);
@@ -789,18 +950,28 @@ addEventListener('resize', () => {
 });
 
 const clock = new THREE.Clock();
+let elapsed = 0;
 
 renderer.setAnimationLoop(() => {
-  const delta = clock.getDelta();
+  // getDelta() ist die einzige Zeitquelle; elapsed wird selbst akkumuliert
+  // (getElapsedTime würde den Delta verbrauchen und dt auf 0 setzen).
+  const dt = Math.min(0.1, clock.getDelta());
+  elapsed += dt;
   // In XR sitzt die echte Kopfpose in der XR-Kamera, nicht in `camera`.
   const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
 
   interactions.update();
   wristMenu.update(viewCamera);
-  hud.update(delta);
+  hud.update(dt);
   connectionManager.update();
-  if (envIndex >= 0) environments[envIndex].update?.(clock.getElapsedTime());
-  if (!renderer.xr.isPresenting) controls.update();
+  if (envIndex >= 0) environments[envIndex].update?.(elapsed);
+  timer.update(elapsed);
+  if (renderer.xr.isPresenting) {
+    locomotion.update(dt);
+  } else {
+    updateDesktopMovement(dt);
+    controls.update();
+  }
   renderer.render(scene, camera);
 
   // Nach dem ersten gerenderten XR-Frame hat die XR-Kamera eine gültige Pose –
@@ -825,6 +996,10 @@ window.__app = {
   keyboard,
   wristMenu,
   whiteboard,
+  zoneManager,
+  timer,
+  player,
+  locomotion,
   interactions,
   controls,
   handleAction,
@@ -833,5 +1008,5 @@ window.__app = {
   hud,
   boardToJSON,
   applyBoardJSON,
-  env: { environments, grid, current: () => envIndex, cycle: cycleEnvironment },
+  env: { environments, desktopFloor, current: () => envIndex, cycle: cycleEnvironment },
 };

@@ -37,7 +37,9 @@ export class Hud {
     this.spinner = new THREE.Mesh(
       // Offener Bogen statt geschlossenem Ring – nur so ist die Drehung sichtbar.
       new THREE.TorusGeometry(0.018, 0.0035, 8, 32, Math.PI * 1.35),
-      new THREE.MeshBasicMaterial({ color: 0xffb454 })
+      // toneMapped aus – wie die übrige UI, damit das Amber unter dem
+      // filmischen Tone-Mapping der Szene nicht ausbleicht.
+      new THREE.MeshBasicMaterial({ color: 0xffb454, toneMapped: false })
     );
     this.spinner.position.set(-0.222, 0, 0.001);
     flatLayer(this.spinner, 42);

@@ -8,9 +8,12 @@ const MOVE_EPSILON_SQ = 1e-6;
 
 // Ray-Casting + Grab für XR-Controller sowie Maus-Fallback am Desktop.
 export class InteractionManager {
-  constructor({ renderer, scene, camera, cardManager, getUiTargets }) {
+  constructor({ renderer, scene, camera, cardManager, getUiTargets, xrRoot }) {
     this.renderer = renderer;
     this.scene = scene;
+    // Controller/Grips hängen am Player-Rig (falls vorhanden), damit sie sich
+    // bei der Fortbewegung mit dem Nutzer mitbewegen; sonst direkt an der Szene.
+    this.xrRoot = xrRoot || scene;
     this.camera = camera;
     this.cardManager = cardManager;
     this.getUiTargets = getUiTargets;
@@ -25,8 +28,11 @@ export class InteractionManager {
     this.onCardContextMenu = null;
     this.onCardDoubleClick = null;
     // Melden abgeschlossene Änderungen, damit main.js einen Undo-Schritt sichert.
+    // „Grab" umfasst alles mit grabTarget – Zonen und die Whiteboard-Griffleiste.
     this.onCardMoved = null;
     this.onCardScaled = null;
+    this.onGrabMoved = null;
+    this.onGrabScaled = null;
     // Optionaler Interceptor: gibt true zurück, wenn ein Karten-Pick konsumiert
     // wurde (z. B. Verbindungsmodus) – dann kein Grab/Drag.
     this.onCardPick = null;
@@ -91,7 +97,9 @@ export class InteractionManager {
         controller.userData.inputSource = null;
       });
 
-      this.scene.add(controller, grip, hand);
+      // Hände gehören wie Controller/Grips ans Player-Rig, damit sie der
+      // Fortbewegung folgen.
+      this.xrRoot.add(controller, grip, hand);
       this.controllers.push(controller);
       this.hands.push(hand);
     }
@@ -139,6 +147,7 @@ export class InteractionManager {
     }
     if (hit.type === 'grab') {
       controller.userData.grabbedTarget = hit.target;
+      controller.userData.grabTargetStart = hit.target.group.getWorldPosition(new THREE.Vector3());
       controller.attach(hit.target.group);
       return;
     }
@@ -158,6 +167,11 @@ export class InteractionManager {
     if (target) {
       this.scene.attach(target.group);
       controller.userData.grabbedTarget = null;
+      const targetStart = controller.userData.grabTargetStart;
+      if (targetStart && target.group.position.distanceToSquared(targetStart) > MOVE_EPSILON_SQ) {
+        this.onGrabMoved?.(target);
+      }
+      controller.userData.grabTargetStart = null;
     }
     const card = controller.userData.grabbed;
     if (card) {
@@ -199,6 +213,7 @@ export class InteractionManager {
           this.onCardScaled?.(grabbed);
         } else if (target) {
           target.setScale(target.getScale() * (1 - axes[3] * 0.02));
+          this.onGrabScaled?.(target);
         }
       }
     }
@@ -232,6 +247,7 @@ export class InteractionManager {
       event.preventDefault();
       event.stopPropagation();
       hit.target.setScale(hit.target.getScale() * factor);
+      this.onGrabScaled?.(hit.target);
     }
   }
 
@@ -272,6 +288,7 @@ export class InteractionManager {
         plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.target.group.position),
         offset: hit.target.group.position.clone().sub(hit.point),
         point: new THREE.Vector3(),
+        start: hit.target.group.position.clone(),
       };
       return;
     }
@@ -327,7 +344,13 @@ export class InteractionManager {
       this.drawTarget.strokeEnd();
       this.drawTarget = null;
     }
-    this.dragGrab = null;
+    if (this.dragGrab) {
+      const { target, start } = this.dragGrab;
+      this.dragGrab = null;
+      if (target.group.position.distanceToSquared(start) > MOVE_EPSILON_SQ) {
+        this.onGrabMoved?.(target);
+      }
+    }
     if (this.drag) {
       const { card, start } = this.drag;
       this.drag = null;
