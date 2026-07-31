@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
 
-// Das Menü ist auf zwei Seiten aufgeteilt. Alle Aktionen untereinander wären
-// inzwischen ein gut 45 cm hohes Panel am Handgelenk – zwei Seiten à vier
-// Reihen bleiben kompakt und lassen sich auch auf der Handfläche noch lesen.
+// Das Menü ist auf zwei Reiter aufgeteilt: 19 Aktionen untereinander wären ein
+// über 70 cm hohes Panel an der Hand. Zwei Seiten à fünf Reihen bleiben
+// kompakt und sind auch verkleinert auf der Handfläche noch lesbar.
 const PAGES = [
   {
     id: 'ideas',
@@ -12,6 +12,7 @@ const PAGES = [
       { id: 'new', label: '＋ Neue Karte' },
       { id: 'topic', label: '🚀 Themen-Start' },
       { id: 'related', label: '✨ Verwandte Ideen' },
+      { id: 'critic', label: '😈 Kritiker' },
       { id: 'cluster', label: '📂 Cluster' },
       { id: 'summary', label: '📝 Zusammenfassen' },
       { id: 'color', label: '🎨 Farbe' },
@@ -25,6 +26,8 @@ const PAGES = [
     actions: [
       { id: 'undo', label: '↶ Rückgängig' },
       { id: 'redo', label: '↷ Wiederholen' },
+      { id: 'zone', label: '🗂️ Zone' },
+      { id: 'timer', label: '⏱️ Timer' },
       { id: 'whiteboard', label: '📋 Whiteboard' },
       { id: 'environment', label: '🌐 Umgebung' },
       { id: 'save', label: '💾 Sichern' },
@@ -108,7 +111,7 @@ export function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1
   texture.colorSpace = THREE.SRGBColorSpace;
   const mesh = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({ map: texture, transparent: true })
+    new THREE.MeshBasicMaterial({ map: texture, transparent: true, toneMapped: false })
   );
   return mesh;
 }
