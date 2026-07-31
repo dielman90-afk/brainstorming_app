@@ -34,6 +34,14 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   (Blob-Shadows) sorgen für Tiefe ohne teure Echtzeit-Schatten. Die Auswahl wird
   gemerkt; eine reine VR-Session startet direkt in der zuletzt genutzten Umgebung
   (sonst Himmelsinsel).
+- **Weltmaßstab:** Die Himmelsinsel ist 1:1 zum Nutzer bemaßt – Bäume rund 6 m,
+  die Hauptinsel gut 40 m breit, Büsche auf Schulterhöhe. Sie war ursprünglich
+  als Diorama modelliert (Bäume 1,6 m, Insel 10 m), wodurch man in VR wie ein
+  Riese über der Landschaft stand. Der Faktor sitzt als `WORLD_SCALE` in
+  `createIslandEnvironment` und skaliert die komplette Gruppe, sodass
+  Lichtrichtungen, Blickwinkel und Silhouetten unverändert bleiben; die
+  Nebeldistanzen gehen denselben Weg mit. Die Karten sind davon unberührt – sie
+  bleiben handgroß und in Reichweite.
 - **Fortbewegung durch die Landschaft** (`src/locomotion.js`): Ein Player-Rig
   (Gruppe mit Kamera + Controllern) bewegt den Nutzer durch die Welt. **Desktop:**
   WASD/Pfeile bewegen, Q/E runter/hoch – die gewohnte Orbit-Ansicht und
