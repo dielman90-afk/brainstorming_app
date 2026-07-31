@@ -156,7 +156,10 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   (Orbit), Karten per Klick auswählen und ziehen, alle Aktionen über das Overlay
   links oben. Ideal zum schnellen Iterieren. Das Overlay ist auf die Fensterhöhe
   begrenzt und **scrollt bei Bedarf selbst**, damit auch auf niedrigen Fenstern
-  alle Bedienelemente bis hinunter zum XR-Button erreichbar bleiben.
+  alle Bedienelemente bis hinunter zum XR-Button erreichbar bleiben. Es lässt
+  sich über den Knopf rechts daneben oder mit **M** ein- und ausklappen –
+  eingeklappt bleibt nur der Knopf stehen und das Board bekommt die volle
+  Fläche. Der Zustand wird gemerkt und gilt auch nach einem Reload.
 
 ## Projektstruktur
 
@@ -225,6 +228,7 @@ Einfach `https://localhost:5173` öffnen:
 | **Rückgängig / Wiederholen** | **Strg+Z** / **Strg+Umschalt+Z** (auch Strg+Y) oder die Buttons im Overlay |
 | Sicherungspunkt | „💾 Sichern“ / „📂 Laden“ im Overlay |
 | Export/Import | Buttons im Overlay |
+| Menü ein-/ausklappen | Knopf rechts neben dem Overlay oder **M** |
 | Fehlerkarte schließen | Anklicken oder **Esc** |
 
 ## Auf der Quest 3 öffnen

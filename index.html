@@ -64,6 +64,36 @@
       border-radius: 8px;
     }
     #overlay::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+
+    /* Ein-/Ausklappen. Der Knopf steht bewusst NEBEN dem Panel statt darin:
+       Das Overlay scrollt, ein Knopf im Inhalt würde beim Scrollen verschwinden. */
+    #btn-collapse {
+      position: fixed;
+      top: 26px;
+      left: 348px;
+      z-index: 12;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border-radius: 11px;
+      border: 1px solid var(--border-strong);
+      background: var(--panel-solid);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: var(--muted);
+      font: 600 15px/1 var(--body);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      transition: left 0.18s ease, color 0.18s ease;
+    }
+    #btn-collapse:hover { color: var(--accent); border-color: rgba(255, 180, 84, 0.5); }
+    body.menu-collapsed #overlay { display: none; }
+    body.menu-collapsed #btn-collapse { left: 22px; }
+    /* Eingeklappt ist links Platz – das Status-Band rückt nach. */
+    body.menu-collapsed #status-band { left: 22px; max-width: calc(100vw - 44px); }
     .eyebrow {
       font: 400 12px var(--body);
       color: var(--muted);
@@ -263,6 +293,8 @@
   </style>
 </head>
 <body>
+  <button id="btn-collapse" type="button" aria-controls="overlay" aria-expanded="true"></button>
+
   <div id="overlay">
     <div class="eyebrow">WebXR · Meta Quest 3</div>
     <h1>Brainstorming</h1>
@@ -302,7 +334,7 @@
     <p class="hint">
       Ziehen = Umschauen · Klick = auswählen · Ziehen = verschieben · Doppelklick = bearbeiten<br />
       <b>WASD / Pfeile = bewegen · Q/E = runter/hoch</b> · Rechtsklick = Menü · Entf = löschen · Mausrad / +/− = Größe<br />
-      Strg+Z = rückgängig · Strg+Umschalt+Z = wiederholen<br />
+      Strg+Z = rückgängig · Strg+Umschalt+Z = wiederholen · M = Menü ein-/ausklappen<br />
       Quest 3: linker Stick = gehen · rechter Stick = drehen · Trigger = greifen · Menü an der linken Hand
     </p>
   </div>
