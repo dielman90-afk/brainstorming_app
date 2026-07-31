@@ -22,9 +22,15 @@ const MOVE_SPEED = 2.4; // m/s bei vollem Stickausschlag
 const DEADZONE = 0.18;
 const TURN_ON = 0.7;
 const TURN_OFF = 0.35;
-// Handtracking springt gelegentlich. Ein Ruck von mehr als 15 cm in einem Frame
-// wäre keine echte Handbewegung – begrenzen, statt den Nutzer zu schleudern.
-const HAND_STEP_MAX = 0.15;
+// Übersetzung Hand → Welt. 1:1 wäre präzise, aber unbrauchbar: Ein Armzug misst
+// keine 60 cm, und die Insel ist gut 40 m breit – man käme nicht vom Fleck.
+// Bei Faktor 8 trägt ein 40-cm-Zug rund 3 m, eine zügige Handbewegung ergibt
+// etwa Geh- bis Jogging-Tempo.
+const HAND_GAIN = 8;
+// Handtracking springt gelegentlich. Bei 90 Hz sind selbst hektische Bewegungen
+// unter 4 cm pro Frame; mehr als 8 cm ist ein Aussetzer und wird gekappt, damit
+// der Faktor oben daraus keinen Sprung über die halbe Insel macht.
+const HAND_STEP_MAX = 0.08;
 // Ebenso bei der Drehung: mehr als ~29° pro Frame ist ein Tracking-Aussetzer.
 const HAND_TURN_MAX = 0.5;
 
@@ -128,8 +134,11 @@ export class Locomotion {
     // Nur horizontal, wie beim Stick – sonst hebt man unbeabsichtigt ab.
     this._v.copy(this._mid).sub(this._drag.mid);
     this._v.y = 0;
+    // Erst den Ausreißer kappen, dann übersetzen – sonst wird der Sprung
+    // mitverstärkt und die Begrenzung wäre wirkungslos.
     const step = this._v.length();
     if (step > HAND_STEP_MAX) this._v.multiplyScalar(HAND_STEP_MAX / step);
+    this._v.multiplyScalar(HAND_GAIN);
     this._v.applyQuaternion(this.player.quaternion);
     this.player.position.sub(this._v);
 
