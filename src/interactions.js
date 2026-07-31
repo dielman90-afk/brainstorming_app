@@ -135,7 +135,13 @@ export class InteractionManager {
 
   _onSelectStart(controller) {
     const hit = this._xrRaycast(controller);
-    if (!hit) return;
+    if (!hit) {
+      // Griff ins Leere – nichts angevisiert. Das ist das Signal für die
+      // Fortbewegung per Hand (locomotion.js zieht daran die Welt heran);
+      // ein Pinch auf eine Karte oder einen Button bleibt davon unberührt.
+      controller.userData.emptySelect = true;
+      return;
+    }
     if (hit.type === 'ui') {
       hit.object.userData.onClick();
       return;
@@ -159,6 +165,7 @@ export class InteractionManager {
   }
 
   _onSelectEnd(controller) {
+    controller.userData.emptySelect = false;
     if (controller.userData.drawing) {
       controller.userData.drawing.strokeEnd();
       controller.userData.drawing = null;
