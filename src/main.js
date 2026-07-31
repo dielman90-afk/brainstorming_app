@@ -192,8 +192,14 @@ const interactions = new InteractionManager({
     ...hud.uiTargets,
   ],
 });
-interactions.onInputConnected = ({ handedness, grip, hand }) => {
+let handHintShown = false;
+interactions.onInputConnected = ({ handedness, grip, hand, isHand }) => {
   wristMenu.registerSource(handedness, { grip, hand });
+  // Hand-Tracking ist ohne Hinweis kaum zu erraten – einmal pro Sitzung zeigen.
+  if (isHand && !handHintShown) {
+    handHintShown = true;
+    setStatus('🖐 Hände erkannt: Handfläche öffnen = Menü · ins Leere pinchen und ziehen = bewegen', 8000);
+  }
 };
 
 // Fortbewegung: VR über den Player-Rig (Gleiten/Snap-Turn/Teleport),
@@ -961,11 +967,13 @@ renderer.setAnimationLoop(() => {
   // (getElapsedTime würde den Delta verbrauchen und dt auf 0 setzen).
   const dt = Math.min(0.1, clock.getDelta());
   elapsed += dt;
-  // In XR sitzt die echte Kopfpose in der XR-Kamera, nicht in `camera`.
-  const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
-
   interactions.update();
-  wristMenu.update(viewCamera);
+  // Kopfpose IMMER aus der Nutzer-Kamera lesen, nie aus renderer.xr.getCamera():
+  // Die XR-Kamera hängt in keinem Szenengraph, deshalb überschreibt
+  // getWorldPosition() ihre von three berechnete matrixWorld mit der reinen
+  // XR-Pose und verwirft den Player-Rig-Offset. Die Nutzer-Kamera ist Kind des
+  // Rigs und liefert die echte Weltpose (dieselbe Falle wie in locomotion.js).
+  wristMenu.update(camera);
   hud.update(dt);
   connectionManager.update();
   if (envIndex >= 0) environments[envIndex].update?.(elapsed);
