@@ -50,8 +50,11 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   ruckartiges Drehen). **Ohne Controller:** ins Leere pinchen und die Hand
   bewegen – man greift die Welt und zieht sich daran entlang; mit beiden Händen
   kommt Drehen dazu. Ein Pinch auf eine Karte oder einen Button greift bzw.
-  klickt weiterhin und bewegt nicht. Der Zug bleibt horizontal, damit man nicht
-  unbeabsichtigt abhebt, und einzelne Frames sind begrenzt, damit ein
+  klickt weiterhin und bewegt nicht. Der Zug ist um Faktor 8 übersetzt
+  (`HAND_GAIN`) – 1:1 wäre auf einer 40 m breiten Insel unbrauchbar, so trägt
+  ein Armzug rund 3 m. Gedreht wird dagegen 1:1, weil verstärkte Drehung
+  desorientiert. Der Zug bleibt horizontal, damit man nicht unbeabsichtigt
+  abhebt, und einzelne Frames werden vor der Übersetzung gekappt, damit ein
   Tracking-Aussetzer keinen Sprung auslöst.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
