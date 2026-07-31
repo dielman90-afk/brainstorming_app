@@ -47,7 +47,12 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   WASD/Pfeile bewegen, Q/E runter/hoch – die gewohnte Orbit-Ansicht und
   Karten-Bedienung bleiben erhalten. **VR:** linker Stick = sanftes Gleiten in
   Blickrichtung (analog dosierbar), rechter Stick = Snap-Turn (komfortables
-  ruckartiges Drehen).
+  ruckartiges Drehen). **Ohne Controller:** ins Leere pinchen und die Hand
+  bewegen – man greift die Welt und zieht sich daran entlang; mit beiden Händen
+  kommt Drehen dazu. Ein Pinch auf eine Karte oder einen Button greift bzw.
+  klickt weiterhin und bewegt nicht. Der Zug bleibt horizontal, damit man nicht
+  unbeabsichtigt abhebt, und einzelne Frames sind begrenzt, damit ein
+  Tracking-Aussetzer keinen Sprung auslöst.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Hand-Menü** (`src/wristMenu.js`) auf zwei Reitern à fünf Reihen, damit das
@@ -259,7 +264,8 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Kartengröße | Karte greifen, dann **Daumenstick hoch/runter** |
 | Karte auswählen | Kurz mit dem Trigger antippen (Cyan-Rahmen) |
 | Menü **mit Controllern** | Über dem Handrücken der **linken Hand** – mit dem rechten Ray anvisieren und Trigger drücken |
-| Menü **ohne Controller** | **Linke Handfläche öffnen und zum Gesicht drehen** – das Menü erscheint darüber. Klicken per **Pinch** (Daumen + Zeigefinger) der anderen Hand |
+| Menü **ohne Controller** | **Handfläche öffnen und zum Gesicht drehen** – das Menü erscheint darüber (linke Hand bevorzugt, die rechte geht genauso). Klicken per **Pinch** (Daumen + Zeigefinger) der anderen Hand |
+| Bewegen **ohne Controller** | **Ins Leere pinchen und die Hand bewegen** = sich an der Welt entlangziehen · **beide Hände** = zusätzlich drehen |
 | Menüseite wechseln | Reiter **„💡 Ideen“** bzw. **„🗂 Board“** oben im Panel antippen |
 | Neue Karte | Menü → „＋ Neue Karte“ → sprechen bzw. virtuelle Tastatur |
 | Themen-Start | Menü → „🚀 Themen-Start“ → Thema sprechen/tippen |
@@ -323,10 +329,11 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   auch ein komplett geleertes Board zurück. Der Verlauf gilt pro Sitzung – nach
   einem Reload hilft „📂 Laden" (letzter Sicherungspunkt) oder ein JSON-Import.
 - **Menü erscheint bei Hand-Tracking nicht:** Es zeigt sich nur bei **flacher,
-  offener linker Hand, deren Innenfläche zum Gesicht zeigt** – Faust und
-  Handrücken blenden es bewusst aus. Wenn gar keine Hände getrackt werden, sind
-  im Quest-System die Handbewegungen abzuschalten oder die Controller abzulegen
-  (`hand-tracking` wird als optionales WebXR-Feature angefragt).
+  offener Hand, deren Innenfläche zum Gesicht zeigt** – Faust und Handrücken
+  blenden es bewusst aus. Beide Hände funktionieren. Wenn gar keine Hände
+  getrackt werden, sind im Quest-System die Handbewegungen einzuschalten und die
+  Controller abzulegen (`hand-tracking` wird als optionales WebXR-Feature
+  angefragt).
 - **Spracheingabe reagiert nicht:** Der Quest-Browser unterstützt die Web Speech
   API nicht – die virtuelle Tastatur öffnet sich automatisch. Am Desktop braucht
   Chrome eine Mikrofon-Freigabe.

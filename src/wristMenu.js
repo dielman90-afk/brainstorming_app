@@ -67,17 +67,21 @@ const PALM_LIFT = 0.05; // Abstand über der Handfläche
 const PALM_FORWARD = 0.03; // leicht Richtung Finger, damit das Handgelenk frei bleibt
 
 // Ein-/Ausblenden mit Hysterese, sonst flackert das Menü an der Schwelle.
-const FACING_SHOW = 0.5; // Handfläche zeigt zum Gesicht
-const FACING_HIDE = 0.2;
-const OPEN_SHOW = 1.75; // Mittelfinger gestreckt (Vielfaches der Handflächenlänge)
-const OPEN_HIDE = 1.45;
+// Die Schwellen sind bewusst großzügig: Handtracking rauscht, und ein Menü,
+// das erst bei perfekt ausgerichteter Hand erscheint, wirkt kaputt.
+const FACING_SHOW = 0.4; // Handfläche zeigt zum Gesicht
+const FACING_HIDE = 0.15;
+const OPEN_SHOW = 1.6; // Mittelfinger gestreckt (Vielfaches der Handflächenlänge)
+const OPEN_HIDE = 1.35;
 
+// Für die Handflächen-Ebene nötig. Die Fingerspitze steht bewusst NICHT hier
+// drin: Sie fällt beim Blick auf die Handfläche regelmäßig aus dem Tracking,
+// und daran darf das Menü nicht scheitern (siehe _openness).
 const PALM_JOINTS = [
   'wrist',
   'index-finger-phalanx-proximal',
   'middle-finger-phalanx-proximal',
   'pinky-finger-phalanx-proximal',
-  'middle-finger-tip',
 ];
 
 // Abgerundetes Panel als Canvas-Textur (Füllung + feiner Rahmen + Glow)
@@ -303,11 +307,10 @@ export class WristMenu {
     }
   }
 
-  // Bevorzugt die linke Hand; ist nur eine Hand da, wird die genommen.
-  _pick(test) {
-    const left = this.sources.get('left');
-    if (left && test(left)) return left;
-    return [...this.sources.values()].find(test) ?? null;
+  // Alle passenden Quellen, linke Hand zuerst (sie ist die gewohnte Menühand).
+  _tracked(test) {
+    const all = [...this.sources.values()].filter(test);
+    return all.sort((a, b) => (a.handedness === 'left' ? -1 : 0) - (b.handedness === 'left' ? -1 : 0));
   }
 
   _attachTo(parent, mode) {
@@ -321,13 +324,22 @@ export class WristMenu {
       return;
     }
 
-    const handSource = this._pick((source) => this._handTracked(source));
-    if (handSource) {
-      this._placeOnPalm(handSource, camera);
+    // Jede getrackte Hand durchprobieren, nicht nur die bevorzugte: Sonst
+    // „gewinnt" die linke Hand allein dadurch, dass sie getrackt wird, und
+    // blockiert die rechte – wer die rechte Handfläche hochhält, sieht dann
+    // nie ein Menü, obwohl beide Hände erkannt werden.
+    const hands = this._tracked((source) => this._handTracked(source));
+    for (const source of hands) {
+      if (this._placeOnPalm(source, camera)) return;
+    }
+    if (hands.length) {
+      // Hände sind da, aber keine offene Handfläche zeigt zum Gesicht.
+      this.group.visible = false;
+      this._palmVisible = false;
       return;
     }
 
-    const gripSource = this._pick((source) => source.grip?.visible);
+    const gripSource = this._tracked((source) => source.grip?.visible)[0];
     if (gripSource) {
       this._placeOnGrip(gripSource);
       return;
@@ -352,39 +364,40 @@ export class WristMenu {
     this._palmVisible = false;
   }
 
+  // Wie weit die Hand geöffnet ist, als Vielfaches der Handflächenlänge:
+  // gestreckter Mittelfinger ≈ 2, Faust ≈ 1. Ist die Fingerspitze gerade nicht
+  // getrackt (beim Blick auf die Handfläche häufig), liefert die Messung null –
+  // dann wird die Prüfung übersprungen statt das Menü auszublenden.
+  _openness(joints, palmLength) {
+    const tip = joints['middle-finger-tip'];
+    if (!tip?.visible) return null;
+    return joints['wrist'].position.distanceTo(tip.position) / palmLength;
+  }
+
   // Handflächen-Platzierung. Die Basis wird ausschließlich aus Gelenk-*Positionen*
   // gebildet – die Achsenkonvention einzelner Gelenk-Spaces bleibt damit außen vor.
+  // Liefert true, wenn das Menü tatsächlich auf dieser Hand gelandet ist.
   _placeOnPalm(source, camera) {
     const joints = source.hand.joints;
     const wrist = joints['wrist'].position;
     const knuckle = joints['middle-finger-phalanx-proximal'].position;
     const indexKnuckle = joints['index-finger-phalanx-proximal'].position;
     const pinkyKnuckle = joints['pinky-finger-phalanx-proximal'].position;
-    const middleTip = joints['middle-finger-tip'].position;
 
     const palmLength = wrist.distanceTo(knuckle);
-    if (palmLength < 1e-4) {
-      this.group.visible = false;
-      return;
-    }
+    if (palmLength < 1e-4) return false;
 
     // Richtung Finger und quer über die Handfläche (Kleinfinger → Zeigefinger).
     this._forward.copy(knuckle).sub(wrist).normalize();
     this._side.copy(indexKnuckle).sub(pinkyKnuckle);
-    if (this._side.lengthSq() < 1e-8) {
-      this.group.visible = false;
-      return;
-    }
+    if (this._side.lengthSq() < 1e-8) return false;
     this._side.normalize();
 
     // Flächennormale; die Reihenfolge des Kreuzprodukts hängt an der Händigkeit,
     // damit sie bei beiden Händen aus der Handfläche heraus zeigt.
     if (source.handedness === 'right') this._normal.crossVectors(this._forward, this._side);
     else this._normal.crossVectors(this._side, this._forward);
-    if (this._normal.lengthSq() < 1e-8) {
-      this.group.visible = false;
-      return;
-    }
+    if (this._normal.lengthSq() < 1e-8) return false;
     this._normal.normalize();
 
     // „Vorwärts" senkrecht zur Normalen nachziehen (Gelenke liegen nie exakt in
@@ -392,9 +405,7 @@ export class WristMenu {
     this._forward.addScaledVector(this._normal, -this._forward.dot(this._normal)).normalize();
     this._right.crossVectors(this._forward, this._normal);
 
-    // Handfläche offen? Gestreckter Mittelfinger ist rund doppelt so lang wie
-    // die Handfläche, eine Faust etwa gleich lang.
-    const openness = wrist.distanceTo(middleTip) / palmLength;
+    const openness = this._openness(joints, palmLength);
 
     const palmCenter = this._v1.copy(wrist).lerp(knuckle, 0.55);
     // Gelenke sind Kinder des Hand-Objekts – Kamera in denselben Raum holen.
@@ -404,14 +415,12 @@ export class WristMenu {
     const facing = toCamera.lengthSq() > 1e-8 ? toCamera.normalize().dot(this._normal) : 0;
 
     // Hysterese: einmal sichtbar, bleibt das Menü bis deutlich unter der Schwelle.
-    const show = this._palmVisible
-      ? facing > FACING_HIDE && openness > OPEN_HIDE
-      : facing > FACING_SHOW && openness > OPEN_SHOW;
+    const openEnough =
+      openness === null || (this._palmVisible ? openness > OPEN_HIDE : openness > OPEN_SHOW);
+    const facingEnough = this._palmVisible ? facing > FACING_HIDE : facing > FACING_SHOW;
+    const show = openEnough && facingEnough;
     this._palmVisible = show;
-    if (!show) {
-      this.group.visible = false;
-      return;
-    }
+    if (!show) return false;
 
     this._attachTo(source.hand, 'palm');
     this.attachedHand = source.handedness;
@@ -423,5 +432,6 @@ export class WristMenu {
       .addScaledVector(this._forward, PALM_FORWARD);
     this.group.scale.setScalar(PALM_SCALE);
     this.group.visible = true;
+    return true;
   }
 }
