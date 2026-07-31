@@ -1,18 +1,38 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
 
-const ACTIONS = [
-  { id: 'new', label: '＋ Neue Karte' },
-  { id: 'topic', label: '🚀 Themen-Start' },
-  { id: 'related', label: '✨ Verwandte Ideen' },
-  { id: 'cluster', label: '📂 Cluster anwenden' },
-  { id: 'summary', label: '📝 Zusammenfassen' },
-  { id: 'color', label: '🎨 Farbe' },
-  { id: 'connect', label: '🔗 Verbinden' },
-  { id: 'whiteboard', label: '📋 Whiteboard' },
-  { id: 'delete', label: '🗑️ Karte löschen', danger: true },
-  { id: 'clear', label: '🧹 Alles löschen', danger: true },
-  { id: 'environment', label: '🌐 Umgebung' },
+// Das Menü ist auf zwei Seiten aufgeteilt. Alle Aktionen untereinander wären
+// inzwischen ein gut 45 cm hohes Panel am Handgelenk – zwei Seiten à vier
+// Reihen bleiben kompakt und lassen sich auch auf der Handfläche noch lesen.
+const PAGES = [
+  {
+    id: 'ideas',
+    label: '💡 Ideen',
+    actions: [
+      { id: 'new', label: '＋ Neue Karte' },
+      { id: 'topic', label: '🚀 Themen-Start' },
+      { id: 'related', label: '✨ Verwandte Ideen' },
+      { id: 'cluster', label: '📂 Cluster' },
+      { id: 'summary', label: '📝 Zusammenfassen' },
+      { id: 'color', label: '🎨 Farbe' },
+      { id: 'connect', label: '🔗 Verbinden' },
+      { id: 'delete', label: '🗑️ Karte löschen', danger: true },
+    ],
+  },
+  {
+    id: 'board',
+    label: '🗂 Board',
+    actions: [
+      { id: 'undo', label: '↶ Rückgängig' },
+      { id: 'redo', label: '↷ Wiederholen' },
+      { id: 'whiteboard', label: '📋 Whiteboard' },
+      { id: 'environment', label: '🌐 Umgebung' },
+      { id: 'save', label: '💾 Sichern' },
+      { id: 'load', label: '📂 Laden' },
+      { id: 'export', label: '⬇️ Als Datei' },
+      { id: 'clear', label: '🧹 Alles löschen', danger: true },
+    ],
+  },
 ];
 
 const COLORS = {
@@ -23,8 +43,39 @@ const COLORS = {
   hover: '#3b3644',
   dangerBase: '#3a2830',
   dangerHover: '#4e3540',
+  tabBase: '#232029',
+  tabHover: '#302c38',
+  tabActive: '#4a3a24',
   text: '#f0eef2',
+  textMuted: '#a09aa8',
 };
+
+// --- Platzierung ---
+
+// Am Controller: das Panel saß bisher hinter dem Handgelenk und ragte durch die
+// Neigung weit Richtung Ellenbogen – die untere Hälfte lag damit außerhalb des
+// bequemen Blickfelds. Jetzt sitzt es über dem Handrücken und reicht nach vorn.
+const GRIP_POSITION = new THREE.Vector3(0, 0.05, -0.06);
+const GRIP_TILT_X = -Math.PI / 3;
+
+// Ohne Controller: das Menü schwebt über der offenen Handfläche.
+const PALM_SCALE = 0.6;
+const PALM_LIFT = 0.05; // Abstand über der Handfläche
+const PALM_FORWARD = 0.03; // leicht Richtung Finger, damit das Handgelenk frei bleibt
+
+// Ein-/Ausblenden mit Hysterese, sonst flackert das Menü an der Schwelle.
+const FACING_SHOW = 0.5; // Handfläche zeigt zum Gesicht
+const FACING_HIDE = 0.2;
+const OPEN_SHOW = 1.75; // Mittelfinger gestreckt (Vielfaches der Handflächenlänge)
+const OPEN_HIDE = 1.45;
+
+const PALM_JOINTS = [
+  'wrist',
+  'index-finger-phalanx-proximal',
+  'middle-finger-phalanx-proximal',
+  'pinky-finger-phalanx-proximal',
+  'middle-finger-tip',
+];
 
 // Abgerundetes Panel als Canvas-Textur (Füllung + feiner Rahmen + Glow)
 export function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1400) {
@@ -79,14 +130,30 @@ export function flatLayer(mesh, order) {
   return mesh;
 }
 
-// Menü-Panel am Handgelenk; Buttons werden per Controller-Ray geklickt.
+// Menü-Panel an der Hand. Mit Controllern hängt es am Grip, bei Hand-Tracking
+// über der offenen Handfläche. Buttons werden mit dem Ray bzw. per Pinch der
+// anderen Hand geklickt.
 export class WristMenu {
   constructor(onAction) {
     this.group = new THREE.Group();
     this.group.name = 'wristMenu';
     this.group.visible = false;
-    this.buttons = [];
+    this.onAction = onAction;
+    this.enabled = false;
+    this.activePage = 0;
+    this.mode = null; // 'grip' | 'palm' | null
     this.attachedHand = null;
+    this.sources = new Map(); // handedness -> { handedness, grip, hand }
+    this._palmVisible = false;
+
+    this._v1 = new THREE.Vector3();
+    this._v2 = new THREE.Vector3();
+    this._forward = new THREE.Vector3();
+    this._side = new THREE.Vector3();
+    this._normal = new THREE.Vector3();
+    this._right = new THREE.Vector3();
+    this._camPos = new THREE.Vector3();
+    this._basis = new THREE.Matrix4();
 
     const BTN_W = 0.138;
     const BTN_H = 0.05;
@@ -94,10 +161,12 @@ export class WristMenu {
     const GAP_Y = 0.009;
     const PAD = 0.022;
     const HEADER_H = 0.042;
-    const rows = Math.ceil(ACTIONS.length / 2);
+    const TAB_H = 0.034;
+    const rows = Math.max(...PAGES.map((page) => Math.ceil(page.actions.length / 2)));
 
     const panelW = 2 * BTN_W + GAP_X + PAD * 2;
-    const panelH = PAD + HEADER_H + 0.014 + rows * BTN_H + (rows - 1) * GAP_Y + PAD;
+    const panelH =
+      PAD + HEADER_H + 0.006 + TAB_H + 0.012 + rows * BTN_H + (rows - 1) * GAP_Y + PAD;
 
     const panel = makeRoundedPanel(panelW, panelH, {
       fill: COLORS.panelFill,
@@ -125,70 +194,231 @@ export class WristMenu {
     flatLayer(title.mesh, 22);
     this.group.add(title.mesh);
 
-    // Trennlinie unter dem Header
-    const divider = new THREE.Mesh(
-      new THREE.PlaneGeometry(panelW - PAD * 2, 0.0016),
-      new THREE.MeshBasicMaterial({ color: 0xffb454, transparent: true, opacity: 0.5 })
-    );
-    const dividerY = headerY - HEADER_H / 2 - 0.006;
-    divider.position.set(0, dividerY, 0.002);
-    flatLayer(divider, 22);
-    this.group.add(divider);
-
-    const gridTopY = dividerY - 0.01 - BTN_H / 2;
-    const colX = (BTN_W + GAP_X) / 2;
-
-    ACTIONS.forEach((action, i) => {
-      const row = Math.floor(i / 2);
-      const x = (i % 2 === 0 ? -1 : 1) * colX;
-      const y = gridTopY - row * (BTN_H + GAP_Y);
-      const base = action.danger ? COLORS.dangerBase : COLORS.base;
-      const hover = action.danger ? COLORS.dangerHover : COLORS.hover;
-
-      const panelBtn = createTextPanel({
-        width: BTN_W,
-        height: BTN_H,
-        text: action.label,
-        background: base,
-        color: COLORS.text,
+    // --- Reiter für die Seiten ---
+    const tabY = headerY - HEADER_H / 2 - 0.006 - TAB_H / 2;
+    const tabW = (panelW - PAD * 2 - GAP_X) / 2;
+    this.tabs = [];
+    PAGES.forEach((page, i) => {
+      const tab = createTextPanel({
+        width: tabW,
+        height: TAB_H,
+        text: page.label,
+        background: COLORS.tabBase,
+        color: COLORS.textMuted,
         weight: 600,
         singleLine: true,
-        fontSize: 25,
-        padding: 24,
-        radius: 22,
+        fontSize: 23,
+        padding: 20,
+        radius: 16,
         doubleSided: false,
       });
-      panelBtn.mesh.position.set(x, y, 0.002);
-      flatLayer(panelBtn.mesh, 21);
-      panelBtn.mesh.userData.onClick = () => onAction(action.id);
-      panelBtn.mesh.userData.setHover = (hovered) =>
-        panelBtn.setColors({ background: hovered ? hover : base });
-      this.group.add(panelBtn.mesh);
-      this.buttons.push(panelBtn.mesh);
+      tab.mesh.position.set((i === 0 ? -1 : 1) * (tabW + GAP_X) / 2, tabY, 0.002);
+      flatLayer(tab.mesh, 23);
+      tab.mesh.userData.onClick = () => this.setPage(i);
+      tab.mesh.userData.setHover = (hovered) => {
+        if (i === this.activePage) return;
+        tab.setColors({ background: hovered ? COLORS.tabHover : COLORS.tabBase });
+      };
+      this.group.add(tab.mesh);
+      this.tabs.push(tab);
+    });
+
+    // --- Aktions-Raster je Seite ---
+    const gridTopY = tabY - TAB_H / 2 - 0.012 - BTN_H / 2;
+    const colX = (BTN_W + GAP_X) / 2;
+
+    this.pageButtons = PAGES.map((page) =>
+      page.actions.map((action, i) => {
+        const row = Math.floor(i / 2);
+        const x = (i % 2 === 0 ? -1 : 1) * colX;
+        const y = gridTopY - row * (BTN_H + GAP_Y);
+        const base = action.danger ? COLORS.dangerBase : COLORS.base;
+        const hover = action.danger ? COLORS.dangerHover : COLORS.hover;
+
+        const button = createTextPanel({
+          width: BTN_W,
+          height: BTN_H,
+          text: action.label,
+          background: base,
+          color: COLORS.text,
+          weight: 600,
+          singleLine: true,
+          fontSize: 25,
+          padding: 24,
+          radius: 22,
+          doubleSided: false,
+        });
+        button.mesh.position.set(x, y, 0.002);
+        flatLayer(button.mesh, 21);
+        button.mesh.userData.onClick = () => this.onAction(action.id);
+        button.mesh.userData.setHover = (hovered) =>
+          button.setColors({ background: hovered ? hover : base });
+        this.group.add(button.mesh);
+        return button.mesh;
+      })
+    );
+
+    this.setPage(0);
+  }
+
+  // Anklickbare Elemente: Reiter plus die Buttons der sichtbaren Seite.
+  get buttons() {
+    return [...this.tabs.map((tab) => tab.mesh), ...this.pageButtons[this.activePage]];
+  }
+
+  setPage(index) {
+    this.activePage = THREE.MathUtils.euclideanModulo(index, PAGES.length);
+    this.pageButtons.forEach((buttons, i) => {
+      const visible = i === this.activePage;
+      for (const button of buttons) button.visible = visible;
+    });
+    this.tabs.forEach((tab, i) => {
+      const active = i === this.activePage;
+      tab.setColors({
+        background: active ? COLORS.tabActive : COLORS.tabBase,
+        color: active ? COLORS.accent : COLORS.textMuted,
+      });
     });
   }
 
-  // Grips beider Controller registrieren; das Menü sitzt bevorzugt am linken.
-  // Robust gegen beliebige Verbindungsreihenfolge und fehlende handedness-Angabe.
-  registerGrip(handedness, grip) {
-    if (handedness === 'left') this.leftGrip = grip;
-    else if (handedness === 'right') this.rightGrip = grip;
-    else this.fallbackGrip ??= grip;
-
-    const target = this.leftGrip || this.rightGrip || this.fallbackGrip || grip;
-    const hand = this.leftGrip ? 'left' : this.rightGrip ? 'right' : 'unknown';
-    this._attach(target, hand);
-  }
-
-  _attach(grip, handedness) {
-    grip.add(this.group); // Object3D wird automatisch vom alten Grip gelöst
-    this.attachedHand = handedness;
-    // Über dem Handgelenk, zum Gesicht geneigt – Werte bei Bedarf anpassen
-    this.group.position.set(0, 0.07, 0.11);
-    this.group.rotation.set(-Math.PI / 3, 0, 0);
+  // Eingabequelle registrieren. Controller liefern einen Grip, Hand-Tracking
+  // ein XRHandSpace – beides kann während der Sitzung wechseln, wenn der Nutzer
+  // die Controller weglegt oder wieder aufnimmt.
+  registerSource(handedness, { grip, hand } = {}) {
+    const key = handedness || 'unknown';
+    const entry = this.sources.get(key) ?? { handedness: key };
+    if (grip) entry.grip = grip;
+    if (hand) entry.hand = hand;
+    this.sources.set(key, entry);
   }
 
   setVisible(visible) {
-    this.group.visible = visible;
+    this.enabled = visible;
+    if (!visible) {
+      this.group.visible = false;
+      this.mode = null;
+    }
+  }
+
+  // Bevorzugt die linke Hand; ist nur eine Hand da, wird die genommen.
+  _pick(test) {
+    const left = this.sources.get('left');
+    if (left && test(left)) return left;
+    return [...this.sources.values()].find(test) ?? null;
+  }
+
+  _attachTo(parent, mode) {
+    if (this.group.parent !== parent) parent.add(this.group);
+    this.mode = mode;
+  }
+
+  update(camera) {
+    if (!this.enabled) {
+      this.group.visible = false;
+      return;
+    }
+
+    const handSource = this._pick((source) => this._handTracked(source));
+    if (handSource) {
+      this._placeOnPalm(handSource, camera);
+      return;
+    }
+
+    const gripSource = this._pick((source) => source.grip?.visible);
+    if (gripSource) {
+      this._placeOnGrip(gripSource);
+      return;
+    }
+
+    this.group.visible = false;
+  }
+
+  _handTracked(source) {
+    const hand = source.hand;
+    if (!hand?.visible || !hand.joints) return false;
+    return PALM_JOINTS.every((name) => hand.joints[name]?.visible);
+  }
+
+  _placeOnGrip(source) {
+    this._attachTo(source.grip, 'grip');
+    this.attachedHand = source.handedness;
+    this.group.position.copy(GRIP_POSITION);
+    this.group.rotation.set(GRIP_TILT_X, 0, 0);
+    this.group.scale.setScalar(1);
+    this.group.visible = true;
+    this._palmVisible = false;
+  }
+
+  // Handflächen-Platzierung. Die Basis wird ausschließlich aus Gelenk-*Positionen*
+  // gebildet – die Achsenkonvention einzelner Gelenk-Spaces bleibt damit außen vor.
+  _placeOnPalm(source, camera) {
+    const joints = source.hand.joints;
+    const wrist = joints['wrist'].position;
+    const knuckle = joints['middle-finger-phalanx-proximal'].position;
+    const indexKnuckle = joints['index-finger-phalanx-proximal'].position;
+    const pinkyKnuckle = joints['pinky-finger-phalanx-proximal'].position;
+    const middleTip = joints['middle-finger-tip'].position;
+
+    const palmLength = wrist.distanceTo(knuckle);
+    if (palmLength < 1e-4) {
+      this.group.visible = false;
+      return;
+    }
+
+    // Richtung Finger und quer über die Handfläche (Kleinfinger → Zeigefinger).
+    this._forward.copy(knuckle).sub(wrist).normalize();
+    this._side.copy(indexKnuckle).sub(pinkyKnuckle);
+    if (this._side.lengthSq() < 1e-8) {
+      this.group.visible = false;
+      return;
+    }
+    this._side.normalize();
+
+    // Flächennormale; die Reihenfolge des Kreuzprodukts hängt an der Händigkeit,
+    // damit sie bei beiden Händen aus der Handfläche heraus zeigt.
+    if (source.handedness === 'right') this._normal.crossVectors(this._forward, this._side);
+    else this._normal.crossVectors(this._side, this._forward);
+    if (this._normal.lengthSq() < 1e-8) {
+      this.group.visible = false;
+      return;
+    }
+    this._normal.normalize();
+
+    // „Vorwärts" senkrecht zur Normalen nachziehen (Gelenke liegen nie exakt in
+    // einer Ebene) und daraus eine saubere rechtshändige Basis bauen.
+    this._forward.addScaledVector(this._normal, -this._forward.dot(this._normal)).normalize();
+    this._right.crossVectors(this._forward, this._normal);
+
+    // Handfläche offen? Gestreckter Mittelfinger ist rund doppelt so lang wie
+    // die Handfläche, eine Faust etwa gleich lang.
+    const openness = wrist.distanceTo(middleTip) / palmLength;
+
+    const palmCenter = this._v1.copy(wrist).lerp(knuckle, 0.55);
+    // Gelenke sind Kinder des Hand-Objekts – Kamera in denselben Raum holen.
+    camera.getWorldPosition(this._camPos);
+    source.hand.worldToLocal(this._camPos);
+    const toCamera = this._v2.copy(this._camPos).sub(palmCenter);
+    const facing = toCamera.lengthSq() > 1e-8 ? toCamera.normalize().dot(this._normal) : 0;
+
+    // Hysterese: einmal sichtbar, bleibt das Menü bis deutlich unter der Schwelle.
+    const show = this._palmVisible
+      ? facing > FACING_HIDE && openness > OPEN_HIDE
+      : facing > FACING_SHOW && openness > OPEN_SHOW;
+    this._palmVisible = show;
+    if (!show) {
+      this.group.visible = false;
+      return;
+    }
+
+    this._attachTo(source.hand, 'palm');
+    this.attachedHand = source.handedness;
+    this._basis.makeBasis(this._right, this._forward, this._normal);
+    this.group.quaternion.setFromRotationMatrix(this._basis);
+    this.group.position
+      .copy(palmCenter)
+      .addScaledVector(this._normal, PALM_LIFT)
+      .addScaledVector(this._forward, PALM_FORWARD);
+    this.group.scale.setScalar(PALM_SCALE);
+    this.group.visible = true;
   }
 }

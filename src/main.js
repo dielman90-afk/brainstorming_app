@@ -7,10 +7,18 @@ import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
 import { isSpeechAvailable, recognizeSpeech } from './speech.js';
 import { requestAI, requestIdeas } from './ai.js';
-import { downloadBoard, importBoardFile, saveBoardLocal, loadBoardLocal } from './boardState.js';
+import {
+  downloadBoard,
+  importBoardFile,
+  saveBoardLocal,
+  loadBoardLocal,
+  saveSnapshot,
+  loadSnapshot,
+} from './boardState.js';
 import { createEnvironments } from './environments.js';
 import { Whiteboard } from './whiteboard.js';
-import { createTextPanel } from './textPanel.js';
+import { History } from './history.js';
+import { Hud } from './hud.js';
 
 // --- Szene & Renderer ---
 
@@ -31,7 +39,7 @@ document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
 
-// Umgebungen: Passthrough/Weiß (-1) sowie drei virtuelle Welten aus
+// Umgebungen: Passthrough/Weiß (-1) sowie die virtuellen Welten aus
 // environments.js, per 🌐-Button zyklisch durchschaltbar.
 const grid = new THREE.GridHelper(8, 24, 0x4a4550, 0x2b2830);
 scene.add(grid);
@@ -123,24 +131,16 @@ const interactions = new InteractionManager({
     ...(renderer.xr.isPresenting && wristMenu.group.visible ? wristMenu.buttons : []),
     ...keyboard.uiTargets,
     ...whiteboard.uiTargets,
+    ...hud.uiTargets,
   ],
 });
-interactions.onControllerConnected = (handedness, grip) => {
-  wristMenu.registerGrip(handedness, grip);
+interactions.onInputConnected = ({ handedness, grip, hand }) => {
+  wristMenu.registerSource(handedness, { grip, hand });
 };
 
 // --- Status: DOM-Zeile am Desktop + schwebendes HUD in XR ---
 
-const hud = createTextPanel({
-  width: 0.5,
-  height: 0.07,
-  text: '',
-  background: 'rgba(26,24,31,0.85)',
-  fontSize: 30,
-});
-hud.mesh.position.set(0, -0.28, -0.9);
-hud.mesh.visible = false;
-camera.add(hud.mesh);
+const hud = new Hud(camera);
 
 let hudTimer = 0;
 const statusBand = document.getElementById('status-band');
@@ -148,17 +148,74 @@ const statusText = document.getElementById('status');
 function setStatus(message, ms = 3500) {
   if (statusText) statusText.textContent = message;
   statusBand?.classList.toggle('show', Boolean(message));
-  hud.setText(message);
-  hud.mesh.visible = Boolean(message);
+  hud.setStatus(message, ms);
   clearTimeout(hudTimer);
   if (message && ms) {
     hudTimer = setTimeout(() => {
-      hud.mesh.visible = false;
       if (statusText) statusText.textContent = '';
       statusBand?.classList.remove('show');
     }, ms);
   }
 }
+
+// Ladeanzeige: 3D-Panel im Blickfeld plus Zustand am Desktop-Band.
+function setBusyLabel(label) {
+  hud.setBusy(label);
+  statusBand?.classList.toggle('busy', Boolean(label));
+}
+
+function showError(message, error) {
+  console.error(error ?? message);
+  hud.showError(message);
+  setStatus(`Fehler: ${message}`, 8000);
+}
+
+// --- Undo/Redo ---
+//
+// Gesichert werden Karten und Verbindungen. Die Whiteboard-Zeichnung bleibt
+// bewusst außen vor: Sie ist ein PNG pro Schritt und würde den Verlauf sprengen.
+const history = new History({
+  capture: () => ({ cards: cardManager.toJSON().cards, connections: connectionManager.toJSON() }),
+  restore: (state) => {
+    cardManager.applyState(state.cards);
+    connectionManager.loadJSON(state.connections);
+  },
+});
+
+function commit(label) {
+  history.commit(label);
+  updateHistoryButtons();
+}
+
+// Fortlaufende Gesten (Mausrad, Daumenstick) erzeugen sonst pro Frame einen
+// Schritt – erst nach einer kurzen Pause wird daraus ein Verlaufseintrag.
+let commitTimer = 0;
+let pendingCommit = null;
+function commitSoon(label, delay = 700) {
+  pendingCommit = label;
+  clearTimeout(commitTimer);
+  commitTimer = setTimeout(flushCommit, delay);
+}
+
+// Vor Undo/Redo nachholen, sonst würde ein Zurückspringen die noch offene
+// Größenänderung überspringen statt sie rückgängig zu machen.
+function flushCommit() {
+  if (!pendingCommit) return;
+  clearTimeout(commitTimer);
+  const label = pendingCommit;
+  pendingCommit = null;
+  commit(label);
+}
+
+function updateHistoryButtons() {
+  const undo = document.getElementById('btn-undo');
+  const redo = document.getElementById('btn-redo');
+  if (undo) undo.disabled = !history.canUndo;
+  if (redo) redo.disabled = !history.canRedo;
+}
+
+interactions.onCardMoved = () => commit('Karte verschoben');
+interactions.onCardScaled = () => commitSoon('Kartengröße');
 
 // --- Aktionen (Wrist-Menü in XR, DOM-Buttons am Desktop) ---
 
@@ -177,8 +234,22 @@ function startLinking() {
   setStatus('🔗 Verbinden: Ziel-Karte anklicken (gleiche Karte oder Esc = abbrechen)', 0);
 }
 
+// Meldet Wiederholversuche an die Ladeanzeige, damit eine hakelige Verbindung
+// sichtbar wird statt sich als scheinbarer Stillstand zu zeigen.
+function aiProgress(label) {
+  return {
+    onProgress: ({ attempt, maxAttempts, waitMs, message }) => {
+      setBusyLabel(`${label} – Versuch ${attempt + 1}/${maxAttempts} in ${Math.ceil(waitMs / 1000)} s`);
+      setStatus(`⚠️ ${message} Neuer Versuch…`, 0);
+    },
+  };
+}
+
 async function handleAction(action) {
-  if (busy) return;
+  if (busy) {
+    setStatus('Claude arbeitet noch – einen Moment.');
+    return;
+  }
   try {
     if (action === 'new') {
       await newCardFlow();
@@ -186,6 +257,46 @@ async function handleAction(action) {
     }
     if (action === 'environment') {
       cycleEnvironment();
+      return;
+    }
+    if (action === 'undo') {
+      flushCommit();
+      const label = history.undo();
+      updateHistoryButtons();
+      setStatus(label ? `↶ Rückgängig: ${label}` : 'Kein Schritt zum Rückgängigmachen.');
+      return;
+    }
+    if (action === 'redo') {
+      flushCommit();
+      const label = history.redo();
+      updateHistoryButtons();
+      setStatus(label ? `↷ Wiederhergestellt: ${label}` : 'Kein Schritt zum Wiederherstellen.');
+      return;
+    }
+    if (action === 'save') {
+      const entry = saveSnapshot(boardToJSON());
+      setStatus(`💾 Sicherungspunkt angelegt (${entry.cards} Karten).`);
+      return;
+    }
+    if (action === 'load') {
+      const entry = loadSnapshot(0);
+      if (!entry) {
+        setStatus('Noch kein Sicherungspunkt vorhanden – erst „💾 Sichern".');
+        return;
+      }
+      applyBoardJSON(entry.data);
+      commit('Sicherungspunkt geladen');
+      const time = new Date(entry.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      setStatus(`📂 Sicherungspunkt von ${time} geladen (${cardManager.cards.length} Karten).`);
+      return;
+    }
+    if (action === 'export') {
+      const count = downloadBoard(boardToJSON());
+      setStatus(
+        renderer.xr.isPresenting
+          ? `⬇️ ${count} Karten als JSON exportiert – die Datei liegt nach der Sitzung in den Downloads.`
+          : `⬇️ ${count} Karten als JSON exportiert.`
+      );
       return;
     }
     if (action === 'whiteboard') {
@@ -202,12 +313,15 @@ async function handleAction(action) {
       }
       busy = true;
       setStatus('Claude analysiert die Skizze…', 0);
+      setBusyLabel('Claude liest die Skizze…');
       const image = whiteboard.toDataURL().split(',')[1];
-      const result = await requestIdeas('whiteboard', {
-        image,
-        ideas: cardManager.cards.map((c) => c.text),
-      });
+      const result = await requestIdeas(
+        'whiteboard',
+        { image, ideas: cardManager.cards.map((c) => c.text) },
+        aiProgress('Claude liest die Skizze…')
+      );
       cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      commit('Ideen aus Skizze');
       setStatus(`✨ ${result.length} Ideen aus der Skizze erstellt.`);
       return;
     }
@@ -218,6 +332,7 @@ async function handleAction(action) {
         return;
       }
       selected.setColor(selected.colorIndex + 1);
+      commit('Kartenfarbe');
       return;
     }
     if (action === 'connect') {
@@ -229,11 +344,14 @@ async function handleAction(action) {
       if (!topic) return;
       busy = true;
       setStatus(`Claude erstellt ein Start-Board zu „${topic}“…`, 0);
-      const result = await requestIdeas('topic', {
-        topic,
-        ideas: cardManager.cards.map((c) => c.text),
-      });
+      setBusyLabel(`Start-Board zu „${topic}“…`);
+      const result = await requestIdeas(
+        'topic',
+        { topic, ideas: cardManager.cards.map((c) => c.text) },
+        aiProgress(`Start-Board zu „${topic}“…`)
+      );
       cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      commit(`Themen-Start „${topic}“`);
       setStatus(`Start-Board zu „${topic}“: ${result.length} Ideen.`);
       return;
     }
@@ -249,7 +367,8 @@ async function handleAction(action) {
       }
       clearArmedAt = 0;
       cardManager.clear();
-      setStatus('Alle Karten gelöscht.');
+      commit('Alles löschen');
+      setStatus('Alle Karten gelöscht – „↶ Rückgängig" holt sie zurück.');
       return;
     }
     if (action === 'delete') {
@@ -259,6 +378,7 @@ async function handleAction(action) {
         return;
       }
       cardManager.removeCard(selected);
+      commit('Karte gelöscht');
       setStatus('Karte gelöscht.');
       return;
     }
@@ -275,8 +395,14 @@ async function handleAction(action) {
         return;
       }
       setStatus('Claude generiert verwandte Ideen…', 0);
-      const result = await requestIdeas('related', { selectedIdea: selected.text, ideas });
+      setBusyLabel('Claude sucht verwandte Ideen…');
+      const result = await requestIdeas(
+        'related',
+        { selectedIdea: selected.text, ideas },
+        aiProgress('Claude sucht verwandte Ideen…')
+      );
       cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      commit('Verwandte Ideen');
       setStatus(`${result.length} neue Ideen zu „${selected.text}“`);
     } else if (action === 'cluster') {
       if (ideas.length < 2) {
@@ -284,9 +410,14 @@ async function handleAction(action) {
         return;
       }
       setStatus('Claude gruppiert die Karten…', 0);
+      setBusyLabel('Claude gruppiert die Karten…');
       // Snapshot, damit die Indizes der Antwort zu den gesendeten Ideen passen
       const snapshot = [...cardManager.cards];
-      const data = await requestAI('cluster', { ideas: snapshot.map((c) => c.text) });
+      const data = await requestAI(
+        'cluster',
+        { ideas: snapshot.map((c) => c.text) },
+        aiProgress('Claude gruppiert die Karten…')
+      );
       const clusterDefs = (data.clusters ?? [])
         .map((cl, i) => ({
           name: cl.name,
@@ -298,18 +429,21 @@ async function handleAction(action) {
         .filter((def) => def.cards.length);
       if (!clusterDefs.length) throw new Error('Keine verwertbaren Cluster erhalten.');
       cardManager.applyClusters(clusterDefs, camera);
+      commit('Cluster angewendet');
       setStatus(`${clusterDefs.length} Cluster angewendet – Karten wurden gruppiert und eingefärbt.`);
     } else if (action === 'summary') {
       setStatus('Claude fasst das Board zusammen…', 0);
-      const result = await requestIdeas('summary', { ideas });
+      setBusyLabel('Claude fasst zusammen…');
+      const result = await requestIdeas('summary', { ideas }, aiProgress('Claude fasst zusammen…'));
       cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      commit('Zusammenfassung');
       setStatus('Zusammenfassung erstellt.');
     }
   } catch (err) {
-    console.error(err);
-    setStatus(`Fehler: ${err.message}`, 6000);
+    showError(err.message, err);
   } finally {
     busy = false;
+    setBusyLabel(null);
   }
 }
 
@@ -351,20 +485,30 @@ async function newCardFlow() {
   const text = await getUserText();
   if (!text) return;
   cardManager.spawnIdeas([text], camera);
+  commit('Neue Karte');
   setStatus('Karte erstellt.');
 }
 
 // --- Desktop-UI ---
 
-document.getElementById('btn-new').addEventListener('click', () => handleAction('new'));
-document.getElementById('btn-related').addEventListener('click', () => handleAction('related'));
-document.getElementById('btn-cluster').addEventListener('click', () => handleAction('cluster'));
-document.getElementById('btn-summary').addEventListener('click', () => handleAction('summary'));
-document.getElementById('btn-topic').addEventListener('click', () => handleAction('topic'));
-document.getElementById('btn-whiteboard').addEventListener('click', () => handleAction('whiteboard'));
-document.getElementById('btn-export').addEventListener('click', () => downloadBoard(boardToJSON()));
-document.getElementById('btn-clear').addEventListener('click', () => handleAction('clear'));
-document.getElementById('btn-env').addEventListener('click', () => handleAction('environment'));
+const DESKTOP_BUTTONS = {
+  'btn-new': 'new',
+  'btn-related': 'related',
+  'btn-cluster': 'cluster',
+  'btn-summary': 'summary',
+  'btn-topic': 'topic',
+  'btn-whiteboard': 'whiteboard',
+  'btn-export': 'export',
+  'btn-clear': 'clear',
+  'btn-env': 'environment',
+  'btn-undo': 'undo',
+  'btn-redo': 'redo',
+  'btn-save': 'save',
+  'btn-load': 'load',
+};
+for (const [id, action] of Object.entries(DESKTOP_BUTTONS)) {
+  document.getElementById(id)?.addEventListener('click', () => handleAction(action));
+}
 document.getElementById('idea-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleAction('new');
 });
@@ -373,9 +517,10 @@ document.getElementById('import-file').addEventListener('change', async (e) => {
   if (!file) return;
   try {
     applyBoardJSON(await importBoardFile(file));
+    commit('Board importiert');
     setStatus(`Board importiert (${cardManager.cards.length} Karten).`);
   } catch (err) {
-    setStatus(`Import fehlgeschlagen: ${err.message}`, 6000);
+    showError(`Import fehlgeschlagen: ${err.message}`, err);
   }
   e.target.value = '';
 });
@@ -390,6 +535,7 @@ interactions.onCardPick = (card) => {
     return true;
   }
   const result = connectionManager.toggle(linkSource, card);
+  commit(result === 'added' ? 'Verbindung erstellt' : 'Verbindung entfernt');
   setStatus(result === 'added' ? '🔗 Verbindung erstellt.' : 'Verbindung entfernt.');
   linkSource = null;
   return true;
@@ -422,6 +568,7 @@ contextMenu.addEventListener('click', (e) => {
     openEditor(card);
   } else if (action === 'delete') {
     cardManager.removeCard(card);
+    commit('Karte gelöscht');
     setStatus('Karte gelöscht.');
   } else if (action === 'related') {
     cardManager.select(card);
@@ -440,7 +587,9 @@ CARD_COLORS.forEach((color, i) => {
   dot.style.background = color.accent;
   dot.title = i === 0 ? 'Standardfarbe' : `Farbe ${i}`;
   dot.addEventListener('click', () => {
-    contextCard?.setColor(i);
+    if (!contextCard) return;
+    contextCard.setColor(i);
+    commit('Kartenfarbe');
   });
   colorRow.appendChild(dot);
 });
@@ -472,6 +621,7 @@ function closeEditor(save) {
     const text = editInput.value.trim();
     if (text) {
       editingCard.setText(text);
+      commit('Kartentext');
       setStatus('Karte aktualisiert.');
     }
   }
@@ -492,10 +642,28 @@ interactions.onCardDoubleClick = (card) => openEditor(card);
 
 window.addEventListener('keydown', (e) => {
   const tag = document.activeElement?.tagName;
+  // In einem Textfeld gehört Strg+Z der Texteingabe, nicht dem Board.
   if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+  if (e.ctrlKey || e.metaKey) {
+    const key = e.key.toLowerCase();
+    if (key === 'z') {
+      e.preventDefault();
+      handleAction(e.shiftKey ? 'redo' : 'undo');
+      return;
+    }
+    if (key === 'y') {
+      e.preventDefault();
+      handleAction('redo');
+      return;
+    }
+    return;
+  }
+
   if (e.key === 'Escape') {
     closeContextMenu();
     closeEditor(false);
+    hud.hideError();
     if (linkSource) {
       linkSource = null;
       setStatus('Verbinden abgebrochen.');
@@ -505,13 +673,16 @@ window.addEventListener('keydown', (e) => {
   if (!cardManager.selected) return;
   if (e.key === 'Delete' || e.key === 'Backspace') {
     cardManager.removeCard(cardManager.selected);
+    commit('Karte gelöscht');
     setStatus('Karte gelöscht.');
   } else if (e.key === 'F2') {
     openEditor(cardManager.selected);
   } else if (e.key === '+' || e.key === '=') {
     cardManager.selected.setScale(cardManager.selected.scale * 1.12);
+    commitSoon('Kartengröße');
   } else if (e.key === '-') {
     cardManager.selected.setScale(cardManager.selected.scale / 1.12);
+    commitSoon('Kartengröße');
   }
 });
 
@@ -592,6 +763,10 @@ if (savedBoard === null) {
   }
 }
 
+// Ausgangspunkt für Undo/Redo: der wiederhergestellte Stand.
+history.reset('Sitzungsstart');
+updateHistoryButtons();
+
 // Automatisches Speichern: alle 3 s bei Änderungen sowie beim Verlassen
 let lastSavedSnapshot = '';
 setInterval(() => {
@@ -616,7 +791,13 @@ addEventListener('resize', () => {
 const clock = new THREE.Clock();
 
 renderer.setAnimationLoop(() => {
+  const delta = clock.getDelta();
+  // In XR sitzt die echte Kopfpose in der XR-Kamera, nicht in `camera`.
+  const viewCamera = renderer.xr.isPresenting ? renderer.xr.getCamera() : camera;
+
   interactions.update();
+  wristMenu.update(viewCamera);
+  hud.update(delta);
   connectionManager.update();
   if (envIndex >= 0) environments[envIndex].update?.(clock.getElapsedTime());
   if (!renderer.xr.isPresenting) controls.update();
@@ -628,6 +809,7 @@ renderer.setAnimationLoop(() => {
     const xrCam = renderer.xr.getCamera();
     if (xrCam.cameras?.length) {
       cardManager.repositionAllInArc(xrCam);
+      commit('Karten vor den Nutzer geholt');
       recenterOnNextFrame = false;
     }
   }
@@ -643,8 +825,13 @@ window.__app = {
   keyboard,
   wristMenu,
   whiteboard,
+  interactions,
   controls,
   handleAction,
   setStatus,
+  history,
+  hud,
+  boardToJSON,
+  applyBoardJSON,
   env: { environments, grid, current: () => envIndex, cycle: cycleEnvironment },
 };

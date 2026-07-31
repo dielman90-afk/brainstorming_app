@@ -175,7 +175,18 @@ function parsePayload(action, text) {
   };
 }
 
+// Serverseitige Zeitgrenze pro Anfrage. Sie liegt bewusst unter der Grenze im
+// Client (src/ai.js), damit der Nutzer eine sprechende Fehlermeldung bekommt
+// statt eines abgebrochenen fetch. Wiederholt wird ausschließlich im Client –
+// sonst multiplizieren sich die Versuche beider Ebenen.
+const REQUEST_TIMEOUT_MS = { whiteboard: 80_000, default: 38_000 };
+
 function mapApiError(err) {
+  if (err instanceof Anthropic.APIConnectionTimeoutError || err instanceof Anthropic.APIUserAbortError) {
+    const e = new Error('Zeitüberschreitung bei der Anthropic API.');
+    e.status = 504;
+    return e;
+  }
   if (err instanceof Anthropic.AuthenticationError) {
     const e = new Error('Anthropic API-Key ungültig – ANTHROPIC_API_KEY in .env prüfen.');
     e.status = 500;
@@ -242,9 +253,14 @@ export async function generateIdeas(action, payload = {}) {
     messages: [{ role: 'user', content: userContent }],
   };
 
+  const requestOptions = {
+    timeout: REQUEST_TIMEOUT_MS[action] ?? REQUEST_TIMEOUT_MS.default,
+    maxRetries: 0,
+  };
+
   let response;
   try {
-    response = await client.messages.create(request);
+    response = await client.messages.create(request, requestOptions);
   } catch (err) {
     if (err instanceof Anthropic.BadRequestError && String(err.message).includes('output_config')) {
       // Fallback, falls structured outputs nicht verfügbar sind: JSON per Prompt anfordern
@@ -256,10 +272,10 @@ export async function generateIdeas(action, payload = {}) {
       const fallbackContent = Array.isArray(userContent)
         ? [...userContent.slice(0, -1), { type: 'text', text: buildPrompt(action, payload) + hint }]
         : userContent + hint;
-      response = await client.messages.create({
-        ...rest,
-        messages: [{ role: 'user', content: fallbackContent }],
-      }).catch((e2) => { throw mapApiError(e2); });
+      response = await client.messages.create(
+        { ...rest, messages: [{ role: 'user', content: fallbackContent }] },
+        requestOptions
+      ).catch((e2) => { throw mapApiError(e2); });
     } else {
       throw mapApiError(err);
     }
