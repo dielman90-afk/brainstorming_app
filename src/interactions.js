@@ -8,8 +8,9 @@ const MOVE_EPSILON_SQ = 1e-6;
 
 // Ray-Casting + Grab für XR-Controller sowie Maus-Fallback am Desktop.
 export class InteractionManager {
-  constructor({ renderer, scene, camera, cardManager, getUiTargets, xrRoot }) {
+  constructor({ renderer, scene, camera, cardManager, getUiTargets, xrRoot, haptics = null }) {
     this.renderer = renderer;
+    this.haptics = haptics;
     this.scene = scene;
     // Controller/Grips hängen am Player-Rig (falls vorhanden), damit sie sich
     // bei der Fortbewegung mit dem Nutzer mitbewegen; sonst direkt an der Szene.
@@ -135,6 +136,9 @@ export class InteractionManager {
 
   _onSelectStart(controller) {
     const hit = this._xrRaycast(controller);
+    // Merken, welche Hand zuletzt etwas ausgelöst hat – Menü-Aktionen ohne
+    // eigenen Controller-Bezug rumpeln dann auf der richtigen Seite.
+    this.haptics?.noteUsed(controller);
     if (!hit) {
       // Griff ins Leere – nichts angevisiert. Das ist das Signal für die
       // Fortbewegung per Hand (locomotion.js zieht daran die Welt heran);
@@ -143,6 +147,7 @@ export class InteractionManager {
       return;
     }
     if (hit.type === 'ui') {
+      this.haptics?.pulse('click', controller);
       hit.object.userData.onClick();
       return;
     }
@@ -152,12 +157,14 @@ export class InteractionManager {
       return;
     }
     if (hit.type === 'grab') {
+      this.haptics?.pulse('grab', controller);
       controller.userData.grabbedTarget = hit.target;
       controller.userData.grabTargetStart = hit.target.group.getWorldPosition(new THREE.Vector3());
       controller.attach(hit.target.group);
       return;
     }
     this.cardManager.select(hit.card);
+    this.haptics?.pulse('grab', controller);
     if (this.onCardPick?.(hit.card)) return;
     controller.userData.grabbed = hit.card;
     controller.userData.grabStart = hit.card.group.getWorldPosition(new THREE.Vector3());
@@ -186,6 +193,7 @@ export class InteractionManager {
       controller.userData.grabbed = null;
       const start = controller.userData.grabStart;
       if (start && card.group.position.distanceToSquared(start) > MOVE_EPSILON_SQ) {
+        this.haptics?.pulse('release', controller);
         this.onCardMoved?.(card);
       }
       controller.userData.grabStart = null;

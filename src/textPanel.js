@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { PANEL_FONT_FAMILY, onFontsReady, forgetFontListener } from './fonts.js';
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -44,6 +45,8 @@ export function createTextPanel({
   singleLine = false,
   weight = 500,
   padding = 44,
+  align = 'center', // 'center' | 'left' – links für Eingabefelder
+
   accent = null, // Farbstreifen am linken Rand (z. B. Kategorie-Farbe)
   border = null, // feiner Rahmen um das Panel
   doubleSided = true, // Rückseiten-Ebene (für rundum lesbare Karten); für
@@ -71,9 +74,9 @@ export function createTextPanel({
     mesh.add(backMesh);
   }
 
-  const state = { text, background, color, accent, border };
+  const state = { text, background, color, accent, border, fontSize };
 
-  const font = (px) => `${weight} ${px}px 'Segoe UI', system-ui, sans-serif`;
+  const font = (px) => `${weight} ${px}px ${PANEL_FONT_FAMILY}`;
 
   function redraw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -107,25 +110,26 @@ export function createTextPanel({
     }
 
     ctx.fillStyle = state.color;
-    ctx.textAlign = 'center';
+    ctx.textAlign = align === 'left' ? 'left' : 'center';
     ctx.textBaseline = 'middle';
     const maxWidth = canvas.width - padding;
+    const textX = align === 'left' ? padding / 2 : canvas.width / 2;
 
     if (singleLine) {
       // Schriftgröße so weit reduzieren, bis der Text in eine Zeile passt
-      let fs = fontSize;
+      let fs = state.fontSize;
       ctx.font = font(fs);
       while (fs > 10 && ctx.measureText(state.text).width > maxWidth) {
         fs -= 1;
         ctx.font = font(fs);
       }
-      ctx.fillText(state.text, canvas.width / 2, canvas.height / 2 + 1);
+      ctx.fillText(state.text, textX, canvas.height / 2 + 1);
       texture.needsUpdate = true;
       return;
     }
 
-    ctx.font = font(fontSize);
-    const lineHeight = fontSize * 1.25;
+    ctx.font = font(state.fontSize);
+    const lineHeight = state.fontSize * 1.25;
     let lines = wrapLines(ctx, state.text, maxWidth);
     const maxLines = Math.max(1, Math.floor((canvas.height - 24) / lineHeight));
     if (lines.length > maxLines) {
@@ -133,16 +137,29 @@ export function createTextPanel({
       lines[maxLines - 1] = `${lines[maxLines - 1]} …`;
     }
     const y0 = canvas.height / 2 - ((lines.length - 1) * lineHeight) / 2;
-    lines.forEach((line, i) => ctx.fillText(line, canvas.width / 2, y0 + i * lineHeight, maxWidth));
+    lines.forEach((line, i) => ctx.fillText(line, textX, y0 + i * lineHeight, maxWidth));
     texture.needsUpdate = true;
   }
   redraw();
+  // Nachziehen, sobald die gebündelte Schrift steht (siehe fonts.js)
+  onFontsReady(redraw);
 
   return {
     mesh,
     setText(t) {
       state.text = t;
       redraw();
+    },
+    // Basis-Schriftgröße in Canvas-Pixeln. Wird für die umschaltbare
+    // Kartenschrift genutzt; die Panel-Maße bleiben unverändert.
+    setFontSize(px) {
+      const next = Math.max(8, Math.round(px));
+      if (next === state.fontSize) return;
+      state.fontSize = next;
+      redraw();
+    },
+    get fontSize() {
+      return state.fontSize;
     },
     setColors({ background, color: fg, accent: newAccent, border: newBorder } = {}) {
       if (background) state.background = background;
@@ -152,6 +169,7 @@ export function createTextPanel({
       redraw();
     },
     dispose() {
+      forgetFontListener(redraw);
       texture.dispose();
       material.dispose();
       mesh.geometry.dispose();
