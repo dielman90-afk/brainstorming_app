@@ -32,13 +32,21 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   **⬜ Konstrukt** (nahtloser, komplett weißer Void im Stil des
   „Matrix“-Ladeprogramms – Kuppel und Boden im selben Weißton, kein sichtbarer
   Horizont, gleichmäßiges schattenfreies Licht). Darin steht die **Einrichtung
-  aus der Filmszene**: zwei rote Chesterfield-Ledersessel, einander zugewandt,
-  dazwischen ein Beistelltisch mit einem **Röhrenfernseher**, auf dem ein
-  körniges Schwarzweißbild läuft. Alles prozedural aus Geometrie und
-  Canvas-Texturen – die Ledernarbung ist eine gerechnete Normal-Map, das
-  TV-Bild ein animierter Canvas mit Scanlines, Rauschen und durchlaufendem
-  Bildstrich. Die Gruppe steht gut dreieinhalb Meter vor dem Startpunkt, also
-  hinter dem Halbkreis, in dem neue Karten erscheinen.
+  aus der Filmszene**, nachgebaut nach dem Standbild: zwei rote
+  **Ohrensessel** nebeneinander mit Blick nach vorn – hohe Lehne mit
+  seitlichen Flügeln, dichte Rautenknopfheftung, gerollte Armlehnen mit
+  geschnitzter Holzrosette an der Stirn und gedrechselte Vorderbeine – und
+  dazwischen, frei auf dem Boden, die **AWA-„Radiola"-Konsole** im
+  Art-déco-Gehäuse mit dem auf der Spitze stehenden „DEEP IMAGE"-Dreieck.
+  Ihre Schauseite zeigt zum Betrachter; die **Bildröhre sitzt auf der
+  Rückseite** und läuft mit einem körnigen Schwarzweißbild – zu sehen, wenn man
+  um die Gruppe herumgeht.
+  Alles prozedural aus Geometrie und Canvas-Texturen: Die Ledernarbung ist eine
+  gerechnete Normal-Map, Emblem und Schriftzüge sind eine gemalte Tafel (als
+  Geometrie kosteten sie tausende Dreiecke für ein flaches Detail), das
+  Bildschirmbild ein animierter Canvas mit Scanlines, Rauschen und
+  durchlaufendem Bildstrich. Die Gruppe steht gut dreieinhalb Meter vor dem
+  Startpunkt, also hinter dem Halbkreis, in dem neue Karten erscheinen.
   Das frühere **🌐 Studio** (schlichter heller Verlauf) ist entfernt: Es war vom
   Konstrukt kaum zu unterscheiden – beides eine helle, leere Kuppel – und
   verlängerte den Durchlauf des Buttons ohne erkennbaren Unterschied.
@@ -243,7 +251,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
 │   ├── boardState.js       JSON-Export/-Import, Sicherungspunkte + Autosave
 │   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt
-│   │                       inkl. Matrix-Sitzgruppe: Ledersessel, Tisch, Röhren-TV)
+│   │                       inkl. Matrix-Sitzgruppe: Ohrensessel + Radiola-Konsole)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
 │   ├── zones.js            Räumliche Zonen/Rahmen zum Gruppieren von Karten
 │   ├── timer.js            Schwebende Timebox-Uhr mit Gong
