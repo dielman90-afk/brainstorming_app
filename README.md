@@ -6,11 +6,14 @@ und Claude generiert auf Knopfdruck verwandte Ideen, Cluster-Vorschläge und
 Zusammenfassungen.
 
 **Stack:** Three.js + WebXR · Vite · Node/Express-Proxy für die Anthropic Messages API
-(Modell `claude-sonnet-4-6`, API-Key nur serverseitig).
+(Modell `claude-sonnet-5`, API-Key nur serverseitig).
 
 **Design:** „Soft Spatial Minimal" aus [claude.ai/design](https://claude.ai/design) –
 warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
-+ *Sora* (via Google Fonts; ohne Internet greift der System-Font-Fallback).
++ *Sora*. Beide werden über `@fontsource` **lokal mitgebaut** (`src/fonts.js`) und
+nicht vom Google-CDN geladen – die App sieht damit auch in Netzen ohne freien
+Internetzugang so aus wie gedacht. Dieselbe Schrift trägt auch die 3D-Panels:
+Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 
 ## Features
 
@@ -58,13 +61,15 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   Tracking-Aussetzer keinen Sprung auslöst.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
-- **Hand-Menü** (`src/wristMenu.js`) auf zwei Reitern à fünf Reihen, damit das
-  Panel trotz 19 Aktionen kompakt bleibt:
+- **Hand-Menü** (`src/wristMenu.js`) auf zwei Reitern à sechs Reihen, damit das
+  Panel trotz 21 Aktionen kompakt bleibt. Die kürzere Seite wird im Panel
+  vertikal zentriert, damit unten keine leere Reihe klafft:
   - **💡 Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
-    *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Karte löschen*
+    *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Schrift*,
+    *Karte löschen*
   - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
-    *Umgebung*, *Sichern*, *Laden*, *Als Datei*, *Alles löschen* (mit
-    Zweifach-Bestätigung)
+    *Umgebung*, *Sprachbefehle*, *Sichern*, *Laden*, *Als Datei*,
+    *Alles löschen* (mit Zweifach-Bestätigung)
 
   Das Menü sitzt **mit Controllern** über dem Handrücken der linken Hand und
   reicht nach vorn ins Blickfeld (statt hinter dem Handgelenk Richtung
@@ -119,9 +124,44 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 - **Verbindungslinien (Mindmap):** Karte auswählen → „🔗 Verbinden“ (Menü bzw.
   Rechtsklick → „Verbinden mit…“) → Ziel-Karte anklicken. Nochmal verbinden
   entfernt die Linie; Esc bricht ab. Linien folgen den Karten beim Verschieben.
-- **Texteingabe:** Web Speech API (Deutsch), Fallback auf eine virtuelle
-  3D-Tastatur. *Hinweis: Der Quest-Browser unterstützt die Web Speech API derzeit
-  nicht – dort öffnet sich automatisch die Tastatur.*
+- **Texteingabe – Tastatur und Diktat** (`src/keyboard.js`, `src/speech.js`):
+  In XR öffnet sich die virtuelle 3D-Tastatur im deutschen Layout (Umlaute, ß,
+  Satzzeichen, Umschalttaste für genau ein Zeichen wie auf dem Handy). Optisch
+  gehört sie jetzt zum Rest der App: abgerundetes Glas-Panel mit Amber-Rahmen,
+  weich abgerundete Tasten, gleiche Farbwelt wie Hand-Menü und
+  Whiteboard-Leiste.
+  **Wer nicht tippen will, drückt „🎤 Sprechen"** – dann wird direkt ins
+  Eingabefeld diktiert, Zwischenergebnisse laufen live mit, und ein zweiter
+  Druck bricht ab. Am Desktop macht der Knopf **„🎤 Diktieren"** im Overlay
+  dasselbe mit dem Ideen-Feld.
+  Der Diktat-Versuch läuft **nicht** mehr automatisch vor der Tastatur: Auf der
+  Quest scheitert er zuverlässig, und die Wartezeit bis zum Fehlschlag verzögerte
+  bisher jede Eingabe.
+- **🎙 Sprachbefehle** (`src/speech.js`): dauerhaftes Zuhören, abschaltbar über
+  Menü („🗂 Board" → *Sprachbefehle*) bzw. den Overlay-Knopf – **standardmäßig
+  aus**, ein ungefragt mithörendes Mikrofon will niemand. Erkannt werden u. a.
+  *„neue Karte …"*, *„Thema …"*, *„verwandte Ideen"*, *„Kritiker"*, *„Cluster"*,
+  *„zusammenfassen"*, *„verbinden"*, *„Karte löschen"*, *„rückgängig"*,
+  *„Umgebung"*, *„Schrift"*. Bei *„neue Karte"* und *„Thema"* wird das
+  Gesprochene direkt als Text übernommen – *„neue Karte Fahrradständer bauen"*
+  legt die beschriftete Karte in einem Rutsch an.
+  Ein Befehl zählt nur **am Satzanfang** und ohne Nachgeplapper, damit ein
+  beiläufiges „…das können wir alles löschen…" im Gespräch nichts auslöst.
+  Während eines Diktats pausiert die Befehlserkennung – zwei Erkenner streiten
+  sich sonst um das Mikrofon.
+  *Hinweis: Die Web Speech API ist browserabhängig. Chrome/Edge am Desktop können
+  sie, der Quest-Browser bisher nicht – dort bleibt die Tastatur der Weg, und die
+  App sagt das im Klartext statt still zu scheitern.*
+- **🔠 Kartenschrift** (Barrierefreiheit): drei Stufen (*Normal · Groß · Sehr
+  groß*) über „🔠 Schrift" im Menü bzw. den Knopf im Overlay. Angepasst wird nur
+  die Textgröße, die Kartenfläche bleibt gleich; die Stufe gilt auch für neue
+  Karten und überdauert einen Reload.
+- **Haptik in VR** (`src/haptics.js`): kurzes Controller-Rumble beim Greifen und
+  Ablegen von Karten, bei Menü-Klicks, beim Verbinden, Löschen und bei einer
+  Fehlerkarte. Bewusst sehr kurz (14–70 ms) – alles darüber fühlt sich wie eine
+  Fehlermeldung an statt wie eine Bestätigung. Läuft über
+  `gamepad.hapticActuators` mit `playEffect` als Rückfall; ohne Unterstützung
+  passiert schlicht nichts.
 - **📋 Whiteboard:** Ein zeichenbares Board im Raum (ein-/ausblenden über Menü
   bzw. Overlay-Button). Werkzeugleiste mit **Stift, Marker (halbtransparent),
   Radierer, 6 Farben, 3 Strichstärken, Formen (Linie/Rechteck/Kreis mit
@@ -156,7 +196,12 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   (Orbit), Karten per Klick auswählen und ziehen, alle Aktionen über das Overlay
   links oben. Ideal zum schnellen Iterieren. Das Overlay ist auf die Fensterhöhe
   begrenzt und **scrollt bei Bedarf selbst**, damit auch auf niedrigen Fenstern
-  alle Bedienelemente bis hinunter zum XR-Button erreichbar bleiben. Es lässt
+  alle Bedienelemente bis hinunter zum XR-Button erreichbar bleiben. Gescrollt
+  wird dabei ein innerer Container (`#overlay-scroll`); das Panel selbst
+  schneidet ab. Vorher lag die Bildlaufleiste direkt auf dem Panel – ihre
+  Pfeil-Knöpfe sitzen ganz oben und unten in der Spur und ragten damit sichtbar
+  in die runden Ecken hinaus. Jetzt sind die Pfeile abgeschaltet, die Spur hält
+  Abstand zu den Ecken, und der Balken ist ein schmaler, abgerundeter Griff. Es lässt
   sich über den Knopf rechts daneben oder mit **M** ein- und ausklappen –
   eingeklappt bleibt nur der Knopf stehen und das Board bekommt die volle
   Fläche. Der Zustand wird gemerkt und gilt auch nach einem Reload.
@@ -173,8 +218,10 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 │   ├── wristMenu.js        Menü-Panel an Controller bzw. Handfläche
 │   ├── history.js          Undo/Redo (Board-Snapshots)
 │   ├── hud.js              Statuszeile, Ladeanzeige und Fehlerkarte im Blickfeld
-│   ├── keyboard.js         Virtuelle 3D-Tastatur (Fallback)
-│   ├── speech.js           Web Speech API Wrapper
+│   ├── keyboard.js         Virtuelle 3D-Tastatur mit Diktat-Knopf
+│   ├── speech.js           Diktat + Sprachbefehle (Web Speech API)
+│   ├── haptics.js          Controller-Rumble (Greifen, Klick, Verbinden, Löschen)
+│   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
 │   ├── boardState.js       JSON-Export/-Import, Sicherungspunkte + Autosave
 │   ├── environments.js     Fünf prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Studio, Konstrukt)
@@ -216,6 +263,9 @@ Einfach `https://localhost:5173` öffnen:
 | **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
+| **Diktieren** | **„🎤 Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen) |
+| **Sprachbefehle** | **„🎙 Sprachbefehle"** im Overlay ein-/ausschalten |
+| **Kartenschrift** | **„Schrift: …"** im Overlay – Normal → Groß → Sehr groß |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |
 | Karte löschen | **Rechtsklick → „Karte löschen“** oder **Entf/Backspace** bei ausgewählter Karte |
@@ -274,8 +324,10 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Menü **ohne Controller** | **Handfläche öffnen und zum Gesicht drehen** – das Menü erscheint darüber (linke Hand bevorzugt, die rechte geht genauso). Klicken per **Pinch** (Daumen + Zeigefinger) der anderen Hand |
 | Bewegen **ohne Controller** | **Ins Leere pinchen und die Hand bewegen** = sich an der Welt entlangziehen · **beide Hände** = zusätzlich drehen |
 | Menüseite wechseln | Reiter **„💡 Ideen“** bzw. **„🗂 Board“** oben im Panel antippen |
-| Neue Karte | Menü → „＋ Neue Karte“ → sprechen bzw. virtuelle Tastatur |
+| Neue Karte | Menü → „＋ Neue Karte“ → Tastatur öffnet sich; **„🎤 Sprechen"** diktiert statt zu tippen |
 | Themen-Start | Menü → „🚀 Themen-Start“ → Thema sprechen/tippen |
+| **Sprachbefehle** | Menü → „🗂 Board“ → **„🎙 Sprachbefehle“** (der Knopf leuchtet, solange zugehört wird) |
+| **Kartenschrift** | Menü → „💡 Ideen“ → **„🔠 Schrift“** (Normal → Groß → Sehr groß) |
 | Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
@@ -341,9 +393,16 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   getrackt werden, sind im Quest-System die Handbewegungen einzuschalten und die
   Controller abzulegen (`hand-tracking` wird als optionales WebXR-Feature
   angefragt).
-- **Spracheingabe reagiert nicht:** Der Quest-Browser unterstützt die Web Speech
-  API nicht – die virtuelle Tastatur öffnet sich automatisch. Am Desktop braucht
-  Chrome eine Mikrofon-Freigabe.
+- **Spracheingabe reagiert nicht:** Die Web Speech API ist browserabhängig. Der
+  Quest-Browser unterstützt sie bisher nicht – dort meldet „🎤 Sprechen" das im
+  Klartext und die Tastatur bleibt der Weg. Am Desktop braucht Chrome/Edge eine
+  **Mikrofon-Freigabe** (Adressleiste → Mikrofon zulassen) und eine
+  Internetverbindung, weil die Erkennung serverseitig läuft – offline meldet sie
+  „Spracherkennung braucht Internet". Firefox kann sie gar nicht.
+- **Sprachbefehl wird nicht erkannt:** Ein Kommando zählt nur am **Satzanfang**
+  und ohne Zusatz dahinter – „Cluster" wirkt, „mach mal Cluster" und „Cluster
+  bitte" nicht. Ausnahmen sind „neue Karte …" und „Thema …", bei denen alles
+  Folgende als Text übernommen wird.
 - **In VR sind nur das Menü, aber keine Karten sichtbar:** Beim Session-Start
   werden alle Karten automatisch in einem Halbkreis vor dich geholt (sobald die
   Headset-Pose bekannt ist). Falls sie mal außer Sicht geraten (z. B. weit

@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
 
-// Das Menü ist auf zwei Reiter aufgeteilt: 19 Aktionen untereinander wären ein
-// über 70 cm hohes Panel an der Hand. Zwei Seiten à fünf Reihen bleiben
+// Das Menü ist auf zwei Reiter aufgeteilt: 21 Aktionen untereinander wären ein
+// über 80 cm hohes Panel an der Hand. Zwei Seiten à sechs Reihen bleiben
 // kompakt und sind auch verkleinert auf der Handfläche noch lesbar.
 const PAGES = [
   {
@@ -17,6 +17,7 @@ const PAGES = [
       { id: 'summary', label: '📝 Zusammenfassen' },
       { id: 'color', label: '🎨 Farbe' },
       { id: 'connect', label: '🔗 Verbinden' },
+      { id: 'fontsize', label: '🔠 Schrift' },
       { id: 'delete', label: '🗑️ Karte löschen', danger: true },
     ],
   },
@@ -30,6 +31,7 @@ const PAGES = [
       { id: 'timer', label: '⏱️ Timer' },
       { id: 'whiteboard', label: '📋 Whiteboard' },
       { id: 'environment', label: '🌐 Umgebung' },
+      { id: 'voice', label: '🎙 Sprachbefehle' },
       { id: 'save', label: '💾 Sichern' },
       { id: 'load', label: '📂 Laden' },
       { id: 'export', label: '⬇️ Als Datei' },
@@ -151,6 +153,7 @@ export class WristMenu {
     this.mode = null; // 'grip' | 'palm' | null
     this.attachedHand = null;
     this.sources = new Map(); // handedness -> { handedness, grip, hand }
+    this.buttonsById = new Map(); // Aktions-ID -> { panel, base, hover }
     this._palmVisible = false;
 
     this._v1 = new THREE.Vector3();
@@ -234,11 +237,16 @@ export class WristMenu {
     const gridTopY = tabY - TAB_H / 2 - 0.012 - BTN_H / 2;
     const colX = (BTN_W + GAP_X) / 2;
 
-    this.pageButtons = PAGES.map((page) =>
-      page.actions.map((action, i) => {
+    this.pageButtons = PAGES.map((page) => {
+      // Die Seiten sind unterschiedlich lang (10 bzw. 11 Aktionen). Das Panel
+      // ist auf die längere ausgelegt; die kürzere wird im freien Raum
+      // zentriert, sonst klafft unten eine ganze leere Reihe.
+      const pageRows = Math.ceil(page.actions.length / 2);
+      const centerOffset = ((rows - pageRows) * (BTN_H + GAP_Y)) / 2;
+      return page.actions.map((action, i) => {
         const row = Math.floor(i / 2);
         const x = (i % 2 === 0 ? -1 : 1) * colX;
-        const y = gridTopY - row * (BTN_H + GAP_Y);
+        const y = gridTopY - centerOffset - row * (BTN_H + GAP_Y);
         const base = action.danger ? COLORS.dangerBase : COLORS.base;
         const hover = action.danger ? COLORS.dangerHover : COLORS.hover;
 
@@ -258,14 +266,30 @@ export class WristMenu {
         button.mesh.position.set(x, y, 0.002);
         flatLayer(button.mesh, 21);
         button.mesh.userData.onClick = () => this.onAction(action.id);
+        // Umschaltbare Aktionen (z. B. Sprachbefehle) färben sich, solange sie
+        // aktiv sind – setActionActive() hinterlegt dafür die Farben.
+        const entry = { panel: button, base, hover };
         button.mesh.userData.setHover = (hovered) =>
-          button.setColors({ background: hovered ? hover : base });
+          button.setColors({ background: hovered ? entry.hover : entry.base });
+        this.buttonsById.set(action.id, entry);
         this.group.add(button.mesh);
         return button.mesh;
-      })
-    );
+      });
+    });
 
     this.setPage(0);
+  }
+
+  // Dauerzustand einer Aktion anzeigen (an = Amber-Fläche mit dunkler Schrift).
+  setActionActive(id, active) {
+    const entry = this.buttonsById.get(id);
+    if (!entry) return;
+    entry.base = active ? COLORS.tabActive : COLORS.base;
+    entry.hover = active ? COLORS.tabActive : COLORS.hover;
+    entry.panel.setColors({
+      background: entry.base,
+      color: active ? COLORS.accent : COLORS.text,
+    });
   }
 
   // Anklickbare Elemente: Reiter plus die Buttons der sichtbaren Seite.

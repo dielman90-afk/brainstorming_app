@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 
-const MODEL = 'claude-sonnet-4-6';
+const MODEL = 'claude-sonnet-5';
 
 export const ACTIONS = ['related', 'cluster', 'summary', 'topic', 'whiteboard', 'critic'];
 
