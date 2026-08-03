@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-// Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
+// Vier umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
 //   🌌 Nachthimmel  – Sternenfeld, Mond und rötlicher Mars-Untergrund
 //   🪷 Zen-Garten   – ruhige Kies-/Steinlandschaft
-//   🌐 Studio       – die schlichte helle Gradient-Umgebung
 //   ⬜ Konstrukt    – nahtloser, komplett weißer Void („Matrix"-Ladeprogramm)
+//
+// Das frühere „🌐 Studio" (heller Verlauf mit weichem Boden) ist entfernt: Es war
+// vom Konstrukt kaum zu unterscheiden – beides eine helle, leere Kuppel – und
+// verlängerte den Durchlauf des 🌐-Buttons ohne erkennbaren Unterschied.
 // Jede Umgebung: { id, name, background, group, update?(time) }
 // Keine Umgebung besitzt ein Boden-Raster.
 
@@ -1735,49 +1738,6 @@ function createZenEnvironment() {
   };
 }
 
-// Weiche, radiale Bodentextur (kein Raster) für das Studio
-function makeSoftFloorTexture(center, edge) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  const g = ctx.createRadialGradient(128, 128, 10, 128, 128, 128);
-  g.addColorStop(0, center);
-  g.addColorStop(1, edge);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 256, 256);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
-
-function createStudioEnvironment() {
-  const group = new THREE.Group();
-  group.name = 'env-studio';
-
-  group.add(makeDome(0x6f9dc9, 0xf2f7fb, 0xeaf1f8));
-
-  group.add(new THREE.HemisphereLight(0xffffff, 0xc7d2dc, 1.2));
-
-  const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(9, 64),
-    new THREE.MeshStandardMaterial({
-      map: makeSoftFloorTexture('#ffffff', '#d3deea'),
-      roughness: 0.9,
-      metalness: 0,
-    })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.02;
-  group.add(floor);
-
-  return {
-    id: 'studio',
-    name: '🌐 Studio',
-    background: new THREE.Color(0xdfe9f3),
-    group,
-  };
-}
-
 // ⬜ Konstrukt – der komplett weiße „Matrix"-Void: eine unendlich wirkende, nahtlose
 // weiße Leere ohne sichtbaren Horizont. Kuppel und Boden teilen sich denselben Weißton,
 // sodass keine Kante entsteht; ein hauchzarter, kühler Verlauf am Grund verhindert das
@@ -1832,7 +1792,6 @@ export function createEnvironments(scene) {
     createIslandEnvironment(),
     createNightEnvironment(),
     createZenEnvironment(),
-    createStudioEnvironment(),
     createMatrixEnvironment(),
   ];
   for (const env of environments) {

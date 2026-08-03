@@ -46,6 +46,10 @@ export function createTextPanel({
   weight = 500,
   padding = 44,
   align = 'center', // 'center' | 'left' – links für Eingabefelder
+  // Mehrzeiliger Text: lieber kleiner setzen als abschneiden. minFontScale ist
+  // die Untergrenze als Anteil der Basisgröße.
+  shrinkToFit = true,
+  minFontScale = 0.5,
 
   accent = null, // Farbstreifen am linken Rand (z. B. Kategorie-Farbe)
   border = null, // feiner Rahmen um das Panel
@@ -74,7 +78,18 @@ export function createTextPanel({
     mesh.add(backMesh);
   }
 
-  const state = { text, background, color, accent, border, fontSize };
+  // renderedFontSize/truncated spiegeln, was zuletzt tatsächlich gezeichnet
+  // wurde – für Diagnose und Tests („ist der Text vollständig draufgegangen?").
+  const state = {
+    text,
+    background,
+    color,
+    accent,
+    border,
+    fontSize,
+    renderedFontSize: fontSize,
+    truncated: false,
+  };
 
   const font = (px) => `${weight} ${px}px ${PANEL_FONT_FAMILY}`;
 
@@ -124,18 +139,45 @@ export function createTextPanel({
         ctx.font = font(fs);
       }
       ctx.fillText(state.text, textX, canvas.height / 2 + 1);
+      state.renderedFontSize = fs;
+      state.truncated = false; // einzeilig wird nur verkleinert, nie gekürzt
       texture.needsUpdate = true;
       return;
     }
 
-    ctx.font = font(state.fontSize);
-    const lineHeight = state.fontSize * 1.25;
-    let lines = wrapLines(ctx, state.text, maxWidth);
-    const maxLines = Math.max(1, Math.floor((canvas.height - 24) / lineHeight));
-    if (lines.length > maxLines) {
-      lines = lines.slice(0, maxLines);
-      lines[maxLines - 1] = `${lines[maxLines - 1]} …`;
+    // Passt der Text nicht in die Fläche, wird zuerst die Schrift verkleinert –
+    // erst wenn auch das nicht reicht, wird gekürzt. Vorher wurde sofort
+    // abgeschnitten: Eine Zusammenfassung („2 bis 3 Sätze") war damit nach rund
+    // hundert Zeichen zu Ende und mit „…" nicht mehr zu gebrauchen.
+    const fits = (fs) => {
+      ctx.font = font(fs);
+      const lines = wrapLines(ctx, state.text, maxWidth);
+      const maxLines = Math.max(1, Math.floor((canvas.height - 24) / (fs * 1.25)));
+      return { lines, maxLines, ok: lines.length <= maxLines };
+    };
+
+    let fontPx = state.fontSize;
+    let layout = fits(fontPx);
+    if (!layout.ok && shrinkToFit) {
+      const minPx = Math.max(9, Math.round(state.fontSize * minFontScale));
+      // Grobe Schritte zuerst, dann feiner – ein 1-px-Abstieg von 36 auf 16
+      // würde bei jedem Neuzeichnen zwanzig Umbruch-Durchläufe kosten.
+      for (let fs = fontPx - 2; fs >= minPx; fs -= 2) {
+        layout = fits(fs);
+        fontPx = fs;
+        if (layout.ok) break;
+      }
     }
+
+    const lineHeight = fontPx * 1.25;
+    let lines = layout.lines;
+    state.truncated = lines.length > layout.maxLines;
+    if (state.truncated) {
+      lines = lines.slice(0, layout.maxLines);
+      lines[layout.maxLines - 1] = `${lines[layout.maxLines - 1]} …`;
+    }
+    state.renderedFontSize = fontPx;
+    ctx.font = font(fontPx);
     const y0 = canvas.height / 2 - ((lines.length - 1) * lineHeight) / 2;
     lines.forEach((line, i) => ctx.fillText(line, textX, y0 + i * lineHeight, maxWidth));
     texture.needsUpdate = true;
@@ -160,6 +202,14 @@ export function createTextPanel({
     },
     get fontSize() {
       return state.fontSize;
+    },
+    // Tatsächlich gezeichnete Größe (nach dem Verkleinern) und ob trotzdem
+    // gekürzt werden musste.
+    get renderedFontSize() {
+      return state.renderedFontSize;
+    },
+    get truncated() {
+      return state.truncated;
     },
     setColors({ background, color: fg, accent: newAccent, border: newBorder } = {}) {
       if (background) state.background = background;
