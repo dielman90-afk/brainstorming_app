@@ -29,14 +29,19 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Kratern, Felsen und Hügeln) → **🪷 Zen-Garten** (geharkter Sand, Koi-Teich mit
   Seerosen, Lotus & Wasser-Ringen, Bambushain, Kirschblüten- und Ahornbaum,
   Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel) →
-  **🌐 Studio** (schlichter heller Verlauf) → **⬜ Konstrukt** (nahtloser,
-  komplett weißer Void im Stil des „Matrix“-Ladeprogramms – Kuppel und Boden im
-  selben Weißton, kein sichtbarer Horizont, gleichmäßiges schattenfreies Licht).
+  **⬜ Konstrukt** (nahtloser, komplett weißer Void im Stil des
+  „Matrix“-Ladeprogramms – Kuppel und Boden im selben Weißton, kein sichtbarer
+  Horizont, gleichmäßiges schattenfreies Licht).
+  Das frühere **🌐 Studio** (schlichter heller Verlauf) ist entfernt: Es war vom
+  Konstrukt kaum zu unterscheiden – beides eine helle, leere Kuppel – und
+  verlängerte den Durchlauf des Buttons ohne erkennbaren Unterschied.
   Keine Umgebung hat ein Boden-Raster; filmisches Tone-Mapping, weiche
   Beleuchtung, gebackenes Vertex-Shading und gefälschte Kontaktschatten
   (Blob-Shadows) sorgen für Tiefe ohne teure Echtzeit-Schatten. Die Auswahl wird
-  gemerkt; eine reine VR-Session startet direkt in der zuletzt genutzten Umgebung
-  (sonst Himmelsinsel).
+  gemerkt (über die stabile `id` der Umgebung, nicht über ihre Position in der
+  Liste – ein gemerkter Index zeigt nach dem Entfernen einer Umgebung auf die
+  falsche Welt); eine reine VR-Session startet direkt in der zuletzt genutzten
+  Umgebung (sonst Himmelsinsel).
 - **Weltmaßstab:** Die Himmelsinsel ist 1:1 zum Nutzer bemaßt – Bäume rund 6 m,
   die Hauptinsel gut 40 m breit, Büsche auf Schulterhöhe. Sie war ursprünglich
   als Diorama modelliert (Bäume 1,6 m, Insel 10 m), wodurch man in VR wie ein
@@ -97,7 +102,13 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   - **Cluster anwenden:** Claude gruppiert die vorhandenen Karten thematisch –
     die Karten werden räumlich in Cluster-Spalten sortiert, pro Cluster
     eingefärbt und mit einer 📌-Titelkarte versehen.
-  - **Zusammenfassen:** Das ganze Board als eine Karte.
+  - **Zusammenfassen:** Das ganze Board als eine Karte – bewusst **größer**
+    (1,7×) und neutral eingefärbt, damit sie sich vom Ideenfeld absetzt. Eine
+    Zusammenfassung ist deutlich länger als eine Idee; auf Ideengröße war sie
+    bisher nach rund hundert Zeichen mit „…" zu Ende. Der Prompt begrenzt sie
+    zusätzlich auf 280 Zeichen, und Kartentext wird generell **verkleinert statt
+    abgeschnitten** (`shrinkToFit` in `src/textPanel.js`, bis auf die halbe
+    Basisgröße herunter).
   - **😈 Kritiker (Advocatus Diaboli):** Nennt 3–5 kritische Einwände, Risiken
     oder Gegenargumente zur ausgewählten Karte – als rote Karten.
 
@@ -224,7 +235,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
 │   ├── boardState.js       JSON-Export/-Import, Sicherungspunkte + Autosave
-│   ├── environments.js     Fünf prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Studio, Konstrukt)
+│   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
 │   ├── zones.js            Räumliche Zonen/Rahmen zum Gruppieren von Karten
 │   ├── timer.js            Schwebende Timebox-Uhr mit Gong
@@ -337,7 +348,7 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Board als Datei | Menü → „🗂 Board“ → „⬇️ Als Datei“ (liegt nach der Sitzung in den Downloads) |
 | Fehlerkarte schließen | Die rote Karte im Blickfeld antippen (verschwindet sonst nach 10 s) |
 | Zone / Timer | Menü → „🗂 Board“ → „🗂️ Zone“ bzw. „⏱️ Timer“ |
-| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Studio → Konstrukt) |
+| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Konstrukt) |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
 Die Platzierung des Menüs lässt sich in `src/wristMenu.js` über die Konstanten

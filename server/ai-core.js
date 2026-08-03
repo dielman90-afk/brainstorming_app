@@ -70,7 +70,10 @@ function buildPrompt(action, { selectedIdea, ideas = [], topic }) {
       return `Karten auf dem Board (mit Index):\n${numbered}\n\nGruppiere die Karten in 2 bis 4 thematische Cluster. Jede Karte gehört zu höchstens einem Cluster. Gib je Cluster einen kurzen, prägnanten Namen (1–3 Wörter) und die Liste der zugehörigen Karten-Indizes zurück.`;
     }
     case 'summary':
-      return `${board}\n\nFasse das gesamte Board als Text einer einzelnen Karte zusammen (2 bis 3 kurze Sätze). Gib genau eine Idee zurück.`;
+      // Längengrenze bewusst im Prompt: Der Text muss auf eine Karte im Raum
+      // passen. Ohne sie liefert das Modell gern einen Absatz, der dann klein
+      // gesetzt werden muss, um überhaupt vollständig draufzupassen.
+      return `${board}\n\nFasse das gesamte Board als Text einer einzelnen Karte zusammen (2 bis 3 kurze Sätze, höchstens 280 Zeichen). Gib genau eine Idee zurück.`;
     case 'topic':
       return `${board}\n\nBrainstorming-Thema: „${topic}“\n\nErzeuge 8 bis 10 vielfältige, konkrete Ideen als Startpunkt für dieses Thema. Decke unterschiedliche Blickwinkel ab (Nutzen, Umsetzung, Zielgruppen, ungewöhnliche Ansätze). Vermeide Duplikate zu bestehenden Karten.`;
     case 'whiteboard':

@@ -113,10 +113,18 @@ function applyEnvironment() {
   }
 }
 
+// Gemerkt wird die stabile `id` der Umgebung, nicht ihre Position in der Liste:
+// Ein gespeicherter Index zeigt nach dem Entfernen oder Umsortieren einer
+// Umgebung auf die falsche Welt. (Beim Entfernen von „Studio" wäre aus jedem
+// gemerkten Konstrukt ein Zen-Garten geworden.) Ältere Einträge sind noch reine
+// Zahlen – die werden ignoriert und landen auf Passthrough.
 function savedEnvIndex() {
   try {
-    const value = parseInt(localStorage.getItem(ENV_STORAGE_KEY) ?? '', 10);
-    return Number.isInteger(value) && value >= -1 && value < environments.length ? value : null;
+    const value = localStorage.getItem(ENV_STORAGE_KEY);
+    if (value === null) return null;
+    if (value === 'passthrough') return -1;
+    const index = environments.findIndex((env) => env.id === value);
+    return index >= 0 ? index : null;
   } catch {
     return null;
   }
@@ -125,7 +133,10 @@ function savedEnvIndex() {
 function cycleEnvironment() {
   envIndex = envIndex >= environments.length - 1 ? -1 : envIndex + 1;
   try {
-    localStorage.setItem(ENV_STORAGE_KEY, String(envIndex));
+    localStorage.setItem(
+      ENV_STORAGE_KEY,
+      envIndex >= 0 ? environments[envIndex].id : 'passthrough'
+    );
   } catch {
     // Autosave der Umgebungswahl ist optional
   }
@@ -629,7 +640,14 @@ async function handleAction(action) {
       setStatus('Claude fasst das Board zusammen…', 0);
       setBusyLabel('Claude fasst zusammen…');
       const result = await requestIdeas('summary', { ideas }, aiProgress('Claude fasst zusammen…'));
-      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      const cards = cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      // Eine Zusammenfassung ist deutlich länger als eine Idee. Sie bekommt
+      // deshalb eine größere Karte – der Text schrumpft sonst zwar mit (siehe
+      // shrinkToFit in textPanel.js), wäre auf Ideengröße aber winzig.
+      for (const card of cards) {
+        card.setScale(1.7);
+        card.setColor(6); // Neutral – hebt das Ergebnis von den Ideen ab
+      }
       commit('Zusammenfassung');
       setStatus('Zusammenfassung erstellt.');
     }
