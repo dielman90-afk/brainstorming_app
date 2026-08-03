@@ -1901,141 +1901,301 @@ function makeWoodTexture(base, dark) {
 
 // Ein roter Chesterfield-Sessel: gepolsterter Korpus, gerollte Armlehnen,
 // geknöpfte Rückenlehne, dunkle Füße. Der Sessel schaut nach +Z.
+// Ohrensessel („Wingback Chesterfield") – die Sessel aus der Filmszene. Hohe,
+// oben geschwungene Rückenlehne mit seitlichen Flügeln, dichte Rautenheftung,
+// gerollte Armlehnen mit geschnitzter Holzrosette an der Stirn und gedrechselte
+// Vorderbeine. Der Sessel schaut nach +Z.
 function makeConstructArmchair() {
   const group = new THREE.Group();
   const { normalMap, roughnessMap } = leatherMaps();
 
+  // Gealtertes Oxblood, kein Signalrot: Das Leder im Film ist dunkel, matt und
+  // sichtbar abgenutzt.
   const leather = new THREE.MeshStandardMaterial({
-    color: 0x8f2027,
-    roughness: 0.66,
+    color: 0x6f1c22,
+    roughness: 0.72,
     metalness: 0.02,
     normalMap,
-    normalScale: new THREE.Vector2(0.45, 0.45),
+    normalScale: new THREE.Vector2(0.5, 0.5),
     roughnessMap,
   });
-  // Dunkler für Unterbau und Knöpfe – die liegen im Eigenschatten des Sessels
   const leatherDark = leather.clone();
-  leatherDark.color = new THREE.Color(0x6b1219);
-  const foot = new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 0.45, metalness: 0.2 });
+  leatherDark.color = new THREE.Color(0x4c1216);
+  const wood = new THREE.MeshStandardMaterial({ color: 0x2b1a11, roughness: 0.42, metalness: 0.12 });
 
-  // Maße eines Clubsessels. Jedes Teil ist ein bündiger Quader mit stark
-  // abgerundeten Kanten – die erste Fassung setzte Zylinder mit aufgesetzten
-  // Kugeln als Armlehnen ein, deren Enden als Beulen über den Sessel
-  // hinausragten. Ein Quader mit radius = halbe Höhe ergibt dieselbe gerollte
-  // Form, endet aber genau dort, wo das Möbelstück endet.
-  const W = 0.98;        // Gesamtbreite
-  const D = 0.86;        // Gesamttiefe
-  const CHEEK = 0.2;     // Breite der Seitenwangen
-  const BACK_T = 0.22;   // Tiefe der Rückenlehne
-  const ARM_TOP = 0.64;  // Oberkante Armlehne
-  const BACK_TOP = 0.92; // Oberkante Rückenlehne
-  const BODY_TOP = 0.36; // Oberkante Unterbau
+  const W = 0.88;        // Gesamtbreite
+  const D = 0.84;        // Gesamttiefe
+  const CHEEK = 0.17;    // Breite der Armlehnenwangen
+  const BACK_T = 0.19;   // Tiefe der Rückenlehne
+  const ARM_TOP = 0.63;
+  const BACK_TOP = 1.16; // Ohrensessel: die Lehne reicht über den Kopf
+  const BODY_TOP = 0.38;
 
-  // Bereich vor der Rückenlehne – Wangen, Armrollen und Kissen teilen ihn sich
   const frontZ0 = -D / 2 + BACK_T;
   const frontDepth = D / 2 - frontZ0;
   const frontZ = frontZ0 + frontDepth / 2;
   const cheekX = W / 2 - CHEEK / 2;
+  const backZ = -D / 2 + BACK_T / 2;
 
   // Unterbau
-  const base = new THREE.Mesh(roundedBox(W, 0.26, D, 0.05), leatherDark);
-  base.position.set(0, 0.23, 0);
+  const base = new THREE.Mesh(roundedBox(W, 0.28, D, 0.05), leatherDark);
+  base.position.set(0, 0.24, 0);
   group.add(base);
 
-  // Rückenlehne über die volle Breite, oben kräftig gerundet
-  const backH = BACK_TOP - 0.3;
-  const back = new THREE.Mesh(roundedBox(W, backH, BACK_T, 0.1), leather);
-  back.position.set(0, 0.3 + backH / 2, -D / 2 + BACK_T / 2);
+  // Rückenlehne, hoch und oben kräftig gerundet
+  const backH = BACK_TOP - 0.34;
+  const back = new THREE.Mesh(roundedBox(W, backH, BACK_T, 0.16), leather);
+  back.position.set(0, 0.34 + backH / 2, backZ);
+  back.rotation.x = 0.07;
   group.add(back);
+
+  // Die „Ohren": Flügel, die oben seitlich aus der Lehne nach vorn stehen.
+  // Ohne sie ist es kein Ohrensessel, sondern ein Clubsessel mit hoher Lehne.
+  const WING_H = 0.52;
+  const WING_D = 0.3;
+  for (const side of [-1, 1]) {
+    const wing = new THREE.Mesh(roundedBox(0.13, WING_H, WING_D, 0.06), leather);
+    wing.position.set(side * (W / 2 - 0.065), BACK_TOP - WING_H / 2 - 0.04, backZ + BACK_T / 2 + WING_D / 2 - 0.04);
+    wing.rotation.y = -side * 0.2; // leicht nach innen gestellt
+    group.add(wing);
+  }
 
   for (const side of [-1, 1]) {
     // Wange
-    const cheekH = ARM_TOP - CHEEK / 2 - 0.3;
+    const cheekH = ARM_TOP - CHEEK / 2 - 0.32;
     const cheek = new THREE.Mesh(roundedBox(CHEEK, cheekH, frontDepth, 0.05), leather);
-    cheek.position.set(side * cheekX, 0.3 + cheekH / 2, frontZ);
+    cheek.position.set(side * cheekX, 0.32 + cheekH / 2, frontZ);
     group.add(cheek);
 
-    // Gerollte Armauflage: quadratischer Querschnitt mit Radius = halbe Kante
-    const arm = new THREE.Mesh(roundedBox(CHEEK, CHEEK, frontDepth, CHEEK / 2, 0.07), leather);
+    // Gerollte Armauflage
+    const arm = new THREE.Mesh(roundedBox(CHEEK, CHEEK, frontDepth, CHEEK / 2, 0.06), leather);
     arm.position.set(side * cheekX, ARM_TOP - CHEEK / 2, frontZ);
     group.add(arm);
+
+    // Geschnitzte Rosette an der Stirnseite – im Film ein dunkles Holzelement,
+    // das die eingerollte Armlehne abschließt.
+    const rosette = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 20), wood);
+    rosette.rotateX(Math.PI / 2);
+    rosette.position.set(side * cheekX, ARM_TOP - CHEEK / 2, D / 2 + 0.001);
+    group.add(rosette);
+    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.019, 12, 10), wood);
+    boss.position.set(side * cheekX, ARM_TOP - CHEEK / 2, D / 2 + 0.012);
+    group.add(boss);
   }
 
   // Sitzkissen
   const seatW = W - CHEEK * 2 + 0.02;
-  const seat = new THREE.Mesh(roundedBox(seatW, 0.16, frontDepth - 0.06, 0.055), leather);
-  seat.position.set(0, 0.36, frontZ + 0.02);
+  const seat = new THREE.Mesh(roundedBox(seatW, 0.15, frontDepth - 0.05, 0.05), leather);
+  seat.position.set(0, 0.38, frontZ + 0.015);
   group.add(seat);
 
-  // Knopfheftung im Rautenmuster – das Erkennungsmerkmal des Chesterfields
-  const buttonGeo = new THREE.SphereGeometry(0.016, 10, 8);
-  buttonGeo.scale(1, 1, 0.5);
+  // Dichte Rautenknopfheftung über die ganze Lehne. Die erste Fassung hatte drei
+  // Reihen à zwei bis drei Knöpfen – auf einer Lehne dieser Höhe wirkt das leer.
+  const buttonGeo = new THREE.SphereGeometry(0.014, 10, 8);
+  buttonGeo.scale(1, 1, 0.45);
   const buttons = [];
-  for (let row = 0; row < 3; row++) {
-    const count = row % 2 === 0 ? 3 : 2;
+  const ROWS = 6;
+  for (let row = 0; row < ROWS; row++) {
+    const wide = row % 2 === 0;
+    const count = wide ? 4 : 3;
     for (let i = 0; i < count; i++) {
       const g = buttonGeo.clone();
-      g.translate((i - (count - 1) / 2) * 0.18, 0.52 + row * 0.15, frontZ0 + 0.002);
+      g.translate((i - (count - 1) / 2) * 0.165, 0.46 + row * 0.115, frontZ0 + 0.002);
       buttons.push(g);
     }
   }
   group.add(new THREE.Mesh(mergeGeometries(buttons), leatherDark));
 
-  // Füße
-  const legGeo = new THREE.CylinderGeometry(0.03, 0.024, 0.1, 10);
+  // Gedrechselte Vorderbeine (Lathe-Profil), hinten schlichte Stollen
+  const profile = [
+    new THREE.Vector2(0.0, 0),
+    new THREE.Vector2(0.036, 0),
+    new THREE.Vector2(0.033, 0.02),
+    new THREE.Vector2(0.02, 0.045),
+    new THREE.Vector2(0.031, 0.07),
+    new THREE.Vector2(0.026, 0.1),
+    new THREE.Vector2(0.033, 0.13),
+    new THREE.Vector2(0.036, 0.16),
+    new THREE.Vector2(0.0, 0.16),
+  ];
+  const turnedLeg = new THREE.LatheGeometry(profile, 14);
+  const plainLeg = new THREE.CylinderGeometry(0.028, 0.024, 0.14, 10);
   for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const leg = new THREE.Mesh(legGeo, foot);
-      leg.position.set(sx * (W / 2 - 0.1), 0.05, sz * (D / 2 - 0.1));
-      group.add(leg);
-    }
+    const front = new THREE.Mesh(turnedLeg, wood);
+    front.position.set(sx * (W / 2 - 0.09), 0, D / 2 - 0.09);
+    group.add(front);
+    const rear = new THREE.Mesh(plainLeg, wood);
+    rear.position.set(sx * (W / 2 - 0.09), 0.07, -D / 2 + 0.09);
+    group.add(rear);
   }
 
-  group.add(makeBlobShadow(0.64, 0.8, 0.006));
+  group.add(makeBlobShadow(0.6, 0.85, 0.006));
   return group;
 }
 
-// Röhrenfernseher der 80er: Holzgehäuse, gewölbter Bildschirm, Lautsprecher-
-// gitter, Drehknöpfe, ausgefahrene Zimmerantenne.
-function makeConstructTelevision() {
+// Die Konsole aus der Szene: ein AWA-„Radiola"-Fernseher im Art-déco-Gehäuse,
+// der frei auf dem Boden steht. Die Schauseite trägt ein auf der Spitze
+// stehendes Dreieck mit „DEEP IMAGE" und den Schriftzug „RADIOLA TELEVISION" –
+// gemalt als Canvas-Textur, denn Schrift und Emblem als Geometrie nachzubauen
+// kostet tausende Dreiecke für ein Detail, das ohnehin flach ist.
+function makeRadiolaConsole() {
   const group = new THREE.Group();
-  const woodMap = makeWoodTexture('#4b3124', '#241109');
-  const caseMat = new THREE.MeshStandardMaterial({
-    map: woodMap,
-    color: 0xb08f74,
-    roughness: 0.55,
-    metalness: 0.05,
+
+  const W = 0.7;
+  const H = 0.84;
+  const D = 0.56;
+
+  // Gealtertes Messing/Olivbronze mit Patina
+  const shellMat = new THREE.MeshStandardMaterial({
+    color: 0x6a6851,
+    roughness: 0.62,
+    metalness: 0.45,
   });
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x1c1a1a, roughness: 0.45, metalness: 0.2 });
-  const metalMat = new THREE.MeshStandardMaterial({ color: 0x8d8f95, roughness: 0.3, metalness: 0.85 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x2b2a22, roughness: 0.5, metalness: 0.3 });
 
-  const W = 0.56;
-  const H = 0.44;
-  const D = 0.42;
-
-  const body = new THREE.Mesh(roundedBox(W, H, D, 0.03), caseMat);
+  const body = new THREE.Mesh(roundedBox(W, H, D, 0.025), shellMat);
   body.position.set(0, H / 2, 0);
   group.add(body);
 
-  // Front-Blende, minimal vorstehend
-  const face = new THREE.Mesh(roundedBox(W - 0.02, H - 0.02, 0.03, 0.02), trimMat);
-  face.position.set(0, H / 2, D / 2 - 0.001);
-  group.add(face);
+  // Deckel: nur eine angedeutete Kante, kein aufgesetzter Kasten. Als eigener
+  // Block mit deutlichem Rücksprung sah er aus, als läge etwas obendrauf.
+  const shoulder = new THREE.Mesh(roundedBox(W - 0.02, 0.05, D - 0.02, 0.02), shellMat);
+  shoulder.position.set(0, H + 0.018, 0);
+  group.add(shoulder);
 
-  // Gewölbter Bildschirm. Bewusst eine verformte Ebene statt eines
-  // Kugelausschnitts: Bei der Kugel hängt die Größe der Fläche an vier
-  // Winkelparametern gleichzeitig, und schon eine kleine Änderung am Gehäuse
-  // lässt das Bild darüber hinausragen.
-  const SCREEN_W = 0.36;
-  const SCREEN_H = 0.28;
+  // Lamellenband unter der Schulter
+  const slats = [];
+  for (let i = 0; i < 23; i++) {
+    const slat = new THREE.BoxGeometry(0.012, 0.05, 0.008);
+    slat.translate(-0.25 + i * 0.0227, 0, 0);
+    slats.push(slat);
+  }
+  const slatMesh = new THREE.Mesh(mergeGeometries(slats), darkMat);
+  slatMesh.position.set(0, H - 0.07, D / 2 + 0.002);
+  group.add(slatMesh);
+
+  // --- Schauseite als gemalte Tafel ---
+  const plate = document.createElement('canvas');
+  plate.width = 512;
+  plate.height = 560;
+  const p = plate.getContext('2d');
+  const PW = plate.width;
+  const PH = plate.height;
+
+  p.fillStyle = '#585640';
+  p.fillRect(0, 0, PW, PH);
+  // Patina: fleckige Aufhellungen und dunkle Schlieren
+  for (let i = 0; i < 240; i++) {
+    const x = hashNoise(i, 3, 1) * PW;
+    const y = hashNoise(i, 9, 4) * PH;
+    const r = 12 + hashNoise(i, 5, 7) * 60;
+    const g = p.createRadialGradient(x, y, 0, x, y, r);
+    const light = hashNoise(i, 2, 8) > 0.5;
+    g.addColorStop(0, light ? 'rgba(160,158,128,0.16)' : 'rgba(38,36,26,0.16)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    p.fillStyle = g;
+    p.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  const ink = '#241f16';
+  const light = '#c9c6a6';
+
+  // AWA-Emblem oben
+  p.strokeStyle = ink;
+  p.lineWidth = 4;
+  p.strokeRect(PW / 2 - 62, 44, 124, 46);
+  p.fillStyle = ink;
+  p.font = '700 34px "Space Grotesk", system-ui, sans-serif';
+  p.textAlign = 'center';
+  p.textBaseline = 'middle';
+  p.fillText('AWA', PW / 2, 68);
+
+  // Auf der Spitze stehendes Dreieck
+  const cx = PW / 2;
+  const top = 130;
+  const half = 178;
+  const bottom = 430;
+  p.beginPath();
+  p.moveTo(cx - half, top);
+  p.lineTo(cx + half, top);
+  p.lineTo(cx, bottom);
+  p.closePath();
+  p.lineWidth = 6;
+  p.strokeStyle = ink;
+  p.stroke();
+  p.strokeStyle = light;
+  p.lineWidth = 2;
+  p.beginPath();
+  p.moveTo(cx - half + 14, top + 12);
+  p.lineTo(cx + half - 14, top + 12);
+  p.lineTo(cx, bottom - 26);
+  p.closePath();
+  p.stroke();
+
+  // „DEEP IMAGE" gesperrt in der oberen Dreieckshälfte
+  p.fillStyle = ink;
+  p.font = '600 30px "Space Grotesk", system-ui, sans-serif';
+  p.save();
+  p.translate(cx, top + 52);
+  p.letterSpacing = '14px';
+  p.fillText('DEEP', -104, 0);
+  p.fillText('IMAGE', 104, 0);
+  p.restore();
+
+  // Rundes Emblem in der Dreiecksmitte
+  const ex = cx;
+  const ey = top + 155;
+  const ring = p.createRadialGradient(ex, ey, 4, ex, ey, 46);
+  ring.addColorStop(0, '#3a362a');
+  ring.addColorStop(0.55, '#7d7a5e');
+  ring.addColorStop(1, '#2e2b20');
+  p.fillStyle = ring;
+  p.beginPath();
+  p.arc(ex, ey, 46, 0, Math.PI * 2);
+  p.fill();
+  p.strokeStyle = ink;
+  p.lineWidth = 4;
+  p.stroke();
+  p.beginPath();
+  p.arc(ex, ey, 17, 0, Math.PI * 2);
+  p.fillStyle = '#1d1a13';
+  p.fill();
+
+  // „RADIOLA TELEVISION" unten
+  p.fillStyle = ink;
+  p.font = '600 27px "Space Grotesk", system-ui, sans-serif';
+  p.save();
+  p.letterSpacing = '9px';
+  p.fillText('RADIOLA TELEVISION', cx, 470);
+  p.restore();
+
+  // Angedeutete Typenschild-Zeilen
+  p.fillStyle = 'rgba(36,31,22,0.55)';
+  for (let i = 0; i < 3; i++) {
+    const w = 250 - i * 40;
+    p.fillRect(cx - w / 2, 502 + i * 13, w, 4);
+  }
+
+  const plateTex = new THREE.CanvasTexture(plate);
+  plateTex.colorSpace = THREE.SRGBColorSpace;
+  plateTex.anisotropy = 4;
+  const plateMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(W - 0.07, H - 0.08),
+    new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.62, metalness: 0.35 })
+  );
+  plateMesh.position.set(0, H / 2 - 0.005, D / 2 + 0.004);
+  group.add(plateMesh);
+
+  // --- Rückseite: die Bildröhre ---
+  const SCREEN_W = 0.44;
+  const SCREEN_H = 0.34;
   const screenGeo = new THREE.PlaneGeometry(SCREEN_W, SCREEN_H, 14, 12);
   {
     const pos = screenGeo.attributes.position;
     for (let i = 0; i < pos.count; i++) {
       const u = pos.getX(i) / (SCREEN_W / 2);
       const v = pos.getY(i) / (SCREEN_H / 2);
-      // Zur Mitte hin nach vorn gewölbt, wie die Frontscheibe einer Bildröhre
-      pos.setZ(i, (1 - u * u) * (1 - v * v) * 0.022);
+      pos.setZ(i, (1 - u * u) * (1 - v * v) * 0.026);
     }
     screenGeo.computeVertexNormals();
   }
@@ -2045,69 +2205,26 @@ function makeConstructTelevision() {
   screenCanvas.height = 168;
   const screenTexture = new THREE.CanvasTexture(screenCanvas);
   screenTexture.colorSpace = THREE.SRGBColorSpace;
-  const screenMat = new THREE.MeshBasicMaterial({ map: screenTexture, toneMapped: false });
-  const screen = new THREE.Mesh(screenGeo, screenMat);
-  screen.position.set(-0.055, H / 2 + 0.015, D / 2 + 0.016);
+  const screen = new THREE.Mesh(
+    screenGeo,
+    new THREE.MeshBasicMaterial({ map: screenTexture, toneMapped: false })
+  );
+  screen.position.set(0, H / 2 + 0.06, -D / 2 - 0.004);
+  screen.rotation.y = Math.PI;
   group.add(screen);
 
-  // Schwarzer Rahmen rundum, damit das Bild nicht direkt am Holz endet
-  const bezel = new THREE.Mesh(
-    roundedBox(SCREEN_W + 0.045, SCREEN_H + 0.045, 0.016, 0.022),
-    new THREE.MeshStandardMaterial({ color: 0x0f0f11, roughness: 0.55, metalness: 0.1 })
-  );
-  bezel.position.set(-0.055, H / 2 + 0.015, D / 2 + 0.008);
+  const bezel = new THREE.Mesh(roundedBox(SCREEN_W + 0.07, SCREEN_H + 0.07, 0.018, 0.03), darkMat);
+  bezel.position.set(0, H / 2 + 0.06, -D / 2 - 0.001);
   group.add(bezel);
 
-  // Glasreflex: heller Streifen schräg über der Scheibe
-  const glare = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.3, 0.23),
-    new THREE.MeshBasicMaterial({
-      map: makeGlowTexture('rgba(255,255,255,0.30)', 'rgba(255,255,255,0.10)'),
-      transparent: true,
-      depthWrite: false,
-      opacity: 0.75,
-      toneMapped: false,
-    })
-  );
-  glare.position.set(-0.1, H / 2 + 0.07, D / 2 + 0.036);
-  glare.rotation.z = -0.4;
-  group.add(glare);
-
-  // Lautsprechergitter rechts neben dem Bild
-  const grillGeo = [];
-  for (let i = 0; i < 9; i++) {
-    const slot = new THREE.BoxGeometry(0.085, 0.008, 0.006);
-    slot.translate(0, i * 0.019 - 0.076, 0);
-    grillGeo.push(slot);
-  }
-  const grill = new THREE.Mesh(mergeGeometries(grillGeo), metalMat);
-  grill.position.set(W / 2 - 0.065, H / 2 + 0.05, D / 2 + 0.016);
-  group.add(grill);
-
-  // Zwei Drehknöpfe darunter
-  const knobGeo = new THREE.CylinderGeometry(0.021, 0.024, 0.022, 14);
+  // Zwei Bedienknöpfe unter der Röhre
+  const knobGeo = new THREE.CylinderGeometry(0.026, 0.03, 0.026, 16);
   knobGeo.rotateX(Math.PI / 2);
-  for (let i = 0; i < 2; i++) {
-    const knob = new THREE.Mesh(knobGeo, trimMat);
-    knob.position.set(W / 2 - 0.065, 0.11 - i * 0.055, D / 2 + 0.022);
+  for (const side of [-1, 1]) {
+    const knob = new THREE.Mesh(knobGeo, darkMat);
+    knob.position.set(side * 0.13, H / 2 - 0.24, -D / 2 - 0.012);
     group.add(knob);
   }
-
-  // Zimmerantenne („Hasenohren")
-  const rodGeo = new THREE.CylinderGeometry(0.0045, 0.0025, 0.62, 8);
-  rodGeo.translate(0, 0.31, 0);
-  for (const side of [-1, 1]) {
-    const rod = new THREE.Mesh(rodGeo, metalMat);
-    rod.position.set(side * 0.05, H, -0.1);
-    // Positive z-Rotation kippt nach links: Ohne das Minus laufen die beiden
-    // Stäbe aufeinander zu und kreuzen sich über dem Gerät.
-    rod.rotation.z = -side * 0.42;
-    rod.rotation.x = -0.16;
-    group.add(rod);
-  }
-  const antennaBase = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.03, 14), trimMat);
-  antennaBase.position.set(0, H + 0.012, -0.1);
-  group.add(antennaBase);
 
   // --- Bildinhalt ---
   //
@@ -2124,9 +2241,6 @@ function makeConstructTelevision() {
     ctx.fillStyle = '#141816';
     ctx.fillRect(0, 0, sw, sh);
 
-    // Driftende helle Schwaden als „Bild". Bewusst kräftig: Durch Scanlines,
-    // Vignette und das dunkle Gehäuse davor bleibt sonst eine schwarze Scheibe
-    // übrig, und der Fernseher wirkt ausgeschaltet.
     for (let i = 0; i < 5; i++) {
       const t = time * (0.06 + i * 0.017) + i * 2.1;
       const x = sw * (0.5 + Math.sin(t) * 0.34);
@@ -2140,7 +2254,6 @@ function makeConstructTelevision() {
       ctx.fillRect(0, 0, sw, sh);
     }
 
-    // Bildrauschen
     const grain = ctx.getImageData(0, 0, sw, sh);
     for (let i = 0; i < grain.data.length; i += 4) {
       const n = (Math.random() - 0.5) * 42;
@@ -2150,11 +2263,9 @@ function makeConstructTelevision() {
     }
     ctx.putImageData(grain, 0, 0);
 
-    // Scanlines
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     for (let y = 0; y < sh; y += 3) ctx.fillRect(0, y, sw, 1);
 
-    // Durchlaufender Bildstrich
     const bar = ((time * 42) % (sh + 60)) - 30;
     const barGrad = ctx.createLinearGradient(0, bar - 14, 0, bar + 14);
     barGrad.addColorStop(0, 'rgba(255,255,255,0)');
@@ -2163,7 +2274,6 @@ function makeConstructTelevision() {
     ctx.fillStyle = barGrad;
     ctx.fillRect(0, bar - 14, sw, 28);
 
-    // Vignette – Röhren sind an den Ecken dunkler
     const vign = ctx.createRadialGradient(sw / 2, sh / 2, sh * 0.3, sw / 2, sh / 2, sh * 0.8);
     vign.addColorStop(0, 'rgba(0,0,0,0)');
     vign.addColorStop(1, 'rgba(0,0,0,0.45)');
@@ -2174,10 +2284,11 @@ function makeConstructTelevision() {
   };
   drawScreen(0);
 
-  // Der Bildschirm wirft etwas Licht in den Raum
-  const screenLight = new THREE.PointLight(0xdfe8e4, 0.55, 2.2, 2);
-  screenLight.position.set(0, H / 2 + 0.02, D / 2 + 0.25);
+  const screenLight = new THREE.PointLight(0xdfe8e4, 0.5, 2.2, 2);
+  screenLight.position.set(0, H / 2 + 0.06, -D / 2 - 0.25);
   group.add(screenLight);
+
+  group.add(makeBlobShadow(0.52, 0.85, 0.006));
 
   return {
     group,
@@ -2185,75 +2296,38 @@ function makeConstructTelevision() {
       if (time - lastDraw < 0.08) return;
       lastDraw = time;
       drawScreen(time);
-      // Leichtes Flackern der Bildhelligkeit
-      screenLight.intensity = 0.45 + Math.sin(time * 7.3) * 0.06 + Math.random() * 0.05;
+      screenLight.intensity = 0.42 + Math.sin(time * 7.3) * 0.06 + Math.random() * 0.05;
     },
   };
 }
 
-// Kleiner Beistelltisch, auf dem der Fernseher steht.
-function makeConstructTable() {
-  const group = new THREE.Group();
-  const wood = new THREE.MeshStandardMaterial({
-    map: makeWoodTexture('#5a3a22', '#25130a'),
-    color: 0xa98d72,
-    roughness: 0.5,
-    metalness: 0.05,
-  });
-  const H = 0.46;
-
-  const top = new THREE.Mesh(roundedBox(0.78, 0.045, 0.56, 0.012), wood);
-  top.position.set(0, H, 0);
-  group.add(top);
-
-  const legGeo = new THREE.CylinderGeometry(0.021, 0.017, H - 0.045, 10);
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const leg = new THREE.Mesh(legGeo, wood);
-      leg.position.set(sx * 0.33, (H - 0.045) / 2, sz * 0.22);
-      group.add(leg);
-    }
-  }
-
-  group.add(makeBlobShadow(0.5, 0.6, 0.006));
-  return group;
-}
-
-// Die komplette Sitzgruppe. Sie steht dem Nutzer gegenüber, damit man beim
-// Betreten des Konstrukts direkt auf die bekannte Anordnung schaut.
+// Die Sitzgruppe wie in der Szene: beide Sessel stehen nebeneinander und
+// schauen nach vorn, die Konsole steht zwischen ihnen auf dem Boden. Ihre
+// Schauseite mit dem Emblem zeigt zum Betrachter – der Bildschirm sitzt auf der
+// Rückseite und ist zu sehen, wenn man um die Gruppe herumgeht.
 function makeConstructLounge() {
   const group = new THREE.Group();
   group.name = 'construct-lounge';
 
-  // Die Sessel stehen einander zugewandt, der Fernseher dazwischen. Beide
-  // Sessel nach vorn auszurichten wäre näher an einer Wohnzimmerwand, aber dann
-  // sieht der Betrachter nur die Rückseite des Geräts – und wer im Sessel sitzt,
-  // ebenfalls. So sieht man die Sessel im Dreiviertelprofil und das Bild dazu.
   const left = makeConstructArmchair();
-  left.position.set(-1.12, 0, 0.15);
-  left.rotation.y = 1.16;
+  left.position.set(-0.9, 0, 0);
+  left.rotation.y = 0.1;
   group.add(left);
 
   const right = makeConstructArmchair();
-  right.position.set(1.12, 0, 0.15);
-  right.rotation.y = -1.16;
+  right.position.set(0.9, 0, 0);
+  right.rotation.y = -0.1;
   group.add(right);
 
-  const table = makeConstructTable();
-  table.position.set(0, 0, -0.28);
-  group.add(table);
-
-  const tv = makeConstructTelevision();
-  tv.group.position.set(0, 0.465, -0.28);
-  tv.group.rotation.y = 0.06; // fast frontal, minimal aus der Achse gedreht
-  group.add(tv.group);
+  const console3d = makeRadiolaConsole();
+  console3d.group.position.set(0, 0, -0.02);
+  group.add(console3d.group);
 
   // Gemeinsamer, größerer Schatten unter der ganzen Gruppe – bindet die Möbel
   // zusammen, statt drei einzelne Flecken stehen zu lassen.
-  const groundShade = makeBlobShadow(1.7, 0.28, 0.004);
-  group.add(groundShade);
+  group.add(makeBlobShadow(1.6, 0.24, 0.004));
 
-  return { group, update: (time) => tv.update(time) };
+  return { group, update: (time) => console3d.update(time) };
 }
 
 // ⬜ Konstrukt – der komplett weiße „Matrix"-Void: eine unendlich wirkende, nahtlose
