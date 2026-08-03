@@ -111,6 +111,7 @@ function makeBlobShadow(radius = 0.5, opacity = 1, y = 0.012) {
       toneMapped: false,
     })
   );
+  mesh.name = 'blob-shadow';
   mesh.rotation.x = -Math.PI / 2;
   mesh.scale.setScalar(radius * 2);
   mesh.position.y = y;
@@ -2054,6 +2055,9 @@ function makeRadiolaConsole() {
     metalness: 0.45,
   });
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x2b2a22, roughness: 0.5, metalness: 0.3 });
+  // Der Rahmen um die Röhre bleibt bewusst stumpf: Mit Metallglanz spiegelt er
+  // das Licht und wirkt wie eine überstrahlte Scheibe vor dem Bild.
+  const bezelMat = new THREE.MeshStandardMaterial({ color: 0x1a1916, roughness: 0.85, metalness: 0.02 });
 
   const body = new THREE.Mesh(roundedBox(W, H, D, 0.025), shellMat);
   body.position.set(0, H / 2, 0);
@@ -2197,7 +2201,7 @@ function makeRadiolaConsole() {
     for (let i = 0; i < pos.count; i++) {
       const u = pos.getX(i) / (SCREEN_W / 2);
       const v = pos.getY(i) / (SCREEN_H / 2);
-      pos.setZ(i, (1 - u * u) * (1 - v * v) * 0.026);
+      pos.setZ(i, (1 - u * u) * (1 - v * v) * 0.018);
     }
     screenGeo.computeVertexNormals();
   }
@@ -2211,12 +2215,12 @@ function makeRadiolaConsole() {
     screenGeo,
     new THREE.MeshBasicMaterial({ map: screenTexture, toneMapped: false })
   );
-  screen.position.set(0, H / 2 + 0.06, -D / 2 - 0.004);
+  screen.position.set(0, H / 2 + 0.06, -D / 2 - 0.015);
   screen.rotation.y = Math.PI;
   group.add(screen);
 
-  const bezel = new THREE.Mesh(roundedBox(SCREEN_W + 0.07, SCREEN_H + 0.07, 0.018, 0.03), darkMat);
-  bezel.position.set(0, H / 2 + 0.06, -D / 2 - 0.001);
+  const bezel = new THREE.Mesh(roundedBox(SCREEN_W + 0.05, SCREEN_H + 0.05, 0.014, 0.03), bezelMat);
+  bezel.position.set(0, H / 2 + 0.06, -D / 2 - 0.006);
   group.add(bezel);
 
   // Zwei Bedienknöpfe unter der Röhre
@@ -2240,14 +2244,24 @@ function makeRadiolaConsole() {
   let lastDraw = -1;
 
   const drawScreen = (time) => {
-    ctx.fillStyle = '#141816';
+    ctx.fillStyle = '#1c211e';
+    ctx.fillRect(0, 0, sw, sh);
+
+    // Gleichmäßige Grundhelligkeit über die ganze Röhre. Ohne sie leuchten nur
+    // die Schwaden in der Mitte, und der Bildschirm wirkt wie ein heller Fleck
+    // in einem schwarzen Loch statt wie eine ausgeleuchtete Bildfläche.
+    const glow = ctx.createLinearGradient(0, 0, 0, sh);
+    glow.addColorStop(0, 'rgba(148,154,148,0.34)');
+    glow.addColorStop(0.5, 'rgba(122,128,122,0.3)');
+    glow.addColorStop(1, 'rgba(92,98,92,0.32)');
+    ctx.fillStyle = glow;
     ctx.fillRect(0, 0, sw, sh);
 
     for (let i = 0; i < 5; i++) {
       const t = time * (0.06 + i * 0.017) + i * 2.1;
       const x = sw * (0.5 + Math.sin(t) * 0.34);
       const y = sh * (0.5 + Math.cos(t * 0.8 + i) * 0.3);
-      const r = sh * (0.34 + Math.sin(t * 1.7) * 0.1);
+      const r = sh * (0.52 + Math.sin(t * 1.7) * 0.12);
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
       const level = 140 + i * 20;
       g.addColorStop(0, `rgba(${level},${level + 6},${level},0.62)`);
@@ -2276,9 +2290,9 @@ function makeRadiolaConsole() {
     ctx.fillStyle = barGrad;
     ctx.fillRect(0, bar - 14, sw, 28);
 
-    const vign = ctx.createRadialGradient(sw / 2, sh / 2, sh * 0.3, sw / 2, sh / 2, sh * 0.8);
+    const vign = ctx.createRadialGradient(sw / 2, sh / 2, sh * 0.45, sw / 2, sh / 2, sh * 1.05);
     vign.addColorStop(0, 'rgba(0,0,0,0)');
-    vign.addColorStop(1, 'rgba(0,0,0,0.45)');
+    vign.addColorStop(1, 'rgba(0,0,0,0.34)');
     ctx.fillStyle = vign;
     ctx.fillRect(0, 0, sw, sh);
 
@@ -2292,6 +2306,10 @@ function makeRadiolaConsole() {
 
   return {
     group,
+    // Wie weit die Bildröhre vor der Gehäusemitte sitzt (in -Z). Die Sitzgruppe
+    // richtet die Sessel danach aus – auf die Gehäusemitte gezielt schaut man
+    // rund acht Grad am Bild vorbei.
+    screenOffset: D / 2 + 0.015,
     update(time) {
       if (time - lastDraw < 0.08) return;
       lastDraw = time;
@@ -2330,41 +2348,59 @@ function makeConsoleStand(width, depth, height) {
   return group;
 }
 
-// Die Sitzgruppe wie in der Szene: die beiden Sessel stehen links und rechts
-// und sind zur Mitte gedreht, das Gerät steht zwischen ihnen auf seinem
-// Ständer.
+// Die Sitzgruppe wie in der Szene – und diesmal als benutzbare Sitzordnung:
 //
-// Eine Abweichung vom Standbild ist Absicht: Dort zeigt die Schauseite mit dem
-// Emblem zur Kamera, die Bildröhre also von ihr weg. Hier steht der Betrachter
-// an der Stelle der Kamera – deshalb ist die Konsole gedreht, damit das
-// laufende Bild zu sehen ist. Das Emblem sitzt jetzt auf der Rückseite.
+// Das Gerät steht VOR den Sesseln, nicht auf einer Linie mit ihnen, und die
+// Sessel sind so gedreht, dass ihre Blickrichtung wirklich auf den Bildschirm
+// zeigt. Der Drehwinkel wird deshalb nicht geschätzt, sondern aus den
+// Positionen gerechnet: Wer darin sitzt, schaut fern.
+//
+// Damit zeigt die Bildröhre zu den Sesseln und das Emblem zum Betrachter –
+// genau die Ansicht des Standbilds. Beides gleichzeitig geht nicht: Bildschirm
+// und Schautafel liegen auf gegenüberliegenden Seiten des Gehäuses. Wer das
+// laufende Bild sehen will, geht um die Gruppe herum; von vorn verrät es sich
+// über den Lichtschein, den die Röhre auf die Sessel wirft.
 function makeConstructLounge() {
   const group = new THREE.Group();
   group.name = 'construct-lounge';
 
+  const CHAIR_X = 1.06;  // seitlicher Abstand der Sessel zur Mitte
+  const CHAIR_Z = -0.5;  // Sessel stehen hinten …
+  const TV_Z = 0.78;     // … das Gerät davor
+  const STAND_H = 0.3;
+
+  const console3d = makeRadiolaConsole();
+
+  // Blickrichtung eines Sessels ist +Z. Der Winkel ergibt sich aus dem Versatz
+  // zur BILDRÖHRE, nicht zur Gehäusemitte – so bleibt die Ausrichtung korrekt,
+  // wenn sich Abstände oder Gehäusetiefe ändern.
+  const screenZ = TV_Z - console3d.screenOffset;
+  const facing = Math.atan2(CHAIR_X, screenZ - CHAIR_Z);
+
   const left = makeConstructArmchair();
-  left.position.set(-1.02, 0, 0.12);
-  left.rotation.y = 0.42;
+  left.position.set(-CHAIR_X, 0, CHAIR_Z);
+  left.rotation.y = facing;
   group.add(left);
 
   const right = makeConstructArmchair();
-  right.position.set(1.02, 0, 0.12);
-  right.rotation.y = -0.42;
+  right.position.set(CHAIR_X, 0, CHAIR_Z);
+  right.rotation.y = -facing;
   group.add(right);
 
-  const STAND_H = 0.3;
   const stand = makeConsoleStand(0.66, 0.52, STAND_H);
-  stand.position.set(0, 0, -0.12);
+  stand.position.set(0, 0, TV_Z);
   group.add(stand);
 
-  const console3d = makeRadiolaConsole();
-  console3d.group.position.set(0, STAND_H, -0.12);
-  console3d.group.rotation.y = Math.PI; // Bildröhre zum Betrachter
+  console3d.group.position.set(0, STAND_H, TV_Z);
+  // Ohne Drehung: Schautafel nach +Z (zum Betrachter), Bildröhre nach -Z (zu
+  // den Sesseln).
   group.add(console3d.group);
 
   // Gemeinsamer, größerer Schatten unter der ganzen Gruppe – bindet die Möbel
   // zusammen, statt drei einzelne Flecken stehen zu lassen.
-  group.add(makeBlobShadow(1.6, 0.24, 0.004));
+  const shade = makeBlobShadow(1.7, 0.24, 0.004);
+  shade.position.z = 0.1;
+  group.add(shade);
 
   return { group, update: (time) => console3d.update(time) };
 }
@@ -2427,7 +2463,7 @@ function createMatrixEnvironment() {
   // stehen sie mitten im Arbeitsbereich – mit ihrer Tiefe von 1,7 m ab Mitte
   // heißt das gut dreieinhalb Meter.
   const lounge = makeConstructLounge();
-  lounge.group.position.set(0, 0, -3.6);
+  lounge.group.position.set(0, 0, -3.9);
   group.add(lounge.group);
 
   return {
