@@ -337,8 +337,12 @@
     <div class="eyebrow">WebXR · Meta Quest 3</div>
     <h1>Brainstorming</h1>
     <input id="idea-input" type="text" placeholder="Idee oder Thema eingeben…" />
+    <!-- Beide über die volle Breite: „🎙 Sprachbefehle: aus" bricht nebeneinander
+         um und reißt dabei das Emoji auf eine eigene Zeile. -->
     <div class="mini-row">
       <button id="btn-dictate" title="Text ins Feld diktieren (Web Speech API)">🎤 Diktieren</button>
+    </div>
+    <div class="mini-row">
       <button id="btn-voice" title="Sprachbefehle dauerhaft an/aus">🎙 Sprachbefehle: aus</button>
     </div>
     <button id="btn-topic" class="btn-primary">🚀 Themen-Start</button>
