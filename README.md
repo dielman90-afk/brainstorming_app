@@ -33,14 +33,17 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   „Matrix“-Ladeprogramms – Kuppel und Boden im selben Weißton, kein sichtbarer
   Horizont, gleichmäßiges schattenfreies Licht). Darin steht die **Einrichtung
   aus der Filmszene**, nachgebaut nach dem Standbild: zwei rote
-  **Ohrensessel** nebeneinander mit Blick nach vorn – hohe Lehne mit
-  seitlichen Flügeln, dichte Rautenknopfheftung, gerollte Armlehnen mit
-  geschnitzter Holzrosette an der Stirn und gedrechselte Vorderbeine – und
-  dazwischen, frei auf dem Boden, die **AWA-„Radiola"-Konsole** im
-  Art-déco-Gehäuse mit dem auf der Spitze stehenden „DEEP IMAGE"-Dreieck.
-  Ihre Schauseite zeigt zum Betrachter; die **Bildröhre sitzt auf der
-  Rückseite** und läuft mit einem körnigen Schwarzweißbild – zu sehen, wenn man
-  um die Gruppe herumgeht.
+  **Ohrensessel** – hohe Lehne mit seitlichen Flügeln, dichte
+  Rautenknopfheftung, gerollte Armlehnen mit geschnitzter Holzrosette an der
+  Stirn und gedrechselte Vorderbeine – links und rechts, beide zur Mitte
+  gedreht, und dazwischen die **AWA-„Radiola"-Konsole** im Art-déco-Gehäuse
+  auf einem niedrigen Ständer mit schräg gestellten Beinen.
+  Die **Bildröhre zeigt zum Betrachter** und läuft mit einem körnigen
+  Schwarzweißbild. Das ist die eine bewusste Abweichung vom Standbild: Dort
+  zeigt die Schauseite mit dem auf der Spitze stehenden
+  „DEEP IMAGE"-Dreieck zur Kamera, die Röhre also von ihr weg. Hier steht der
+  Betrachter an der Stelle der Kamera und soll das laufende Bild sehen – das
+  Emblem sitzt deshalb auf der Rückseite und ist beim Herumgehen zu finden.
   Alles prozedural aus Geometrie und Canvas-Texturen: Die Ledernarbung ist eine
   gerechnete Normal-Map, Emblem und Schriftzüge sind eine gemalte Tafel (als
   Geometrie kosteten sie tausende Dreiecke für ein flaches Detail), das

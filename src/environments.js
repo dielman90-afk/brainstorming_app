@@ -1907,6 +1907,7 @@ function makeWoodTexture(base, dark) {
 // Vorderbeine. Der Sessel schaut nach +Z.
 function makeConstructArmchair() {
   const group = new THREE.Group();
+  group.name = 'construct-armchair';
   const { normalMap, roughnessMap } = leatherMaps();
 
   // Gealtertes Oxblood, kein Signalrot: Das Leder im Film ist dunkel, matt und
@@ -2040,9 +2041,10 @@ function makeConstructArmchair() {
 // kostet tausende Dreiecke für ein Detail, das ohnehin flach ist.
 function makeRadiolaConsole() {
   const group = new THREE.Group();
+  group.name = 'radiola-console';
 
   const W = 0.7;
-  const H = 0.84;
+  const H = 0.74;
   const D = 0.56;
 
   // Gealtertes Messing/Olivbronze mit Patina
@@ -2288,8 +2290,6 @@ function makeRadiolaConsole() {
   screenLight.position.set(0, H / 2 + 0.06, -D / 2 - 0.25);
   group.add(screenLight);
 
-  group.add(makeBlobShadow(0.52, 0.85, 0.006));
-
   return {
     group,
     update(time) {
@@ -2301,26 +2301,65 @@ function makeRadiolaConsole() {
   };
 }
 
-// Die Sitzgruppe wie in der Szene: beide Sessel stehen nebeneinander und
-// schauen nach vorn, die Konsole steht zwischen ihnen auf dem Boden. Ihre
-// Schauseite mit dem Emblem zeigt zum Betrachter – der Bildschirm sitzt auf der
-// Rückseite und ist zu sehen, wenn man um die Gruppe herumgeht.
+// Niedriger Ständer, auf dem die Konsole steht – im Standbild sind darunter
+// vier dünne, nach außen gestellte Beine im Stil der Zeit zu sehen.
+function makeConsoleStand(width, depth, height) {
+  const group = new THREE.Group();
+  group.name = 'console-stand';
+  const wood = new THREE.MeshStandardMaterial({ color: 0x241610, roughness: 0.45, metalness: 0.15 });
+
+  const top = new THREE.Mesh(roundedBox(width, 0.035, depth, 0.01), wood);
+  top.position.set(0, height - 0.0175, 0);
+  group.add(top);
+
+  const legH = height - 0.035;
+  const legGeo = new THREE.CylinderGeometry(0.014, 0.009, legH, 10);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = new THREE.Mesh(legGeo, wood);
+      leg.position.set(sx * (width / 2 - 0.05), legH / 2, sz * (depth / 2 - 0.05));
+      // Nach außen gestellt: senkrechte Stäbe wirken an einem so niedrigen
+      // Möbel wie ein Hocker, die Schrägstellung macht daraus einen Ständer.
+      leg.rotation.z = -sx * 0.1;
+      leg.rotation.x = sz * 0.1;
+      group.add(leg);
+    }
+  }
+
+  group.add(makeBlobShadow(0.42, 0.8, 0.006));
+  return group;
+}
+
+// Die Sitzgruppe wie in der Szene: die beiden Sessel stehen links und rechts
+// und sind zur Mitte gedreht, das Gerät steht zwischen ihnen auf seinem
+// Ständer.
+//
+// Eine Abweichung vom Standbild ist Absicht: Dort zeigt die Schauseite mit dem
+// Emblem zur Kamera, die Bildröhre also von ihr weg. Hier steht der Betrachter
+// an der Stelle der Kamera – deshalb ist die Konsole gedreht, damit das
+// laufende Bild zu sehen ist. Das Emblem sitzt jetzt auf der Rückseite.
 function makeConstructLounge() {
   const group = new THREE.Group();
   group.name = 'construct-lounge';
 
   const left = makeConstructArmchair();
-  left.position.set(-0.9, 0, 0);
-  left.rotation.y = 0.1;
+  left.position.set(-1.02, 0, 0.12);
+  left.rotation.y = 0.42;
   group.add(left);
 
   const right = makeConstructArmchair();
-  right.position.set(0.9, 0, 0);
-  right.rotation.y = -0.1;
+  right.position.set(1.02, 0, 0.12);
+  right.rotation.y = -0.42;
   group.add(right);
 
+  const STAND_H = 0.3;
+  const stand = makeConsoleStand(0.66, 0.52, STAND_H);
+  stand.position.set(0, 0, -0.12);
+  group.add(stand);
+
   const console3d = makeRadiolaConsole();
-  console3d.group.position.set(0, 0, -0.02);
+  console3d.group.position.set(0, STAND_H, -0.12);
+  console3d.group.rotation.y = Math.PI; // Bildröhre zum Betrachter
   group.add(console3d.group);
 
   // Gemeinsamer, größerer Schatten unter der ganzen Gruppe – bindet die Möbel
