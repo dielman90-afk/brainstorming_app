@@ -1738,6 +1738,524 @@ function createZenEnvironment() {
   };
 }
 
+// --- Einrichtung des Konstrukts: zwei rote Ledersessel, Beistelltisch, Röhren-TV ---
+//
+// Nachgebaut nach der „This is the construct"-Szene: zwei rote Chesterfield-
+// Sessel, leicht zueinander gedreht, dazwischen ein kleiner Tisch mit einem
+// alten Fernseher. Alles prozedural – keine externen Modelle oder Texturen,
+// damit die App weiterhin offline vollständig lädt.
+//
+// Der Realismus kommt hier nicht aus Polygonzahl, sondern aus vier Dingen:
+// abgerundeten Kanten (Polster haben keine scharfen Ecken), einer Ledernarbung
+// als Normal-Map, ungleichmäßigem Glanz und weichen Kontaktschatten. Im weißen
+// Void fällt sonst sofort auf, dass Objekte „schweben".
+
+// Abgerundeter Quader. Three bringt keinen mit; extrudiert wird eine
+// abgerundete 2D-Form, die Fase rundet zusätzlich die Extrusionskanten ab.
+function roundedBox(width, height, depth, radius = 0.03, bevel = null) {
+  const b = Math.min(bevel ?? radius * 0.6, depth / 2 - 0.001, radius);
+  const r = Math.min(radius, width / 2 - 0.001, height / 2 - 0.001);
+  const w = width / 2 - b;
+  const h = height / 2 - b;
+  const rr = Math.max(0.001, r - b);
+
+  const shape = new THREE.Shape();
+  shape.moveTo(-w + rr, -h);
+  shape.lineTo(w - rr, -h);
+  shape.quadraticCurveTo(w, -h, w, -h + rr);
+  shape.lineTo(w, h - rr);
+  shape.quadraticCurveTo(w, h, w - rr, h);
+  shape.lineTo(-w + rr, h);
+  shape.quadraticCurveTo(-w, h, -w, h - rr);
+  shape.lineTo(-w, -h + rr);
+  shape.quadraticCurveTo(-w, -h, -w + rr, -h);
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: depth - b * 2,
+    bevelEnabled: true,
+    bevelSize: b,
+    bevelThickness: b,
+    bevelSegments: 3,
+    curveSegments: 6,
+    steps: 1,
+  });
+  // ExtrudeGeometry wächst von z=0 nach vorn – zurück in die Mitte schieben.
+  geometry.translate(0, 0, -(depth - b * 2) / 2 - b);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Ledernarbung als Normal-Map: unregelmäßige Zellen (Poren) plus feines
+// Rauschen, per Sobel in Normalen umgerechnet. Ohne diese Struktur sieht rotes
+// MeshStandardMaterial wie lackiertes Plastik aus.
+// 128er-Kachel mit 60 Zellen: Die Suche nach den zwei nächsten Zellzentren
+// läuft pro Pixel über alle Zellen, das wächst also mit Fläche × Zellzahl.
+// Mit 256 px und 190 Zellen kostete allein diese Textur eine halbe Sekunde
+// beim Start – bei 14-facher Kachelung ist die Narbung ohnehin so fein, dass
+// die kleinere Kachel nicht zu unterscheiden ist.
+let _leatherMaps = null;
+function leatherMaps(size = 128) {
+  if (_leatherMaps) return _leatherMaps;
+  const rand = mulberry32(20221231);
+
+  // Zellzentren für ein Voronoi-artiges Narbenmuster
+  const cells = [];
+  for (let i = 0; i < 60; i++) cells.push([rand() * size, rand() * size]);
+
+  const height = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Abstand zu den zwei nächsten Zellen → Kanten zwischen den Poren
+      let d1 = 1e9;
+      let d2 = 1e9;
+      for (const [cx, cy] of cells) {
+        // gekachelt messen, damit die Textur nahtlos bleibt
+        const dx = Math.min(Math.abs(x - cx), size - Math.abs(x - cx));
+        const dy = Math.min(Math.abs(y - cy), size - Math.abs(y - cy));
+        const d = dx * dx + dy * dy;
+        if (d < d1) {
+          d2 = d1;
+          d1 = d;
+        } else if (d < d2) {
+          d2 = d;
+        }
+      }
+      const edge = Math.min(1, (Math.sqrt(d2) - Math.sqrt(d1)) / 5);
+      const grain = hashNoise(x * 0.7, y * 0.7, 3.1) * 0.16;
+      height[y * size + x] = edge * 0.84 + grain;
+    }
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(size, size);
+  const rough = document.createElement('canvas');
+  rough.width = rough.height = size;
+  const roughData = rough.getContext('2d').createImageData(size, size);
+
+  const at = (x, y) => height[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = at(x + 1, y) - at(x - 1, y);
+      const dy = at(x, y + 1) - at(x, y - 1);
+      const strength = 2.4;
+      const nx = -dx * strength;
+      const ny = -dy * strength;
+      const len = Math.hypot(nx, ny, 1);
+      const i = (y * size + x) * 4;
+      image.data[i] = ((nx / len) * 0.5 + 0.5) * 255;
+      image.data[i + 1] = ((ny / len) * 0.5 + 0.5) * 255;
+      image.data[i + 2] = (1 / len) * 0.5 * 255 + 127;
+      image.data[i + 3] = 255;
+      // Vertiefungen glänzen weniger als die erhabenen Narben. Der Grundwert
+      // liegt hoch: Leder ist matt, ein glänzender Sessel liest sich als Lack.
+      const r = 235 - at(x, y) * 55;
+      roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = r;
+      roughData.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  rough.getContext('2d').putImageData(roughData, 0, 0);
+
+  const normalMap = new THREE.CanvasTexture(canvas);
+  const roughnessMap = new THREE.CanvasTexture(rough);
+  for (const map of [normalMap, roughnessMap]) {
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    // Dicht kacheln: Bei wenigen Wiederholungen werden die Poren handtellergroß
+    // und der Sessel sieht aus wie mit Reptilienhaut bezogen.
+    map.repeat.set(14, 14);
+    map.anisotropy = 4;
+  }
+  _leatherMaps = { normalMap, roughnessMap };
+  return _leatherMaps;
+}
+
+// Holzmaserung für Beistelltisch und TV-Gehäuse
+function makeWoodTexture(base, dark) {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 70; i++) {
+    const y = (i / 70) * size + hashNoise(i, 1, 2) * 4;
+    ctx.globalAlpha = 0.12 + hashNoise(i, 5, 9) * 0.3;
+    ctx.beginPath();
+    for (let x = 0; x <= size; x += 8) {
+      const wobble = Math.sin(x * 0.035 + i * 0.9) * 3 + hashNoise(x, i, 7) * 2;
+      if (x === 0) ctx.moveTo(x, y + wobble);
+      else ctx.lineTo(x, y + wobble);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  return texture;
+}
+
+// Ein roter Chesterfield-Sessel: gepolsterter Korpus, gerollte Armlehnen,
+// geknöpfte Rückenlehne, dunkle Füße. Der Sessel schaut nach +Z.
+function makeConstructArmchair() {
+  const group = new THREE.Group();
+  const { normalMap, roughnessMap } = leatherMaps();
+
+  const leather = new THREE.MeshStandardMaterial({
+    color: 0x8f2027,
+    roughness: 0.66,
+    metalness: 0.02,
+    normalMap,
+    normalScale: new THREE.Vector2(0.45, 0.45),
+    roughnessMap,
+  });
+  // Dunkler für Unterbau und Knöpfe – die liegen im Eigenschatten des Sessels
+  const leatherDark = leather.clone();
+  leatherDark.color = new THREE.Color(0x6b1219);
+  const foot = new THREE.MeshStandardMaterial({ color: 0x2a1c14, roughness: 0.45, metalness: 0.2 });
+
+  // Maße eines Clubsessels. Jedes Teil ist ein bündiger Quader mit stark
+  // abgerundeten Kanten – die erste Fassung setzte Zylinder mit aufgesetzten
+  // Kugeln als Armlehnen ein, deren Enden als Beulen über den Sessel
+  // hinausragten. Ein Quader mit radius = halbe Höhe ergibt dieselbe gerollte
+  // Form, endet aber genau dort, wo das Möbelstück endet.
+  const W = 0.98;        // Gesamtbreite
+  const D = 0.86;        // Gesamttiefe
+  const CHEEK = 0.2;     // Breite der Seitenwangen
+  const BACK_T = 0.22;   // Tiefe der Rückenlehne
+  const ARM_TOP = 0.64;  // Oberkante Armlehne
+  const BACK_TOP = 0.92; // Oberkante Rückenlehne
+  const BODY_TOP = 0.36; // Oberkante Unterbau
+
+  // Bereich vor der Rückenlehne – Wangen, Armrollen und Kissen teilen ihn sich
+  const frontZ0 = -D / 2 + BACK_T;
+  const frontDepth = D / 2 - frontZ0;
+  const frontZ = frontZ0 + frontDepth / 2;
+  const cheekX = W / 2 - CHEEK / 2;
+
+  // Unterbau
+  const base = new THREE.Mesh(roundedBox(W, 0.26, D, 0.05), leatherDark);
+  base.position.set(0, 0.23, 0);
+  group.add(base);
+
+  // Rückenlehne über die volle Breite, oben kräftig gerundet
+  const backH = BACK_TOP - 0.3;
+  const back = new THREE.Mesh(roundedBox(W, backH, BACK_T, 0.1), leather);
+  back.position.set(0, 0.3 + backH / 2, -D / 2 + BACK_T / 2);
+  group.add(back);
+
+  for (const side of [-1, 1]) {
+    // Wange
+    const cheekH = ARM_TOP - CHEEK / 2 - 0.3;
+    const cheek = new THREE.Mesh(roundedBox(CHEEK, cheekH, frontDepth, 0.05), leather);
+    cheek.position.set(side * cheekX, 0.3 + cheekH / 2, frontZ);
+    group.add(cheek);
+
+    // Gerollte Armauflage: quadratischer Querschnitt mit Radius = halbe Kante
+    const arm = new THREE.Mesh(roundedBox(CHEEK, CHEEK, frontDepth, CHEEK / 2, 0.07), leather);
+    arm.position.set(side * cheekX, ARM_TOP - CHEEK / 2, frontZ);
+    group.add(arm);
+  }
+
+  // Sitzkissen
+  const seatW = W - CHEEK * 2 + 0.02;
+  const seat = new THREE.Mesh(roundedBox(seatW, 0.16, frontDepth - 0.06, 0.055), leather);
+  seat.position.set(0, 0.36, frontZ + 0.02);
+  group.add(seat);
+
+  // Knopfheftung im Rautenmuster – das Erkennungsmerkmal des Chesterfields
+  const buttonGeo = new THREE.SphereGeometry(0.016, 10, 8);
+  buttonGeo.scale(1, 1, 0.5);
+  const buttons = [];
+  for (let row = 0; row < 3; row++) {
+    const count = row % 2 === 0 ? 3 : 2;
+    for (let i = 0; i < count; i++) {
+      const g = buttonGeo.clone();
+      g.translate((i - (count - 1) / 2) * 0.18, 0.52 + row * 0.15, frontZ0 + 0.002);
+      buttons.push(g);
+    }
+  }
+  group.add(new THREE.Mesh(mergeGeometries(buttons), leatherDark));
+
+  // Füße
+  const legGeo = new THREE.CylinderGeometry(0.03, 0.024, 0.1, 10);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = new THREE.Mesh(legGeo, foot);
+      leg.position.set(sx * (W / 2 - 0.1), 0.05, sz * (D / 2 - 0.1));
+      group.add(leg);
+    }
+  }
+
+  group.add(makeBlobShadow(0.64, 0.8, 0.006));
+  return group;
+}
+
+// Röhrenfernseher der 80er: Holzgehäuse, gewölbter Bildschirm, Lautsprecher-
+// gitter, Drehknöpfe, ausgefahrene Zimmerantenne.
+function makeConstructTelevision() {
+  const group = new THREE.Group();
+  const woodMap = makeWoodTexture('#4b3124', '#241109');
+  const caseMat = new THREE.MeshStandardMaterial({
+    map: woodMap,
+    color: 0xb08f74,
+    roughness: 0.55,
+    metalness: 0.05,
+  });
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x1c1a1a, roughness: 0.45, metalness: 0.2 });
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0x8d8f95, roughness: 0.3, metalness: 0.85 });
+
+  const W = 0.56;
+  const H = 0.44;
+  const D = 0.42;
+
+  const body = new THREE.Mesh(roundedBox(W, H, D, 0.03), caseMat);
+  body.position.set(0, H / 2, 0);
+  group.add(body);
+
+  // Front-Blende, minimal vorstehend
+  const face = new THREE.Mesh(roundedBox(W - 0.02, H - 0.02, 0.03, 0.02), trimMat);
+  face.position.set(0, H / 2, D / 2 - 0.001);
+  group.add(face);
+
+  // Gewölbter Bildschirm. Bewusst eine verformte Ebene statt eines
+  // Kugelausschnitts: Bei der Kugel hängt die Größe der Fläche an vier
+  // Winkelparametern gleichzeitig, und schon eine kleine Änderung am Gehäuse
+  // lässt das Bild darüber hinausragen.
+  const SCREEN_W = 0.36;
+  const SCREEN_H = 0.28;
+  const screenGeo = new THREE.PlaneGeometry(SCREEN_W, SCREEN_H, 14, 12);
+  {
+    const pos = screenGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const u = pos.getX(i) / (SCREEN_W / 2);
+      const v = pos.getY(i) / (SCREEN_H / 2);
+      // Zur Mitte hin nach vorn gewölbt, wie die Frontscheibe einer Bildröhre
+      pos.setZ(i, (1 - u * u) * (1 - v * v) * 0.022);
+    }
+    screenGeo.computeVertexNormals();
+  }
+
+  const screenCanvas = document.createElement('canvas');
+  screenCanvas.width = 224;
+  screenCanvas.height = 168;
+  const screenTexture = new THREE.CanvasTexture(screenCanvas);
+  screenTexture.colorSpace = THREE.SRGBColorSpace;
+  const screenMat = new THREE.MeshBasicMaterial({ map: screenTexture, toneMapped: false });
+  const screen = new THREE.Mesh(screenGeo, screenMat);
+  screen.position.set(-0.055, H / 2 + 0.015, D / 2 + 0.016);
+  group.add(screen);
+
+  // Schwarzer Rahmen rundum, damit das Bild nicht direkt am Holz endet
+  const bezel = new THREE.Mesh(
+    roundedBox(SCREEN_W + 0.045, SCREEN_H + 0.045, 0.016, 0.022),
+    new THREE.MeshStandardMaterial({ color: 0x0f0f11, roughness: 0.55, metalness: 0.1 })
+  );
+  bezel.position.set(-0.055, H / 2 + 0.015, D / 2 + 0.008);
+  group.add(bezel);
+
+  // Glasreflex: heller Streifen schräg über der Scheibe
+  const glare = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.3, 0.23),
+    new THREE.MeshBasicMaterial({
+      map: makeGlowTexture('rgba(255,255,255,0.30)', 'rgba(255,255,255,0.10)'),
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.75,
+      toneMapped: false,
+    })
+  );
+  glare.position.set(-0.1, H / 2 + 0.07, D / 2 + 0.036);
+  glare.rotation.z = -0.4;
+  group.add(glare);
+
+  // Lautsprechergitter rechts neben dem Bild
+  const grillGeo = [];
+  for (let i = 0; i < 9; i++) {
+    const slot = new THREE.BoxGeometry(0.085, 0.008, 0.006);
+    slot.translate(0, i * 0.019 - 0.076, 0);
+    grillGeo.push(slot);
+  }
+  const grill = new THREE.Mesh(mergeGeometries(grillGeo), metalMat);
+  grill.position.set(W / 2 - 0.065, H / 2 + 0.05, D / 2 + 0.016);
+  group.add(grill);
+
+  // Zwei Drehknöpfe darunter
+  const knobGeo = new THREE.CylinderGeometry(0.021, 0.024, 0.022, 14);
+  knobGeo.rotateX(Math.PI / 2);
+  for (let i = 0; i < 2; i++) {
+    const knob = new THREE.Mesh(knobGeo, trimMat);
+    knob.position.set(W / 2 - 0.065, 0.11 - i * 0.055, D / 2 + 0.022);
+    group.add(knob);
+  }
+
+  // Zimmerantenne („Hasenohren")
+  const rodGeo = new THREE.CylinderGeometry(0.0045, 0.0025, 0.62, 8);
+  rodGeo.translate(0, 0.31, 0);
+  for (const side of [-1, 1]) {
+    const rod = new THREE.Mesh(rodGeo, metalMat);
+    rod.position.set(side * 0.05, H, -0.1);
+    // Positive z-Rotation kippt nach links: Ohne das Minus laufen die beiden
+    // Stäbe aufeinander zu und kreuzen sich über dem Gerät.
+    rod.rotation.z = -side * 0.42;
+    rod.rotation.x = -0.16;
+    group.add(rod);
+  }
+  const antennaBase = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.03, 14), trimMat);
+  antennaBase.position.set(0, H + 0.012, -0.1);
+  group.add(antennaBase);
+
+  // --- Bildinhalt ---
+  //
+  // Kein reines Schnee-Rauschen: Das liest sich als „kein Signal". Stattdessen
+  // ein weiches, driftendes Graustufenbild mit Scanlines, Flimmern und einem
+  // langsam durchlaufenden Bildstrich – der typische Eindruck einer alten
+  // Übertragung. Neu gezeichnet wird bewusst nur ~12×/s: Der Canvas-Upload pro
+  // Frame wäre auf der Quest teurer als das ganze Möbelstück.
+  const ctx = screenCanvas.getContext('2d');
+  const { width: sw, height: sh } = screenCanvas;
+  let lastDraw = -1;
+
+  const drawScreen = (time) => {
+    ctx.fillStyle = '#141816';
+    ctx.fillRect(0, 0, sw, sh);
+
+    // Driftende helle Schwaden als „Bild". Bewusst kräftig: Durch Scanlines,
+    // Vignette und das dunkle Gehäuse davor bleibt sonst eine schwarze Scheibe
+    // übrig, und der Fernseher wirkt ausgeschaltet.
+    for (let i = 0; i < 5; i++) {
+      const t = time * (0.06 + i * 0.017) + i * 2.1;
+      const x = sw * (0.5 + Math.sin(t) * 0.34);
+      const y = sh * (0.5 + Math.cos(t * 0.8 + i) * 0.3);
+      const r = sh * (0.34 + Math.sin(t * 1.7) * 0.1);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const level = 140 + i * 20;
+      g.addColorStop(0, `rgba(${level},${level + 6},${level},0.62)`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, sw, sh);
+    }
+
+    // Bildrauschen
+    const grain = ctx.getImageData(0, 0, sw, sh);
+    for (let i = 0; i < grain.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 42;
+      grain.data[i] += n;
+      grain.data[i + 1] += n;
+      grain.data[i + 2] += n;
+    }
+    ctx.putImageData(grain, 0, 0);
+
+    // Scanlines
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    for (let y = 0; y < sh; y += 3) ctx.fillRect(0, y, sw, 1);
+
+    // Durchlaufender Bildstrich
+    const bar = ((time * 42) % (sh + 60)) - 30;
+    const barGrad = ctx.createLinearGradient(0, bar - 14, 0, bar + 14);
+    barGrad.addColorStop(0, 'rgba(255,255,255,0)');
+    barGrad.addColorStop(0.5, 'rgba(255,255,255,0.10)');
+    barGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(0, bar - 14, sw, 28);
+
+    // Vignette – Röhren sind an den Ecken dunkler
+    const vign = ctx.createRadialGradient(sw / 2, sh / 2, sh * 0.3, sw / 2, sh / 2, sh * 0.8);
+    vign.addColorStop(0, 'rgba(0,0,0,0)');
+    vign.addColorStop(1, 'rgba(0,0,0,0.45)');
+    ctx.fillStyle = vign;
+    ctx.fillRect(0, 0, sw, sh);
+
+    screenTexture.needsUpdate = true;
+  };
+  drawScreen(0);
+
+  // Der Bildschirm wirft etwas Licht in den Raum
+  const screenLight = new THREE.PointLight(0xdfe8e4, 0.55, 2.2, 2);
+  screenLight.position.set(0, H / 2 + 0.02, D / 2 + 0.25);
+  group.add(screenLight);
+
+  return {
+    group,
+    update(time) {
+      if (time - lastDraw < 0.08) return;
+      lastDraw = time;
+      drawScreen(time);
+      // Leichtes Flackern der Bildhelligkeit
+      screenLight.intensity = 0.45 + Math.sin(time * 7.3) * 0.06 + Math.random() * 0.05;
+    },
+  };
+}
+
+// Kleiner Beistelltisch, auf dem der Fernseher steht.
+function makeConstructTable() {
+  const group = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({
+    map: makeWoodTexture('#5a3a22', '#25130a'),
+    color: 0xa98d72,
+    roughness: 0.5,
+    metalness: 0.05,
+  });
+  const H = 0.46;
+
+  const top = new THREE.Mesh(roundedBox(0.78, 0.045, 0.56, 0.012), wood);
+  top.position.set(0, H, 0);
+  group.add(top);
+
+  const legGeo = new THREE.CylinderGeometry(0.021, 0.017, H - 0.045, 10);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = new THREE.Mesh(legGeo, wood);
+      leg.position.set(sx * 0.33, (H - 0.045) / 2, sz * 0.22);
+      group.add(leg);
+    }
+  }
+
+  group.add(makeBlobShadow(0.5, 0.6, 0.006));
+  return group;
+}
+
+// Die komplette Sitzgruppe. Sie steht dem Nutzer gegenüber, damit man beim
+// Betreten des Konstrukts direkt auf die bekannte Anordnung schaut.
+function makeConstructLounge() {
+  const group = new THREE.Group();
+  group.name = 'construct-lounge';
+
+  // Die Sessel stehen einander zugewandt, der Fernseher dazwischen. Beide
+  // Sessel nach vorn auszurichten wäre näher an einer Wohnzimmerwand, aber dann
+  // sieht der Betrachter nur die Rückseite des Geräts – und wer im Sessel sitzt,
+  // ebenfalls. So sieht man die Sessel im Dreiviertelprofil und das Bild dazu.
+  const left = makeConstructArmchair();
+  left.position.set(-1.12, 0, 0.15);
+  left.rotation.y = 1.16;
+  group.add(left);
+
+  const right = makeConstructArmchair();
+  right.position.set(1.12, 0, 0.15);
+  right.rotation.y = -1.16;
+  group.add(right);
+
+  const table = makeConstructTable();
+  table.position.set(0, 0, -0.28);
+  group.add(table);
+
+  const tv = makeConstructTelevision();
+  tv.group.position.set(0, 0.465, -0.28);
+  tv.group.rotation.y = 0.06; // fast frontal, minimal aus der Achse gedreht
+  group.add(tv.group);
+
+  // Gemeinsamer, größerer Schatten unter der ganzen Gruppe – bindet die Möbel
+  // zusammen, statt drei einzelne Flecken stehen zu lassen.
+  const groundShade = makeBlobShadow(1.7, 0.28, 0.004);
+  group.add(groundShade);
+
+  return { group, update: (time) => tv.update(time) };
+}
+
 // ⬜ Konstrukt – der komplett weiße „Matrix"-Void: eine unendlich wirkende, nahtlose
 // weiße Leere ohne sichtbaren Horizont. Kuppel und Boden teilen sich denselben Weißton,
 // sodass keine Kante entsteht; ein hauchzarter, kühler Verlauf am Grund verhindert das
@@ -1779,11 +2297,34 @@ function createMatrixEnvironment() {
   fill.position.set(2, 12, 6);
   group.add(fill);
 
+  // Zusätzliches Licht schräg von vorn: Ohne eine klare Richtung bleiben die
+  // Polster im rundum gleichen Licht flach und wirken wie eingefärbte Klötze.
+  // Auf die Karten wirkt es kaum – deren Material ist von der Beleuchtung
+  // ausgenommen (MeshBasicMaterial).
+  const key = new THREE.DirectionalLight(0xfff6ec, 0.7);
+  key.position.set(-3.5, 5, 5);
+  group.add(key);
+  const rim = new THREE.DirectionalLight(0xdce6f0, 0.35);
+  rim.position.set(4, 2.5, -4.5);
+  group.add(rim);
+
+  // Die Sitzgruppe aus dem Film: zwei rote Sessel, Tisch und Röhrenfernseher.
+  // Der Abstand ist kein Geschmackswert: Neue Karten landen im Halbkreis mit
+  // 1,15 m Radius vor dem Nutzer. Die Sessel müssen dahinter bleiben, sonst
+  // stehen sie mitten im Arbeitsbereich – mit ihrer Tiefe von 1,7 m ab Mitte
+  // heißt das gut dreieinhalb Meter.
+  const lounge = makeConstructLounge();
+  lounge.group.position.set(0, 0, -3.6);
+  group.add(lounge.group);
+
   return {
     id: 'matrix',
     name: '⬜ Konstrukt',
     background: new THREE.Color(0xffffff),
     group,
+    update(time) {
+      lounge.update(time);
+    },
   };
 }
 

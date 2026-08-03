@@ -31,7 +31,14 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel) →
   **⬜ Konstrukt** (nahtloser, komplett weißer Void im Stil des
   „Matrix“-Ladeprogramms – Kuppel und Boden im selben Weißton, kein sichtbarer
-  Horizont, gleichmäßiges schattenfreies Licht).
+  Horizont, gleichmäßiges schattenfreies Licht). Darin steht die **Einrichtung
+  aus der Filmszene**: zwei rote Chesterfield-Ledersessel, einander zugewandt,
+  dazwischen ein Beistelltisch mit einem **Röhrenfernseher**, auf dem ein
+  körniges Schwarzweißbild läuft. Alles prozedural aus Geometrie und
+  Canvas-Texturen – die Ledernarbung ist eine gerechnete Normal-Map, das
+  TV-Bild ein animierter Canvas mit Scanlines, Rauschen und durchlaufendem
+  Bildstrich. Die Gruppe steht gut dreieinhalb Meter vor dem Startpunkt, also
+  hinter dem Halbkreis, in dem neue Karten erscheinen.
   Das frühere **🌐 Studio** (schlichter heller Verlauf) ist entfernt: Es war vom
   Konstrukt kaum zu unterscheiden – beides eine helle, leere Kuppel – und
   verlängerte den Durchlauf des Buttons ohne erkennbaren Unterschied.
@@ -235,7 +242,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
 │   ├── boardState.js       JSON-Export/-Import, Sicherungspunkte + Autosave
-│   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt)
+│   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt
+│   │                       inkl. Matrix-Sitzgruppe: Ledersessel, Tisch, Röhren-TV)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
 │   ├── zones.js            Räumliche Zonen/Rahmen zum Gruppieren von Karten
 │   ├── timer.js            Schwebende Timebox-Uhr mit Gong
