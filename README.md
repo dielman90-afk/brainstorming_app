@@ -35,15 +35,17 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   aus der Filmszene**, nachgebaut nach dem Standbild: zwei rote
   **Ohrensessel** – hohe Lehne mit seitlichen Flügeln, dichte
   Rautenknopfheftung, gerollte Armlehnen mit geschnitzter Holzrosette an der
-  Stirn und gedrechselte Vorderbeine – links und rechts, beide zur Mitte
-  gedreht, und dazwischen die **AWA-„Radiola"-Konsole** im Art-déco-Gehäuse
-  auf einem niedrigen Ständer mit schräg gestellten Beinen.
-  Die **Bildröhre zeigt zum Betrachter** und läuft mit einem körnigen
-  Schwarzweißbild. Das ist die eine bewusste Abweichung vom Standbild: Dort
-  zeigt die Schauseite mit dem auf der Spitze stehenden
-  „DEEP IMAGE"-Dreieck zur Kamera, die Röhre also von ihr weg. Hier steht der
-  Betrachter an der Stelle der Kamera und soll das laufende Bild sehen – das
-  Emblem sitzt deshalb auf der Rückseite und ist beim Herumgehen zu finden.
+  Stirn und gedrechselte Vorderbeine – und die **AWA-„Radiola"-Konsole** im
+  Art-déco-Gehäuse auf einem niedrigen Ständer mit schräg gestellten Beinen.
+  Die Anordnung ist eine **benutzbare Sitzordnung**: Das Gerät steht vor den
+  Sesseln, die Bildröhre zeigt zu ihnen, und der Drehwinkel der Sessel wird
+  nicht geschätzt, sondern aus den Positionen gerechnet – wer darin sitzt, hat
+  den Bildschirm mittig vor sich (1,6 m Sitzabstand, 0° Abweichung). Von vorn
+  sieht man deshalb die Schauseite mit dem auf der Spitze stehenden
+  „DEEP IMAGE"-Dreieck, genau wie im Standbild; das laufende Bild sieht, wer um
+  die Gruppe herumgeht oder sich in einen Sessel stellt. Beides gleichzeitig
+  geht nicht – Bildröhre und Schautafel liegen auf gegenüberliegenden Seiten
+  des Gehäuses.
   Alles prozedural aus Geometrie und Canvas-Texturen: Die Ledernarbung ist eine
   gerechnete Normal-Map, Emblem und Schriftzüge sind eine gemalte Tafel (als
   Geometrie kosteten sie tausende Dreiecke für ein flaches Detail), das
