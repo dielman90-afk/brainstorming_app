@@ -68,6 +68,13 @@ const PALM_SCALE = 0.6;
 const PALM_LIFT = 0.05; // Abstand über der Handfläche
 const PALM_FORWARD = 0.03; // leicht Richtung Finger, damit das Handgelenk frei bleibt
 
+// Aufstellwinkel gegenüber der Handfläche. Plan auf der Hand liegend schaut man
+// von schräg oben auf das Panel: Die Beschriftungen stehen dann stark verkürzt
+// und die untere Reihe ist am schlechtesten zu treffen. Aufgestellt wie ein
+// Laptop-Deckel steht die Fläche dem Blick zugewandt.
+const PALM_TILT = 0.62; // rad, gut 35°
+
+
 // Ein-/Ausblenden mit Hysterese, sonst flackert das Menü an der Schwelle.
 // Die Schwellen sind bewusst großzügig: Handtracking rauscht, und ein Menü,
 // das erst bei perfekt ausgerichteter Hand erscheint, wirkt kaputt.
@@ -177,6 +184,9 @@ export class WristMenu {
     const panelW = 2 * BTN_W + GAP_X + PAD * 2;
     const panelH =
       PAD + HEADER_H + 0.006 + TAB_H + 0.012 + rows * BTN_H + (rows - 1) * GAP_Y + PAD;
+    // Die Handflächen-Platzierung braucht die Höhe, um den Aufstellwinkel
+    // auszugleichen (siehe PALM_TILT).
+    this.panelHeight = panelH;
 
     const panel = makeRoundedPanel(panelW, panelH, {
       fill: COLORS.panelFill,
@@ -457,9 +467,16 @@ export class WristMenu {
     this.attachedHand = source.handedness;
     this._basis.makeBasis(this._right, this._forward, this._normal);
     this.group.quaternion.setFromRotationMatrix(this._basis);
+    // Um die Querachse aufstellen, sodass die Oberkante zum Gesicht kippt.
+    this.group.rotateX(PALM_TILT);
+
+    // Gedreht wird um die Panelmitte – ohne Ausgleich taucht die Unterkante
+    // dabei in die Handfläche ein. Der Zuschlag hebt sie wieder heraus, das
+    // Panel klappt also um seine Unterkante auf statt um seinen Mittelpunkt.
+    const tiltLift = (this.panelHeight * PALM_SCALE * Math.sin(PALM_TILT)) / 2;
     this.group.position
       .copy(palmCenter)
-      .addScaledVector(this._normal, PALM_LIFT)
+      .addScaledVector(this._normal, PALM_LIFT + tiltLift)
       .addScaledVector(this._forward, PALM_FORWARD);
     this.group.scale.setScalar(PALM_SCALE);
     this.group.visible = true;

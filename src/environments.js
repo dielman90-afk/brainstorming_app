@@ -1366,6 +1366,178 @@ function makeLotus() {
   return g;
 }
 
+// --- Koi ---
+//
+// Die erste Fassung war eine flachgedrückte Kugel mit Kegeln als Flossen; im
+// Wasser sah das aus wie ein Bonbon mit Zacken. Ein Koi liest sich über drei
+// Dinge: eine spindelförmige Silhouette, die seitlich schmal und in der Höhe
+// kräftig ist, weiche Flossen statt spitzer Kegel, und das gefleckte Muster.
+// Das Muster kommt als Canvas-Textur – als Geometrie wären die Flecken teuer
+// und würden trotzdem hart abgesetzt wirken.
+
+// Kohaku (weiß mit roten Platten) bzw. Ogon (orange mit weißer Zeichnung).
+function makeKoiTexture(variant) {
+  const w = 256;
+  const h = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const base = variant === 0 ? '#f6f2ee' : '#e8873a';
+  const spot = variant === 0 ? '#d8452a' : '#f7f3ec';
+  const seed = variant === 0 ? 4711 : 1907;
+  const rand = mulberry32(seed);
+
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, w, h);
+
+  // Weiche, unregelmäßige Platten. Jede wird zusätzlich um ±w versetzt
+  // gezeichnet, damit die Textur am Umfang nahtlos bleibt.
+  const blob = (cx, cy, r) => {
+    for (const dx of [-w, 0, w]) {
+      ctx.beginPath();
+      const steps = 14;
+      for (let i = 0; i <= steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const rr = r * (0.68 + rand() * 0.5);
+        const x = cx + dx + Math.cos(a) * rr * 1.35;
+        const y = cy + Math.sin(a) * rr;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+  };
+  ctx.fillStyle = spot;
+  const plates = variant === 0 ? 5 : 4;
+  for (let i = 0; i < plates; i++) {
+    blob(30 + rand() * (w - 60), 20 + rand() * (h - 40), 16 + rand() * 20);
+  }
+
+  // Dunkler Rücken, heller Bauch: v läuft über den Umfang, oben liegt bei v≈0.25
+  const shade = ctx.createLinearGradient(0, 0, 0, h);
+  shade.addColorStop(0, 'rgba(20,14,10,0.22)');
+  shade.addColorStop(0.45, 'rgba(255,255,255,0)');
+  shade.addColorStop(1, 'rgba(255,255,255,0.35)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, w, h);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+// Flosse als flache, weiche Form. Die Punkte beschreiben die Silhouette in der
+// XY-Ebene (x = nach hinten), gedreht liegt sie längs im Wasser.
+function makeKoiFin(points, material) {
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length - 1; i++) {
+    const [cx, cy] = points[i];
+    const [nx, ny] = points[i + 1];
+    shape.quadraticCurveTo(cx, cy, (cx + nx) / 2, (cy + ny) / 2);
+  }
+  shape.closePath();
+  const geometry = new THREE.ShapeGeometry(shape, 10);
+  geometry.rotateY(Math.PI / 2); // in die Längsebene des Fisches stellen
+  return new THREE.Mesh(geometry, material);
+}
+
+function makeKoi(variant) {
+  const koi = new THREE.Group();
+  const L = 0.34; // Körperlänge
+
+  // Spindelprofil: schlanker Kopf, kräftige Mitte, dünner Schwanzstiel.
+  // y ist die Längsachse (Kopf +), x der Radius.
+  const profile = [
+    [0.004, -L / 2],
+    [0.018, -L / 2 + 0.03],
+    [0.032, -L / 2 + 0.07],
+    [0.04, -L / 2 + 0.12],
+    [0.046, -L / 2 + 0.17],
+    [0.047, -L / 2 + 0.21],
+    [0.043, -L / 2 + 0.26],
+    [0.033, -L / 2 + 0.3],
+    [0.02, -L / 2 + 0.33],
+    [0.006, L / 2],
+  ].map(([x, y]) => new THREE.Vector2(x, y));
+
+  const bodyGeo = new THREE.LatheGeometry(profile, 22);
+  bodyGeo.rotateX(Math.PI / 2); // Längsachse von Y nach Z, Kopf nach +Z
+  const body = new THREE.Mesh(
+    bodyGeo,
+    new THREE.MeshStandardMaterial({
+      map: makeKoiTexture(variant),
+      roughness: 0.34,
+      metalness: 0.05,
+    })
+  );
+  // Fische sind seitlich schmal und hochrückig – ohne das bliebe die Drehfigur
+  // ein Schlauch.
+  body.scale.set(0.6, 1.18, 1);
+  koi.add(body);
+
+  const finMat = new THREE.MeshStandardMaterial({
+    color: variant === 0 ? 0xffe9dc : 0xffd9b4,
+    roughness: 0.5,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.82,
+    side: THREE.DoubleSide,
+  });
+
+  // Schwanz mit eigenem Pivot (wedelt) – zweilappig, nicht spitz
+  const tailPivot = new THREE.Group();
+  tailPivot.position.z = -L / 2 + 0.01;
+  const tail = makeKoiFin(
+    [
+      [0, 0], [0.05, 0.07], [0.12, 0.085], [0.13, 0.05],
+      [0.07, 0.005], [0.13, -0.05], [0.12, -0.085], [0.05, -0.07],
+    ],
+    finMat
+  );
+  tailPivot.add(tail);
+  koi.add(tailPivot);
+
+  // Rückenflosse
+  const dorsal = makeKoiFin(
+    [[0, 0], [0.05, 0.045], [0.11, 0.05], [0.15, 0.01], [0.08, 0]],
+    finMat
+  );
+  dorsal.position.set(0, 0.048, 0.03);
+  koi.add(dorsal);
+
+  // Afterflosse
+  const anal = makeKoiFin([[0, 0], [0.04, -0.03], [0.08, -0.035], [0.1, -0.005]], finMat);
+  anal.position.set(0, -0.042, -0.05);
+  koi.add(anal);
+
+  // Brustflossen, leicht nach hinten und unten gestellt
+  for (const side of [-1, 1]) {
+    const pec = makeKoiFin([[0, 0], [0.05, -0.02], [0.09, -0.045], [0.07, 0]], finMat);
+    pec.position.set(side * 0.028, -0.012, 0.06);
+    // Um die Längsachse gekippt, damit die Flosse seitlich absteht statt
+    // senkrecht wie ein zweites Segel am Bauch zu stehen
+    pec.rotation.z = side * 1.05;
+    koi.add(pec);
+  }
+
+  // Augen
+  const eyeGeo = new THREE.SphereGeometry(0.0085, 8, 6);
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x16110d, roughness: 0.25 });
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(eyeGeo, eyeMat);
+    eye.position.set(side * 0.024, 0.012, L / 2 - 0.055);
+    koi.add(eye);
+  }
+
+  koi.userData = { tail: tailPivot };
+  return koi;
+}
+
 function createZenEnvironment() {
   const rand = mulberry32(70707070);
   const group = new THREE.Group();
@@ -1506,38 +1678,13 @@ function createZenEnvironment() {
     group.add(ring);
     ripples.push(ring);
   }
-  // Koi-Fische (mit Flossen, Fleck, Schwanzwedeln)
+  // Zwei Koi ziehen ihre Bahnen im Teich
   const kois = [];
-  const koiColors = [0xff7a3d, 0xffffff, 0xffb066, 0xff6a5a, 0xffd0a0];
-  for (let i = 0; i < 5; i++) {
-    const koi = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: koiColors[i % koiColors.length], roughness: 0.55, metalness: 0 });
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), bodyMat);
-    body.scale.set(0.5, 0.26, 1);
-    koi.add(body);
-    // Schwanz mit eigenem Pivot (wedelt)
-    const tailPivot = new THREE.Group();
-    tailPivot.position.z = -0.11;
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.16, 6), bodyMat);
-    tail.rotation.x = -Math.PI / 2;
-    tail.position.z = -0.06;
-    tail.scale.set(1, 0.35, 1);
-    tailPivot.add(tail);
-    koi.add(tailPivot);
-    // Seitenflossen
-    for (const dir of [-1, 1]) {
-      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.1, 4), bodyMat);
-      fin.rotation.z = dir * Math.PI / 2;
-      fin.position.set(dir * 0.06, 0, 0.02);
-      koi.add(fin);
-    }
-    // Kontrastfleck
-    const patchColor = koiColors[i % 2 === 0 ? 1 : 0];
-    const patch = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshStandardMaterial({ color: patchColor, roughness: 0.55 }));
-    patch.scale.set(0.5, 0.2, 0.7);
-    patch.position.set(0.01, 0.03, 0.03);
-    koi.add(patch);
-    koi.userData = { radius: 0.55 + i * 0.22, speed: (0.32 + rand() * 0.25) * (i % 2 ? 1 : -1), phase: rand() * 6.28, tail: tailPivot };
+  for (let i = 0; i < 2; i++) {
+    const koi = makeKoi(i);
+    koi.userData.radius = 0.62 + i * 0.34;
+    koi.userData.speed = (0.3 + rand() * 0.12) * (i % 2 ? 1 : -1);
+    koi.userData.phase = rand() * 6.28;
     group.add(koi);
     kois.push(koi);
   }
@@ -1780,8 +1927,12 @@ function roundedBox(width, height, depth, radius = 0.03, bevel = null) {
     curveSegments: 6,
     steps: 1,
   });
-  // ExtrudeGeometry wächst von z=0 nach vorn – zurück in die Mitte schieben.
-  geometry.translate(0, 0, -(depth - b * 2) / 2 - b);
+  // ExtrudeGeometry reicht von z = -bevelThickness bis z = depth + bevelThickness,
+  // ihre Mitte liegt also bei depth/2 - b und nicht bei depth/2. Wer das
+  // übersieht, verschiebt jedes Teil um genau die Fasenbreite nach hinten – bei
+  // den Polstern hier bis zu sieben Zentimeter, genug, dass Knöpfe und Rosetten
+  // sichtbar vor dem Möbel in der Luft hängen.
+  geometry.translate(0, 0, b - depth / 2);
   geometry.computeVertexNormals();
   return geometry;
 }

@@ -28,7 +28,12 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   **🌌 Nachthimmel** (Sternenfeld, Mond und natürlicher **Mars-Untergrund** mit
   Kratern, Felsen und Hügeln) → **🪷 Zen-Garten** (geharkter Sand, Koi-Teich mit
   Seerosen, Lotus & Wasser-Ringen, Bambushain, Kirschblüten- und Ahornbaum,
-  Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel) →
+  Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel).
+  Im Teich ziehen **zwei Koi** ihre Bahnen – Spindelkörper aus einem
+  Rotationsprofil, seitlich schmal und hochrückig, mit weichen Flossen,
+  wedelndem Schwanz und gefleckter Zeichnung als Canvas-Textur (Kohaku in
+  Weiß-Rot, Ogon in Orange-Weiß). Zuvor waren es fünf flachgedrückte Kugeln mit
+  Kegeln als Flossen, die im Wasser wie Bonbons mit Zacken aussahen. →
   **⬜ Konstrukt** (nahtloser, komplett weißer Void im Stil des
   „Matrix“-Ladeprogramms – Kuppel und Boden im selben Weißton, kein sichtbarer
   Horizont, gleichmäßiges schattenfreies Licht). Darin steht die **Einrichtung
@@ -101,7 +106,11 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Ellenbogen). **Ohne Controller** – also bei Hand-Tracking – schwebt es
   verkleinert über der **offenen Handfläche** und blendet sich automatisch ein,
   sobald die flache Hand zum Gesicht zeigt; bei Faust oder abgewandter Hand
-  verschwindet es wieder. Buttons werden mit dem Ray der anderen Hand
+  verschwindet es wieder. Dort liegt es nicht flach auf, sondern ist um gut 35°
+  **aufgestellt** (`PALM_TILT`) – plan auf der Hand schaut man von schräg oben
+  darauf, die Beschriftungen stehen stark verkürzt und die untere Reihe ist am
+  schlechtesten zu treffen. Gekippt wird um die Unterkante, damit das Panel
+  aufklappt statt in die Handfläche einzutauchen. Buttons werden mit dem Ray der anderen Hand
   angevisiert und per Trigger bzw. Pinch geklickt. Die Hände werden bei
   Hand-Tracking als Gelenk-Kugeln dargestellt (prozedural, ohne externe Assets).
 - **Undo/Redo:** Vollständiger Verlauf über *Anlegen, Löschen, „Alles löschen",
