@@ -1,11 +1,21 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { CardManager, CARD_COLORS } from './cards.js';
+import './fonts.js'; // lokal gebündelte Schriften (kein CDN nötig)
+import { CardManager, CARD_COLORS, CARD_FONT_STEPS } from './cards.js';
 import { ConnectionManager } from './connections.js';
 import { InteractionManager } from './interactions.js';
 import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
-import { isSpeechAvailable, recognizeSpeech } from './speech.js';
+import { SystemKeyboardBridge } from './systemKeyboard.js';
+import {
+  isHeadsetBrowser,
+  isSpeechAvailable,
+  recognizeSpeech,
+  setXRPresenting,
+  speechUnavailableReason,
+  VoiceCommands,
+} from './speech.js';
+import { Haptics } from './haptics.js';
 import { requestAI, requestIdeas } from './ai.js';
 import {
   downloadBoard,
@@ -106,10 +116,18 @@ function applyEnvironment() {
   }
 }
 
+// Gemerkt wird die stabile `id` der Umgebung, nicht ihre Position in der Liste:
+// Ein gespeicherter Index zeigt nach dem Entfernen oder Umsortieren einer
+// Umgebung auf die falsche Welt. (Beim Entfernen von „Studio" wäre aus jedem
+// gemerkten Konstrukt ein Zen-Garten geworden.) Ältere Einträge sind noch reine
+// Zahlen – die werden ignoriert und landen auf Passthrough.
 function savedEnvIndex() {
   try {
-    const value = parseInt(localStorage.getItem(ENV_STORAGE_KEY) ?? '', 10);
-    return Number.isInteger(value) && value >= -1 && value < environments.length ? value : null;
+    const value = localStorage.getItem(ENV_STORAGE_KEY);
+    if (value === null) return null;
+    if (value === 'passthrough') return -1;
+    const index = environments.findIndex((env) => env.id === value);
+    return index >= 0 ? index : null;
   } catch {
     return null;
   }
@@ -118,7 +136,10 @@ function savedEnvIndex() {
 function cycleEnvironment() {
   envIndex = envIndex >= environments.length - 1 ? -1 : envIndex + 1;
   try {
-    localStorage.setItem(ENV_STORAGE_KEY, String(envIndex));
+    localStorage.setItem(
+      ENV_STORAGE_KEY,
+      envIndex >= 0 ? environments[envIndex].id : 'passthrough'
+    );
   } catch {
     // Autosave der Umgebungswahl ist optional
   }
@@ -143,6 +164,16 @@ controls.update();
 const cardManager = new CardManager(scene);
 const connectionManager = new ConnectionManager(scene, cardManager);
 cardManager.onCardRemoved = (card) => connectionManager.removeForCard(card);
+
+// Kartenschrift (Barrierefreiheit): gewählte Stufe überdauert einen Reload und
+// wird gesetzt, bevor die ersten Karten entstehen.
+const FONT_STORAGE_KEY = 'webxr-brainstorming-cardfont';
+try {
+  const saved = parseInt(localStorage.getItem(FONT_STORAGE_KEY) ?? '', 10);
+  if (Number.isInteger(saved)) cardManager.setFontStep(saved);
+} catch {
+  // Ohne gemerkte Stufe bleibt es bei „Normal"
+}
 
 const whiteboard = new Whiteboard(scene, { onSketch: () => handleAction('sketch') });
 
@@ -174,14 +205,29 @@ function applyBoardJSON(data) {
   zoneManager.loadJSON(data?.zones ?? []);
 }
 
-const keyboard = new VirtualKeyboard(scene);
+// Diktat auf der Quest läuft über die Systemtastatur der Brille – der
+// Quest-Browser kennt die Web Speech API nicht. Die Sitzung wird erst beim
+// Aufruf geholt, weil sie bei jedem Start eine andere ist.
+const systemKeyboard = new SystemKeyboardBridge({ getSession: () => renderer.xr.getSession() });
+
+const keyboard = new VirtualKeyboard(scene, {
+  onStatus: (message, duration = 5000) => setStatus(message, duration),
+  systemKeyboard,
+});
 const wristMenu = new WristMenu((action) => handleAction(action));
+
+// Kurzes Rumble als Rückmeldung in VR (Greifen, Menü-Klick, Verbinden, Löschen).
+const haptics = new Haptics({
+  getControllers: () => interactions.controllers,
+  isPresenting: () => renderer.xr.isPresenting,
+});
 
 const interactions = new InteractionManager({
   renderer,
   scene,
   camera,
   cardManager,
+  haptics,
   xrRoot: player,
   getUiTargets: () => [
     ...(renderer.xr.isPresenting && wristMenu.group.visible ? wristMenu.buttons : []),
@@ -284,6 +330,7 @@ function setBusyLabel(label) {
 function showError(message, error) {
   console.error(error ?? message);
   hud.showError(message);
+  haptics.pulse('error');
   setStatus(`Fehler: ${message}`, 8000);
 }
 
@@ -384,6 +431,14 @@ async function handleAction(action) {
     }
     if (action === 'environment') {
       cycleEnvironment();
+      return;
+    }
+    if (action === 'fontsize') {
+      cycleCardFont();
+      return;
+    }
+    if (action === 'voice') {
+      toggleVoiceCommands();
       return;
     }
     if (action === 'undo') {
@@ -526,6 +581,7 @@ async function handleAction(action) {
       }
       clearArmedAt = 0;
       cardManager.clear();
+      haptics.pulse('delete');
       commit('Alles löschen');
       setStatus('Alle Karten gelöscht – „↶ Rückgängig" holt sie zurück.');
       return;
@@ -537,6 +593,7 @@ async function handleAction(action) {
         return;
       }
       cardManager.removeCard(selected);
+      haptics.pulse('delete');
       commit('Karte gelöscht');
       setStatus('Karte gelöscht.');
       return;
@@ -594,7 +651,14 @@ async function handleAction(action) {
       setStatus('Claude fasst das Board zusammen…', 0);
       setBusyLabel('Claude fasst zusammen…');
       const result = await requestIdeas('summary', { ideas }, aiProgress('Claude fasst zusammen…'));
-      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      const cards = cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      // Eine Zusammenfassung ist deutlich länger als eine Idee. Sie bekommt
+      // deshalb eine größere Karte – der Text schrumpft sonst zwar mit (siehe
+      // shrinkToFit in textPanel.js), wäre auf Ideengröße aber winzig.
+      for (const card of cards) {
+        card.setScale(1.7);
+        card.setColor(6); // Neutral – hebt das Ergebnis von den Ideen ab
+      }
       commit('Zusammenfassung');
       setStatus('Zusammenfassung erstellt.');
     }
@@ -606,28 +670,133 @@ async function handleAction(action) {
   }
 }
 
-// Texteingabe: XR = Sprache mit Tastatur-Fallback, Desktop = Eingabefeld.
+// --- Kartenschrift (Barrierefreiheit) ---
+
+function cycleCardFont() {
+  const step = cardManager.cycleFontStep();
+  try {
+    localStorage.setItem(FONT_STORAGE_KEY, String(cardManager.fontStepIndex));
+  } catch {
+    // Merken der Stufe ist optional
+  }
+  updateFontButton();
+  setStatus(`🔠 Kartenschrift: ${step.label}`);
+}
+
+function updateFontButton() {
+  const button = document.getElementById('btn-fontsize');
+  if (button) button.textContent = `Schrift: ${cardManager.fontStep.label}`;
+}
+
+// --- Sprachbefehle ---
+//
+// Dauerhaftes Zuhören ist bewusst abschaltbar und startet nie von selbst: Ein
+// Mikrofon, das ungefragt mithört, will niemand – und jede Erkennung kostet
+// Netzwerk (die Web Speech API verarbeitet serverseitig).
+const voice = new VoiceCommands({
+  onCommand: ({ action, text }) => {
+    // Kommandos mit mitgesprochenem Text legen die Karte direkt beschriftet an,
+    // statt anschließend noch nach der Eingabe zu fragen.
+    if (action === 'new' && text) {
+      cardManager.spawnIdeas([capitalize(text)], camera);
+      commit('Neue Karte (Sprache)');
+      setStatus(`🎙 Karte angelegt: „${capitalize(text)}"`);
+      return;
+    }
+    if (action === 'topic' && text) {
+      startTopic(capitalize(text));
+      return;
+    }
+    setStatus(`🎙 Befehl erkannt: ${action}`);
+    handleAction(action);
+  },
+  onError: (message) => setStatus(`🎙 ${message}`, 6000),
+  onStateChange: (active) => {
+    wristMenu.setActionActive('voice', active);
+    const button = document.getElementById('btn-voice');
+    if (button) {
+      button.textContent = active ? '🎙 Sprachbefehle: an' : '🎙 Sprachbefehle: aus';
+      button.classList.toggle('active', active);
+    }
+  },
+});
+
+function capitalize(text) {
+  return text ? text[0].toUpperCase() + text.slice(1) : text;
+}
+
+function toggleVoiceCommands() {
+  if (voice.active) {
+    voice.stop();
+    setStatus('🎙 Sprachbefehle aus.');
+    return;
+  }
+  if (!voice.available) {
+    // Auf der Quest ist das keine Panne, sondern der Normalfall: Der Browser
+    // hat keine Spracherkennung, nur die Systemtastatur kann diktieren – und
+    // die läuft über die 🎤-Taste der Tastatur, nicht über Dauer-Zuhören.
+    setStatus(
+      isHeadsetBrowser()
+        ? 'Dauerhafte Sprachbefehle kann der Brillen-Browser nicht. Diktieren geht: „＋ Neue Karte" → 🎤 Sprechen.'
+        : speechUnavailableReason(),
+      8000
+    );
+    return;
+  }
+  voice.start();
+  setStatus('🎙 Sprachbefehle an – z. B. „neue Karte Fahrradständer", „Cluster", „rückgängig".', 7000);
+}
+
+// Themen-Start mit bereits bekanntem Thema (aus einem Sprachbefehl).
+async function startTopic(topic) {
+  if (busy) {
+    setStatus('Claude arbeitet noch – einen Moment.');
+    return;
+  }
+  try {
+    busy = true;
+    setStatus(`Claude erstellt ein Start-Board zu „${topic}“…`, 0);
+    setBusyLabel(`Start-Board zu „${topic}“…`);
+    const result = await requestIdeas(
+      'topic',
+      { topic, ideas: cardManager.cards.map((c) => c.text) },
+      aiProgress(`Start-Board zu „${topic}“…`)
+    );
+    cardManager.spawnIdeas(result.map((i) => i.text), camera);
+    commit(`Themen-Start „${topic}“`);
+    setStatus(`Start-Board zu „${topic}“: ${result.length} Ideen.`);
+  } catch (err) {
+    showError(err.message, err);
+  } finally {
+    busy = false;
+    setBusyLabel(null);
+  }
+}
+
+// Texteingabe: XR = Tastatur mit Diktat-Knopf, Desktop = Eingabefeld.
+//
+// Der Diktat-Versuch läuft nicht mehr automatisch vor der Tastatur: Auf der
+// Quest scheitert er zuverlässig, und die Wartezeit bis zum Fehlschlag verzögert
+// jede Eingabe. Stattdessen öffnet sich direkt die Tastatur – mit „🎤 Sprechen"
+// als gleichwertigem Weg für alle, die nicht tippen wollen.
 async function getUserText() {
   if (renderer.xr.isPresenting) {
-    if (isSpeechAvailable()) {
-      setStatus('🎤 Sprich jetzt…', 0);
-      try {
-        const text = await recognizeSpeech();
-        setStatus('');
-        return text;
-      } catch {
-        setStatus('Spracheingabe fehlgeschlagen – Tastatur wird geöffnet.');
-      }
-    }
-    return new Promise((resolve) => {
-      keyboard.open(camera, {
-        onSubmit: (text) => resolve(text),
-        onCancel: () => {
-          setStatus('');
-          resolve(null);
-        },
+    // Der Befehls-Erkenner muss das Mikrofon abgeben, sonst streiten sich beide
+    // und der diktierte Text landet als Kommando.
+    voice.pause();
+    try {
+      return await new Promise((resolve) => {
+        keyboard.open(camera, {
+          onSubmit: (text) => resolve(text),
+          onCancel: () => {
+            setStatus('');
+            resolve(null);
+          },
+        });
       });
-    });
+    } finally {
+      voice.resume();
+    }
   }
   const input = document.getElementById('idea-input');
   const text = input.value.trim();
@@ -674,6 +843,58 @@ for (const [id, action] of Object.entries(DESKTOP_BUTTONS)) {
 document.getElementById('idea-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleAction('new');
 });
+updateFontButton();
+
+// Diktieren am Desktop: füllt das Eingabefeld, statt einen eigenen Dialog zu
+// öffnen – von dort geht es mit Enter oder jedem KI-Button ganz normal weiter.
+const dictateButton = document.getElementById('btn-dictate');
+let dictateAbort = null;
+
+async function toggleDesktopDictation() {
+  const input = document.getElementById('idea-input');
+  if (dictateAbort) {
+    dictateAbort.abort();
+    return;
+  }
+  if (!isSpeechAvailable()) {
+    setStatus(speechUnavailableReason(), 7000);
+    return;
+  }
+  const controller = new AbortController();
+  dictateAbort = controller;
+  voice.pause(); // nicht gleichzeitig auf Befehle horchen
+  const before = input.value.trim();
+  if (dictateButton) {
+    dictateButton.textContent = '🎙 Hört zu…';
+    dictateButton.classList.add('active');
+  }
+  setStatus('🎤 Sprich jetzt…', 0);
+  try {
+    const text = await recognizeSpeech({
+      signal: controller.signal,
+      onPartial: (partial) => {
+        input.value = before ? `${before} ${partial}` : partial;
+      },
+    });
+    input.value = before ? `${before} ${text}` : text;
+    input.focus();
+    setStatus('Diktat übernommen – Enter legt die Karte an.');
+  } catch (err) {
+    input.value = before;
+    setStatus(err.message, 6000);
+  } finally {
+    dictateAbort = null;
+    voice.resume();
+    if (dictateButton) {
+      dictateButton.textContent = '🎤 Diktieren';
+      dictateButton.classList.remove('active');
+    }
+  }
+}
+
+dictateButton?.addEventListener('click', toggleDesktopDictation);
+document.getElementById('btn-voice')?.addEventListener('click', () => handleAction('voice'));
+document.getElementById('btn-fontsize')?.addEventListener('click', () => handleAction('fontsize'));
 
 // --- Overlay ein-/ausklappen (Desktop) ---
 //
@@ -737,6 +958,7 @@ interactions.onCardPick = (card) => {
     return true;
   }
   const result = connectionManager.toggle(linkSource, card);
+  haptics.pulse('connect');
   commit(result === 'added' ? 'Verbindung erstellt' : 'Verbindung entfernt');
   setStatus(result === 'added' ? '🔗 Verbindung erstellt.' : 'Verbindung entfernt.');
   linkSource = null;
@@ -933,6 +1155,10 @@ setupXRButton();
 let recenterOnNextFrame = false;
 
 renderer.xr.addEventListener('sessionstart', () => {
+  // Spracherkennung für die Dauer der Sitzung sperren – siehe speech.js.
+  // Läuft ein Erkenner noch aus dem Desktop-Betrieb, wird er hier beendet.
+  setXRPresenting(true);
+  voice.stop();
   controls.enabled = false;
   locomotion.reset(); // Fortbewegungs-Rig zentriert starten
   if (xrMode === 'immersive-ar') {
@@ -950,6 +1176,7 @@ renderer.xr.addEventListener('sessionstart', () => {
 });
 
 renderer.xr.addEventListener('sessionend', () => {
+  setXRPresenting(false);
   controls.enabled = true;
   // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
   locomotion.reset();
@@ -1046,13 +1273,25 @@ renderer.setAnimationLoop(() => {
 });
 
 // Für schnelle Iteration & Headless-Tests
+// Baustand sichtbar machen (vite.config.js schreibt die Werte beim Bauen fest).
+// Damit lässt sich in einem Blick beantworten, ob eine Meldung den aktuellen
+// Code betrifft oder eine ältere, noch ausgelieferte Fassung.
+const BUILD = { commit: __BUILD_COMMIT__, date: __BUILD_DATE__ };
+{
+  const stamp = document.getElementById('build-stamp');
+  if (stamp) stamp.textContent = `Baustand ${BUILD.commit} · ${BUILD.date}`;
+}
+
 window.__app = {
+  build: BUILD,
   scene,
   camera,
   renderer,
   cardManager,
   connectionManager,
   keyboard,
+  systemKeyboard,
+  voice,
   wristMenu,
   whiteboard,
   zoneManager,

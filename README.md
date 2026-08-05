@@ -6,11 +6,14 @@ und Claude generiert auf Knopfdruck verwandte Ideen, Cluster-Vorschläge und
 Zusammenfassungen.
 
 **Stack:** Three.js + WebXR · Vite · Node/Express-Proxy für die Anthropic Messages API
-(Modell `claude-sonnet-4-6`, API-Key nur serverseitig).
+(Modell `claude-sonnet-5`, API-Key nur serverseitig).
 
 **Design:** „Soft Spatial Minimal" aus [claude.ai/design](https://claude.ai/design) –
 warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
-+ *Sora* (via Google Fonts; ohne Internet greift der System-Font-Fallback).
++ *Sora*. Beide werden über `@fontsource` **lokal mitgebaut** (`src/fonts.js`) und
+nicht vom Google-CDN geladen – die App sieht damit auch in Netzen ohne freien
+Internetzugang so aus wie gedacht. Dieselbe Schrift trägt auch die 3D-Panels:
+Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 
 ## Features
 
@@ -25,15 +28,51 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   **🌌 Nachthimmel** (Sternenfeld, Mond und natürlicher **Mars-Untergrund** mit
   Kratern, Felsen und Hügeln) → **🪷 Zen-Garten** (geharkter Sand, Koi-Teich mit
   Seerosen, Lotus & Wasser-Ringen, Bambushain, Kirschblüten- und Ahornbaum,
-  Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel) →
-  **🌐 Studio** (schlichter heller Verlauf) → **⬜ Konstrukt** (nahtloser,
-  komplett weißer Void im Stil des „Matrix“-Ladeprogramms – Kuppel und Boden im
-  selben Weißton, kein sichtbarer Horizont, gleichmäßiges schattenfreies Licht).
+  Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel).
+  Im Teich ziehen **zwei Koi** ihre Bahnen – Spindelkörper aus einem
+  Rotationsprofil, seitlich schmal und hochrückig, mit weichen Flossen,
+  wedelndem Schwanz und gefleckter Zeichnung als Canvas-Textur (Kohaku in
+  Weiß-Rot, Ogon in Orange-Weiß). Zuvor waren es fünf flachgedrückte Kugeln mit
+  Kegeln als Flossen, die im Wasser wie Bonbons mit Zacken aussahen.
+  Sie schwimmen **kopfvoran**: Die Blickrichtung ist die Tangente der Bahn,
+  abgeleitet aus der Position, nicht der Bahnwinkel plus ein fester Versatz.
+  Genau der war vorher drin – mit 90° daneben, sodass die Fische breitseits
+  durch den Teich zogen. Dazu eine leichte Schräglage in die Kurve und eine
+  mitgehende Nase beim Auf- und Abtauchen; einer zieht seine Runden im, der
+  andere gegen den Uhrzeigersinn. →
+  **⬜ Konstrukt** (nahtloser, komplett weißer Void im Stil des
+  „Matrix“-Ladeprogramms – Kuppel und Boden im selben Weißton, kein sichtbarer
+  Horizont, gleichmäßiges schattenfreies Licht). Darin steht die **Einrichtung
+  aus der Filmszene**, nachgebaut nach dem Standbild: zwei rote
+  **Ohrensessel** – hohe Lehne mit seitlichen Flügeln, dichte
+  Rautenknopfheftung, gerollte Armlehnen mit geschnitzter Holzrosette an der
+  Stirn und gedrechselte Vorderbeine – und die **AWA-„Radiola"-Konsole** im
+  Art-déco-Gehäuse auf einem niedrigen Ständer mit schräg gestellten Beinen.
+  Die Anordnung ist eine **benutzbare Sitzordnung**: Das Gerät steht vor den
+  Sesseln, die Bildröhre zeigt zu ihnen, und der Drehwinkel der Sessel wird
+  nicht geschätzt, sondern aus den Positionen gerechnet – wer darin sitzt, hat
+  den Bildschirm vor sich (**2,0 m Sitzabstand**, 5° Abweichung). Von vorn
+  sieht man deshalb die Schauseite mit dem auf der Spitze stehenden
+  „DEEP IMAGE"-Dreieck, genau wie im Standbild; das laufende Bild sieht, wer um
+  die Gruppe herumgeht oder sich in einen Sessel stellt. Beides gleichzeitig
+  geht nicht – Bildröhre und Schautafel liegen auf gegenüberliegenden Seiten
+  des Gehäuses.
+  Alles prozedural aus Geometrie und Canvas-Texturen: Die Ledernarbung ist eine
+  gerechnete Normal-Map, Emblem und Schriftzüge sind eine gemalte Tafel (als
+  Geometrie kosteten sie tausende Dreiecke für ein flaches Detail), das
+  Bildschirmbild ein animierter Canvas mit Scanlines, Rauschen und
+  durchlaufendem Bildstrich. Die Gruppe steht gut dreieinhalb Meter vor dem
+  Startpunkt, also hinter dem Halbkreis, in dem neue Karten erscheinen.
+  Das frühere **🌐 Studio** (schlichter heller Verlauf) ist entfernt: Es war vom
+  Konstrukt kaum zu unterscheiden – beides eine helle, leere Kuppel – und
+  verlängerte den Durchlauf des Buttons ohne erkennbaren Unterschied.
   Keine Umgebung hat ein Boden-Raster; filmisches Tone-Mapping, weiche
   Beleuchtung, gebackenes Vertex-Shading und gefälschte Kontaktschatten
   (Blob-Shadows) sorgen für Tiefe ohne teure Echtzeit-Schatten. Die Auswahl wird
-  gemerkt; eine reine VR-Session startet direkt in der zuletzt genutzten Umgebung
-  (sonst Himmelsinsel).
+  gemerkt (über die stabile `id` der Umgebung, nicht über ihre Position in der
+  Liste – ein gemerkter Index zeigt nach dem Entfernen einer Umgebung auf die
+  falsche Welt); eine reine VR-Session startet direkt in der zuletzt genutzten
+  Umgebung (sonst Himmelsinsel).
 - **Weltmaßstab:** Die Himmelsinsel ist 1:1 zum Nutzer bemaßt – Bäume rund 6 m,
   die Hauptinsel gut 40 m breit, Büsche auf Schulterhöhe. Sie war ursprünglich
   als Diorama modelliert (Bäume 1,6 m, Insel 10 m), wodurch man in VR wie ein
@@ -58,20 +97,26 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   Tracking-Aussetzer keinen Sprung auslöst.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
-- **Hand-Menü** (`src/wristMenu.js`) auf zwei Reitern à fünf Reihen, damit das
-  Panel trotz 19 Aktionen kompakt bleibt:
+- **Hand-Menü** (`src/wristMenu.js`) auf zwei Reitern à sechs Reihen, damit das
+  Panel trotz 21 Aktionen kompakt bleibt. Die kürzere Seite wird im Panel
+  vertikal zentriert, damit unten keine leere Reihe klafft:
   - **💡 Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
-    *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Karte löschen*
+    *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Schrift*,
+    *Karte löschen*
   - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
-    *Umgebung*, *Sichern*, *Laden*, *Als Datei*, *Alles löschen* (mit
-    Zweifach-Bestätigung)
+    *Umgebung*, *Sprachbefehle*, *Sichern*, *Laden*, *Als Datei*,
+    *Alles löschen* (mit Zweifach-Bestätigung)
 
   Das Menü sitzt **mit Controllern** über dem Handrücken der linken Hand und
   reicht nach vorn ins Blickfeld (statt hinter dem Handgelenk Richtung
   Ellenbogen). **Ohne Controller** – also bei Hand-Tracking – schwebt es
   verkleinert über der **offenen Handfläche** und blendet sich automatisch ein,
   sobald die flache Hand zum Gesicht zeigt; bei Faust oder abgewandter Hand
-  verschwindet es wieder. Buttons werden mit dem Ray der anderen Hand
+  verschwindet es wieder. Dort liegt es nicht flach auf, sondern ist um gut 35°
+  **aufgestellt** (`PALM_TILT`) – plan auf der Hand schaut man von schräg oben
+  darauf, die Beschriftungen stehen stark verkürzt und die untere Reihe ist am
+  schlechtesten zu treffen. Gekippt wird um die Unterkante, damit das Panel
+  aufklappt statt in die Handfläche einzutauchen. Buttons werden mit dem Ray der anderen Hand
   angevisiert und per Trigger bzw. Pinch geklickt. Die Hände werden bei
   Hand-Tracking als Gelenk-Kugeln dargestellt (prozedural, ohne externe Assets).
 - **Undo/Redo:** Vollständiger Verlauf über *Anlegen, Löschen, „Alles löschen",
@@ -92,7 +137,13 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   - **Cluster anwenden:** Claude gruppiert die vorhandenen Karten thematisch –
     die Karten werden räumlich in Cluster-Spalten sortiert, pro Cluster
     eingefärbt und mit einer 📌-Titelkarte versehen.
-  - **Zusammenfassen:** Das ganze Board als eine Karte.
+  - **Zusammenfassen:** Das ganze Board als eine Karte – bewusst **größer**
+    (1,7×) und neutral eingefärbt, damit sie sich vom Ideenfeld absetzt. Eine
+    Zusammenfassung ist deutlich länger als eine Idee; auf Ideengröße war sie
+    bisher nach rund hundert Zeichen mit „…" zu Ende. Der Prompt begrenzt sie
+    zusätzlich auf 280 Zeichen, und Kartentext wird generell **verkleinert statt
+    abgeschnitten** (`shrinkToFit` in `src/textPanel.js`, bis auf die halbe
+    Basisgröße herunter).
   - **😈 Kritiker (Advocatus Diaboli):** Nennt 3–5 kritische Einwände, Risiken
     oder Gegenargumente zur ausgewählten Karte – als rote Karten.
 
@@ -119,9 +170,87 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 - **Verbindungslinien (Mindmap):** Karte auswählen → „🔗 Verbinden“ (Menü bzw.
   Rechtsklick → „Verbinden mit…“) → Ziel-Karte anklicken. Nochmal verbinden
   entfernt die Linie; Esc bricht ab. Linien folgen den Karten beim Verschieben.
-- **Texteingabe:** Web Speech API (Deutsch), Fallback auf eine virtuelle
-  3D-Tastatur. *Hinweis: Der Quest-Browser unterstützt die Web Speech API derzeit
-  nicht – dort öffnet sich automatisch die Tastatur.*
+- **Texteingabe – Tastatur und Diktat** (`src/keyboard.js`, `src/speech.js`):
+  In XR öffnet sich die virtuelle 3D-Tastatur im deutschen Layout (Umlaute, ß,
+  Satzzeichen, Umschalttaste für genau ein Zeichen wie auf dem Handy). Optisch
+  gehört sie jetzt zum Rest der App: abgerundetes Glas-Panel mit Amber-Rahmen,
+  weich abgerundete Tasten, gleiche Farbwelt wie Hand-Menü und
+  Whiteboard-Leiste.
+  **Wer nicht tippen will, drückt „🎤 Sprechen"** – dann wird direkt ins
+  Eingabefeld diktiert, Zwischenergebnisse laufen live mit, und ein zweiter
+  Druck bricht ab. Am Desktop macht der Knopf **„🎤 Diktieren"** im Overlay
+  dasselbe mit dem Ideen-Feld.
+  Der Diktat-Versuch läuft **nicht** mehr automatisch vor der Tastatur: Auf der
+  Quest scheitert er zuverlässig, und die Wartezeit bis zum Fehlschlag verzögerte
+  bisher jede Eingabe.
+- **Diktieren auf der Quest – über die Systemtastatur** (`src/systemKeyboard.js`):
+  Der Quest-Browser hat **keine funktionierende Web Speech API**. Er stellt
+  `webkitSpeechRecognition` zwar bereit – er ist Chromium-basiert –, aber
+  darunter liegt nichts: Horizon OS ist ein abgespecktes Android ohne
+  Spracherkennungsdienst. Ein `recognition.start()` läuft dort nicht ins Leere,
+  sondern **riss den ganzen Browser mit**; das war der Absturz beim Druck auf
+  „🎤 Sprechen". Eine Prüfung auf „gibt es den Konstruktor?" hilft dagegen
+  nicht, weil es ihn ja gibt – deshalb erkennt `isHeadsetBrowser()` das Gerät
+  am User-Agent und blendet die API auf Brillen-Browsern **komplett** aus.
+  Damit ist auch das Dauer-Zuhören dort abgeschaltet.
+  Weil eine Zeichenkette im User-Agent eine wacklige Grundlage für etwas ist,
+  das den Browser abschießt (aus „Oculus Browser" wurde 2024 „Meta Quest
+  Browser"), kommt eine zweite, gerätunabhängige Sperre dazu: `setXRPresenting()`
+  schaltet die Erkennung **für die Dauer jeder immersiven Sitzung** ab, egal auf
+  welchem Gerät. Auf autarken Brillen fehlt der Dienst dahinter, und selbst wo
+  es ihn gibt, lässt sich die Mikrofon-Abfrage in einer immersiven Sitzung nicht
+  anzeigen.
+  Die **Brille** kann aber sehr wohl Sprache-zu-Text – nur
+  eben ausschließlich in ihrer eigenen Systemtastatur, über deren
+  Mikrofon-Taste. Genau die wird jetzt angezapft: Ist
+  `XRSession.isSystemKeyboardSupported` wahr, öffnet „🎤 Sprechen" per
+  DOM-`focus()` die Systemtastatur mitten in der laufenden Sitzung. Dort einmal
+  auf 🎤 tippen, sprechen, Tastatur schließen – der Text landet im Vorschaufeld
+  der 3D-Tastatur und kann dort weiterbearbeitet werden.
+  Zwei dokumentierte Eigenheiten prägen die Umsetzung: Es gibt **keine
+  Tastendruck-Ereignisse** (der Wert des Feldes wird deshalb zusätzlich
+  gepollt), und jeder **erste Tastendruck überschreibt den gesamten
+  Feldinhalt** – vorbelegt wird darum nie, das Ergebnis wird angehängt. Solange
+  die Systemtastatur oben liegt, steht die Sitzung auf `visible-blurred`; an
+  diesem Wechsel erkennt die App Auf- und Zugehen. Die Systemtastatur hat
+  **Vorrang** vor der Web Speech API, nicht nur die Rolle des Ersatzes – sonst
+  käme auf der Brille wieder der Erkenner zuerst dran.
+  Weil ein `focus()` in einer laufenden immersiven Sitzung tief in den Browser
+  greift und ein `try/catch` einen Absturz nicht auffängt, wird unmittelbar
+  davor ein **Merkzettel** in `localStorage` gelegt und beim Aufgehen der
+  Tastatur gelöscht. Findet die App ihn beim nächsten Start noch vor, hat der
+  letzte Versuch nicht überlebt – dann bleibt dieser Weg zu und die virtuelle
+  Tastatur übernimmt, statt den Nutzer erneut aus der Sitzung zu werfen
+  (`window.__app.systemKeyboard.reset()` hebt die Sperre auf).
+  *Voraussetzung: Die Sprachdiktierung muss in den Quest-Einstellungen einmalig
+  aktiviert worden sein (beim ersten 🎤-Antippen fragt die Brille danach).*
+- **🎙 Sprachbefehle** (`src/speech.js`): dauerhaftes Zuhören, abschaltbar über
+  Menü („🗂 Board" → *Sprachbefehle*) bzw. den Overlay-Knopf – **standardmäßig
+  aus**, ein ungefragt mithörendes Mikrofon will niemand. Erkannt werden u. a.
+  *„neue Karte …"*, *„Thema …"*, *„verwandte Ideen"*, *„Kritiker"*, *„Cluster"*,
+  *„zusammenfassen"*, *„verbinden"*, *„Karte löschen"*, *„rückgängig"*,
+  *„Umgebung"*, *„Schrift"*. Bei *„neue Karte"* und *„Thema"* wird das
+  Gesprochene direkt als Text übernommen – *„neue Karte Fahrradständer bauen"*
+  legt die beschriftete Karte in einem Rutsch an.
+  Ein Befehl zählt nur **am Satzanfang** und ohne Nachgeplapper, damit ein
+  beiläufiges „…das können wir alles löschen…" im Gespräch nichts auslöst.
+  Während eines Diktats pausiert die Befehlserkennung – zwei Erkenner streiten
+  sich sonst um das Mikrofon.
+  *Hinweis: Die Web Speech API ist browserabhängig. Chrome/Edge am Desktop können
+  sie, der Quest-Browser nicht. **Dauerhafte Sprachbefehle gibt es auf der Quest
+  deshalb nicht** – die Systemtastatur kann nur einzelne Eingaben diktieren, kein
+  Dauer-Zuhören. Die App sagt das im Klartext statt still zu scheitern und
+  verweist auf „🎤 Sprechen".*
+- **🔠 Kartenschrift** (Barrierefreiheit): drei Stufen (*Normal · Groß · Sehr
+  groß*) über „🔠 Schrift" im Menü bzw. den Knopf im Overlay. Angepasst wird nur
+  die Textgröße, die Kartenfläche bleibt gleich; die Stufe gilt auch für neue
+  Karten und überdauert einen Reload.
+- **Haptik in VR** (`src/haptics.js`): kurzes Controller-Rumble beim Greifen und
+  Ablegen von Karten, bei Menü-Klicks, beim Verbinden, Löschen und bei einer
+  Fehlerkarte. Bewusst sehr kurz (14–70 ms) – alles darüber fühlt sich wie eine
+  Fehlermeldung an statt wie eine Bestätigung. Läuft über
+  `gamepad.hapticActuators` mit `playEffect` als Rückfall; ohne Unterstützung
+  passiert schlicht nichts.
 - **📋 Whiteboard:** Ein zeichenbares Board im Raum (ein-/ausblenden über Menü
   bzw. Overlay-Button). Werkzeugleiste mit **Stift, Marker (halbtransparent),
   Radierer, 6 Farben, 3 Strichstärken, Formen (Linie/Rechteck/Kreis mit
@@ -156,7 +285,12 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
   (Orbit), Karten per Klick auswählen und ziehen, alle Aktionen über das Overlay
   links oben. Ideal zum schnellen Iterieren. Das Overlay ist auf die Fensterhöhe
   begrenzt und **scrollt bei Bedarf selbst**, damit auch auf niedrigen Fenstern
-  alle Bedienelemente bis hinunter zum XR-Button erreichbar bleiben. Es lässt
+  alle Bedienelemente bis hinunter zum XR-Button erreichbar bleiben. Gescrollt
+  wird dabei ein innerer Container (`#overlay-scroll`); das Panel selbst
+  schneidet ab. Vorher lag die Bildlaufleiste direkt auf dem Panel – ihre
+  Pfeil-Knöpfe sitzen ganz oben und unten in der Spur und ragten damit sichtbar
+  in die runden Ecken hinaus. Jetzt sind die Pfeile abgeschaltet, die Spur hält
+  Abstand zu den Ecken, und der Balken ist ein schmaler, abgerundeter Griff. Es lässt
   sich über den Knopf rechts daneben oder mit **M** ein- und ausklappen –
   eingeklappt bleibt nur der Knopf stehen und das Board bekommt die volle
   Fläche. Der Zustand wird gemerkt und gilt auch nach einem Reload.
@@ -173,11 +307,15 @@ warmes Anthrazit-Glas mit einem Amber-Akzent (`#ffb454`), Fonts *Space Grotesk*
 │   ├── wristMenu.js        Menü-Panel an Controller bzw. Handfläche
 │   ├── history.js          Undo/Redo (Board-Snapshots)
 │   ├── hud.js              Statuszeile, Ladeanzeige und Fehlerkarte im Blickfeld
-│   ├── keyboard.js         Virtuelle 3D-Tastatur (Fallback)
-│   ├── speech.js           Web Speech API Wrapper
+│   ├── keyboard.js         Virtuelle 3D-Tastatur mit Diktat-Knopf
+│   ├── speech.js           Diktat + Sprachbefehle (Web Speech API)
+│   ├── systemKeyboard.js   Systemtastatur der Brille – Diktat-Weg auf der Quest
+│   ├── haptics.js          Controller-Rumble (Greifen, Klick, Verbinden, Löschen)
+│   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
 │   ├── boardState.js       JSON-Export/-Import, Sicherungspunkte + Autosave
-│   ├── environments.js     Fünf prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Studio, Konstrukt)
+│   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt
+│   │                       inkl. Matrix-Sitzgruppe: Ohrensessel + Radiola-Konsole)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
 │   ├── zones.js            Räumliche Zonen/Rahmen zum Gruppieren von Karten
 │   ├── timer.js            Schwebende Timebox-Uhr mit Gong
@@ -216,6 +354,9 @@ Einfach `https://localhost:5173` öffnen:
 | **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
+| **Diktieren** | **„🎤 Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen) |
+| **Sprachbefehle** | **„🎙 Sprachbefehle"** im Overlay ein-/ausschalten |
+| **Kartenschrift** | **„Schrift: …"** im Overlay – Normal → Groß → Sehr groß |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |
 | Karte löschen | **Rechtsklick → „Karte löschen“** oder **Entf/Backspace** bei ausgewählter Karte |
@@ -261,6 +402,19 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 3. Deployen und die `https://….netlify.app`-URL im Quest-Browser öffnen –
    echtes Zertifikat, keine Warnung.
 
+**Netlify baut nur den Produktions-Branch.** Arbeit auf einem Feature-Branch
+liegt auf der Brille nicht an, solange sie nicht gemerged ist – das ist keine
+Kleinigkeit, sondern hat schon eine ganze Fehlersuche gekostet: Ein gemeldeter
+Absturz war längst behoben, nur lief auf der Brille noch eine Woche alte
+Fassung.
+
+Damit das nicht wieder passiert, steht der Baustand **unten im Overlay**
+(„Baustand `a1b2c3d` · Datum") und in `window.__app.build`. Der Wert kommt beim
+Bauen aus Netlifys `COMMIT_REF` bzw. lokal aus `git rev-parse` (siehe
+`vite.config.js`). Bei jeder Fehlermeldung zuerst dort nachsehen: Passt die
+Kennung nicht zum erwarteten Commit, ist der Fehler nicht im Code, sondern im
+Deployment.
+
 ### Bedienung in VR/MR
 
 | Aktion | Bedienung |
@@ -274,8 +428,11 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Menü **ohne Controller** | **Handfläche öffnen und zum Gesicht drehen** – das Menü erscheint darüber (linke Hand bevorzugt, die rechte geht genauso). Klicken per **Pinch** (Daumen + Zeigefinger) der anderen Hand |
 | Bewegen **ohne Controller** | **Ins Leere pinchen und die Hand bewegen** = sich an der Welt entlangziehen · **beide Hände** = zusätzlich drehen |
 | Menüseite wechseln | Reiter **„💡 Ideen“** bzw. **„🗂 Board“** oben im Panel antippen |
-| Neue Karte | Menü → „＋ Neue Karte“ → sprechen bzw. virtuelle Tastatur |
+| Neue Karte | Menü → „＋ Neue Karte“ → Tastatur öffnet sich; **„🎤 Sprechen"** diktiert statt zu tippen |
+| **Diktieren (Quest)** | „🎤 Sprechen“ öffnet die **Systemtastatur der Brille** → dort **🎤 antippen, sprechen, Tastatur schließen** – der Text steht in der 3D-Tastatur |
 | Themen-Start | Menü → „🚀 Themen-Start“ → Thema sprechen/tippen |
+| **Sprachbefehle** | Menü → „🗂 Board“ → **„🎙 Sprachbefehle“** (der Knopf leuchtet, solange zugehört wird) – **am Desktop**; der Quest-Browser kann kein Dauer-Zuhören |
+| **Kartenschrift** | Menü → „💡 Ideen“ → **„🔠 Schrift“** (Normal → Groß → Sehr groß) |
 | Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
@@ -285,7 +442,7 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Board als Datei | Menü → „🗂 Board“ → „⬇️ Als Datei“ (liegt nach der Sitzung in den Downloads) |
 | Fehlerkarte schließen | Die rote Karte im Blickfeld antippen (verschwindet sonst nach 10 s) |
 | Zone / Timer | Menü → „🗂 Board“ → „🗂️ Zone“ bzw. „⏱️ Timer“ |
-| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Studio → Konstrukt) |
+| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Konstrukt) |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
 Die Platzierung des Menüs lässt sich in `src/wristMenu.js` über die Konstanten
@@ -341,9 +498,29 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   getrackt werden, sind im Quest-System die Handbewegungen einzuschalten und die
   Controller abzulegen (`hand-tracking` wird als optionales WebXR-Feature
   angefragt).
-- **Spracheingabe reagiert nicht:** Der Quest-Browser unterstützt die Web Speech
-  API nicht – die virtuelle Tastatur öffnet sich automatisch. Am Desktop braucht
-  Chrome eine Mikrofon-Freigabe.
+- **Diktieren auf der Quest tut nichts:** „🎤 Sprechen" öffnet dort die
+  **Systemtastatur der Brille**; das Diktat läuft über deren 🎤-Taste, nicht
+  über die App. Kommt die Systemtastatur nicht hoch, meldet die App
+  „Systemtastatur meldet sich nicht". Häufigste Ursachen: die Sprachdiktierung
+  ist in den Quest-Einstellungen noch nicht aktiviert (*Einstellungen → Tastatur
+  → Sprachdiktierung*), oder der Browser ist zu alt für
+  `XRSession.isSystemKeyboardSupported`. Dauer-Zuhören („🎙 Sprachbefehle") ist
+  auf der Quest technisch nicht möglich.
+- **„Systemtastatur abgeschaltet – der letzte Versuch hat den Browser
+  beendet":** Der Merkzettel aus `localStorage` hat angeschlagen (s. o.).
+  Tippen geht weiter; freigeben lässt sich der Weg mit
+  `window.__app.systemKeyboard.reset()` in der Konsole – sinnvoll etwa nach
+  einem Browser-Update.
+- **Spracheingabe reagiert nicht:** Die Web Speech API ist browserabhängig. Der
+  Quest-Browser unterstützt sie nicht – dort übernimmt die Systemtastatur
+  (siehe oben). Am Desktop braucht Chrome/Edge eine
+  **Mikrofon-Freigabe** (Adressleiste → Mikrofon zulassen) und eine
+  Internetverbindung, weil die Erkennung serverseitig läuft – offline meldet sie
+  „Spracherkennung braucht Internet". Firefox kann sie gar nicht.
+- **Sprachbefehl wird nicht erkannt:** Ein Kommando zählt nur am **Satzanfang**
+  und ohne Zusatz dahinter – „Cluster" wirkt, „mach mal Cluster" und „Cluster
+  bitte" nicht. Ausnahmen sind „neue Karte …" und „Thema …", bei denen alles
+  Folgende als Text übernommen wird.
 - **In VR sind nur das Menü, aber keine Karten sichtbar:** Beim Session-Start
   werden alle Karten automatisch in einem Halbkreis vor dich geholt (sobald die
   Headset-Pose bekannt ist). Falls sie mal außer Sicht geraten (z. B. weit

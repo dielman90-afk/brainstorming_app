@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
 
-// Das Menü ist auf zwei Reiter aufgeteilt: 19 Aktionen untereinander wären ein
-// über 70 cm hohes Panel an der Hand. Zwei Seiten à fünf Reihen bleiben
+// Das Menü ist auf zwei Reiter aufgeteilt: 21 Aktionen untereinander wären ein
+// über 80 cm hohes Panel an der Hand. Zwei Seiten à sechs Reihen bleiben
 // kompakt und sind auch verkleinert auf der Handfläche noch lesbar.
 const PAGES = [
   {
@@ -17,6 +17,7 @@ const PAGES = [
       { id: 'summary', label: '📝 Zusammenfassen' },
       { id: 'color', label: '🎨 Farbe' },
       { id: 'connect', label: '🔗 Verbinden' },
+      { id: 'fontsize', label: '🔠 Schrift' },
       { id: 'delete', label: '🗑️ Karte löschen', danger: true },
     ],
   },
@@ -30,6 +31,7 @@ const PAGES = [
       { id: 'timer', label: '⏱️ Timer' },
       { id: 'whiteboard', label: '📋 Whiteboard' },
       { id: 'environment', label: '🌐 Umgebung' },
+      { id: 'voice', label: '🎙 Sprachbefehle' },
       { id: 'save', label: '💾 Sichern' },
       { id: 'load', label: '📂 Laden' },
       { id: 'export', label: '⬇️ Als Datei' },
@@ -65,6 +67,13 @@ const GRIP_TILT_X = -Math.PI / 3;
 const PALM_SCALE = 0.6;
 const PALM_LIFT = 0.05; // Abstand über der Handfläche
 const PALM_FORWARD = 0.03; // leicht Richtung Finger, damit das Handgelenk frei bleibt
+
+// Aufstellwinkel gegenüber der Handfläche. Plan auf der Hand liegend schaut man
+// von schräg oben auf das Panel: Die Beschriftungen stehen dann stark verkürzt
+// und die untere Reihe ist am schlechtesten zu treffen. Aufgestellt wie ein
+// Laptop-Deckel steht die Fläche dem Blick zugewandt.
+const PALM_TILT = 0.62; // rad, gut 35°
+
 
 // Ein-/Ausblenden mit Hysterese, sonst flackert das Menü an der Schwelle.
 // Die Schwellen sind bewusst großzügig: Handtracking rauscht, und ein Menü,
@@ -151,6 +160,7 @@ export class WristMenu {
     this.mode = null; // 'grip' | 'palm' | null
     this.attachedHand = null;
     this.sources = new Map(); // handedness -> { handedness, grip, hand }
+    this.buttonsById = new Map(); // Aktions-ID -> { panel, base, hover }
     this._palmVisible = false;
 
     this._v1 = new THREE.Vector3();
@@ -174,6 +184,9 @@ export class WristMenu {
     const panelW = 2 * BTN_W + GAP_X + PAD * 2;
     const panelH =
       PAD + HEADER_H + 0.006 + TAB_H + 0.012 + rows * BTN_H + (rows - 1) * GAP_Y + PAD;
+    // Die Handflächen-Platzierung braucht die Höhe, um den Aufstellwinkel
+    // auszugleichen (siehe PALM_TILT).
+    this.panelHeight = panelH;
 
     const panel = makeRoundedPanel(panelW, panelH, {
       fill: COLORS.panelFill,
@@ -234,11 +247,16 @@ export class WristMenu {
     const gridTopY = tabY - TAB_H / 2 - 0.012 - BTN_H / 2;
     const colX = (BTN_W + GAP_X) / 2;
 
-    this.pageButtons = PAGES.map((page) =>
-      page.actions.map((action, i) => {
+    this.pageButtons = PAGES.map((page) => {
+      // Die Seiten sind unterschiedlich lang (10 bzw. 11 Aktionen). Das Panel
+      // ist auf die längere ausgelegt; die kürzere wird im freien Raum
+      // zentriert, sonst klafft unten eine ganze leere Reihe.
+      const pageRows = Math.ceil(page.actions.length / 2);
+      const centerOffset = ((rows - pageRows) * (BTN_H + GAP_Y)) / 2;
+      return page.actions.map((action, i) => {
         const row = Math.floor(i / 2);
         const x = (i % 2 === 0 ? -1 : 1) * colX;
-        const y = gridTopY - row * (BTN_H + GAP_Y);
+        const y = gridTopY - centerOffset - row * (BTN_H + GAP_Y);
         const base = action.danger ? COLORS.dangerBase : COLORS.base;
         const hover = action.danger ? COLORS.dangerHover : COLORS.hover;
 
@@ -258,14 +276,30 @@ export class WristMenu {
         button.mesh.position.set(x, y, 0.002);
         flatLayer(button.mesh, 21);
         button.mesh.userData.onClick = () => this.onAction(action.id);
+        // Umschaltbare Aktionen (z. B. Sprachbefehle) färben sich, solange sie
+        // aktiv sind – setActionActive() hinterlegt dafür die Farben.
+        const entry = { panel: button, base, hover };
         button.mesh.userData.setHover = (hovered) =>
-          button.setColors({ background: hovered ? hover : base });
+          button.setColors({ background: hovered ? entry.hover : entry.base });
+        this.buttonsById.set(action.id, entry);
         this.group.add(button.mesh);
         return button.mesh;
-      })
-    );
+      });
+    });
 
     this.setPage(0);
+  }
+
+  // Dauerzustand einer Aktion anzeigen (an = Amber-Fläche mit dunkler Schrift).
+  setActionActive(id, active) {
+    const entry = this.buttonsById.get(id);
+    if (!entry) return;
+    entry.base = active ? COLORS.tabActive : COLORS.base;
+    entry.hover = active ? COLORS.tabActive : COLORS.hover;
+    entry.panel.setColors({
+      background: entry.base,
+      color: active ? COLORS.accent : COLORS.text,
+    });
   }
 
   // Anklickbare Elemente: Reiter plus die Buttons der sichtbaren Seite.
@@ -433,9 +467,16 @@ export class WristMenu {
     this.attachedHand = source.handedness;
     this._basis.makeBasis(this._right, this._forward, this._normal);
     this.group.quaternion.setFromRotationMatrix(this._basis);
+    // Um die Querachse aufstellen, sodass die Oberkante zum Gesicht kippt.
+    this.group.rotateX(PALM_TILT);
+
+    // Gedreht wird um die Panelmitte – ohne Ausgleich taucht die Unterkante
+    // dabei in die Handfläche ein. Der Zuschlag hebt sie wieder heraus, das
+    // Panel klappt also um seine Unterkante auf statt um seinen Mittelpunkt.
+    const tiltLift = (this.panelHeight * PALM_SCALE * Math.sin(PALM_TILT)) / 2;
     this.group.position
       .copy(palmCenter)
-      .addScaledVector(this._normal, PALM_LIFT)
+      .addScaledVector(this._normal, PALM_LIFT + tiltLift)
       .addScaledVector(this._forward, PALM_FORWARD);
     this.group.scale.setScalar(PALM_SCALE);
     this.group.visible = true;

@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-// Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
+// Vier umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
 //   🌌 Nachthimmel  – Sternenfeld, Mond und rötlicher Mars-Untergrund
 //   🪷 Zen-Garten   – ruhige Kies-/Steinlandschaft
-//   🌐 Studio       – die schlichte helle Gradient-Umgebung
 //   ⬜ Konstrukt    – nahtloser, komplett weißer Void („Matrix"-Ladeprogramm)
+//
+// Das frühere „🌐 Studio" (heller Verlauf mit weichem Boden) ist entfernt: Es war
+// vom Konstrukt kaum zu unterscheiden – beides eine helle, leere Kuppel – und
+// verlängerte den Durchlauf des 🌐-Buttons ohne erkennbaren Unterschied.
 // Jede Umgebung: { id, name, background, group, update?(time) }
 // Keine Umgebung besitzt ein Boden-Raster.
 
@@ -108,6 +111,7 @@ function makeBlobShadow(radius = 0.5, opacity = 1, y = 0.012) {
       toneMapped: false,
     })
   );
+  mesh.name = 'blob-shadow';
   mesh.rotation.x = -Math.PI / 2;
   mesh.scale.setScalar(radius * 2);
   mesh.position.y = y;
@@ -1362,6 +1366,181 @@ function makeLotus() {
   return g;
 }
 
+// --- Koi ---
+//
+// Die erste Fassung war eine flachgedrückte Kugel mit Kegeln als Flossen; im
+// Wasser sah das aus wie ein Bonbon mit Zacken. Ein Koi liest sich über drei
+// Dinge: eine spindelförmige Silhouette, die seitlich schmal und in der Höhe
+// kräftig ist, weiche Flossen statt spitzer Kegel, und das gefleckte Muster.
+// Das Muster kommt als Canvas-Textur – als Geometrie wären die Flecken teuer
+// und würden trotzdem hart abgesetzt wirken.
+
+// Kohaku (weiß mit roten Platten) bzw. Ogon (orange mit weißer Zeichnung).
+function makeKoiTexture(variant) {
+  const w = 256;
+  const h = 128;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  const base = variant === 0 ? '#f6f2ee' : '#e8873a';
+  const spot = variant === 0 ? '#d8452a' : '#f7f3ec';
+  const seed = variant === 0 ? 4711 : 1907;
+  const rand = mulberry32(seed);
+
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, w, h);
+
+  // Weiche, unregelmäßige Platten. Jede wird zusätzlich um ±w versetzt
+  // gezeichnet, damit die Textur am Umfang nahtlos bleibt.
+  const blob = (cx, cy, r) => {
+    for (const dx of [-w, 0, w]) {
+      ctx.beginPath();
+      const steps = 14;
+      for (let i = 0; i <= steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const rr = r * (0.68 + rand() * 0.5);
+        const x = cx + dx + Math.cos(a) * rr * 1.35;
+        const y = cy + Math.sin(a) * rr;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+  };
+  ctx.fillStyle = spot;
+  const plates = variant === 0 ? 5 : 4;
+  for (let i = 0; i < plates; i++) {
+    blob(30 + rand() * (w - 60), 20 + rand() * (h - 40), 16 + rand() * 20);
+  }
+
+  // Dunkler Rücken, heller Bauch: v läuft über den Umfang, oben liegt bei v≈0.25
+  const shade = ctx.createLinearGradient(0, 0, 0, h);
+  shade.addColorStop(0, 'rgba(20,14,10,0.22)');
+  shade.addColorStop(0.45, 'rgba(255,255,255,0)');
+  shade.addColorStop(1, 'rgba(255,255,255,0.35)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, w, h);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+// Flosse als flache, weiche Form. Die Punkte beschreiben die Silhouette in der
+// XY-Ebene (x = nach hinten), gedreht liegt sie längs im Wasser.
+function makeKoiFin(points, material) {
+  const shape = new THREE.Shape();
+  shape.moveTo(points[0][0], points[0][1]);
+  for (let i = 1; i < points.length - 1; i++) {
+    const [cx, cy] = points[i];
+    const [nx, ny] = points[i + 1];
+    shape.quadraticCurveTo(cx, cy, (cx + nx) / 2, (cy + ny) / 2);
+  }
+  shape.closePath();
+  const geometry = new THREE.ShapeGeometry(shape, 10);
+  geometry.rotateY(Math.PI / 2); // in die Längsebene des Fisches stellen
+  return new THREE.Mesh(geometry, material);
+}
+
+function makeKoi(variant) {
+  const koi = new THREE.Group();
+  const L = 0.34; // Körperlänge
+
+  // Spindelprofil: schlanker Kopf, kräftige Mitte, dünner Schwanzstiel.
+  // y ist die Längsachse (Kopf +), x der Radius.
+  const profile = [
+    [0.004, -L / 2],
+    [0.018, -L / 2 + 0.03],
+    [0.032, -L / 2 + 0.07],
+    [0.04, -L / 2 + 0.12],
+    [0.046, -L / 2 + 0.17],
+    [0.047, -L / 2 + 0.21],
+    [0.043, -L / 2 + 0.26],
+    [0.033, -L / 2 + 0.3],
+    [0.02, -L / 2 + 0.33],
+    [0.006, L / 2],
+  ].map(([x, y]) => new THREE.Vector2(x, y));
+
+  const bodyGeo = new THREE.LatheGeometry(profile, 22);
+  bodyGeo.rotateX(Math.PI / 2); // Längsachse von Y nach Z, Kopf nach +Z
+  const body = new THREE.Mesh(
+    bodyGeo,
+    new THREE.MeshStandardMaterial({
+      map: makeKoiTexture(variant),
+      roughness: 0.34,
+      metalness: 0.05,
+    })
+  );
+  // Fische sind seitlich schmal und hochrückig – ohne das bliebe die Drehfigur
+  // ein Schlauch.
+  body.scale.set(0.6, 1.18, 1);
+  koi.add(body);
+
+  const finMat = new THREE.MeshStandardMaterial({
+    color: variant === 0 ? 0xffe9dc : 0xffd9b4,
+    roughness: 0.5,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.82,
+    side: THREE.DoubleSide,
+  });
+
+  // Schwanz mit eigenem Pivot (wedelt) – zweilappig, nicht spitz
+  const tailPivot = new THREE.Group();
+  tailPivot.position.z = -L / 2 + 0.01;
+  const tail = makeKoiFin(
+    [
+      [0, 0], [0.05, 0.07], [0.12, 0.085], [0.13, 0.05],
+      [0.07, 0.005], [0.13, -0.05], [0.12, -0.085], [0.05, -0.07],
+    ],
+    finMat
+  );
+  tailPivot.add(tail);
+  koi.add(tailPivot);
+
+  // Rückenflosse
+  const dorsal = makeKoiFin(
+    [[0, 0], [0.05, 0.045], [0.11, 0.05], [0.15, 0.01], [0.08, 0]],
+    finMat
+  );
+  dorsal.position.set(0, 0.048, 0.03);
+  koi.add(dorsal);
+
+  // Afterflosse
+  const anal = makeKoiFin([[0, 0], [0.04, -0.03], [0.08, -0.035], [0.1, -0.005]], finMat);
+  anal.position.set(0, -0.042, -0.05);
+  koi.add(anal);
+
+  // Brustflossen, leicht nach hinten und unten gestellt
+  for (const side of [-1, 1]) {
+    const pec = makeKoiFin([[0, 0], [0.05, -0.02], [0.09, -0.045], [0.07, 0]], finMat);
+    pec.position.set(side * 0.028, -0.012, 0.06);
+    // Um die Längsachse gekippt, damit die Flosse seitlich absteht statt
+    // senkrecht wie ein zweites Segel am Bauch zu stehen
+    pec.rotation.z = side * 1.05;
+    koi.add(pec);
+  }
+
+  // Augen
+  const eyeGeo = new THREE.SphereGeometry(0.0085, 8, 6);
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0x16110d, roughness: 0.25 });
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(eyeGeo, eyeMat);
+    eye.position.set(side * 0.024, 0.012, L / 2 - 0.055);
+    koi.add(eye);
+  }
+
+  // Gieren (y) vor Nicken (x) auswerten – sonst kippt der Fisch beim Auf- und
+  // Abtauchen je nach Kurs zusätzlich zur Seite.
+  koi.rotation.order = 'YXZ';
+  koi.userData = { tail: tailPivot };
+  return koi;
+}
+
 function createZenEnvironment() {
   const rand = mulberry32(70707070);
   const group = new THREE.Group();
@@ -1502,38 +1681,13 @@ function createZenEnvironment() {
     group.add(ring);
     ripples.push(ring);
   }
-  // Koi-Fische (mit Flossen, Fleck, Schwanzwedeln)
+  // Zwei Koi ziehen ihre Bahnen im Teich
   const kois = [];
-  const koiColors = [0xff7a3d, 0xffffff, 0xffb066, 0xff6a5a, 0xffd0a0];
-  for (let i = 0; i < 5; i++) {
-    const koi = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({ color: koiColors[i % koiColors.length], roughness: 0.55, metalness: 0 });
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.12, 12, 8), bodyMat);
-    body.scale.set(0.5, 0.26, 1);
-    koi.add(body);
-    // Schwanz mit eigenem Pivot (wedelt)
-    const tailPivot = new THREE.Group();
-    tailPivot.position.z = -0.11;
-    const tail = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.16, 6), bodyMat);
-    tail.rotation.x = -Math.PI / 2;
-    tail.position.z = -0.06;
-    tail.scale.set(1, 0.35, 1);
-    tailPivot.add(tail);
-    koi.add(tailPivot);
-    // Seitenflossen
-    for (const dir of [-1, 1]) {
-      const fin = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.1, 4), bodyMat);
-      fin.rotation.z = dir * Math.PI / 2;
-      fin.position.set(dir * 0.06, 0, 0.02);
-      koi.add(fin);
-    }
-    // Kontrastfleck
-    const patchColor = koiColors[i % 2 === 0 ? 1 : 0];
-    const patch = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), new THREE.MeshStandardMaterial({ color: patchColor, roughness: 0.55 }));
-    patch.scale.set(0.5, 0.2, 0.7);
-    patch.position.set(0.01, 0.03, 0.03);
-    koi.add(patch);
-    koi.userData = { radius: 0.55 + i * 0.22, speed: (0.32 + rand() * 0.25) * (i % 2 ? 1 : -1), phase: rand() * 6.28, tail: tailPivot };
+  for (let i = 0; i < 2; i++) {
+    const koi = makeKoi(i);
+    koi.userData.radius = 0.62 + i * 0.34;
+    koi.userData.speed = (0.3 + rand() * 0.12) * (i % 2 ? 1 : -1);
+    koi.userData.phase = rand() * 6.28;
     group.add(koi);
     kois.push(koi);
   }
@@ -1681,12 +1835,35 @@ function createZenEnvironment() {
       for (const koi of kois) {
         const d = koi.userData;
         const a = time * d.speed + d.phase;
+        const bob = Math.sin(time * 2 + d.phase) * 0.01;
         koi.position.set(
           pondCenter.x + Math.cos(a) * d.radius * 1.15,
-          Math.sin(time * 2 + d.phase) * 0.01,
+          bob,
           pondCenter.z + Math.sin(a) * d.radius
         );
-        koi.rotation.y = -a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
+
+        // Blickrichtung = Tangente der Bahn, nicht der Winkel auf ihr.
+        //
+        // Vorher stand hier ein fester Versatz von ±90°, und genau die 90° war
+        // der Fehler: Die Fische zogen breitseits durch den Teich, Kopf zur
+        // Beckenmitte. Die Bahn ist außerdem eine Ellipse (x ist um 1,15
+        // gestreckt) – ihre Tangente lässt sich deshalb nicht als „Winkel plus
+        // Konstante" ausdrücken, sie wird abgeleitet. Der Richtungssinn steckt
+        // im Vorzeichen von speed: Ein Fisch zieht seine Runden im, der andere
+        // gegen den Uhrzeigersinn.
+        const dir = Math.sign(d.speed) || 1;
+        const dx = -Math.sin(a) * d.radius * 1.15 * dir;
+        const dz = Math.cos(a) * d.radius * dir;
+        koi.rotation.y = Math.atan2(dx, dz); // Kopf zeigt nach +Z
+
+        // Beim Auf- und Abtauchen die Nase mitnehmen – ein Fisch, der
+        // waagerecht schwebend nach oben rutscht, wirkt wie an einem Faden
+        // gezogen. Die Reihenfolge YXZ macht das zu Gieren-dann-Nicken statt zu
+        // einer Mischung aus beidem.
+        koi.rotation.x = -Math.cos(time * 2 + d.phase) * 0.09;
+        // Leichte Schräglage in die Kurve, wie beim Abdrücken gegen das Wasser
+        koi.rotation.z = -dir * 0.12;
+
         d.tail.rotation.y = Math.sin(time * 8 + d.phase) * 0.5; // Schwanzwedeln
       }
       // Wasser-Ringe: wachsen von klein → groß und blenden aus
@@ -1735,47 +1912,676 @@ function createZenEnvironment() {
   };
 }
 
-// Weiche, radiale Bodentextur (kein Raster) für das Studio
-function makeSoftFloorTexture(center, edge) {
+// --- Einrichtung des Konstrukts: zwei rote Ledersessel, Beistelltisch, Röhren-TV ---
+//
+// Nachgebaut nach der „This is the construct"-Szene: zwei rote Chesterfield-
+// Sessel, leicht zueinander gedreht, dazwischen ein kleiner Tisch mit einem
+// alten Fernseher. Alles prozedural – keine externen Modelle oder Texturen,
+// damit die App weiterhin offline vollständig lädt.
+//
+// Der Realismus kommt hier nicht aus Polygonzahl, sondern aus vier Dingen:
+// abgerundeten Kanten (Polster haben keine scharfen Ecken), einer Ledernarbung
+// als Normal-Map, ungleichmäßigem Glanz und weichen Kontaktschatten. Im weißen
+// Void fällt sonst sofort auf, dass Objekte „schweben".
+
+// Abgerundeter Quader. Three bringt keinen mit; extrudiert wird eine
+// abgerundete 2D-Form, die Fase rundet zusätzlich die Extrusionskanten ab.
+function roundedBox(width, height, depth, radius = 0.03, bevel = null) {
+  const b = Math.min(bevel ?? radius * 0.6, depth / 2 - 0.001, radius);
+  const r = Math.min(radius, width / 2 - 0.001, height / 2 - 0.001);
+  const w = width / 2 - b;
+  const h = height / 2 - b;
+  const rr = Math.max(0.001, r - b);
+
+  const shape = new THREE.Shape();
+  shape.moveTo(-w + rr, -h);
+  shape.lineTo(w - rr, -h);
+  shape.quadraticCurveTo(w, -h, w, -h + rr);
+  shape.lineTo(w, h - rr);
+  shape.quadraticCurveTo(w, h, w - rr, h);
+  shape.lineTo(-w + rr, h);
+  shape.quadraticCurveTo(-w, h, -w, h - rr);
+  shape.lineTo(-w, -h + rr);
+  shape.quadraticCurveTo(-w, -h, -w + rr, -h);
+
+  const geometry = new THREE.ExtrudeGeometry(shape, {
+    depth: depth - b * 2,
+    bevelEnabled: true,
+    bevelSize: b,
+    bevelThickness: b,
+    bevelSegments: 3,
+    curveSegments: 6,
+    steps: 1,
+  });
+  // ExtrudeGeometry reicht von z = -bevelThickness bis z = depth + bevelThickness,
+  // ihre Mitte liegt also bei depth/2 - b und nicht bei depth/2. Wer das
+  // übersieht, verschiebt jedes Teil um genau die Fasenbreite nach hinten – bei
+  // den Polstern hier bis zu sieben Zentimeter, genug, dass Knöpfe und Rosetten
+  // sichtbar vor dem Möbel in der Luft hängen.
+  geometry.translate(0, 0, b - depth / 2);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Ledernarbung als Normal-Map: unregelmäßige Zellen (Poren) plus feines
+// Rauschen, per Sobel in Normalen umgerechnet. Ohne diese Struktur sieht rotes
+// MeshStandardMaterial wie lackiertes Plastik aus.
+// 128er-Kachel mit 60 Zellen: Die Suche nach den zwei nächsten Zellzentren
+// läuft pro Pixel über alle Zellen, das wächst also mit Fläche × Zellzahl.
+// Mit 256 px und 190 Zellen kostete allein diese Textur eine halbe Sekunde
+// beim Start – bei 14-facher Kachelung ist die Narbung ohnehin so fein, dass
+// die kleinere Kachel nicht zu unterscheiden ist.
+let _leatherMaps = null;
+function leatherMaps(size = 128) {
+  if (_leatherMaps) return _leatherMaps;
+  const rand = mulberry32(20221231);
+
+  // Zellzentren für ein Voronoi-artiges Narbenmuster
+  const cells = [];
+  for (let i = 0; i < 60; i++) cells.push([rand() * size, rand() * size]);
+
+  const height = new Float32Array(size * size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Abstand zu den zwei nächsten Zellen → Kanten zwischen den Poren
+      let d1 = 1e9;
+      let d2 = 1e9;
+      for (const [cx, cy] of cells) {
+        // gekachelt messen, damit die Textur nahtlos bleibt
+        const dx = Math.min(Math.abs(x - cx), size - Math.abs(x - cx));
+        const dy = Math.min(Math.abs(y - cy), size - Math.abs(y - cy));
+        const d = dx * dx + dy * dy;
+        if (d < d1) {
+          d2 = d1;
+          d1 = d;
+        } else if (d < d2) {
+          d2 = d;
+        }
+      }
+      const edge = Math.min(1, (Math.sqrt(d2) - Math.sqrt(d1)) / 5);
+      const grain = hashNoise(x * 0.7, y * 0.7, 3.1) * 0.16;
+      height[y * size + x] = edge * 0.84 + grain;
+    }
+  }
+
   const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 256;
+  canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
-  const g = ctx.createRadialGradient(128, 128, 10, 128, 128, 128);
-  g.addColorStop(0, center);
-  g.addColorStop(1, edge);
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 256, 256);
+  const image = ctx.createImageData(size, size);
+  const rough = document.createElement('canvas');
+  rough.width = rough.height = size;
+  const roughData = rough.getContext('2d').createImageData(size, size);
+
+  const at = (x, y) => height[((y + size) % size) * size + ((x + size) % size)];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = at(x + 1, y) - at(x - 1, y);
+      const dy = at(x, y + 1) - at(x, y - 1);
+      const strength = 2.4;
+      const nx = -dx * strength;
+      const ny = -dy * strength;
+      const len = Math.hypot(nx, ny, 1);
+      const i = (y * size + x) * 4;
+      image.data[i] = ((nx / len) * 0.5 + 0.5) * 255;
+      image.data[i + 1] = ((ny / len) * 0.5 + 0.5) * 255;
+      image.data[i + 2] = (1 / len) * 0.5 * 255 + 127;
+      image.data[i + 3] = 255;
+      // Vertiefungen glänzen weniger als die erhabenen Narben. Der Grundwert
+      // liegt hoch: Leder ist matt, ein glänzender Sessel liest sich als Lack.
+      const r = 235 - at(x, y) * 55;
+      roughData.data[i] = roughData.data[i + 1] = roughData.data[i + 2] = r;
+      roughData.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  rough.getContext('2d').putImageData(roughData, 0, 0);
+
+  const normalMap = new THREE.CanvasTexture(canvas);
+  const roughnessMap = new THREE.CanvasTexture(rough);
+  for (const map of [normalMap, roughnessMap]) {
+    map.wrapS = map.wrapT = THREE.RepeatWrapping;
+    // Dicht kacheln: Bei wenigen Wiederholungen werden die Poren handtellergroß
+    // und der Sessel sieht aus wie mit Reptilienhaut bezogen.
+    map.repeat.set(14, 14);
+    map.anisotropy = 4;
+  }
+  _leatherMaps = { normalMap, roughnessMap };
+  return _leatherMaps;
+}
+
+// Holzmaserung für Beistelltisch und TV-Gehäuse
+function makeWoodTexture(base, dark) {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, size, size);
+  ctx.strokeStyle = dark;
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 70; i++) {
+    const y = (i / 70) * size + hashNoise(i, 1, 2) * 4;
+    ctx.globalAlpha = 0.12 + hashNoise(i, 5, 9) * 0.3;
+    ctx.beginPath();
+    for (let x = 0; x <= size; x += 8) {
+      const wobble = Math.sin(x * 0.035 + i * 0.9) * 3 + hashNoise(x, i, 7) * 2;
+      if (x === 0) ctx.moveTo(x, y + wobble);
+      else ctx.lineTo(x, y + wobble);
+    }
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   return texture;
 }
 
-function createStudioEnvironment() {
+// Ein roter Chesterfield-Sessel: gepolsterter Korpus, gerollte Armlehnen,
+// geknöpfte Rückenlehne, dunkle Füße. Der Sessel schaut nach +Z.
+// Ohrensessel („Wingback Chesterfield") – die Sessel aus der Filmszene. Hohe,
+// oben geschwungene Rückenlehne mit seitlichen Flügeln, dichte Rautenheftung,
+// gerollte Armlehnen mit geschnitzter Holzrosette an der Stirn und gedrechselte
+// Vorderbeine. Der Sessel schaut nach +Z.
+function makeConstructArmchair() {
   const group = new THREE.Group();
-  group.name = 'env-studio';
+  group.name = 'construct-armchair';
+  const { normalMap, roughnessMap } = leatherMaps();
 
-  group.add(makeDome(0x6f9dc9, 0xf2f7fb, 0xeaf1f8));
+  // Gealtertes Oxblood, kein Signalrot: Das Leder im Film ist dunkel, matt und
+  // sichtbar abgenutzt.
+  const leather = new THREE.MeshStandardMaterial({
+    color: 0x6f1c22,
+    roughness: 0.72,
+    metalness: 0.02,
+    normalMap,
+    normalScale: new THREE.Vector2(0.5, 0.5),
+    roughnessMap,
+  });
+  const leatherDark = leather.clone();
+  leatherDark.color = new THREE.Color(0x4c1216);
+  const wood = new THREE.MeshStandardMaterial({ color: 0x2b1a11, roughness: 0.42, metalness: 0.12 });
 
-  group.add(new THREE.HemisphereLight(0xffffff, 0xc7d2dc, 1.2));
+  const W = 0.88;        // Gesamtbreite
+  const D = 0.84;        // Gesamttiefe
+  const CHEEK = 0.17;    // Breite der Armlehnenwangen
+  const BACK_T = 0.19;   // Tiefe der Rückenlehne
+  const ARM_TOP = 0.63;
+  const BACK_TOP = 1.16; // Ohrensessel: die Lehne reicht über den Kopf
+  const BODY_TOP = 0.38;
 
-  const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(9, 64),
-    new THREE.MeshStandardMaterial({
-      map: makeSoftFloorTexture('#ffffff', '#d3deea'),
-      roughness: 0.9,
-      metalness: 0,
-    })
+  const frontZ0 = -D / 2 + BACK_T;
+  const frontDepth = D / 2 - frontZ0;
+  const frontZ = frontZ0 + frontDepth / 2;
+  const cheekX = W / 2 - CHEEK / 2;
+  const backZ = -D / 2 + BACK_T / 2;
+
+  // Unterbau
+  const base = new THREE.Mesh(roundedBox(W, 0.28, D, 0.05), leatherDark);
+  base.position.set(0, 0.24, 0);
+  group.add(base);
+
+  // Rückenlehne, hoch und oben kräftig gerundet
+  const backH = BACK_TOP - 0.34;
+  const back = new THREE.Mesh(roundedBox(W, backH, BACK_T, 0.16), leather);
+  back.position.set(0, 0.34 + backH / 2, backZ);
+  back.rotation.x = 0.07;
+  group.add(back);
+
+  // Die „Ohren": Flügel, die oben seitlich aus der Lehne nach vorn stehen.
+  // Ohne sie ist es kein Ohrensessel, sondern ein Clubsessel mit hoher Lehne.
+  const WING_H = 0.52;
+  const WING_D = 0.3;
+  for (const side of [-1, 1]) {
+    const wing = new THREE.Mesh(roundedBox(0.13, WING_H, WING_D, 0.06), leather);
+    wing.position.set(side * (W / 2 - 0.065), BACK_TOP - WING_H / 2 - 0.04, backZ + BACK_T / 2 + WING_D / 2 - 0.04);
+    wing.rotation.y = -side * 0.2; // leicht nach innen gestellt
+    group.add(wing);
+  }
+
+  for (const side of [-1, 1]) {
+    // Wange
+    const cheekH = ARM_TOP - CHEEK / 2 - 0.32;
+    const cheek = new THREE.Mesh(roundedBox(CHEEK, cheekH, frontDepth, 0.05), leather);
+    cheek.position.set(side * cheekX, 0.32 + cheekH / 2, frontZ);
+    group.add(cheek);
+
+    // Gerollte Armauflage
+    const arm = new THREE.Mesh(roundedBox(CHEEK, CHEEK, frontDepth, CHEEK / 2, 0.06), leather);
+    arm.position.set(side * cheekX, ARM_TOP - CHEEK / 2, frontZ);
+    group.add(arm);
+
+    // Geschnitzte Rosette an der Stirnseite – im Film ein dunkles Holzelement,
+    // das die eingerollte Armlehne abschließt.
+    const rosette = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 20), wood);
+    rosette.rotateX(Math.PI / 2);
+    rosette.position.set(side * cheekX, ARM_TOP - CHEEK / 2, D / 2 + 0.001);
+    group.add(rosette);
+    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.019, 12, 10), wood);
+    boss.position.set(side * cheekX, ARM_TOP - CHEEK / 2, D / 2 + 0.012);
+    group.add(boss);
+  }
+
+  // Sitzkissen
+  const seatW = W - CHEEK * 2 + 0.02;
+  const seat = new THREE.Mesh(roundedBox(seatW, 0.15, frontDepth - 0.05, 0.05), leather);
+  seat.position.set(0, 0.38, frontZ + 0.015);
+  group.add(seat);
+
+  // Dichte Rautenknopfheftung über die ganze Lehne. Die erste Fassung hatte drei
+  // Reihen à zwei bis drei Knöpfen – auf einer Lehne dieser Höhe wirkt das leer.
+  const buttonGeo = new THREE.SphereGeometry(0.014, 10, 8);
+  buttonGeo.scale(1, 1, 0.45);
+  const buttons = [];
+  const ROWS = 6;
+  for (let row = 0; row < ROWS; row++) {
+    const wide = row % 2 === 0;
+    const count = wide ? 4 : 3;
+    for (let i = 0; i < count; i++) {
+      const g = buttonGeo.clone();
+      g.translate((i - (count - 1) / 2) * 0.165, 0.46 + row * 0.115, frontZ0 + 0.002);
+      buttons.push(g);
+    }
+  }
+  group.add(new THREE.Mesh(mergeGeometries(buttons), leatherDark));
+
+  // Gedrechselte Vorderbeine (Lathe-Profil), hinten schlichte Stollen
+  const profile = [
+    new THREE.Vector2(0.0, 0),
+    new THREE.Vector2(0.036, 0),
+    new THREE.Vector2(0.033, 0.02),
+    new THREE.Vector2(0.02, 0.045),
+    new THREE.Vector2(0.031, 0.07),
+    new THREE.Vector2(0.026, 0.1),
+    new THREE.Vector2(0.033, 0.13),
+    new THREE.Vector2(0.036, 0.16),
+    new THREE.Vector2(0.0, 0.16),
+  ];
+  const turnedLeg = new THREE.LatheGeometry(profile, 14);
+  const plainLeg = new THREE.CylinderGeometry(0.028, 0.024, 0.14, 10);
+  for (const sx of [-1, 1]) {
+    const front = new THREE.Mesh(turnedLeg, wood);
+    front.position.set(sx * (W / 2 - 0.09), 0, D / 2 - 0.09);
+    group.add(front);
+    const rear = new THREE.Mesh(plainLeg, wood);
+    rear.position.set(sx * (W / 2 - 0.09), 0.07, -D / 2 + 0.09);
+    group.add(rear);
+  }
+
+  group.add(makeBlobShadow(0.6, 0.85, 0.006));
+  return group;
+}
+
+// Die Konsole aus der Szene: ein AWA-„Radiola"-Fernseher im Art-déco-Gehäuse,
+// der frei auf dem Boden steht. Die Schauseite trägt ein auf der Spitze
+// stehendes Dreieck mit „DEEP IMAGE" und den Schriftzug „RADIOLA TELEVISION" –
+// gemalt als Canvas-Textur, denn Schrift und Emblem als Geometrie nachzubauen
+// kostet tausende Dreiecke für ein Detail, das ohnehin flach ist.
+function makeRadiolaConsole() {
+  const group = new THREE.Group();
+  group.name = 'radiola-console';
+
+  const W = 0.7;
+  const H = 0.74;
+  const D = 0.56;
+
+  // Gealtertes Messing/Olivbronze mit Patina
+  const shellMat = new THREE.MeshStandardMaterial({
+    color: 0x6a6851,
+    roughness: 0.62,
+    metalness: 0.45,
+  });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x2b2a22, roughness: 0.5, metalness: 0.3 });
+  // Der Rahmen um die Röhre bleibt bewusst stumpf: Mit Metallglanz spiegelt er
+  // das Licht und wirkt wie eine überstrahlte Scheibe vor dem Bild.
+  const bezelMat = new THREE.MeshStandardMaterial({ color: 0x1a1916, roughness: 0.85, metalness: 0.02 });
+
+  const body = new THREE.Mesh(roundedBox(W, H, D, 0.025), shellMat);
+  body.position.set(0, H / 2, 0);
+  group.add(body);
+
+  // Deckel: nur eine angedeutete Kante, kein aufgesetzter Kasten. Als eigener
+  // Block mit deutlichem Rücksprung sah er aus, als läge etwas obendrauf.
+  const shoulder = new THREE.Mesh(roundedBox(W - 0.02, 0.05, D - 0.02, 0.02), shellMat);
+  shoulder.position.set(0, H + 0.018, 0);
+  group.add(shoulder);
+
+  // Lamellenband unter der Schulter
+  const slats = [];
+  for (let i = 0; i < 23; i++) {
+    const slat = new THREE.BoxGeometry(0.012, 0.05, 0.008);
+    slat.translate(-0.25 + i * 0.0227, 0, 0);
+    slats.push(slat);
+  }
+  const slatMesh = new THREE.Mesh(mergeGeometries(slats), darkMat);
+  slatMesh.position.set(0, H - 0.07, D / 2 + 0.002);
+  group.add(slatMesh);
+
+  // --- Schauseite als gemalte Tafel ---
+  const plate = document.createElement('canvas');
+  plate.width = 512;
+  plate.height = 560;
+  const p = plate.getContext('2d');
+  const PW = plate.width;
+  const PH = plate.height;
+
+  p.fillStyle = '#585640';
+  p.fillRect(0, 0, PW, PH);
+  // Patina: fleckige Aufhellungen und dunkle Schlieren
+  for (let i = 0; i < 240; i++) {
+    const x = hashNoise(i, 3, 1) * PW;
+    const y = hashNoise(i, 9, 4) * PH;
+    const r = 12 + hashNoise(i, 5, 7) * 60;
+    const g = p.createRadialGradient(x, y, 0, x, y, r);
+    const light = hashNoise(i, 2, 8) > 0.5;
+    g.addColorStop(0, light ? 'rgba(160,158,128,0.16)' : 'rgba(38,36,26,0.16)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    p.fillStyle = g;
+    p.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  const ink = '#241f16';
+  const light = '#c9c6a6';
+
+  // AWA-Emblem oben
+  p.strokeStyle = ink;
+  p.lineWidth = 4;
+  p.strokeRect(PW / 2 - 62, 44, 124, 46);
+  p.fillStyle = ink;
+  p.font = '700 34px "Space Grotesk", system-ui, sans-serif';
+  p.textAlign = 'center';
+  p.textBaseline = 'middle';
+  p.fillText('AWA', PW / 2, 68);
+
+  // Auf der Spitze stehendes Dreieck
+  const cx = PW / 2;
+  const top = 130;
+  const half = 178;
+  const bottom = 430;
+  p.beginPath();
+  p.moveTo(cx - half, top);
+  p.lineTo(cx + half, top);
+  p.lineTo(cx, bottom);
+  p.closePath();
+  p.lineWidth = 6;
+  p.strokeStyle = ink;
+  p.stroke();
+  p.strokeStyle = light;
+  p.lineWidth = 2;
+  p.beginPath();
+  p.moveTo(cx - half + 14, top + 12);
+  p.lineTo(cx + half - 14, top + 12);
+  p.lineTo(cx, bottom - 26);
+  p.closePath();
+  p.stroke();
+
+  // „DEEP IMAGE" gesperrt in der oberen Dreieckshälfte
+  p.fillStyle = ink;
+  p.font = '600 30px "Space Grotesk", system-ui, sans-serif';
+  p.save();
+  p.translate(cx, top + 52);
+  p.letterSpacing = '14px';
+  p.fillText('DEEP', -104, 0);
+  p.fillText('IMAGE', 104, 0);
+  p.restore();
+
+  // Rundes Emblem in der Dreiecksmitte
+  const ex = cx;
+  const ey = top + 155;
+  const ring = p.createRadialGradient(ex, ey, 4, ex, ey, 46);
+  ring.addColorStop(0, '#3a362a');
+  ring.addColorStop(0.55, '#7d7a5e');
+  ring.addColorStop(1, '#2e2b20');
+  p.fillStyle = ring;
+  p.beginPath();
+  p.arc(ex, ey, 46, 0, Math.PI * 2);
+  p.fill();
+  p.strokeStyle = ink;
+  p.lineWidth = 4;
+  p.stroke();
+  p.beginPath();
+  p.arc(ex, ey, 17, 0, Math.PI * 2);
+  p.fillStyle = '#1d1a13';
+  p.fill();
+
+  // „RADIOLA TELEVISION" unten
+  p.fillStyle = ink;
+  p.font = '600 27px "Space Grotesk", system-ui, sans-serif';
+  p.save();
+  p.letterSpacing = '9px';
+  p.fillText('RADIOLA TELEVISION', cx, 470);
+  p.restore();
+
+  // Angedeutete Typenschild-Zeilen
+  p.fillStyle = 'rgba(36,31,22,0.55)';
+  for (let i = 0; i < 3; i++) {
+    const w = 250 - i * 40;
+    p.fillRect(cx - w / 2, 502 + i * 13, w, 4);
+  }
+
+  const plateTex = new THREE.CanvasTexture(plate);
+  plateTex.colorSpace = THREE.SRGBColorSpace;
+  plateTex.anisotropy = 4;
+  const plateMesh = new THREE.Mesh(
+    new THREE.PlaneGeometry(W - 0.07, H - 0.08),
+    new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.62, metalness: 0.35 })
   );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.02;
-  group.add(floor);
+  plateMesh.position.set(0, H / 2 - 0.005, D / 2 + 0.004);
+  group.add(plateMesh);
+
+  // --- Rückseite: die Bildröhre ---
+  const SCREEN_W = 0.44;
+  const SCREEN_H = 0.34;
+  const screenGeo = new THREE.PlaneGeometry(SCREEN_W, SCREEN_H, 14, 12);
+  {
+    const pos = screenGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const u = pos.getX(i) / (SCREEN_W / 2);
+      const v = pos.getY(i) / (SCREEN_H / 2);
+      pos.setZ(i, (1 - u * u) * (1 - v * v) * 0.018);
+    }
+    screenGeo.computeVertexNormals();
+  }
+
+  const screenCanvas = document.createElement('canvas');
+  screenCanvas.width = 224;
+  screenCanvas.height = 168;
+  const screenTexture = new THREE.CanvasTexture(screenCanvas);
+  screenTexture.colorSpace = THREE.SRGBColorSpace;
+  const screen = new THREE.Mesh(
+    screenGeo,
+    new THREE.MeshBasicMaterial({ map: screenTexture, toneMapped: false })
+  );
+  screen.position.set(0, H / 2 + 0.06, -D / 2 - 0.015);
+  screen.rotation.y = Math.PI;
+  group.add(screen);
+
+  const bezel = new THREE.Mesh(roundedBox(SCREEN_W + 0.05, SCREEN_H + 0.05, 0.014, 0.03), bezelMat);
+  bezel.position.set(0, H / 2 + 0.06, -D / 2 - 0.006);
+  group.add(bezel);
+
+  // Zwei Bedienknöpfe unter der Röhre
+  const knobGeo = new THREE.CylinderGeometry(0.026, 0.03, 0.026, 16);
+  knobGeo.rotateX(Math.PI / 2);
+  for (const side of [-1, 1]) {
+    const knob = new THREE.Mesh(knobGeo, darkMat);
+    knob.position.set(side * 0.13, H / 2 - 0.24, -D / 2 - 0.012);
+    group.add(knob);
+  }
+
+  // --- Bildinhalt ---
+  //
+  // Kein reines Schnee-Rauschen: Das liest sich als „kein Signal". Stattdessen
+  // ein weiches, driftendes Graustufenbild mit Scanlines, Flimmern und einem
+  // langsam durchlaufenden Bildstrich – der typische Eindruck einer alten
+  // Übertragung. Neu gezeichnet wird bewusst nur ~12×/s: Der Canvas-Upload pro
+  // Frame wäre auf der Quest teurer als das ganze Möbelstück.
+  const ctx = screenCanvas.getContext('2d');
+  const { width: sw, height: sh } = screenCanvas;
+  let lastDraw = -1;
+
+  const drawScreen = (time) => {
+    ctx.fillStyle = '#1c211e';
+    ctx.fillRect(0, 0, sw, sh);
+
+    // Gleichmäßige Grundhelligkeit über die ganze Röhre. Ohne sie leuchten nur
+    // die Schwaden in der Mitte, und der Bildschirm wirkt wie ein heller Fleck
+    // in einem schwarzen Loch statt wie eine ausgeleuchtete Bildfläche.
+    const glow = ctx.createLinearGradient(0, 0, 0, sh);
+    glow.addColorStop(0, 'rgba(148,154,148,0.34)');
+    glow.addColorStop(0.5, 'rgba(122,128,122,0.3)');
+    glow.addColorStop(1, 'rgba(92,98,92,0.32)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, sw, sh);
+
+    for (let i = 0; i < 5; i++) {
+      const t = time * (0.06 + i * 0.017) + i * 2.1;
+      const x = sw * (0.5 + Math.sin(t) * 0.34);
+      const y = sh * (0.5 + Math.cos(t * 0.8 + i) * 0.3);
+      const r = sh * (0.52 + Math.sin(t * 1.7) * 0.12);
+      const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+      const level = 140 + i * 20;
+      g.addColorStop(0, `rgba(${level},${level + 6},${level},0.62)`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, sw, sh);
+    }
+
+    const grain = ctx.getImageData(0, 0, sw, sh);
+    for (let i = 0; i < grain.data.length; i += 4) {
+      const n = (Math.random() - 0.5) * 42;
+      grain.data[i] += n;
+      grain.data[i + 1] += n;
+      grain.data[i + 2] += n;
+    }
+    ctx.putImageData(grain, 0, 0);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    for (let y = 0; y < sh; y += 3) ctx.fillRect(0, y, sw, 1);
+
+    const bar = ((time * 42) % (sh + 60)) - 30;
+    const barGrad = ctx.createLinearGradient(0, bar - 14, 0, bar + 14);
+    barGrad.addColorStop(0, 'rgba(255,255,255,0)');
+    barGrad.addColorStop(0.5, 'rgba(255,255,255,0.10)');
+    barGrad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = barGrad;
+    ctx.fillRect(0, bar - 14, sw, 28);
+
+    const vign = ctx.createRadialGradient(sw / 2, sh / 2, sh * 0.45, sw / 2, sh / 2, sh * 1.05);
+    vign.addColorStop(0, 'rgba(0,0,0,0)');
+    vign.addColorStop(1, 'rgba(0,0,0,0.34)');
+    ctx.fillStyle = vign;
+    ctx.fillRect(0, 0, sw, sh);
+
+    screenTexture.needsUpdate = true;
+  };
+  drawScreen(0);
+
+  const screenLight = new THREE.PointLight(0xdfe8e4, 0.5, 2.2, 2);
+  screenLight.position.set(0, H / 2 + 0.06, -D / 2 - 0.25);
+  group.add(screenLight);
 
   return {
-    id: 'studio',
-    name: '🌐 Studio',
-    background: new THREE.Color(0xdfe9f3),
     group,
+    // Wie weit die Bildröhre vor der Gehäusemitte sitzt (in -Z). Die Sitzgruppe
+    // richtet die Sessel danach aus – auf die Gehäusemitte gezielt schaut man
+    // rund acht Grad am Bild vorbei.
+    screenOffset: D / 2 + 0.015,
+    update(time) {
+      if (time - lastDraw < 0.08) return;
+      lastDraw = time;
+      drawScreen(time);
+      screenLight.intensity = 0.42 + Math.sin(time * 7.3) * 0.06 + Math.random() * 0.05;
+    },
   };
+}
+
+// Niedriger Ständer, auf dem die Konsole steht – im Standbild sind darunter
+// vier dünne, nach außen gestellte Beine im Stil der Zeit zu sehen.
+function makeConsoleStand(width, depth, height) {
+  const group = new THREE.Group();
+  group.name = 'console-stand';
+  const wood = new THREE.MeshStandardMaterial({ color: 0x241610, roughness: 0.45, metalness: 0.15 });
+
+  const top = new THREE.Mesh(roundedBox(width, 0.035, depth, 0.01), wood);
+  top.position.set(0, height - 0.0175, 0);
+  group.add(top);
+
+  const legH = height - 0.035;
+  const legGeo = new THREE.CylinderGeometry(0.014, 0.009, legH, 10);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = new THREE.Mesh(legGeo, wood);
+      leg.position.set(sx * (width / 2 - 0.05), legH / 2, sz * (depth / 2 - 0.05));
+      // Nach außen gestellt: senkrechte Stäbe wirken an einem so niedrigen
+      // Möbel wie ein Hocker, die Schrägstellung macht daraus einen Ständer.
+      leg.rotation.z = -sx * 0.1;
+      leg.rotation.x = sz * 0.1;
+      group.add(leg);
+    }
+  }
+
+  group.add(makeBlobShadow(0.42, 0.8, 0.006));
+  return group;
+}
+
+// Die Sitzgruppe wie in der Szene – und diesmal als benutzbare Sitzordnung:
+//
+// Das Gerät steht VOR den Sesseln, nicht auf einer Linie mit ihnen, und die
+// Sessel sind so gedreht, dass ihre Blickrichtung wirklich auf den Bildschirm
+// zeigt. Der Drehwinkel wird deshalb nicht geschätzt, sondern aus den
+// Positionen gerechnet: Wer darin sitzt, schaut fern.
+//
+// Damit zeigt die Bildröhre zu den Sesseln und das Emblem zum Betrachter –
+// genau die Ansicht des Standbilds. Beides gleichzeitig geht nicht: Bildschirm
+// und Schautafel liegen auf gegenüberliegenden Seiten des Gehäuses. Wer das
+// laufende Bild sehen will, geht um die Gruppe herum; von vorn verrät es sich
+// über den Lichtschein, den die Röhre auf die Sessel wirft.
+function makeConstructLounge() {
+  const group = new THREE.Group();
+  group.name = 'construct-lounge';
+
+  const CHAIR_X = 1.06;  // seitlicher Abstand der Sessel zur Mitte
+  const CHAIR_Z = -0.88; // Sessel stehen hinten …
+  const TV_Z = 0.78;     // … das Gerät davor
+  const STAND_H = 0.3;
+
+  const console3d = makeRadiolaConsole();
+
+  // Blickrichtung eines Sessels ist +Z. Der Winkel ergibt sich aus dem Versatz
+  // zur BILDRÖHRE, nicht zur Gehäusemitte – so bleibt die Ausrichtung korrekt,
+  // wenn sich Abstände oder Gehäusetiefe ändern.
+  const screenZ = TV_Z - console3d.screenOffset;
+  const facing = Math.atan2(CHAIR_X, screenZ - CHAIR_Z);
+
+  const left = makeConstructArmchair();
+  left.position.set(-CHAIR_X, 0, CHAIR_Z);
+  left.rotation.y = facing;
+  group.add(left);
+
+  const right = makeConstructArmchair();
+  right.position.set(CHAIR_X, 0, CHAIR_Z);
+  right.rotation.y = -facing;
+  group.add(right);
+
+  const stand = makeConsoleStand(0.66, 0.52, STAND_H);
+  stand.position.set(0, 0, TV_Z);
+  group.add(stand);
+
+  console3d.group.position.set(0, STAND_H, TV_Z);
+  // Ohne Drehung: Schautafel nach +Z (zum Betrachter), Bildröhre nach -Z (zu
+  // den Sesseln).
+  group.add(console3d.group);
+
+  // Gemeinsamer, größerer Schatten unter der ganzen Gruppe – bindet die Möbel
+  // zusammen, statt drei einzelne Flecken stehen zu lassen.
+  const shade = makeBlobShadow(1.8, 0.24, 0.004);
+  // Mittig unter der Gruppe – wandert mit, wenn die Sessel weiter nach hinten
+  // rücken, sonst steht die Sitzgruppe halb neben ihrem eigenen Schatten.
+  shade.position.z = (CHAIR_Z + TV_Z) / 2;
+  group.add(shade);
+
+  return { group, update: (time) => console3d.update(time) };
 }
 
 // ⬜ Konstrukt – der komplett weiße „Matrix"-Void: eine unendlich wirkende, nahtlose
@@ -1819,11 +2625,34 @@ function createMatrixEnvironment() {
   fill.position.set(2, 12, 6);
   group.add(fill);
 
+  // Zusätzliches Licht schräg von vorn: Ohne eine klare Richtung bleiben die
+  // Polster im rundum gleichen Licht flach und wirken wie eingefärbte Klötze.
+  // Auf die Karten wirkt es kaum – deren Material ist von der Beleuchtung
+  // ausgenommen (MeshBasicMaterial).
+  const key = new THREE.DirectionalLight(0xfff6ec, 0.7);
+  key.position.set(-3.5, 5, 5);
+  group.add(key);
+  const rim = new THREE.DirectionalLight(0xdce6f0, 0.35);
+  rim.position.set(4, 2.5, -4.5);
+  group.add(rim);
+
+  // Die Sitzgruppe aus dem Film: zwei rote Sessel, Tisch und Röhrenfernseher.
+  // Der Abstand ist kein Geschmackswert: Neue Karten landen im Halbkreis mit
+  // 1,15 m Radius vor dem Nutzer. Die Sessel müssen dahinter bleiben, sonst
+  // stehen sie mitten im Arbeitsbereich – mit ihrer Tiefe von 1,7 m ab Mitte
+  // heißt das gut dreieinhalb Meter.
+  const lounge = makeConstructLounge();
+  lounge.group.position.set(0, 0, -3.9);
+  group.add(lounge.group);
+
   return {
     id: 'matrix',
     name: '⬜ Konstrukt',
     background: new THREE.Color(0xffffff),
     group,
+    update(time) {
+      lounge.update(time);
+    },
   };
 }
 
@@ -1832,7 +2661,6 @@ export function createEnvironments(scene) {
     createIslandEnvironment(),
     createNightEnvironment(),
     createZenEnvironment(),
-    createStudioEnvironment(),
     createMatrixEnvironment(),
   ];
   for (const env of environments) {
