@@ -32,6 +32,44 @@ const SILENT_AFTER = 4000;
 
 const POLL_MS = 150;
 
+// Absturz-Merkzettel.
+//
+// Ein `focus()` in einer laufenden immersiven Sitzung ist der dokumentierte
+// Weg, aber er greift tief in den Browser: Er lässt eine System-Oberfläche über
+// die Szene legen. Geht dabei etwas schief, ist die Sitzung – im Extremfall der
+// ganze Browser – weg, und ein try/catch fängt davon nichts.
+//
+// Deshalb wird unmittelbar vor dem Auslösen eine Notiz hinterlegt und beim
+// Aufgehen der Tastatur wieder gelöscht. Findet die App diese Notiz beim
+// nächsten Start noch vor, hat der letzte Versuch nicht überlebt – dann bleibt
+// dieser Weg zu, und die virtuelle Tastatur übernimmt, statt den Nutzer erneut
+// aus der Sitzung zu werfen.
+const CRASH_KEY = 'xr-system-keyboard-crash';
+
+function noteAttempt() {
+  try {
+    localStorage.setItem(CRASH_KEY, String(Date.now()));
+  } catch {
+    // Kein localStorage (Privatmodus) – dann eben ohne Merkzettel
+  }
+}
+
+function clearAttempt() {
+  try {
+    localStorage.removeItem(CRASH_KEY);
+  } catch {
+    // s. o.
+  }
+}
+
+function attemptPending() {
+  try {
+    return localStorage.getItem(CRASH_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function systemKeyboardSupported(session) {
   return Boolean(session && session.isSystemKeyboardSupported);
 }
@@ -89,14 +127,34 @@ export class SystemKeyboardBridge {
   }
 
   get available() {
+    if (this.blocked) return false;
     return systemKeyboardSupported(this.session);
+  }
+
+  // Nach einem nicht überlebten Versuch gesperrt (siehe CRASH_KEY).
+  get blocked() {
+    return attemptPending();
   }
 
   // Klartext für die Statuszeile, wenn nichts geht.
   get unavailableReason() {
     if (this.available) return null;
+    if (this.blocked) {
+      return 'Systemtastatur abgeschaltet – der letzte Versuch hat den Browser beendet. Bitte tippen.';
+    }
     if (!this.session) return 'Systemtastatur gibt es nur in der laufenden VR-Sitzung.';
     return 'Diese Brille bietet keine Systemtastatur für Web-Inhalte.';
+  }
+
+  // Nur gesetzt, wenn die Sperre der Grund ist – der Aufrufer soll sonst seine
+  // eigene, passendere Meldung zeigen.
+  get blockedReason() {
+    return this.blocked ? this.unavailableReason : null;
+  }
+
+  // Sperre von Hand aufheben (z. B. nach einem Browser-Update).
+  reset() {
+    clearAttempt();
   }
 
   _ensureInput() {
@@ -140,7 +198,9 @@ export class SystemKeyboardBridge {
       const cleanup = () => {
         clearInterval(poll);
         clearTimeout(silentTimer);
+        clearAttempt();
         session.removeEventListener?.('visibilitychange', onVisibility);
+        session.removeEventListener?.('end', onSessionEnd);
         input.removeEventListener('input', read);
         input.removeEventListener('keydown', onKeyDown);
         signal?.removeEventListener('abort', onAbort);
@@ -171,6 +231,10 @@ export class SystemKeyboardBridge {
           if (!opened) {
             opened = true;
             clearTimeout(silentTimer);
+            // Die Tastatur ist heil aufgegangen – der Merkzettel hat seinen
+            // Zweck erfüllt und darf weg, sonst sperrt er den Weg beim
+            // nächsten Start ohne Grund.
+            clearAttempt();
             onOpen?.();
           }
           return;
@@ -193,6 +257,10 @@ export class SystemKeyboardBridge {
 
       const onAbort = () => finish(reject, new Error('Eingabe abgebrochen.'));
 
+      // Brille abgesetzt, Sitzung beendet: Das ist kein Absturz, der
+      // Merkzettel muss also weg (cleanup erledigt das).
+      const onSessionEnd = () => finish(reject, new Error('VR-Sitzung beendet.'));
+
       if (signal) {
         if (signal.aborted) {
           cleanup();
@@ -203,6 +271,7 @@ export class SystemKeyboardBridge {
       }
 
       session.addEventListener?.('visibilitychange', onVisibility);
+      session.addEventListener?.('end', onSessionEnd);
       input.addEventListener('input', read);
       input.addEventListener('keydown', onKeyDown);
       poll = setInterval(read, POLL_MS);
@@ -213,6 +282,10 @@ export class SystemKeyboardBridge {
       // Der eigentliche Auslöser. Muss synchron in der Nutzer-Geste stehen –
       // der Aufruf kommt aus dem 'selectstart'-Handler des Controllers, damit
       // die kurzzeitige Nutzeraktivierung des Browsers noch gilt.
+      //
+      // Davor der Merkzettel: Übersteht der Browser diese Zeile nicht, findet
+      // die App ihn beim nächsten Start vor und sperrt den Weg.
+      noteAttempt();
       try {
         input.focus({ preventScroll: true });
       } catch {

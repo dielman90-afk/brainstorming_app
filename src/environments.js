@@ -1534,6 +1534,9 @@ function makeKoi(variant) {
     koi.add(eye);
   }
 
+  // Gieren (y) vor Nicken (x) auswerten – sonst kippt der Fisch beim Auf- und
+  // Abtauchen je nach Kurs zusätzlich zur Seite.
+  koi.rotation.order = 'YXZ';
   koi.userData = { tail: tailPivot };
   return koi;
 }
@@ -1832,12 +1835,35 @@ function createZenEnvironment() {
       for (const koi of kois) {
         const d = koi.userData;
         const a = time * d.speed + d.phase;
+        const bob = Math.sin(time * 2 + d.phase) * 0.01;
         koi.position.set(
           pondCenter.x + Math.cos(a) * d.radius * 1.15,
-          Math.sin(time * 2 + d.phase) * 0.01,
+          bob,
           pondCenter.z + Math.sin(a) * d.radius
         );
-        koi.rotation.y = -a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
+
+        // Blickrichtung = Tangente der Bahn, nicht der Winkel auf ihr.
+        //
+        // Vorher stand hier ein fester Versatz von ±90°, und genau die 90° war
+        // der Fehler: Die Fische zogen breitseits durch den Teich, Kopf zur
+        // Beckenmitte. Die Bahn ist außerdem eine Ellipse (x ist um 1,15
+        // gestreckt) – ihre Tangente lässt sich deshalb nicht als „Winkel plus
+        // Konstante" ausdrücken, sie wird abgeleitet. Der Richtungssinn steckt
+        // im Vorzeichen von speed: Ein Fisch zieht seine Runden im, der andere
+        // gegen den Uhrzeigersinn.
+        const dir = Math.sign(d.speed) || 1;
+        const dx = -Math.sin(a) * d.radius * 1.15 * dir;
+        const dz = Math.cos(a) * d.radius * dir;
+        koi.rotation.y = Math.atan2(dx, dz); // Kopf zeigt nach +Z
+
+        // Beim Auf- und Abtauchen die Nase mitnehmen – ein Fisch, der
+        // waagerecht schwebend nach oben rutscht, wirkt wie an einem Faden
+        // gezogen. Die Reihenfolge YXZ macht das zu Gieren-dann-Nicken statt zu
+        // einer Mischung aus beidem.
+        koi.rotation.x = -Math.cos(time * 2 + d.phase) * 0.09;
+        // Leichte Schräglage in die Kurve, wie beim Abdrücken gegen das Wasser
+        koi.rotation.z = -dir * 0.12;
+
         d.tail.rotation.y = Math.sin(time * 8 + d.phase) * 0.5; // Schwanzwedeln
       }
       // Wasser-Ringe: wachsen von klein → groß und blenden aus
@@ -2516,7 +2542,7 @@ function makeConstructLounge() {
   group.name = 'construct-lounge';
 
   const CHAIR_X = 1.06;  // seitlicher Abstand der Sessel zur Mitte
-  const CHAIR_Z = -0.5;  // Sessel stehen hinten …
+  const CHAIR_Z = -0.88; // Sessel stehen hinten …
   const TV_Z = 0.78;     // … das Gerät davor
   const STAND_H = 0.3;
 
@@ -2549,8 +2575,10 @@ function makeConstructLounge() {
 
   // Gemeinsamer, größerer Schatten unter der ganzen Gruppe – bindet die Möbel
   // zusammen, statt drei einzelne Flecken stehen zu lassen.
-  const shade = makeBlobShadow(1.7, 0.24, 0.004);
-  shade.position.z = 0.1;
+  const shade = makeBlobShadow(1.8, 0.24, 0.004);
+  // Mittig unter der Gruppe – wandert mit, wenn die Sessel weiter nach hinten
+  // rücken, sonst steht die Sitzgruppe halb neben ihrem eigenen Schatten.
+  shade.position.z = (CHAIR_Z + TV_Z) / 2;
   group.add(shade);
 
   return { group, update: (time) => console3d.update(time) };
