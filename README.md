@@ -33,7 +33,13 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Rotationsprofil, seitlich schmal und hochrückig, mit weichen Flossen,
   wedelndem Schwanz und gefleckter Zeichnung als Canvas-Textur (Kohaku in
   Weiß-Rot, Ogon in Orange-Weiß). Zuvor waren es fünf flachgedrückte Kugeln mit
-  Kegeln als Flossen, die im Wasser wie Bonbons mit Zacken aussahen. →
+  Kegeln als Flossen, die im Wasser wie Bonbons mit Zacken aussahen.
+  Sie schwimmen **kopfvoran**: Die Blickrichtung ist die Tangente der Bahn,
+  abgeleitet aus der Position, nicht der Bahnwinkel plus ein fester Versatz.
+  Genau der war vorher drin – mit 90° daneben, sodass die Fische breitseits
+  durch den Teich zogen. Dazu eine leichte Schräglage in die Kurve und eine
+  mitgehende Nase beim Auf- und Abtauchen; einer zieht seine Runden im, der
+  andere gegen den Uhrzeigersinn. →
   **⬜ Konstrukt** (nahtloser, komplett weißer Void im Stil des
   „Matrix“-Ladeprogramms – Kuppel und Boden im selben Weißton, kein sichtbarer
   Horizont, gleichmäßiges schattenfreies Licht). Darin steht die **Einrichtung
@@ -45,7 +51,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Die Anordnung ist eine **benutzbare Sitzordnung**: Das Gerät steht vor den
   Sesseln, die Bildröhre zeigt zu ihnen, und der Drehwinkel der Sessel wird
   nicht geschätzt, sondern aus den Positionen gerechnet – wer darin sitzt, hat
-  den Bildschirm mittig vor sich (1,6 m Sitzabstand, 0° Abweichung). Von vorn
+  den Bildschirm vor sich (**2,0 m Sitzabstand**, 5° Abweichung). Von vorn
   sieht man deshalb die Schauseite mit dem auf der Spitze stehenden
   „DEEP IMAGE"-Dreieck, genau wie im Standbild; das laufende Bild sieht, wer um
   die Gruppe herumgeht oder sich in einen Sessel stellt. Beides gleichzeitig
@@ -178,8 +184,16 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Quest scheitert er zuverlässig, und die Wartezeit bis zum Fehlschlag verzögerte
   bisher jede Eingabe.
 - **Diktieren auf der Quest – über die Systemtastatur** (`src/systemKeyboard.js`):
-  Der Quest-Browser kennt die Web Speech API nicht; `SpeechRecognition` gibt es
-  dort schlicht nicht. Die **Brille** kann aber sehr wohl Sprache-zu-Text – nur
+  Der Quest-Browser hat **keine funktionierende Web Speech API**. Er stellt
+  `webkitSpeechRecognition` zwar bereit – er ist Chromium-basiert –, aber
+  darunter liegt nichts: Horizon OS ist ein abgespecktes Android ohne
+  Spracherkennungsdienst. Ein `recognition.start()` läuft dort nicht ins Leere,
+  sondern **riss den ganzen Browser mit**; das war der Absturz beim Druck auf
+  „🎤 Sprechen". Eine Prüfung auf „gibt es den Konstruktor?" hilft dagegen
+  nicht, weil es ihn ja gibt – deshalb erkennt `isHeadsetBrowser()` das Gerät
+  am User-Agent und blendet die API auf Brillen-Browsern **komplett** aus.
+  Damit ist auch das Dauer-Zuhören dort abgeschaltet.
+  Die **Brille** kann aber sehr wohl Sprache-zu-Text – nur
   eben ausschließlich in ihrer eigenen Systemtastatur, über deren
   Mikrofon-Taste. Genau die wird jetzt angezapft: Ist
   `XRSession.isSystemKeyboardSupported` wahr, öffnet „🎤 Sprechen" per
@@ -191,9 +205,16 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   gepollt), und jeder **erste Tastendruck überschreibt den gesamten
   Feldinhalt** – vorbelegt wird darum nie, das Ergebnis wird angehängt. Solange
   die Systemtastatur oben liegt, steht die Sitzung auf `visible-blurred`; an
-  diesem Wechsel erkennt die App Auf- und Zugehen. Meldet die Web Speech API
-  einen aussichtslosen Fehler (`service-not-allowed`, `network`,
-  `not-allowed` …), wird ohne Zutun auf diesen Weg gewechselt.
+  diesem Wechsel erkennt die App Auf- und Zugehen. Die Systemtastatur hat
+  **Vorrang** vor der Web Speech API, nicht nur die Rolle des Ersatzes – sonst
+  käme auf der Brille wieder der Erkenner zuerst dran.
+  Weil ein `focus()` in einer laufenden immersiven Sitzung tief in den Browser
+  greift und ein `try/catch` einen Absturz nicht auffängt, wird unmittelbar
+  davor ein **Merkzettel** in `localStorage` gelegt und beim Aufgehen der
+  Tastatur gelöscht. Findet die App ihn beim nächsten Start noch vor, hat der
+  letzte Versuch nicht überlebt – dann bleibt dieser Weg zu und die virtuelle
+  Tastatur übernimmt, statt den Nutzer erneut aus der Sitzung zu werfen
+  (`window.__app.systemKeyboard.reset()` hebt die Sperre auf).
   *Voraussetzung: Die Sprachdiktierung muss in den Quest-Einstellungen einmalig
   aktiviert worden sein (beim ersten 🎤-Antippen fragt die Brille danach).*
 - **🎙 Sprachbefehle** (`src/speech.js`): dauerhaftes Zuhören, abschaltbar über
@@ -465,6 +486,11 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   → Sprachdiktierung*), oder der Browser ist zu alt für
   `XRSession.isSystemKeyboardSupported`. Dauer-Zuhören („🎙 Sprachbefehle") ist
   auf der Quest technisch nicht möglich.
+- **„Systemtastatur abgeschaltet – der letzte Versuch hat den Browser
+  beendet":** Der Merkzettel aus `localStorage` hat angeschlagen (s. o.).
+  Tippen geht weiter; freigeben lässt sich der Weg mit
+  `window.__app.systemKeyboard.reset()` in der Konsole – sinnvoll etwa nach
+  einem Browser-Update.
 - **Spracheingabe reagiert nicht:** Die Web Speech API ist browserabhängig. Der
   Quest-Browser unterstützt sie nicht – dort übernimmt die Systemtastatur
   (siehe oben). Am Desktop braucht Chrome/Edge eine

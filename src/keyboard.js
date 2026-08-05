@@ -1,12 +1,7 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
 import { flatLayer, makeRoundedPanel } from './wristMenu.js';
-import {
-  SPEECH_DEAD_ENDS,
-  isSpeechAvailable,
-  recognizeSpeech,
-  speechUnavailableReason,
-} from './speech.js';
+import { isSpeechAvailable, recognizeSpeech, speechUnavailableReason } from './speech.js';
 
 // Texteingabe in XR: virtuelle Tastatur mit Diktat-Knopf.
 //
@@ -253,31 +248,36 @@ export class VirtualKeyboard {
   // spricht.
   //
   // Es gibt zwei Wege, und welcher zieht, hängt vom Gerät ab:
-  //   1. Web Speech API – Desktop-Chrome/Edge. Erkennt direkt im Browser.
-  //   2. Systemtastatur der Brille – der Quest-Browser kennt SpeechRecognition
-  //      nicht, die Brille selbst aber sehr wohl. Ihre Systemtastatur hat eine
-  //      Mikrofon-Taste, und über die läuft dort das Diktat.
-  // Meldet Weg 1, dass er in diesem Browser nichts wird (siehe
-  // SPEECH_DEAD_ENDS), wird ohne Zutun auf Weg 2 gewechselt.
+  //   1. Systemtastatur der Brille – ihre Mikrofon-Taste ist auf der Quest der
+  //      einzige Weg, der überhaupt etwas erkennt.
+  //   2. Web Speech API – am Desktop (Chrome/Edge) erkennt sie direkt im
+  //      Browser.
+  //
+  // Die Systemtastatur hat bewusst Vorrang, nicht nur die Rolle des Ersatzes:
+  // Auf der Brille die Web Speech API auch nur anzufassen, war der Grund für
+  // den Absturz – der Konstruktor ist da, der Dienst darunter nicht. isSpeech-
+  // Available() blendet sie auf Brillen-Browsern deshalb komplett aus, und
+  // diese Reihenfolge sorgt zusätzlich dafür, dass sie dort gar nicht erst
+  // drankäme.
   async toggleDictation() {
     if (this.listening) {
       this._dictationAbort?.abort();
       return;
     }
-    if (isSpeechAvailable()) {
-      const deadEnd = await this._webSpeechDictation();
-      if (!deadEnd) return;
-      if (!this.systemKeyboard?.available) return;
-    }
     if (this.systemKeyboard?.available) {
       await this._systemDictation();
       return;
     }
-    this.onStatus?.(speechUnavailableReason() ?? this.systemKeyboard?.unavailableReason ?? '');
+    if (isSpeechAvailable()) {
+      await this._webSpeechDictation();
+      return;
+    }
+    this.onStatus?.(
+      this.systemKeyboard?.blockedReason ?? speechUnavailableReason() ?? '',
+      8000
+    );
   }
 
-  // Liefert true, wenn die Spracherkennung in diesem Browser als aussichtslos
-  // gilt und der Aufrufer den anderen Weg probieren soll.
   async _webSpeechDictation() {
     const controller = new AbortController();
     this._dictationAbort = controller;
@@ -291,13 +291,8 @@ export class VirtualKeyboard {
       });
       this.text = this.text ? `${this.text.trimEnd()} ${text}` : text;
       this.onStatus?.('');
-      return false;
     } catch (err) {
-      const deadEnd = SPEECH_DEAD_ENDS.has(err.code);
-      // Bei einem Wechsel auf die Systemtastatur die Fehlermeldung
-      // unterdrücken – der zweite Weg meldet sich gleich selbst.
-      if (!deadEnd || !this.systemKeyboard?.available) this.onStatus?.(err.message);
-      return deadEnd;
+      this.onStatus?.(err.message);
     } finally {
       this._dictationAbort = null;
       this._setListening(false);

@@ -12,26 +12,37 @@ function RecognitionClass() {
     : window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+// Brillen-Browser werden von der Web Speech API ausgenommen – und zwar hart.
+//
+// Der Quest-Browser ist Chromium-basiert und stellt `webkitSpeechRecognition`
+// deshalb bereit. Darunter liegt aber nichts: Horizon OS ist ein abgespecktes
+// Android ohne Spracherkennungsdienst. Ein `recognition.start()` läuft dort
+// nicht ins Leere, sondern reißt im schlimmsten Fall den ganzen Browser mit –
+// genau der Absturz, der beim Druck auf „🎤 Sprechen" auftrat.
+//
+// Eine Prüfung auf „gibt es den Konstruktor?" reicht dafür nicht, weil es ihn
+// ja gibt. Deshalb wird das Gerät selbst erkannt. Diktiert wird auf der Brille
+// über deren Systemtastatur (systemKeyboard.js).
+const HEADSET_UA = /OculusBrowser|Quest|Horizon ?OS|Pico Browser|Wolvic/i;
+
+export function isHeadsetBrowser() {
+  if (typeof navigator === 'undefined') return false;
+  return HEADSET_UA.test(navigator.userAgent || '');
+}
+
 export function isSpeechAvailable() {
+  if (isHeadsetBrowser()) return false;
   return Boolean(RecognitionClass());
 }
 
 // Klartext für die Statuszeile, wenn nichts geht.
 export function speechUnavailableReason() {
   if (isSpeechAvailable()) return null;
+  if (isHeadsetBrowser()) {
+    return 'Der Brillen-Browser hat keine Spracherkennung – diktiert wird über die Systemtastatur.';
+  }
   return 'Dieser Browser kennt keine Spracherkennung – die Tastatur übernimmt.';
 }
-
-// Fehler, nach denen der Erkenner in diesem Browser als unbrauchbar gilt: Es
-// hilft nichts, ihn nochmal zu fragen – der Aufrufer soll auf einen anderen Weg
-// ausweichen (auf der Quest die Systemtastatur, sonst die virtuelle Tastatur).
-export const SPEECH_DEAD_ENDS = new Set([
-  'not-allowed',
-  'service-not-allowed',
-  'network',
-  'audio-capture',
-  'start-failed',
-]);
 
 // Fehlercodes der API in verständliche Sätze übersetzen. „not-allowed" ist der
 // häufigste Fall und als roher Code nicht zu deuten.

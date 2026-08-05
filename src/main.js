@@ -8,6 +8,7 @@ import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
 import { SystemKeyboardBridge } from './systemKeyboard.js';
 import {
+  isHeadsetBrowser,
   isSpeechAvailable,
   recognizeSpeech,
   speechUnavailableReason,
@@ -734,8 +735,8 @@ function toggleVoiceCommands() {
     // hat keine Spracherkennung, nur die Systemtastatur kann diktieren – und
     // die läuft über die 🎤-Taste der Tastatur, nicht über Dauer-Zuhören.
     setStatus(
-      systemKeyboard.available
-        ? 'Dauerhafte Sprachbefehle kann der Quest-Browser nicht. Diktieren geht: „Neue Karte" → 🎤 Sprechen.'
+      isHeadsetBrowser()
+        ? 'Dauerhafte Sprachbefehle kann der Brillen-Browser nicht. Diktieren geht: „＋ Neue Karte" → 🎤 Sprechen.'
         : speechUnavailableReason(),
       8000
     );
