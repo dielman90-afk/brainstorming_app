@@ -22,6 +22,17 @@ export function speechUnavailableReason() {
   return 'Dieser Browser kennt keine Spracherkennung – die Tastatur übernimmt.';
 }
 
+// Fehler, nach denen der Erkenner in diesem Browser als unbrauchbar gilt: Es
+// hilft nichts, ihn nochmal zu fragen – der Aufrufer soll auf einen anderen Weg
+// ausweichen (auf der Quest die Systemtastatur, sonst die virtuelle Tastatur).
+export const SPEECH_DEAD_ENDS = new Set([
+  'not-allowed',
+  'service-not-allowed',
+  'network',
+  'audio-capture',
+  'start-failed',
+]);
+
 // Fehlercodes der API in verständliche Sätze übersetzen. „not-allowed" ist der
 // häufigste Fall und als roher Code nicht zu deuten.
 function errorMessage(code) {
@@ -40,6 +51,14 @@ function errorMessage(code) {
     default:
       return `Spracheingabe: ${code}`;
   }
+}
+
+// Fehler mit erhaltenem Code – der Aufrufer entscheidet anhand von
+// SPEECH_DEAD_ENDS, ob ein anderer Eingabeweg probiert werden soll.
+function speechError(code) {
+  const error = new Error(errorMessage(code));
+  error.code = code;
+  return error;
 }
 
 // Einmalige Diktat-Eingabe.
@@ -119,7 +138,7 @@ export function recognizeSpeech({
         finish(resolve, best.trim());
         return;
       }
-      finish(reject, new Error(errorMessage(event.error)));
+      finish(reject, speechError(event.error));
     };
     recognition.onend = () => {
       if (best.trim()) finish(resolve, best.trim());
@@ -129,7 +148,9 @@ export function recognizeSpeech({
     try {
       recognition.start();
     } catch (err) {
-      finish(reject, new Error(`Spracheingabe konnte nicht starten: ${err.message}`));
+      const error = new Error(`Spracheingabe konnte nicht starten: ${err.message}`);
+      error.code = 'start-failed';
+      finish(reject, error);
     }
   });
 }

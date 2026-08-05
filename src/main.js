@@ -6,6 +6,7 @@ import { ConnectionManager } from './connections.js';
 import { InteractionManager } from './interactions.js';
 import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
+import { SystemKeyboardBridge } from './systemKeyboard.js';
 import {
   isSpeechAvailable,
   recognizeSpeech,
@@ -202,7 +203,15 @@ function applyBoardJSON(data) {
   zoneManager.loadJSON(data?.zones ?? []);
 }
 
-const keyboard = new VirtualKeyboard(scene, { onStatus: (message) => setStatus(message, 5000) });
+// Diktat auf der Quest läuft über die Systemtastatur der Brille – der
+// Quest-Browser kennt die Web Speech API nicht. Die Sitzung wird erst beim
+// Aufruf geholt, weil sie bei jedem Start eine andere ist.
+const systemKeyboard = new SystemKeyboardBridge({ getSession: () => renderer.xr.getSession() });
+
+const keyboard = new VirtualKeyboard(scene, {
+  onStatus: (message, duration = 5000) => setStatus(message, duration),
+  systemKeyboard,
+});
 const wristMenu = new WristMenu((action) => handleAction(action));
 
 // Kurzes Rumble als Rückmeldung in VR (Greifen, Menü-Klick, Verbinden, Löschen).
@@ -721,7 +730,15 @@ function toggleVoiceCommands() {
     return;
   }
   if (!voice.available) {
-    setStatus(speechUnavailableReason(), 7000);
+    // Auf der Quest ist das keine Panne, sondern der Normalfall: Der Browser
+    // hat keine Spracherkennung, nur die Systemtastatur kann diktieren – und
+    // die läuft über die 🎤-Taste der Tastatur, nicht über Dauer-Zuhören.
+    setStatus(
+      systemKeyboard.available
+        ? 'Dauerhafte Sprachbefehle kann der Quest-Browser nicht. Diktieren geht: „Neue Karte" → 🎤 Sprechen.'
+        : speechUnavailableReason(),
+      8000
+    );
     return;
   }
   voice.start();
@@ -1256,6 +1273,7 @@ window.__app = {
   cardManager,
   connectionManager,
   keyboard,
+  systemKeyboard,
   wristMenu,
   whiteboard,
   zoneManager,

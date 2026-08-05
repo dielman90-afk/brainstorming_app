@@ -177,6 +177,25 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Der Diktat-Versuch läuft **nicht** mehr automatisch vor der Tastatur: Auf der
   Quest scheitert er zuverlässig, und die Wartezeit bis zum Fehlschlag verzögerte
   bisher jede Eingabe.
+- **Diktieren auf der Quest – über die Systemtastatur** (`src/systemKeyboard.js`):
+  Der Quest-Browser kennt die Web Speech API nicht; `SpeechRecognition` gibt es
+  dort schlicht nicht. Die **Brille** kann aber sehr wohl Sprache-zu-Text – nur
+  eben ausschließlich in ihrer eigenen Systemtastatur, über deren
+  Mikrofon-Taste. Genau die wird jetzt angezapft: Ist
+  `XRSession.isSystemKeyboardSupported` wahr, öffnet „🎤 Sprechen" per
+  DOM-`focus()` die Systemtastatur mitten in der laufenden Sitzung. Dort einmal
+  auf 🎤 tippen, sprechen, Tastatur schließen – der Text landet im Vorschaufeld
+  der 3D-Tastatur und kann dort weiterbearbeitet werden.
+  Zwei dokumentierte Eigenheiten prägen die Umsetzung: Es gibt **keine
+  Tastendruck-Ereignisse** (der Wert des Feldes wird deshalb zusätzlich
+  gepollt), und jeder **erste Tastendruck überschreibt den gesamten
+  Feldinhalt** – vorbelegt wird darum nie, das Ergebnis wird angehängt. Solange
+  die Systemtastatur oben liegt, steht die Sitzung auf `visible-blurred`; an
+  diesem Wechsel erkennt die App Auf- und Zugehen. Meldet die Web Speech API
+  einen aussichtslosen Fehler (`service-not-allowed`, `network`,
+  `not-allowed` …), wird ohne Zutun auf diesen Weg gewechselt.
+  *Voraussetzung: Die Sprachdiktierung muss in den Quest-Einstellungen einmalig
+  aktiviert worden sein (beim ersten 🎤-Antippen fragt die Brille danach).*
 - **🎙 Sprachbefehle** (`src/speech.js`): dauerhaftes Zuhören, abschaltbar über
   Menü („🗂 Board" → *Sprachbefehle*) bzw. den Overlay-Knopf – **standardmäßig
   aus**, ein ungefragt mithörendes Mikrofon will niemand. Erkannt werden u. a.
@@ -190,8 +209,10 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Während eines Diktats pausiert die Befehlserkennung – zwei Erkenner streiten
   sich sonst um das Mikrofon.
   *Hinweis: Die Web Speech API ist browserabhängig. Chrome/Edge am Desktop können
-  sie, der Quest-Browser bisher nicht – dort bleibt die Tastatur der Weg, und die
-  App sagt das im Klartext statt still zu scheitern.*
+  sie, der Quest-Browser nicht. **Dauerhafte Sprachbefehle gibt es auf der Quest
+  deshalb nicht** – die Systemtastatur kann nur einzelne Eingaben diktieren, kein
+  Dauer-Zuhören. Die App sagt das im Klartext statt still zu scheitern und
+  verweist auf „🎤 Sprechen".*
 - **🔠 Kartenschrift** (Barrierefreiheit): drei Stufen (*Normal · Groß · Sehr
   groß*) über „🔠 Schrift" im Menü bzw. den Knopf im Overlay. Angepasst wird nur
   die Textgröße, die Kartenfläche bleibt gleich; die Stufe gilt auch für neue
@@ -260,6 +281,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── hud.js              Statuszeile, Ladeanzeige und Fehlerkarte im Blickfeld
 │   ├── keyboard.js         Virtuelle 3D-Tastatur mit Diktat-Knopf
 │   ├── speech.js           Diktat + Sprachbefehle (Web Speech API)
+│   ├── systemKeyboard.js   Systemtastatur der Brille – Diktat-Weg auf der Quest
 │   ├── haptics.js          Controller-Rumble (Greifen, Klick, Verbinden, Löschen)
 │   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
@@ -366,8 +388,9 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
 | Bewegen **ohne Controller** | **Ins Leere pinchen und die Hand bewegen** = sich an der Welt entlangziehen · **beide Hände** = zusätzlich drehen |
 | Menüseite wechseln | Reiter **„💡 Ideen“** bzw. **„🗂 Board“** oben im Panel antippen |
 | Neue Karte | Menü → „＋ Neue Karte“ → Tastatur öffnet sich; **„🎤 Sprechen"** diktiert statt zu tippen |
+| **Diktieren (Quest)** | „🎤 Sprechen“ öffnet die **Systemtastatur der Brille** → dort **🎤 antippen, sprechen, Tastatur schließen** – der Text steht in der 3D-Tastatur |
 | Themen-Start | Menü → „🚀 Themen-Start“ → Thema sprechen/tippen |
-| **Sprachbefehle** | Menü → „🗂 Board“ → **„🎙 Sprachbefehle“** (der Knopf leuchtet, solange zugehört wird) |
+| **Sprachbefehle** | Menü → „🗂 Board“ → **„🎙 Sprachbefehle“** (der Knopf leuchtet, solange zugehört wird) – **am Desktop**; der Quest-Browser kann kein Dauer-Zuhören |
 | **Kartenschrift** | Menü → „💡 Ideen“ → **„🔠 Schrift“** (Normal → Groß → Sehr groß) |
 | Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
@@ -434,9 +457,17 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   getrackt werden, sind im Quest-System die Handbewegungen einzuschalten und die
   Controller abzulegen (`hand-tracking` wird als optionales WebXR-Feature
   angefragt).
+- **Diktieren auf der Quest tut nichts:** „🎤 Sprechen" öffnet dort die
+  **Systemtastatur der Brille**; das Diktat läuft über deren 🎤-Taste, nicht
+  über die App. Kommt die Systemtastatur nicht hoch, meldet die App
+  „Systemtastatur meldet sich nicht". Häufigste Ursachen: die Sprachdiktierung
+  ist in den Quest-Einstellungen noch nicht aktiviert (*Einstellungen → Tastatur
+  → Sprachdiktierung*), oder der Browser ist zu alt für
+  `XRSession.isSystemKeyboardSupported`. Dauer-Zuhören („🎙 Sprachbefehle") ist
+  auf der Quest technisch nicht möglich.
 - **Spracheingabe reagiert nicht:** Die Web Speech API ist browserabhängig. Der
-  Quest-Browser unterstützt sie bisher nicht – dort meldet „🎤 Sprechen" das im
-  Klartext und die Tastatur bleibt der Weg. Am Desktop braucht Chrome/Edge eine
+  Quest-Browser unterstützt sie nicht – dort übernimmt die Systemtastatur
+  (siehe oben). Am Desktop braucht Chrome/Edge eine
   **Mikrofon-Freigabe** (Adressleiste → Mikrofon zulassen) und eine
   Internetverbindung, weil die Erkennung serverseitig läuft – offline meldet sie
   „Spracherkennung braucht Internet". Firefox kann sie gar nicht.
