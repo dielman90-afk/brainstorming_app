@@ -30,16 +30,34 @@ export function isHeadsetBrowser() {
   return HEADSET_UA.test(navigator.userAgent || '');
 }
 
+// Zweite, gerätunabhängige Sperre.
+//
+// Die Kennung oben ist eine Zeichenkette, die Meta jederzeit umbauen kann –
+// „Oculus Browser" heißt seit 2024 „Meta Quest Browser", und beim nächsten Mal
+// fällt vielleicht das Wort „Quest" weg. Sich für etwas, das den Browser
+// abschießt, allein darauf zu verlassen, wäre leichtsinnig.
+//
+// Deshalb zusätzlich der Zustand, um den es eigentlich geht: Läuft gerade eine
+// immersive Sitzung? Dann ist Spracherkennung in jedem Fall tabu – auf
+// autarken Brillen fehlt der Dienst dahinter, und selbst wo es ihn gibt, kann
+// die Mikrofon-Abfrage in einer immersiven Sitzung nicht angezeigt werden.
+// main.js setzt das bei sessionstart/sessionend.
+let xrPresenting = false;
+
+export function setXRPresenting(value) {
+  xrPresenting = Boolean(value);
+}
+
 export function isSpeechAvailable() {
-  if (isHeadsetBrowser()) return false;
+  if (xrPresenting || isHeadsetBrowser()) return false;
   return Boolean(RecognitionClass());
 }
 
 // Klartext für die Statuszeile, wenn nichts geht.
 export function speechUnavailableReason() {
   if (isSpeechAvailable()) return null;
-  if (isHeadsetBrowser()) {
-    return 'Der Brillen-Browser hat keine Spracherkennung – diktiert wird über die Systemtastatur.';
+  if (xrPresenting || isHeadsetBrowser()) {
+    return 'In der Brille gibt es keine Spracherkennung – diktiert wird über die Systemtastatur.';
   }
   return 'Dieser Browser kennt keine Spracherkennung – die Tastatur übernimmt.';
 }

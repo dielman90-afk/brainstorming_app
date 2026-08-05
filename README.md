@@ -193,6 +193,13 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   nicht, weil es ihn ja gibt – deshalb erkennt `isHeadsetBrowser()` das Gerät
   am User-Agent und blendet die API auf Brillen-Browsern **komplett** aus.
   Damit ist auch das Dauer-Zuhören dort abgeschaltet.
+  Weil eine Zeichenkette im User-Agent eine wacklige Grundlage für etwas ist,
+  das den Browser abschießt (aus „Oculus Browser" wurde 2024 „Meta Quest
+  Browser"), kommt eine zweite, gerätunabhängige Sperre dazu: `setXRPresenting()`
+  schaltet die Erkennung **für die Dauer jeder immersiven Sitzung** ab, egal auf
+  welchem Gerät. Auf autarken Brillen fehlt der Dienst dahinter, und selbst wo
+  es ihn gibt, lässt sich die Mikrofon-Abfrage in einer immersiven Sitzung nicht
+  anzeigen.
   Die **Brille** kann aber sehr wohl Sprache-zu-Text – nur
   eben ausschließlich in ihrer eigenen Systemtastatur, über deren
   Mikrofon-Taste. Genau die wird jetzt angezapft: Ist
@@ -394,6 +401,19 @@ Der Express-Server wird in Produktion durch eine Netlify Function ersetzt
    (optional `MOCK_AI=1` für eine Demo ohne Key).
 3. Deployen und die `https://….netlify.app`-URL im Quest-Browser öffnen –
    echtes Zertifikat, keine Warnung.
+
+**Netlify baut nur den Produktions-Branch.** Arbeit auf einem Feature-Branch
+liegt auf der Brille nicht an, solange sie nicht gemerged ist – das ist keine
+Kleinigkeit, sondern hat schon eine ganze Fehlersuche gekostet: Ein gemeldeter
+Absturz war längst behoben, nur lief auf der Brille noch eine Woche alte
+Fassung.
+
+Damit das nicht wieder passiert, steht der Baustand **unten im Overlay**
+(„Baustand `a1b2c3d` · Datum") und in `window.__app.build`. Der Wert kommt beim
+Bauen aus Netlifys `COMMIT_REF` bzw. lokal aus `git rev-parse` (siehe
+`vite.config.js`). Bei jeder Fehlermeldung zuerst dort nachsehen: Passt die
+Kennung nicht zum erwarteten Commit, ist der Fehler nicht im Code, sondern im
+Deployment.
 
 ### Bedienung in VR/MR
 
