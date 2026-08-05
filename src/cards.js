@@ -40,35 +40,90 @@ export const CARD_FONT_STEPS = [
   { id: 'sehr-gross', label: 'Sehr groß', scale: 1.5 },
 ];
 
+// Knotenarten für Prozessflussdiagramme.
+//
+// `flowType === null` ist die gewohnte Ideenkarte – daran ändert sich nichts.
+// Die Form sagt, um welche Art Schritt es geht; das ist die Konvention jedes
+// Flussdiagramms und der Grund, warum eine Verzweigung auf einen Blick als
+// solche zu erkennen ist.
+export const FLOW_TYPES = [
+  { id: 'start', label: 'Start', shape: 'stadium', colorIndex: 2, width: 0.30, height: 0.15, radius: 28 },
+  { id: 'task', label: 'Tätigkeit', shape: 'rect', colorIndex: 0, width: 0.34, height: 0.18, radius: 20 },
+  { id: 'decision', label: 'Entscheidung', shape: 'diamond', colorIndex: 1, width: 0.42, height: 0.28, radius: 24 },
+  { id: 'end', label: 'Ende', shape: 'stadium', colorIndex: 4, width: 0.30, height: 0.15, radius: 28 },
+];
+
+export function flowTypeById(id) {
+  return FLOW_TYPES.find((t) => t.id === id) ?? null;
+}
+
+const IDEA_LOOK = { shape: 'rect', width: CARD_W, height: CARD_H, radius: 28 };
+
 export class IdeaCard {
-  constructor(text, { fontScale = 1 } = {}) {
+  constructor(text, { fontScale = 1, flowType = null } = {}) {
     this.id = crypto.randomUUID?.() ?? String(Math.random()).slice(2);
     this.text = text;
     this.hovered = false;
     this.colorIndex = 0;
     this.scale = 1;
+    this.fontScale = fontScale;
+    this.flowType = flowType;
+
+    this.group = new THREE.Group();
+    this.group.userData.card = this;
+    this._build();
+  }
+
+  // Panel und Auswahlrahmen (neu) aufbauen. Wird auch beim Wechsel der
+  // Knotenart gerufen – Form und Maße hängen daran, eine Textur lässt sich
+  // nachträglich nicht umformen.
+  _build() {
+    const look = flowTypeById(this.flowType) ?? IDEA_LOOK;
+    if (this.flowType) this.colorIndex = look.colorIndex;
+    const color = CARD_COLORS[this.colorIndex];
+
+    // Maße und Umriss nach außen sichtbar: connections.js setzt Pfeile damit am
+    // Knotenrand an statt in seiner Mitte.
+    this.width = look.width;
+    this.height = look.height;
+    this.shape = look.shape;
+
+    this.panel?.dispose();
+    this.border?.geometry.dispose();
+    this.border?.material.dispose();
+    this.group.clear();
 
     this.panel = createTextPanel({
-      width: CARD_W,
-      height: CARD_H,
-      text,
-      background: [shade(CARD_COLORS[0].base, 1.25), shade(CARD_COLORS[0].base, 0.8)],
-      accent: CARD_COLORS[0].accent,
+      width: look.width,
+      height: look.height,
+      text: this.text,
+      shape: look.shape,
+      background: [shade(color.base, 1.25), shade(color.base, 0.8)],
+      accent: color.accent,
       border: 'rgba(255,255,255,0.10)',
-      radius: 28,
-      fontSize: Math.round(CARD_FONT_SIZE * fontScale),
+      radius: look.radius,
+      fontSize: Math.round(CARD_FONT_SIZE * this.fontScale),
     });
 
     this.border = new THREE.Mesh(
-      new THREE.PlaneGeometry(CARD_W + 0.02, CARD_H + 0.02),
+      new THREE.PlaneGeometry(look.width + 0.02, look.height + 0.02),
       new THREE.MeshBasicMaterial({ color: 0xffb454, transparent: true, opacity: 0.9, side: THREE.DoubleSide })
     );
     this.border.position.z = -0.002;
     this.border.visible = false;
 
-    this.group = new THREE.Group();
     this.group.add(this.border, this.panel.mesh);
-    this.group.userData.card = this;
+  }
+
+  // Knotenart setzen (null = zurück zur normalen Ideenkarte).
+  setFlowType(id) {
+    const next = id && flowTypeById(id) ? id : null;
+    if (next === this.flowType) return;
+    const wasSelected = this.border?.visible ?? false;
+    this.flowType = next;
+    if (!next) this.colorIndex = 0;
+    this._build();
+    this.border.visible = wasSelected;
   }
 
   setText(text) {
@@ -97,6 +152,7 @@ export class IdeaCard {
   }
 
   setFontScale(fontScale) {
+    this.fontScale = fontScale;
     this.panel.setFontSize(CARD_FONT_SIZE * fontScale);
   }
 
@@ -142,8 +198,8 @@ export class CardManager {
     return this.setFontStep(this.fontStepIndex + 1);
   }
 
-  addCard(text, { position, quaternion, colorIndex, scale } = {}) {
-    const card = new IdeaCard(text, { fontScale: this.fontStep.scale });
+  addCard(text, { position, quaternion, colorIndex, scale, flowType = null } = {}) {
+    const card = new IdeaCard(text, { fontScale: this.fontStep.scale, flowType });
     if (position) card.group.position.fromArray(position);
     if (quaternion) card.group.quaternion.fromArray(quaternion);
     if (colorIndex) card.setColor(colorIndex);
@@ -263,6 +319,9 @@ export class CardManager {
         text: card.text,
         colorIndex: card.colorIndex,
         scale: card.scale,
+        // Nur bei Prozessknoten gesetzt – Ideenkarten bleiben im alten Format,
+        // damit gespeicherte Boards von früher unverändert lesbar sind.
+        ...(card.flowType ? { flowType: card.flowType } : {}),
         position: card.group.getWorldPosition(new THREE.Vector3()).toArray(),
         quaternion: card.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
       })),
@@ -292,9 +351,13 @@ export class CardManager {
       if (typeof entry?.text !== 'string') continue;
       const colorIndex = entry.colorIndex ?? 0;
       const scale = entry.scale ?? 1;
+      const flowType = flowTypeById(entry.flowType) ? entry.flowType : null;
       let card = typeof entry.id === 'string' ? byId.get(entry.id) : undefined;
 
       if (card) {
+        // Zuerst die Knotenart: sie baut das Panel neu auf und setzt dabei die
+        // Farbe der Knotenart – ein davor gesetzter Farbwechsel wäre verloren.
+        if (card.flowType !== flowType) card.setFlowType(flowType);
         if (card.text !== entry.text) card.setText(entry.text);
         if (card.colorIndex !== colorIndex) card.setColor(colorIndex);
         if (card.scale !== scale) card.setScale(scale);
@@ -309,6 +372,7 @@ export class CardManager {
           quaternion: entry.quaternion,
           colorIndex,
           scale,
+          flowType,
         });
         // IDs erhalten, damit gespeicherte Verbindungen weiter passen
         if (typeof entry.id === 'string' && entry.id) card.id = entry.id;

@@ -40,6 +40,19 @@ const PAGES = [
       { id: 'clear', label: '🧹 Alles löschen', danger: true },
     ],
   },
+  {
+    id: 'flow',
+    label: '⚙️ Prozess',
+    actions: [
+      { id: 'flow-generate', label: '✨ Aus Text bauen' },
+      { id: 'flow-node', label: '＋ Schritt' },
+      { id: 'flow-type', label: '◇ Form wechseln' },
+      { id: 'flow-arrow', label: '➜ Pfeil ziehen' },
+      { id: 'flow-label', label: '🏷 Zweig benennen' },
+      { id: 'flow-layout', label: '⤓ Anordnen' },
+      { id: 'flow-export', label: '⬇️ Als Mermaid' },
+    ],
+  },
 ];
 
 const COLORS = {
@@ -217,8 +230,13 @@ export class WristMenu {
     this.group.add(title.mesh);
 
     // --- Reiter für die Seiten ---
+    //
+    // Breite aus der Anzahl gerechnet, nicht für zwei Reiter fest verdrahtet:
+    // Beim dritten Reiter hätten sich sonst die Beschriftungen überlappt – exakt
+    // der Fehler, den die Funktionsreihe der Tastatur schon einmal hatte.
     const tabY = headerY - HEADER_H / 2 - 0.006 - TAB_H / 2;
-    const tabW = (panelW - PAD * 2 - GAP_X) / 2;
+    const innerW = panelW - PAD * 2;
+    const tabW = (innerW - GAP_X * (PAGES.length - 1)) / PAGES.length;
     this.tabs = [];
     PAGES.forEach((page, i) => {
       const tab = createTextPanel({
@@ -229,12 +247,12 @@ export class WristMenu {
         color: COLORS.textMuted,
         weight: 600,
         singleLine: true,
-        fontSize: 23,
-        padding: 20,
+        fontSize: 22,
+        padding: 14,
         radius: 16,
         doubleSided: false,
       });
-      tab.mesh.position.set((i === 0 ? -1 : 1) * (tabW + GAP_X) / 2, tabY, 0.002);
+      tab.mesh.position.set(-innerW / 2 + tabW / 2 + i * (tabW + GAP_X), tabY, 0.002);
       flatLayer(tab.mesh, 23);
       tab.mesh.userData.onClick = () => this.setPage(i);
       tab.mesh.userData.setHover = (hovered) => {

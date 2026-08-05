@@ -50,6 +50,66 @@ export function downloadBoard(data) {
   return data.cards?.length ?? 0;
 }
 
+// --- Mermaid-Export des Prozessflussdiagramms ---
+//
+// Mermaid, weil es GitHub, Notion, Obsidian und Confluence direkt rendern –
+// der in VR gebaute Prozess ist damit ohne Zwischenschritt im Dokument und
+// bleibt dort bearbeitbar. Ein Bild wäre eine Sackgasse.
+
+const MERMAID_WRAP = {
+  start: ['([', '])'],
+  end: ['([', '])'],
+  decision: ['{', '}'],
+  task: ['[', ']'],
+};
+
+// Mermaid bricht an `[]{}()|"` ab; Anführungszeichen um den Text lösen das für
+// fast alles, die verbleibenden Zeichen werden ersetzt.
+function mermaidText(text) {
+  const clean = String(text ?? '')
+    .replace(/"/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+  return `"${clean}"`;
+}
+
+// Lesbare, stabile Knotennamen: n1, n2, … statt der langen UUIDs.
+export function boardToMermaid(data) {
+  const nodes = (data?.cards ?? []).filter((c) => c.flowType);
+  if (!nodes.length) return null;
+  const names = new Map(nodes.map((n, i) => [n.id, `n${i + 1}`]));
+  const lines = ['flowchart TD'];
+
+  for (const node of nodes) {
+    const [open, close] = MERMAID_WRAP[node.flowType] ?? MERMAID_WRAP.task;
+    lines.push(`  ${names.get(node.id)}${open}${mermaidText(node.text)}${close}`);
+  }
+
+  const edges = (data?.connections ?? []).filter(
+    (c) => c.directed && names.has(c.a) && names.has(c.b)
+  );
+  for (const edge of edges) {
+    const label = edge.label ? `|${mermaidText(edge.label)}|` : '';
+    lines.push(`  ${names.get(edge.a)} -->${label} ${names.get(edge.b)}`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+export function downloadMermaid(data) {
+  const text = boardToMermaid(data);
+  if (!text) return 0;
+  const blob = new Blob([text], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `prozess-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.mmd`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return (data.cards ?? []).filter((c) => c.flowType).length;
+}
+
 export async function importBoardFile(file) {
   const text = await file.text();
   let data;

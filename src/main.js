@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import './fonts.js'; // lokal gebündelte Schriften (kein CDN nötig)
-import { CardManager, CARD_COLORS, CARD_FONT_STEPS } from './cards.js';
+import { CardManager, CARD_COLORS, CARD_FONT_STEPS, FLOW_TYPES, flowTypeById } from './cards.js';
 import { ConnectionManager } from './connections.js';
+import { layoutFlow } from './flowLayout.js';
 import { InteractionManager } from './interactions.js';
 import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
@@ -23,6 +24,7 @@ import {
   loadBoardLocal,
   saveSnapshot,
   loadSnapshot,
+  downloadMermaid,
 } from './boardState.js';
 import { createEnvironments } from './environments.js';
 import { Whiteboard } from './whiteboard.js';
@@ -390,15 +392,26 @@ let busy = false;
 
 let clearArmedAt = 0;
 let linkSource = null;
+// 'mindmap' = ungerichtete Linie, 'flow' = gerichteter Prozesspfeil. Beide
+// laufen über dieselbe Auswahl-Mechanik (Quelle merken, Ziel antippen).
+let linkMode = 'mindmap';
+// Zuletzt gezogener Pfeil – „Zweig benennen" beschriftet ihn.
+let lastFlowEdge = null;
 
-function startLinking() {
+function startLinking(mode = 'mindmap') {
   const selected = cardManager.selected;
   if (!selected) {
     setStatus('Bitte zuerst eine Karte auswählen.');
     return;
   }
   linkSource = selected;
-  setStatus('🔗 Verbinden: Ziel-Karte anklicken (gleiche Karte oder Esc = abbrechen)', 0);
+  linkMode = mode;
+  setStatus(
+    mode === 'flow'
+      ? '➜ Pfeil: Ziel-Schritt anklicken (gleiche Karte oder Esc = abbrechen)'
+      : '🔗 Verbinden: Ziel-Karte anklicken (gleiche Karte oder Esc = abbrechen)',
+    0
+  );
 }
 
 // Meldet Wiederholversuche an die Ladeanzeige, damit eine hakelige Verbindung
@@ -432,6 +445,45 @@ async function handleAction(action) {
     }
     if (action === 'voice') {
       toggleVoiceCommands();
+      return;
+    }
+    if (action === 'flow-node') {
+      newFlowNode();
+      return;
+    }
+    if (action === 'flow-type') {
+      cycleFlowType();
+      return;
+    }
+    if (action === 'flow-arrow') {
+      startLinking('flow');
+      return;
+    }
+    if (action === 'flow-label') {
+      labelFlowEdge();
+      return;
+    }
+    if (action === 'flow-layout') {
+      const count = layoutFlow(cardManager.cards, connectionManager.connections, camera);
+      if (!count) {
+        setStatus('Noch keine Prozessschritte da – erst „＋ Schritt" oder „✨ Aus Text bauen".');
+        return;
+      }
+      commit('Prozess angeordnet');
+      setStatus(`⤓ ${count} Schritte angeordnet.`);
+      return;
+    }
+    if (action === 'flow-generate') {
+      buildFlowFromText();
+      return;
+    }
+    if (action === 'flow-export') {
+      const count = downloadMermaid(boardToJSON());
+      setStatus(
+        count
+          ? `⬇️ ${count} Schritte als Mermaid gespeichert.`
+          : 'Kein Prozessdiagramm auf dem Board – erst Schritte anlegen.'
+      );
       return;
     }
     if (action === 'undo') {
@@ -731,6 +783,99 @@ function toggleVoiceCommands() {
   setStatus('🎙 Sprachbefehle an – z. B. „neue Karte Fahrradständer", „Cluster", „rückgängig".', 7000);
 }
 
+
+// --- Prozessflussdiagramm ---
+//
+// Die Knoten sind ganz normale Karten mit gesetztem `flowType` (siehe
+// FLOW_TYPES in cards.js). Dadurch erben sie Greifen, Auswahl, Undo/Redo,
+// Autosave und Export, ohne dass davon etwas nachgebaut werden müsste.
+
+// Reihenfolge beim Durchschalten: erst die häufigen Arten, dann zurück zur
+// gewöhnlichen Ideenkarte.
+const FLOW_CYCLE = ['task', 'decision', 'start', 'end', null];
+
+async function newFlowNode() {
+  const text = await getUserText();
+  if (!text) return;
+  const card = cardManager.spawnIdeas([text], camera)[0];
+  card.setFlowType('task');
+  cardManager.select(card);
+  commit('Prozessschritt angelegt');
+  setStatus('Schritt angelegt – „◇ Form wechseln" macht daraus Start, Entscheidung oder Ende.');
+}
+
+function cycleFlowType() {
+  const card = cardManager.selected;
+  if (!card) {
+    setStatus('Bitte zuerst eine Karte auswählen.');
+    return;
+  }
+  const at = FLOW_CYCLE.indexOf(card.flowType);
+  const next = FLOW_CYCLE[(at + 1) % FLOW_CYCLE.length];
+  card.setFlowType(next);
+  commit('Form gewechselt');
+  const label = next ? flowTypeById(next).label : 'Ideenkarte';
+  setStatus(`Form: ${label}`);
+}
+
+async function labelFlowEdge() {
+  // Bevorzugt der zuletzt gezogene Pfeil; sonst der erste unbeschriftete
+  // Ausgang der gewählten Karte. Alles andere wäre eine zweite Auswahlrunde
+  // für eine Beschriftung von zwei Buchstaben.
+  let edge = lastFlowEdge;
+  if (!edge && cardManager.selected) {
+    edge = connectionManager.edgesFrom(cardManager.selected).find((e) => !e.label) ?? null;
+  }
+  if (!edge) {
+    setStatus('Erst einen Pfeil ziehen – oder die Karte wählen, von der er ausgeht.');
+    return;
+  }
+  const text = await getUserText();
+  if (text === null) return;
+  connectionManager.setLabel(edge, text);
+  commit('Zweig benannt');
+  setStatus(text ? `🏷 Zweig „${text}".` : 'Beschriftung entfernt.');
+}
+
+// Prozess aus einer Beschreibung bauen lassen und sofort anordnen.
+async function buildFlowFromText() {
+  if (busy) {
+    setStatus('Claude arbeitet noch – einen Moment.');
+    return;
+  }
+  const description = await getUserText();
+  if (!description) return;
+  try {
+    busy = true;
+    setStatus(`Claude baut den Prozess zu „${description}"…`, 0);
+    setBusyLabel(`Prozess zu „${description}"…`);
+    const data = await requestAI('flow', { topic: description }, aiProgress('Prozess'));
+    const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
+    if (!nodes.length) throw new Error('Claude hat keinen verwertbaren Prozess geliefert.');
+
+    // Antwort-IDs sind nur innerhalb der Antwort gültig – hier auf die echten
+    // Karten-IDs abgebildet.
+    const byResponseId = new Map();
+    for (const node of nodes) {
+      const card = cardManager.addCard(node.text, { flowType: node.type });
+      byResponseId.set(node.id, card);
+    }
+    for (const edge of Array.isArray(data?.edges) ? data.edges : []) {
+      const from = byResponseId.get(edge.from);
+      const to = byResponseId.get(edge.to);
+      if (from && to) connectionManager.connect(from, to, { label: edge.label });
+    }
+    layoutFlow(cardManager.cards, connectionManager.connections, camera);
+    commit('Prozess erzeugt');
+    setStatus(`✨ Prozess mit ${nodes.length} Schritten gebaut.`);
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    busy = false;
+    setBusyLabel(null);
+  }
+}
+
 // Themen-Start mit bereits bekanntem Thema (aus einem Sprachbefehl).
 async function startTopic(topic) {
   if (busy) {
@@ -809,6 +954,8 @@ const DESKTOP_BUTTONS = {
   'btn-topic': 'topic',
   'btn-whiteboard': 'whiteboard',
   'btn-export': 'export',
+  'btn-mermaid': 'flow-export',
+  'btn-flow': 'flow-generate',
   'btn-clear': 'clear',
   'btn-env': 'environment',
   'btn-undo': 'undo',
@@ -947,6 +1094,19 @@ interactions.onCardPick = (card) => {
   if (card === linkSource) {
     linkSource = null;
     setStatus('Verbinden abgebrochen.');
+    return true;
+  }
+  if (linkMode === 'flow') {
+    const result = connectionManager.connect(linkSource, card);
+    lastFlowEdge = result === 'added' ? connectionManager.findDirected(linkSource, card) : null;
+    haptics.pulse('connect');
+    commit(result === 'added' ? 'Pfeil gezogen' : 'Pfeil entfernt');
+    setStatus(
+      result === 'added'
+        ? '➜ Pfeil gezogen. „🏷 Zweig benennen" beschriftet ihn.'
+        : 'Pfeil entfernt.'
+    );
+    linkSource = null;
     return true;
   }
   const result = connectionManager.toggle(linkSource, card);
@@ -1241,7 +1401,7 @@ renderer.setAnimationLoop(() => {
   // Rigs und liefert die echte Weltpose (dieselbe Falle wie in locomotion.js).
   wristMenu.update(camera);
   hud.update(dt);
-  connectionManager.update();
+  connectionManager.update(camera);
   if (envIndex >= 0) environments[envIndex].update?.(elapsed);
   timer.update(elapsed);
   if (renderer.xr.isPresenting) {
@@ -1283,6 +1443,7 @@ window.__app = {
   connectionManager,
   keyboard,
   voice,
+  flow: { layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera), types: FLOW_TYPES },
   wristMenu,
   whiteboard,
   zoneManager,

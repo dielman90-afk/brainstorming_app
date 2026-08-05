@@ -30,6 +30,13 @@ gegen den tatsächlichen Code geprüft.
       (Vorhandenes prüfen und ggf. auf Datei-Download + Import erweitern, auch aus VR
       erreichbar).
       *(erledigt über PR #2, `src/boardState.js`; Haken nachgetragen am 2026-08-03)*
+- [x] **Prozessflussdiagramm** – Knotenarten mit eigener Form (Stadion, Rechteck,
+      Raute), gerichtete Pfeile mit Beschriftung, automatisches geschichtetes
+      Layout, Erzeugung aus einer Beschreibung durch Claude und Export als
+      Mermaid (`src/flowLayout.js`, `FLOW_TYPES` in `src/cards.js`, Aktion
+      `flow` in `server/ai-core.js`). *(erledigt am 2026-08-05)*
+      Offen als Fortsetzung: rechtwinklige Kantenführung wie bei Miro,
+      Schwimmbahnen für Rollen über `src/zones.js`, Mermaid-**Import**.
 - [ ] **Snap-Grid** – optionales Einrasten der Karten an einem Raster zum sauberen
       Ausrichten. *(Das „Karten zu mir holen" aus diesem Punkt ist erledigt:
       `recenterOnNextFrame` in `src/main.js` ordnet beim XR-Start neu an.)*

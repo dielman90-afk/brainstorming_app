@@ -97,8 +97,35 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Tracking-Aussetzer keinen Sprung auslöst.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
-- **Hand-Menü** (`src/wristMenu.js`) auf zwei Reitern à sechs Reihen, damit das
-  Panel trotz 20 Aktionen kompakt bleibt. Die kürzere Seite wird im Panel
+- **⚙️ Prozessflussdiagramm** (`src/flowLayout.js`, Reiter „⚙️ Prozess" im
+  Hand-Menü): Abläufe als richtiges Flussdiagramm bauen – mit **Formen**,
+  **gerichteten Pfeilen** und **beschrifteten Zweigen**.
+  - **Knotenarten** (`FLOW_TYPES` in `src/cards.js`): Start und Ende als Stadion,
+    Tätigkeiten als Rechteck, Entscheidungen als **Raute** – jede mit eigener
+    Farbe. Die Form sagt auf einen Blick, um welche Art Schritt es geht.
+    Ein Prozessknoten ist dabei eine ganz normale Karte mit gesetztem `flowType`;
+    dadurch erbt er Greifen, Auswahl, Undo/Redo, Autosave und Export, ohne dass
+    davon etwas nachgebaut werden müsste.
+  - **Pfeile** enden **am Rand** des Zielknotens, nicht in seiner Mitte – sonst
+    verschwände die Spitze hinter der Karte und man sähe nur eine Linie, die im
+    Knoten endet. Bei der Raute wird dafür ihr echter Umriss gerechnet
+    (`|x|/hw + |y|/hh = 1`), nicht das umschließende Rechteck.
+  - **⤓ Anordnen** legt den Prozess automatisch auf eine flache Tafel rund 2 m
+    vor dem Nutzer, Fluss von oben nach unten (geschichtetes Layout, rein lokal
+    gerechnet). **Rückführungen** – „Unterlagen nachfordern" zurück zur Prüfung –
+    werden vorher per Tiefensuche erkannt und beim Rangieren übersprungen;
+    gezeichnet werden sie trotzdem und zeigen dann nach oben. Ohne das würde der
+    Rang eines Knotens im Kreis immer weiterwachsen.
+  - **✨ Aus Text bauen:** Ablauf in Worten beschreiben, Claude liefert Knoten und
+    Kanten als strukturiertes JSON (`FLOW_SCHEMA` in `server/ai-core.js`, dieselbe
+    Strecke wie *Cluster*), die App baut und ordnet das Diagramm.
+  - **⬇️ Als Mermaid:** Export als `flowchart TD` – Stadion `([…])`, Rechteck
+    `[…]`, Raute `{…}`, beschriftete Kanten `-->|ja|`. GitHub, Notion, Obsidian
+    und Confluence rendern das direkt, der in VR gebaute Prozess ist also ohne
+    Zwischenschritt im Dokument und dort weiter bearbeitbar. Ein Bild wäre eine
+    Sackgasse.
+- **Hand-Menü** (`src/wristMenu.js`) auf drei Reitern à sechs Reihen, damit das
+  Panel trotz 27 Aktionen kompakt bleibt. Die kürzere Seite wird im Panel
   vertikal zentriert, damit unten keine leere Reihe klafft:
   - **💡 Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
     *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Schrift*,
@@ -106,6 +133,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
     *Umgebung*, *Sichern*, *Laden*, *Als Datei*,
     *Alles löschen* (mit Zweifach-Bestätigung)
+  - **⚙️ Prozess:** *Aus Text bauen*, *Schritt*, *Form wechseln*, *Pfeil ziehen*,
+    *Zweig benennen*, *Anordnen*, *Als Mermaid*
 
   Das Menü sitzt **mit Controllern** über dem Handrücken der linken Hand und
   reicht nach vorn ins Blickfeld (statt hinter dem Handgelenk Richtung
@@ -274,7 +303,10 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 ├── index.html              Overlay-UI (Desktop) + Einstieg
 ├── src/
 │   ├── main.js             Szene, XR-Session (AR→VR-Fallback), Verdrahtung
-│   ├── cards.js            IdeaCard + CardManager (Halbkreis-Anordnung, Serialisierung)
+│   ├── cards.js            IdeaCard + CardManager (Halbkreis-Anordnung, Serialisierung,
+│   │                       Knotenarten für Prozessdiagramme)
+│   ├── connections.js      Mindmap-Linien + gerichtete Prozesspfeile mit Beschriftung
+│   ├── flowLayout.js       Geschichtetes Layout fürs Prozessflussdiagramm
 │   ├── interactions.js     Controller-/Hand-Raycasting, Grab + Maus-Fallback
 │   ├── locomotion.js       Fortbewegung (Player-Rig): VR-Gleiten + Snap-Turn
 │   ├── wristMenu.js        Menü-Panel an Controller bzw. Handfläche
@@ -285,7 +317,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── haptics.js          Controller-Rumble (Greifen, Klick, Verbinden, Löschen)
 │   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
-│   ├── boardState.js       JSON-Export/-Import, Sicherungspunkte + Autosave
+│   ├── boardState.js       JSON-Export/-Import, Mermaid-Export, Sicherungspunkte + Autosave
 │   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt
 │   │                       inkl. Matrix-Sitzgruppe: Ohrensessel + Radiola-Konsole)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
@@ -405,6 +437,8 @@ Deployment.
 | **Kartenschrift** | Menü → „💡 Ideen“ → **„🔠 Schrift“** (Normal → Groß → Sehr groß) |
 | Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
+| **Prozess bauen** | Menü → „⚙️ Prozess“ → **„✨ Aus Text bauen“** (Ablauf beschreiben) oder von Hand: „＋ Schritt“ → „◇ Form wechseln“ → „➜ Pfeil ziehen“ → „🏷 Zweig benennen“ → „⤓ Anordnen“ |
+| **Prozess mitnehmen** | Menü → „⚙️ Prozess“ → **„⬇️ Als Mermaid“** – die `.mmd`-Datei rendert GitHub, Notion und Confluence direkt |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
 | Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |
 | **Rückgängig / Wiederholen** | Menü → „🗂 Board“ → **„↶ Rückgängig“** / **„↷ Wiederholen“** |
