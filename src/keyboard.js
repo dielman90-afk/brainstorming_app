@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
 import { flatLayer, makeRoundedPanel } from './wristMenu.js';
-import { isSpeechAvailable, recognizeSpeech, speechUnavailableReason } from './speech.js';
+import {
+  SPEECH_DEAD_ENDS,
+  isSpeechAvailable,
+  recognizeSpeech,
+  speechUnavailableReason,
+} from './speech.js';
 
 // Texteingabe in XR: virtuelle Tastatur mit Diktat-Knopf.
 //
@@ -52,9 +57,12 @@ const COLORS = {
 
 export class VirtualKeyboard {
   // onStatus: kurze Rückmeldungen (Mikrofon-Status, Fehler) nach außen reichen.
-  constructor(scene, { onStatus = null } = {}) {
+  // systemKeyboard: SystemKeyboardBridge – der Diktierweg auf der Quest, wo es
+  // keine Web Speech API gibt.
+  constructor(scene, { onStatus = null, systemKeyboard = null } = {}) {
     this.scene = scene;
     this.onStatus = onStatus;
+    this.systemKeyboard = systemKeyboard;
     this.group = new THREE.Group();
     this.group.name = 'virtualKeyboard';
     this.group.visible = false;
@@ -242,17 +250,35 @@ export class VirtualKeyboard {
   // --- Diktat ---
 
   // Der eigentliche Punkt des Ganzen: Wer nicht tippen will, drückt hier und
-  // spricht. Klappt es nicht (Browser ohne Spracherkennung, Mikrofon gesperrt),
-  // bleibt die Tastatur einfach offen stehen.
+  // spricht.
+  //
+  // Es gibt zwei Wege, und welcher zieht, hängt vom Gerät ab:
+  //   1. Web Speech API – Desktop-Chrome/Edge. Erkennt direkt im Browser.
+  //   2. Systemtastatur der Brille – der Quest-Browser kennt SpeechRecognition
+  //      nicht, die Brille selbst aber sehr wohl. Ihre Systemtastatur hat eine
+  //      Mikrofon-Taste, und über die läuft dort das Diktat.
+  // Meldet Weg 1, dass er in diesem Browser nichts wird (siehe
+  // SPEECH_DEAD_ENDS), wird ohne Zutun auf Weg 2 gewechselt.
   async toggleDictation() {
     if (this.listening) {
       this._dictationAbort?.abort();
       return;
     }
-    if (!isSpeechAvailable()) {
-      this.onStatus?.(speechUnavailableReason());
+    if (isSpeechAvailable()) {
+      const deadEnd = await this._webSpeechDictation();
+      if (!deadEnd) return;
+      if (!this.systemKeyboard?.available) return;
+    }
+    if (this.systemKeyboard?.available) {
+      await this._systemDictation();
       return;
     }
+    this.onStatus?.(speechUnavailableReason() ?? this.systemKeyboard?.unavailableReason ?? '');
+  }
+
+  // Liefert true, wenn die Spracherkennung in diesem Browser als aussichtslos
+  // gilt und der Aufrufer den anderen Weg probieren soll.
+  async _webSpeechDictation() {
     const controller = new AbortController();
     this._dictationAbort = controller;
     this._setListening(true);
@@ -265,10 +291,45 @@ export class VirtualKeyboard {
       });
       this.text = this.text ? `${this.text.trimEnd()} ${text}` : text;
       this.onStatus?.('');
+      return false;
     } catch (err) {
-      this.onStatus?.(err.message);
+      const deadEnd = SPEECH_DEAD_ENDS.has(err.code);
+      // Bei einem Wechsel auf die Systemtastatur die Fehlermeldung
+      // unterdrücken – der zweite Weg meldet sich gleich selbst.
+      if (!deadEnd || !this.systemKeyboard?.available) this.onStatus?.(err.message);
+      return deadEnd;
     } finally {
       this._dictationAbort = null;
+      this._setListening(false);
+      this._updatePreview();
+    }
+  }
+
+  // Diktat über die Systemtastatur der Brille.
+  //
+  // Solange sie oben liegt, steht die XR-Sitzung auf „visible-blurred" und
+  // nimmt keine Controller-Eingaben an – unsere „Abbrechen"-Taste ist in dieser
+  // Zeit also nicht erreichbar. Beendet wird über die Systemtastatur selbst;
+  // danach steht der Text im Vorschaufeld und kann hier weiterbearbeitet werden.
+  async _systemDictation() {
+    this._setListening(true, '⌨️ Systemtastatur');
+    this.onStatus?.('Systemtastatur offen – 🎤 antippen und sprechen, dann schließen.', 0);
+    try {
+      const text = await this.systemKeyboard.request({
+        onPartial: (partial) => this._showPartial(partial),
+        onOpen: () => this.onStatus?.('🎤-Taste der Systemtastatur antippen und sprechen.', 0),
+        onSilent: () =>
+          this.onStatus?.('Systemtastatur meldet sich nicht – notfalls hier tippen.', 6000),
+      });
+      if (text) {
+        this.text = this.text ? `${this.text.trimEnd()} ${text}` : text;
+        this.onStatus?.('Diktat übernommen.');
+      } else {
+        this.onStatus?.('');
+      }
+    } catch (err) {
+      this.onStatus?.(err.message, 6000);
+    } finally {
       this._setListening(false);
       this._updatePreview();
     }
