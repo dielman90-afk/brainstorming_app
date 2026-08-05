@@ -1,10 +1,9 @@
 // Spracheingabe über die Web Speech API: Diktat (einzelne Texteingabe) und
 // Sprachbefehle (dauerhaftes Zuhören, Kommando → Aktion).
 //
-// Verfügbarkeit ist browserabhängig: Chrome/Edge am Desktop können es, Firefox
-// nicht, und der Quest-Browser hat es lange nicht unterstützt. Deshalb wird
-// nirgends davon ausgegangen, dass es geht – jede Funktion meldet sauber, wenn
-// nicht, und die virtuelle Tastatur bleibt der Rückfallweg.
+// Beides ist ausschließlich für den Desktop (Chrome/Edge). In XR gibt es weder
+// das eine noch das andere: kein Mikrofon-Knopf auf der virtuellen Tastatur,
+// kein Eintrag im Hand-Menü. Getippt wird dort.
 
 function RecognitionClass() {
   return typeof window === 'undefined'
@@ -21,8 +20,11 @@ function RecognitionClass() {
 // genau der Absturz, der beim Druck auf „🎤 Sprechen" auftrat.
 //
 // Eine Prüfung auf „gibt es den Konstruktor?" reicht dafür nicht, weil es ihn
-// ja gibt. Deshalb wird das Gerät selbst erkannt. Diktiert wird auf der Brille
-// über deren Systemtastatur (systemKeyboard.js).
+// ja gibt. Deshalb wird das Gerät selbst erkannt.
+//
+// Der Umweg über die Systemtastatur der Brille (deren Mikrofon-Taste diktieren
+// kann) war ein Versuch, dort doch noch Diktat anzubieten. Auf echter Hardware
+// hat er nicht getragen und ist wieder raus.
 const HEADSET_UA = /OculusBrowser|Quest|Horizon ?OS|Pico Browser|Wolvic/i;
 
 export function isHeadsetBrowser() {
@@ -57,7 +59,7 @@ export function isSpeechAvailable() {
 export function speechUnavailableReason() {
   if (isSpeechAvailable()) return null;
   if (xrPresenting || isHeadsetBrowser()) {
-    return 'In der Brille gibt es keine Spracherkennung – diktiert wird über die Systemtastatur.';
+    return 'In der Brille gibt es keine Spracherkennung – dort wird getippt.';
   }
   return 'Dieser Browser kennt keine Spracherkennung – die Tastatur übernimmt.';
 }

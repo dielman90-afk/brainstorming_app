@@ -54,12 +54,14 @@ gegen den tatsächlichen Code geprüft.
 - [x] **Hand-Tracking** *(Hardware)* – Pinch zum Anvisieren/Greifen von Karten und
       zum Zeichnen sowie Menü auf der Handfläche.
       *(erledigt über PR #4/#5; Haken nachgetragen am 2026-08-03)*
-- [x] **Sprachbefehle** *(Hardware)* – Diktat mit Live-Zwischenergebnis („🎤
-      Sprechen" auf der Tastatur, „🎤 Diktieren" am Desktop) und abschaltbare
-      Dauer-Sprachbefehle für 20 Aktionen (`src/speech.js`).
-      *(Code erledigt am 2026-08-03; ob der Quest-Browser die Web Speech API
-      inzwischen unterstützt, zeigt erst das Headset – ohne Unterstützung meldet
-      die App das im Klartext und die Tastatur bleibt der Weg.)*
+- [x] **Sprachbefehle** – Diktat mit Live-Zwischenergebnis („🎤 Diktieren") und
+      abschaltbare Dauer-Sprachbefehle für 20 Aktionen (`src/speech.js`),
+      **beides nur am Desktop** (Chrome/Edge).
+      *(Auf der Quest verworfen und am 2026-08-05 wieder ausgebaut: Der
+      Quest-Browser meldet `webkitSpeechRecognition`, hat darunter aber keinen
+      Erkennungsdienst – der Aufruf riss den Browser mit. Auch der Umweg über
+      die Systemtastatur der Brille trug auf echter Hardware nicht. In XR wird
+      getippt; die Spracherkennung ist dort doppelt gesperrt.)*
 
 ## Wenn alle Punkte erledigt sind
 

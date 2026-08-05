@@ -6,7 +6,6 @@ import { ConnectionManager } from './connections.js';
 import { InteractionManager } from './interactions.js';
 import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
-import { SystemKeyboardBridge } from './systemKeyboard.js';
 import {
   isHeadsetBrowser,
   isSpeechAvailable,
@@ -205,14 +204,8 @@ function applyBoardJSON(data) {
   zoneManager.loadJSON(data?.zones ?? []);
 }
 
-// Diktat auf der Quest läuft über die Systemtastatur der Brille – der
-// Quest-Browser kennt die Web Speech API nicht. Die Sitzung wird erst beim
-// Aufruf geholt, weil sie bei jedem Start eine andere ist.
-const systemKeyboard = new SystemKeyboardBridge({ getSession: () => renderer.xr.getSession() });
-
 const keyboard = new VirtualKeyboard(scene, {
   onStatus: (message, duration = 5000) => setStatus(message, duration),
-  systemKeyboard,
 });
 const wristMenu = new WristMenu((action) => handleAction(action));
 
@@ -712,7 +705,6 @@ const voice = new VoiceCommands({
   },
   onError: (message) => setStatus(`🎙 ${message}`, 6000),
   onStateChange: (active) => {
-    wristMenu.setActionActive('voice', active);
     const button = document.getElementById('btn-voice');
     if (button) {
       button.textContent = active ? '🎙 Sprachbefehle: an' : '🎙 Sprachbefehle: aus';
@@ -732,15 +724,7 @@ function toggleVoiceCommands() {
     return;
   }
   if (!voice.available) {
-    // Auf der Quest ist das keine Panne, sondern der Normalfall: Der Browser
-    // hat keine Spracherkennung, nur die Systemtastatur kann diktieren – und
-    // die läuft über die 🎤-Taste der Tastatur, nicht über Dauer-Zuhören.
-    setStatus(
-      isHeadsetBrowser()
-        ? 'Dauerhafte Sprachbefehle kann der Brillen-Browser nicht. Diktieren geht: „＋ Neue Karte" → 🎤 Sprechen.'
-        : speechUnavailableReason(),
-      8000
-    );
+    setStatus(speechUnavailableReason(), 8000);
     return;
   }
   voice.start();
@@ -781,22 +765,17 @@ async function startTopic(topic) {
 // als gleichwertigem Weg für alle, die nicht tippen wollen.
 async function getUserText() {
   if (renderer.xr.isPresenting) {
-    // Der Befehls-Erkenner muss das Mikrofon abgeben, sonst streiten sich beide
-    // und der diktierte Text landet als Kommando.
-    voice.pause();
-    try {
-      return await new Promise((resolve) => {
-        keyboard.open(camera, {
-          onSubmit: (text) => resolve(text),
-          onCancel: () => {
-            setStatus('');
-            resolve(null);
-          },
-        });
+    // In XR wird getippt. Spracheingabe ist dort abgeschaltet (siehe speech.js),
+    // es gibt also auch keinen Erkenner, der ums Mikrofon streiten könnte.
+    return await new Promise((resolve) => {
+      keyboard.open(camera, {
+        onSubmit: (text) => resolve(text),
+        onCancel: () => {
+          setStatus('');
+          resolve(null);
+        },
       });
-    } finally {
-      voice.resume();
-    }
+    });
   }
   const input = document.getElementById('idea-input');
   const text = input.value.trim();
@@ -894,6 +873,19 @@ async function toggleDesktopDictation() {
 
 dictateButton?.addEventListener('click', toggleDesktopDictation);
 document.getElementById('btn-voice')?.addEventListener('click', () => handleAction('voice'));
+
+// Auf einer Brille verschwinden beide Knöpfe ganz.
+//
+// Sie stehen im Desktop-Overlay, das auf der Quest vor dem Start der Sitzung
+// als normale Webseite sichtbar ist – dort wären sie erreichbar, könnten aber
+// nur scheitern: Spracherkennung gibt es auf dem Gerät nicht. Ein Knopf, der
+// bestenfalls eine Fehlermeldung ausgibt und schlimmstenfalls den Browser
+// mitreißt, gehört nicht in die Oberfläche.
+if (isHeadsetBrowser()) {
+  for (const id of ['btn-dictate', 'btn-voice']) {
+    document.getElementById(id)?.remove();
+  }
+}
 document.getElementById('btn-fontsize')?.addEventListener('click', () => handleAction('fontsize'));
 
 // --- Overlay ein-/ausklappen (Desktop) ---
@@ -1290,7 +1282,6 @@ window.__app = {
   cardManager,
   connectionManager,
   keyboard,
-  systemKeyboard,
   voice,
   wristMenu,
   whiteboard,

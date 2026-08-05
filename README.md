@@ -98,13 +98,13 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Hand-Menü** (`src/wristMenu.js`) auf zwei Reitern à sechs Reihen, damit das
-  Panel trotz 21 Aktionen kompakt bleibt. Die kürzere Seite wird im Panel
+  Panel trotz 20 Aktionen kompakt bleibt. Die kürzere Seite wird im Panel
   vertikal zentriert, damit unten keine leere Reihe klafft:
   - **💡 Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
     *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Schrift*,
     *Karte löschen*
   - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
-    *Umgebung*, *Sprachbefehle*, *Sichern*, *Laden*, *Als Datei*,
+    *Umgebung*, *Sichern*, *Laden*, *Als Datei*,
     *Alles löschen* (mit Zweifach-Bestätigung)
 
   Das Menü sitzt **mit Controllern** über dem Handrücken der linken Hand und
@@ -170,64 +170,42 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 - **Verbindungslinien (Mindmap):** Karte auswählen → „🔗 Verbinden“ (Menü bzw.
   Rechtsklick → „Verbinden mit…“) → Ziel-Karte anklicken. Nochmal verbinden
   entfernt die Linie; Esc bricht ab. Linien folgen den Karten beim Verschieben.
-- **Texteingabe – Tastatur und Diktat** (`src/keyboard.js`, `src/speech.js`):
+- **Texteingabe in XR – die virtuelle Tastatur** (`src/keyboard.js`):
   In XR öffnet sich die virtuelle 3D-Tastatur im deutschen Layout (Umlaute, ß,
   Satzzeichen, Umschalttaste für genau ein Zeichen wie auf dem Handy). Optisch
-  gehört sie jetzt zum Rest der App: abgerundetes Glas-Panel mit Amber-Rahmen,
-  weich abgerundete Tasten, gleiche Farbwelt wie Hand-Menü und
-  Whiteboard-Leiste.
-  **Wer nicht tippen will, drückt „🎤 Sprechen"** – dann wird direkt ins
-  Eingabefeld diktiert, Zwischenergebnisse laufen live mit, und ein zweiter
-  Druck bricht ab. Am Desktop macht der Knopf **„🎤 Diktieren"** im Overlay
-  dasselbe mit dem Ideen-Feld.
-  Der Diktat-Versuch läuft **nicht** mehr automatisch vor der Tastatur: Auf der
-  Quest scheitert er zuverlässig, und die Wartezeit bis zum Fehlschlag verzögerte
-  bisher jede Eingabe.
-- **Diktieren auf der Quest – über die Systemtastatur** (`src/systemKeyboard.js`):
-  Der Quest-Browser hat **keine funktionierende Web Speech API**. Er stellt
-  `webkitSpeechRecognition` zwar bereit – er ist Chromium-basiert –, aber
-  darunter liegt nichts: Horizon OS ist ein abgespecktes Android ohne
-  Spracherkennungsdienst. Ein `recognition.start()` läuft dort nicht ins Leere,
-  sondern **riss den ganzen Browser mit**; das war der Absturz beim Druck auf
-  „🎤 Sprechen". Eine Prüfung auf „gibt es den Konstruktor?" hilft dagegen
-  nicht, weil es ihn ja gibt – deshalb erkennt `isHeadsetBrowser()` das Gerät
-  am User-Agent und blendet die API auf Brillen-Browsern **komplett** aus.
-  Damit ist auch das Dauer-Zuhören dort abgeschaltet.
-  Weil eine Zeichenkette im User-Agent eine wacklige Grundlage für etwas ist,
-  das den Browser abschießt (aus „Oculus Browser" wurde 2024 „Meta Quest
-  Browser"), kommt eine zweite, gerätunabhängige Sperre dazu: `setXRPresenting()`
-  schaltet die Erkennung **für die Dauer jeder immersiven Sitzung** ab, egal auf
-  welchem Gerät. Auf autarken Brillen fehlt der Dienst dahinter, und selbst wo
-  es ihn gibt, lässt sich die Mikrofon-Abfrage in einer immersiven Sitzung nicht
-  anzeigen.
-  Die **Brille** kann aber sehr wohl Sprache-zu-Text – nur
-  eben ausschließlich in ihrer eigenen Systemtastatur, über deren
-  Mikrofon-Taste. Genau die wird jetzt angezapft: Ist
-  `XRSession.isSystemKeyboardSupported` wahr, öffnet „🎤 Sprechen" per
-  DOM-`focus()` die Systemtastatur mitten in der laufenden Sitzung. Dort einmal
-  auf 🎤 tippen, sprechen, Tastatur schließen – der Text landet im Vorschaufeld
-  der 3D-Tastatur und kann dort weiterbearbeitet werden.
-  Zwei dokumentierte Eigenheiten prägen die Umsetzung: Es gibt **keine
-  Tastendruck-Ereignisse** (der Wert des Feldes wird deshalb zusätzlich
-  gepollt), und jeder **erste Tastendruck überschreibt den gesamten
-  Feldinhalt** – vorbelegt wird darum nie, das Ergebnis wird angehängt. Solange
-  die Systemtastatur oben liegt, steht die Sitzung auf `visible-blurred`; an
-  diesem Wechsel erkennt die App Auf- und Zugehen. Die Systemtastatur hat
-  **Vorrang** vor der Web Speech API, nicht nur die Rolle des Ersatzes – sonst
-  käme auf der Brille wieder der Erkenner zuerst dran.
-  Weil ein `focus()` in einer laufenden immersiven Sitzung tief in den Browser
-  greift und ein `try/catch` einen Absturz nicht auffängt, wird unmittelbar
-  davor ein **Merkzettel** in `localStorage` gelegt und beim Aufgehen der
-  Tastatur gelöscht. Findet die App ihn beim nächsten Start noch vor, hat der
-  letzte Versuch nicht überlebt – dann bleibt dieser Weg zu und die virtuelle
-  Tastatur übernimmt, statt den Nutzer erneut aus der Sitzung zu werfen
-  (`window.__app.systemKeyboard.reset()` hebt die Sperre auf).
-  *Voraussetzung: Die Sprachdiktierung muss in den Quest-Einstellungen einmalig
-  aktiviert worden sein (beim ersten 🎤-Antippen fragt die Brille danach).*
-- **🎙 Sprachbefehle** (`src/speech.js`): dauerhaftes Zuhören, abschaltbar über
-  Menü („🗂 Board" → *Sprachbefehle*) bzw. den Overlay-Knopf – **standardmäßig
-  aus**, ein ungefragt mithörendes Mikrofon will niemand. Erkannt werden u. a.
-  *„neue Karte …"*, *„Thema …"*, *„verwandte Ideen"*, *„Kritiker"*, *„Cluster"*,
+  gehört sie zum Rest der App: abgerundetes Glas-Panel mit Amber-Rahmen, weich
+  abgerundete Tasten, gleiche Farbwelt wie Hand-Menü und Whiteboard-Leiste.
+  **In XR wird getippt – Spracheingabe gibt es dort nicht.** Warum, steht im
+  nächsten Punkt.
+- **Keine Spracheingabe in XR** (`src/speech.js`): Der Quest-Browser hat **keine
+  funktionierende Web Speech API**. Er stellt `webkitSpeechRecognition` bereit –
+  er ist Chromium-basiert –, aber darunter liegt nichts: Horizon OS ist ein
+  abgespecktes Android ohne Spracherkennungsdienst. Ein `recognition.start()`
+  läuft dort nicht ins Leere, sondern **riss den ganzen Browser mit**.
+  Eine Prüfung auf „gibt es den Konstruktor?" hilft nicht, weil es ihn ja gibt.
+  Es greifen deshalb zwei voneinander unabhängige Sperren:
+  `isHeadsetBrowser()` erkennt das Gerät am User-Agent, und `setXRPresenting()`
+  schaltet die Erkennung zusätzlich **für die Dauer jeder immersiven Sitzung**
+  ab, auf jedem Gerät – eine Zeichenkette im User-Agent ist eine wacklige
+  Grundlage für etwas, das den Browser abschießt (aus „Oculus Browser" wurde
+  2024 „Meta Quest Browser").
+  Entsprechend gibt es in XR **keine Mikrofon-Taste** auf der Tastatur und
+  **keinen Eintrag „Sprachbefehle"** im Hand-Menü; auf einem Brillen-Browser
+  verschwinden auch die beiden Overlay-Knöpfe ganz. Ein Knopf, der bestenfalls
+  eine Fehlermeldung ausgibt und schlimmstenfalls den Browser mitreißt, gehört
+  nicht in die Oberfläche.
+  *Der Umweg über die Systemtastatur der Brille – deren Mikrofon-Taste kann
+  diktieren – war ein Versuch, dort doch noch Diktat anzubieten. Auf echter
+  Hardware hat er nicht getragen und ist wieder raus.*
+- **🎤 Diktieren – nur am Desktop** (`src/speech.js`): Der Knopf **„🎤
+  Diktieren"** im Overlay füllt das Ideen-Feld mit dem Gesprochenen,
+  Zwischenergebnisse laufen live mit, ein zweiter Druck bricht ab. Von dort geht
+  es mit Enter oder jedem KI-Knopf normal weiter. Braucht Chrome oder Edge und
+  eine Mikrofon-Freigabe.
+- **🎙 Sprachbefehle – nur am Desktop** (`src/speech.js`): dauerhaftes Zuhören,
+  ein-/ausschaltbar über den Overlay-Knopf – **standardmäßig aus**, ein ungefragt
+  mithörendes Mikrofon will niemand. Erkannt werden u. a. *„neue Karte …"*,
+  *„Thema …"*, *„verwandte Ideen"*, *„Kritiker"*, *„Cluster"*,
   *„zusammenfassen"*, *„verbinden"*, *„Karte löschen"*, *„rückgängig"*,
   *„Umgebung"*, *„Schrift"*. Bei *„neue Karte"* und *„Thema"* wird das
   Gesprochene direkt als Text übernommen – *„neue Karte Fahrradständer bauen"*
@@ -235,12 +213,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Ein Befehl zählt nur **am Satzanfang** und ohne Nachgeplapper, damit ein
   beiläufiges „…das können wir alles löschen…" im Gespräch nichts auslöst.
   Während eines Diktats pausiert die Befehlserkennung – zwei Erkenner streiten
-  sich sonst um das Mikrofon.
-  *Hinweis: Die Web Speech API ist browserabhängig. Chrome/Edge am Desktop können
-  sie, der Quest-Browser nicht. **Dauerhafte Sprachbefehle gibt es auf der Quest
-  deshalb nicht** – die Systemtastatur kann nur einzelne Eingaben diktieren, kein
-  Dauer-Zuhören. Die App sagt das im Klartext statt still zu scheitern und
-  verweist auf „🎤 Sprechen".*
+  sich sonst um das Mikrofon. Der Start einer XR-Sitzung beendet sie ganz.
 - **🔠 Kartenschrift** (Barrierefreiheit): drei Stufen (*Normal · Groß · Sehr
   groß*) über „🔠 Schrift" im Menü bzw. den Knopf im Overlay. Angepasst wird nur
   die Textgröße, die Kartenfläche bleibt gleich; die Stufe gilt auch für neue
@@ -307,9 +280,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── wristMenu.js        Menü-Panel an Controller bzw. Handfläche
 │   ├── history.js          Undo/Redo (Board-Snapshots)
 │   ├── hud.js              Statuszeile, Ladeanzeige und Fehlerkarte im Blickfeld
-│   ├── keyboard.js         Virtuelle 3D-Tastatur mit Diktat-Knopf
-│   ├── speech.js           Diktat + Sprachbefehle (Web Speech API)
-│   ├── systemKeyboard.js   Systemtastatur der Brille – Diktat-Weg auf der Quest
+│   ├── keyboard.js         Virtuelle 3D-Tastatur (XR, ohne Spracheingabe)
+│   ├── speech.js           Diktat + Sprachbefehle – nur Desktop (Web Speech API)
 │   ├── haptics.js          Controller-Rumble (Greifen, Klick, Verbinden, Löschen)
 │   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
@@ -354,8 +326,8 @@ Einfach `https://localhost:5173` öffnen:
 | **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
-| **Diktieren** | **„🎤 Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen) |
-| **Sprachbefehle** | **„🎙 Sprachbefehle"** im Overlay ein-/ausschalten |
+| **Diktieren** | **„🎤 Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen). Chrome/Edge, nicht in XR |
+| **Sprachbefehle** | **„🎙 Sprachbefehle"** im Overlay ein-/ausschalten. Chrome/Edge, nicht in XR |
 | **Kartenschrift** | **„Schrift: …"** im Overlay – Normal → Groß → Sehr groß |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |
@@ -428,10 +400,8 @@ Deployment.
 | Menü **ohne Controller** | **Handfläche öffnen und zum Gesicht drehen** – das Menü erscheint darüber (linke Hand bevorzugt, die rechte geht genauso). Klicken per **Pinch** (Daumen + Zeigefinger) der anderen Hand |
 | Bewegen **ohne Controller** | **Ins Leere pinchen und die Hand bewegen** = sich an der Welt entlangziehen · **beide Hände** = zusätzlich drehen |
 | Menüseite wechseln | Reiter **„💡 Ideen“** bzw. **„🗂 Board“** oben im Panel antippen |
-| Neue Karte | Menü → „＋ Neue Karte“ → Tastatur öffnet sich; **„🎤 Sprechen"** diktiert statt zu tippen |
-| **Diktieren (Quest)** | „🎤 Sprechen“ öffnet die **Systemtastatur der Brille** → dort **🎤 antippen, sprechen, Tastatur schließen** – der Text steht in der 3D-Tastatur |
+| Neue Karte | Menü → „＋ Neue Karte“ → virtuelle Tastatur öffnet sich (Spracheingabe gibt es in XR nicht) |
 | Themen-Start | Menü → „🚀 Themen-Start“ → Thema sprechen/tippen |
-| **Sprachbefehle** | Menü → „🗂 Board“ → **„🎙 Sprachbefehle“** (der Knopf leuchtet, solange zugehört wird) – **am Desktop**; der Quest-Browser kann kein Dauer-Zuhören |
 | **Kartenschrift** | Menü → „💡 Ideen“ → **„🔠 Schrift“** (Normal → Groß → Sehr groß) |
 | Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
@@ -498,25 +468,18 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   getrackt werden, sind im Quest-System die Handbewegungen einzuschalten und die
   Controller abzulegen (`hand-tracking` wird als optionales WebXR-Feature
   angefragt).
-- **Diktieren auf der Quest tut nichts:** „🎤 Sprechen" öffnet dort die
-  **Systemtastatur der Brille**; das Diktat läuft über deren 🎤-Taste, nicht
-  über die App. Kommt die Systemtastatur nicht hoch, meldet die App
-  „Systemtastatur meldet sich nicht". Häufigste Ursachen: die Sprachdiktierung
-  ist in den Quest-Einstellungen noch nicht aktiviert (*Einstellungen → Tastatur
-  → Sprachdiktierung*), oder der Browser ist zu alt für
-  `XRSession.isSystemKeyboardSupported`. Dauer-Zuhören („🎙 Sprachbefehle") ist
-  auf der Quest technisch nicht möglich.
-- **„Systemtastatur abgeschaltet – der letzte Versuch hat den Browser
-  beendet":** Der Merkzettel aus `localStorage` hat angeschlagen (s. o.).
-  Tippen geht weiter; freigeben lässt sich der Weg mit
-  `window.__app.systemKeyboard.reset()` in der Konsole – sinnvoll etwa nach
-  einem Browser-Update.
-- **Spracheingabe reagiert nicht:** Die Web Speech API ist browserabhängig. Der
-  Quest-Browser unterstützt sie nicht – dort übernimmt die Systemtastatur
-  (siehe oben). Am Desktop braucht Chrome/Edge eine
-  **Mikrofon-Freigabe** (Adressleiste → Mikrofon zulassen) und eine
-  Internetverbindung, weil die Erkennung serverseitig läuft – offline meldet sie
-  „Spracherkennung braucht Internet". Firefox kann sie gar nicht.
+- **Spracheingabe fehlt in der Brille:** Das ist Absicht. Der Quest-Browser hat
+  keine funktionierende Spracherkennung – der Versuch, sie zu nutzen, hat den
+  Browser abgeschossen. Deshalb gibt es in XR **keine Mikrofon-Taste und keinen
+  Sprachbefehl-Eintrag**, und auf einem Brillen-Browser fehlen auch die beiden
+  Overlay-Knöpfe. In XR wird über die virtuelle Tastatur getippt; diktieren geht
+  am Desktop.
+- **Spracheingabe reagiert nicht (Desktop):** Chrome oder Edge nötig – Firefox
+  kann die Web Speech API gar nicht. Dazu eine **Mikrofon-Freigabe**
+  (Adressleiste → Mikrofon zulassen) und eine Internetverbindung, weil die
+  Erkennung serverseitig läuft; offline meldet sie „Spracherkennung braucht
+  Internet". Startet man eine XR-Sitzung, wird ein laufender Erkenner beendet
+  und bleibt bis zum Sitzungsende aus.
 - **Sprachbefehl wird nicht erkannt:** Ein Kommando zählt nur am **Satzanfang**
   und ohne Zusatz dahinter – „Cluster" wirkt, „mach mal Cluster" und „Cluster
   bitte" nicht. Ausnahmen sind „neue Karte …" und „Thema …", bei denen alles
