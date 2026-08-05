@@ -11,6 +11,7 @@ import {
   isHeadsetBrowser,
   isSpeechAvailable,
   recognizeSpeech,
+  setXRPresenting,
   speechUnavailableReason,
   VoiceCommands,
 } from './speech.js';
@@ -1154,6 +1155,10 @@ setupXRButton();
 let recenterOnNextFrame = false;
 
 renderer.xr.addEventListener('sessionstart', () => {
+  // Spracherkennung für die Dauer der Sitzung sperren – siehe speech.js.
+  // Läuft ein Erkenner noch aus dem Desktop-Betrieb, wird er hier beendet.
+  setXRPresenting(true);
+  voice.stop();
   controls.enabled = false;
   locomotion.reset(); // Fortbewegungs-Rig zentriert starten
   if (xrMode === 'immersive-ar') {
@@ -1171,6 +1176,7 @@ renderer.xr.addEventListener('sessionstart', () => {
 });
 
 renderer.xr.addEventListener('sessionend', () => {
+  setXRPresenting(false);
   controls.enabled = true;
   // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
   locomotion.reset();
@@ -1267,7 +1273,17 @@ renderer.setAnimationLoop(() => {
 });
 
 // Für schnelle Iteration & Headless-Tests
+// Baustand sichtbar machen (vite.config.js schreibt die Werte beim Bauen fest).
+// Damit lässt sich in einem Blick beantworten, ob eine Meldung den aktuellen
+// Code betrifft oder eine ältere, noch ausgelieferte Fassung.
+const BUILD = { commit: __BUILD_COMMIT__, date: __BUILD_DATE__ };
+{
+  const stamp = document.getElementById('build-stamp');
+  if (stamp) stamp.textContent = `Baustand ${BUILD.commit} · ${BUILD.date}`;
+}
+
 window.__app = {
+  build: BUILD,
   scene,
   camera,
   renderer,
@@ -1275,6 +1291,7 @@ window.__app = {
   connectionManager,
   keyboard,
   systemKeyboard,
+  voice,
   wristMenu,
   whiteboard,
   zoneManager,

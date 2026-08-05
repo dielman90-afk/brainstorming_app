@@ -220,6 +220,12 @@
     #xr-button:disabled { opacity: 0.55; cursor: default; }
 
     .hint { margin: 16px 0 0; font: 12px/1.5 var(--body); color: #7f7a87; }
+    .build-stamp {
+      margin: 10px 0 0;
+      font: 11px/1.4 var(--body);
+      color: #5f5b68;
+      letter-spacing: 0.03em;
+    }
 
     /* Status-Band unten – rechts neben dem Overlay, das jetzt bis zum unteren
        Fensterrand reichen kann. */
@@ -387,6 +393,9 @@
       Strg+Z = rückgängig · Strg+Umschalt+Z = wiederholen · M = Menü ein-/ausklappen<br />
       Quest 3: linker Stick = gehen · rechter Stick = drehen · Trigger = greifen · Menü an der linken Hand
     </p>
+    <!-- Baustand: zeigt, welche Fassung gerade läuft. Ohne das ist von außen
+         nicht zu erkennen, ob ein Fehler noch offen oder nur nicht deployt ist. -->
+    <p class="build-stamp" id="build-stamp"></p>
    </div>
   </div>
 
