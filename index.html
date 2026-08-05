@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="icon" href="data:," />
   <title>WebXR Brainstorming</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Sora:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <!-- Schriften kommen aus dem eigenen Build (src/fonts.js, @fontsource) statt
+       von fonts.googleapis.com – sonst fällt die App in Netzen ohne freien
+       Internetzugang auf den System-Font zurück. -->
   <style>
     :root {
       --accent: #ffb454;
@@ -33,13 +33,21 @@
     }
     canvas { display: block; }
 
+    /* Das Panel selbst scrollt NICHT – es ist nur der abgerundete Rahmen und
+       schneidet ab (overflow: hidden). Gescrollt wird der Inhalt darin.
+       Vorher lag die Bildlaufleiste direkt auf dem Panel: Ihre Pfeil-Knöpfe
+       sitzen ganz oben und unten in der Spur und ragten damit in die runden
+       Ecken – sie standen sichtbar über den Rand hinaus. */
     #overlay {
       position: fixed;
       top: 22px;
       left: 22px;
       z-index: 10;
       width: 320px;
-      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 44px);
+      overflow: hidden;
       border-radius: 24px;
       background: var(--panel);
       border: 1px solid var(--border);
@@ -48,22 +56,45 @@
       -webkit-backdrop-filter: blur(24px);
       color: var(--text);
       font: 14px/1.45 var(--body);
-      /* body hat overflow:hidden – das Panel muss sich deshalb selbst scrollen
-         lassen, sonst sind auf niedrigen Fenstern die unteren Bedienelemente
-         (XR-Button, Hinweise) schlicht nicht erreichbar. */
-      max-height: calc(100vh - 44px);
+    }
+    /* body hat overflow:hidden – der Inhalt muss sich deshalb selbst scrollen
+       lassen, sonst sind auf niedrigen Fenstern die unteren Bedienelemente
+       (XR-Button, Hinweise) schlicht nicht erreichbar. */
+    #overlay-scroll {
+      min-height: 0;
       overflow-y: auto;
       overscroll-behavior: contain;
-      scrollbar-width: thin;
-      scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+      padding: 24px;
     }
-    #overlay::-webkit-scrollbar { width: 8px; }
-    #overlay::-webkit-scrollbar-track { background: transparent; }
-    #overlay::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.18);
-      border-radius: 8px;
+    /* Pfeil-Knöpfe der Bildlaufleiste abschalten und die Spur oben/unten von
+       den runden Ecken freihalten. */
+    #overlay-scroll::-webkit-scrollbar { width: 10px; }
+    #overlay-scroll::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+    #overlay-scroll::-webkit-scrollbar-corner { background: transparent; }
+    #overlay-scroll::-webkit-scrollbar-track {
+      background: transparent;
+      margin: 18px 0;
     }
-    #overlay::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.3); }
+    #overlay-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.16);
+      border: 3px solid transparent;
+      background-clip: content-box;
+      border-radius: 99px;
+    }
+    #overlay-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.32);
+      background-clip: content-box;
+    }
+    /* Chrome/Edge ignorieren die ::-webkit-scrollbar-Regeln, sobald
+       scrollbar-width/-color gesetzt sind – und zeichnen dann wieder ihre
+       eigene Leiste samt Pfeilen. Deshalb nur dort setzen, wo die
+       Pseudo-Elemente fehlen (Firefox). */
+    @supports not selector(::-webkit-scrollbar) {
+      #overlay-scroll {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+      }
+    }
 
     /* Ein-/Ausklappen. Der Knopf steht bewusst NEBEN dem Panel statt darin:
        Das Overlay scrollt, ein Knopf im Inhalt würde beim Scrollen verschwinden. */
@@ -168,6 +199,12 @@
     }
     .mini-row button:hover:not(:disabled), .mini-row .file-btn:hover { background: rgba(255, 255, 255, 0.09); }
     .mini-row button:disabled { opacity: 0.38; cursor: default; }
+    /* Dauerzustand (Sprachbefehle laufen) */
+    .mini-row button.active {
+      background: var(--accent-soft);
+      border-color: rgba(255, 180, 84, 0.5);
+      color: var(--accent-text);
+    }
 
     #xr-button {
       width: 100%;
@@ -183,6 +220,12 @@
     #xr-button:disabled { opacity: 0.55; cursor: default; }
 
     .hint { margin: 16px 0 0; font: 12px/1.5 var(--body); color: #7f7a87; }
+    .build-stamp {
+      margin: 10px 0 0;
+      font: 11px/1.4 var(--body);
+      color: #5f5b68;
+      letter-spacing: 0.03em;
+    }
 
     /* Status-Band unten – rechts neben dem Overlay, das jetzt bis zum unteren
        Fensterrand reichen kann. */
@@ -296,9 +339,18 @@
   <button id="btn-collapse" type="button" aria-controls="overlay" aria-expanded="true"></button>
 
   <div id="overlay">
+   <div id="overlay-scroll">
     <div class="eyebrow">WebXR · Meta Quest 3</div>
     <h1>Brainstorming</h1>
     <input id="idea-input" type="text" placeholder="Idee oder Thema eingeben…" />
+    <!-- Beide über die volle Breite: „🎙 Sprachbefehle: aus" bricht nebeneinander
+         um und reißt dabei das Emoji auf eine eigene Zeile. -->
+    <div class="mini-row">
+      <button id="btn-dictate" title="Text ins Feld diktieren (Web Speech API)">🎤 Diktieren</button>
+    </div>
+    <div class="mini-row">
+      <button id="btn-voice" title="Sprachbefehle dauerhaft an/aus">🎙 Sprachbefehle: aus</button>
+    </div>
     <button id="btn-topic" class="btn-primary">🚀 Themen-Start</button>
 
     <div class="action-list">
@@ -324,6 +376,10 @@
     </div>
 
     <div class="mini-row">
+      <button id="btn-fontsize" title="Schriftgröße der Karten umschalten">Schrift: Normal</button>
+    </div>
+
+    <div class="mini-row">
       <button id="btn-export" title="Board als JSON-Datei herunterladen">Export</button>
       <label class="file-btn">Import<input id="import-file" type="file" accept=".json,application/json" hidden /></label>
       <button id="btn-clear" title="Alle Karten löschen">🧹</button>
@@ -337,6 +393,10 @@
       Strg+Z = rückgängig · Strg+Umschalt+Z = wiederholen · M = Menü ein-/ausklappen<br />
       Quest 3: linker Stick = gehen · rechter Stick = drehen · Trigger = greifen · Menü an der linken Hand
     </p>
+    <!-- Baustand: zeigt, welche Fassung gerade läuft. Ohne das ist von außen
+         nicht zu erkennen, ob ein Fehler noch offen oder nur nicht deployt ist. -->
+    <p class="build-stamp" id="build-stamp"></p>
+   </div>
   </div>
 
   <div id="status-band"><span class="dot"></span><span id="status"></span></div>

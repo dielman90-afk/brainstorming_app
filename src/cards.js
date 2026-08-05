@@ -29,8 +29,19 @@ function shade(hex, factor) {
 const MIN_SCALE = 0.45;
 const MAX_SCALE = 2.2;
 
+// Umschaltbare Kartenschrift (Barrierefreiheit): rein die Textgröße, die
+// Kartenfläche bleibt gleich. Sehr lange Texte werden bei den großen Stufen
+// entsprechend früher mit „…" abgeschnitten – wer beides will, zieht die Karte
+// zusätzlich per Mausrad/Stick größer.
+const CARD_FONT_SIZE = 36;
+export const CARD_FONT_STEPS = [
+  { id: 'normal', label: 'Normal', scale: 1 },
+  { id: 'gross', label: 'Groß', scale: 1.22 },
+  { id: 'sehr-gross', label: 'Sehr groß', scale: 1.5 },
+];
+
 export class IdeaCard {
-  constructor(text) {
+  constructor(text, { fontScale = 1 } = {}) {
     this.id = crypto.randomUUID?.() ?? String(Math.random()).slice(2);
     this.text = text;
     this.hovered = false;
@@ -45,6 +56,7 @@ export class IdeaCard {
       accent: CARD_COLORS[0].accent,
       border: 'rgba(255,255,255,0.10)',
       radius: 28,
+      fontSize: Math.round(CARD_FONT_SIZE * fontScale),
     });
 
     this.border = new THREE.Mesh(
@@ -84,6 +96,10 @@ export class IdeaCard {
     this.group.scale.setScalar(this.scale);
   }
 
+  setFontScale(fontScale) {
+    this.panel.setFontSize(CARD_FONT_SIZE * fontScale);
+  }
+
   _applyBackground() {
     const color = CARD_COLORS[this.colorIndex];
     const base = this.hovered ? color.hover : color.base;
@@ -107,10 +123,27 @@ export class CardManager {
     this.selected = null;
     this.spawnBatch = 0;
     this.onCardRemoved = null;
+    this.fontStepIndex = 0;
+  }
+
+  get fontStep() {
+    return CARD_FONT_STEPS[this.fontStepIndex];
+  }
+
+  // Schriftstufe setzen; gilt für vorhandene und künftige Karten.
+  setFontStep(index) {
+    this.fontStepIndex = THREE.MathUtils.euclideanModulo(index, CARD_FONT_STEPS.length);
+    const { scale } = this.fontStep;
+    for (const card of this.cards) card.setFontScale(scale);
+    return this.fontStep;
+  }
+
+  cycleFontStep() {
+    return this.setFontStep(this.fontStepIndex + 1);
   }
 
   addCard(text, { position, quaternion, colorIndex, scale } = {}) {
-    const card = new IdeaCard(text);
+    const card = new IdeaCard(text, { fontScale: this.fontStep.scale });
     if (position) card.group.position.fromArray(position);
     if (quaternion) card.group.quaternion.fromArray(quaternion);
     if (colorIndex) card.setColor(colorIndex);
