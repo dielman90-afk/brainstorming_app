@@ -32,7 +32,9 @@ gegen den tatsächlichen Code geprüft.
       *(erledigt über PR #2, `src/boardState.js`; Haken nachgetragen am 2026-08-03)*
 - [x] **Prozessflussdiagramm** – Knotenarten mit eigener Form (Stadion, Rechteck,
       Raute), gerichtete Pfeile mit Beschriftung, automatisches geschichtetes
-      Layout, Erzeugung aus einer Beschreibung durch Claude und Export als
+      Layout **von links nach rechts** (senkrecht ging der Platz aus),
+      Bedienung in VR *und* am Desktop (Formleiste im Overlay und im
+      Kontextmenü), Erzeugung aus einer Beschreibung durch Claude und Export als
       Mermaid (`src/flowLayout.js`, `FLOW_TYPES` in `src/cards.js`, Aktion
       `flow` in `server/ai-core.js`). *(erledigt am 2026-08-05)*
       Offen als Fortsetzung: rechtwinklige Kantenführung wie bei Miro,

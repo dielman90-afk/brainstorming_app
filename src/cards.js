@@ -179,6 +179,9 @@ export class CardManager {
     this.selected = null;
     this.spawnBatch = 0;
     this.onCardRemoved = null;
+    // Meldet Auswahlwechsel nach außen – die Desktop-Oberfläche zeigt daran,
+    // welche Form die gewählte Karte gerade hat.
+    this.onSelect = null;
     this.fontStepIndex = 0;
   }
 
@@ -226,6 +229,7 @@ export class CardManager {
     this.selected?.setSelected(false);
     this.selected = card ?? null;
     this.selected?.setSelected(true);
+    this.onSelect?.(this.selected);
   }
 
   _viewBasis(camera) {

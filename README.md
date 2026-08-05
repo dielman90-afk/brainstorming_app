@@ -110,16 +110,24 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     verschwände die Spitze hinter der Karte und man sähe nur eine Linie, die im
     Knoten endet. Bei der Raute wird dafür ihr echter Umriss gerechnet
     (`|x|/hw + |y|/hh = 1`), nicht das umschließende Rechteck.
-  - **⤓ Anordnen** legt den Prozess automatisch auf eine flache Tafel rund 2 m
-    vor dem Nutzer, Fluss von oben nach unten (geschichtetes Layout, rein lokal
-    gerechnet). **Rückführungen** – „Unterlagen nachfordern" zurück zur Prüfung –
+  - **⤓ Anordnen** legt den Prozess automatisch auf eine flache Tafel vor dem
+    Nutzer, Fluss **von links nach rechts** (geschichtetes Layout, rein lokal
+    gerechnet). Waagerecht, weil der Platz nach unten ausgeht: Zwischen Boden
+    und bequemer Blickhöhe liegen keine anderthalb Meter, das reicht für vier
+    bis fünf Zeilen. Zur Seite ist dagegen Platz ohne Ende – und lange Ketten
+    sind die Regel, während eine Verzweigung selten mehr als zwei, drei Äste
+    hat. Also bekommt die Kette die Waagerechte und die Geschwister die
+    Senkrechte; die Tafel rückt bei langen Prozessen weiter weg, damit die
+    äußeren Knoten im Blickfeld bleiben.
+    **Rückführungen** – „Unterlagen nachfordern" zurück zur Prüfung –
     werden vorher per Tiefensuche erkannt und beim Rangieren übersprungen;
     gezeichnet werden sie trotzdem und zeigen dann nach oben. Ohne das würde der
     Rang eines Knotens im Kreis immer weiterwachsen.
   - **✨ Aus Text bauen:** Ablauf in Worten beschreiben, Claude liefert Knoten und
     Kanten als strukturiertes JSON (`FLOW_SCHEMA` in `server/ai-core.js`, dieselbe
     Strecke wie *Cluster*), die App baut und ordnet das Diagramm.
-  - **⬇️ Als Mermaid:** Export als `flowchart TD` – Stadion `([…])`, Rechteck
+  - **⬇️ Als Mermaid:** Export als `flowchart LR` (waagerecht wie in der App) –
+    Stadion `([…])`, Rechteck
     `[…]`, Raute `{…}`, beschriftete Kanten `-->|ja|`. GitHub, Notion, Obsidian
     und Confluence rendern das direkt, der in VR gebaute Prozess ist also ohne
     Zwischenschritt im Dokument und dort weiter bearbeitbar. Ein Bild wäre eine
@@ -358,6 +366,7 @@ Einfach `https://localhost:5173` öffnen:
 | **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
+| **Prozessdiagramm** | Eigener Block **„⚙️ Prozessdiagramm"** im Overlay: Formleiste (*Start · Schritt · Entscheidung · Ende · Karte*) setzt die Form der **ausgewählten** Karte direkt, dazu *Pfeil ziehen*, *Zweig*, *Anordnen*, *Aus Text*, *Mermaid*. Per **Rechtsklick auf eine Karte** gibt es dieselbe Formleiste und „➜ Pfeil ziehen zu…" |
 | **Diktieren** | **„🎤 Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen). Chrome/Edge, nicht in XR |
 | **Sprachbefehle** | **„🎙 Sprachbefehle"** im Overlay ein-/ausschalten. Chrome/Edge, nicht in XR |
 | **Kartenschrift** | **„Schrift: …"** im Overlay – Normal → Groß → Sehr groß |
@@ -437,7 +446,7 @@ Deployment.
 | **Kartenschrift** | Menü → „💡 Ideen“ → **„🔠 Schrift“** (Normal → Groß → Sehr groß) |
 | Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
-| **Prozess bauen** | Menü → „⚙️ Prozess“ → **„✨ Aus Text bauen“** (Ablauf beschreiben) oder von Hand: „＋ Schritt“ → „◇ Form wechseln“ → „➜ Pfeil ziehen“ → „🏷 Zweig benennen“ → „⤓ Anordnen“ |
+| **Prozess bauen** | Menü → „⚙️ Prozess“ → **„✨ Aus Text bauen“** (Ablauf beschreiben) oder von Hand: „＋ Schritt“ → „◇ Form wechseln“ → „➜ Pfeil ziehen“ → „🏷 Zweig benennen“ → „⤓ Anordnen“. In VR wird die Form **durchgeschaltet**; am Desktop direkt gewählt |
 | **Prozess mitnehmen** | Menü → „⚙️ Prozess“ → **„⬇️ Als Mermaid“** – die `.mmd`-Datei rendert GitHub, Notion und Confluence direkt |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
 | Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |

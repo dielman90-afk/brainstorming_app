@@ -185,6 +185,33 @@
     .action-list button .ic { color: #6f6a77; font-size: 15px; }
     .action-list button:hover .ic { color: var(--accent); }
 
+    .section-title {
+      font: 600 12px/1 var(--body);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #8b8593;
+      margin: 4px 0 10px;
+    }
+    /* Formauswahl: umbrechende Reihe kleiner Knöpfe. Anders als in VR wird die
+       Form hier direkt gewählt statt durchgeschaltet – am Desktop ist Platz. */
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .chip-row button {
+      flex: 1 1 auto;
+      padding: 7px 9px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      font: 12px var(--body);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .chip-row button:hover { background: rgba(255, 255, 255, 0.1); color: var(--accent-text); }
+    .chip-row button.active {
+      background: rgba(255, 180, 84, 0.16);
+      border-color: rgba(255, 180, 84, 0.45);
+      color: var(--accent);
+    }
     .mini-row { display: flex; gap: 8px; margin-bottom: 16px; }
     .mini-row button, .mini-row .file-btn {
       flex: 1;
@@ -363,13 +390,27 @@
       <button id="btn-timer">Timer<span class="ic">⏱️</span></button>
       <button id="btn-whiteboard">Whiteboard<span class="ic">📋</span></button>
       <button id="btn-env">Umgebung<span class="ic">🌐</span></button>
-      <!-- Prozessflussdiagramm: bauen lassen und als Mermaid mitnehmen. Das
-           Zeichnen von Hand sitzt im Hand-Menü („⚙️ Prozess"), weil es dort
-           Karten anzuvisieren gilt. -->
-      <button id="btn-flow">Prozess bauen<span class="ic">⚙️</span></button>
-      <button id="btn-mermaid" title="Prozessdiagramm als Mermaid-Datei herunterladen">
-        Als Mermaid<span class="ic">⬇️</span>
-      </button>
+    </div>
+
+    <!-- Prozessflussdiagramm. Am Desktop bewusst als eigener Block statt
+         verstreut in der Aktionsliste: Die Formen brauchen eine direkte
+         Auswahl, kein Durchschalten wie in VR – hier ist Platz dafür. -->
+    <div class="section-title">⚙️ Prozessdiagramm</div>
+    <div class="chip-row" id="flow-shapes" title="Form der ausgewählten Karte">
+      <button data-flow-type="start">⬭ Start</button>
+      <button data-flow-type="task">▭ Schritt</button>
+      <button data-flow-type="decision">◇ Entscheidung</button>
+      <button data-flow-type="end">⬭ Ende</button>
+      <button data-flow-type="">✕ Karte</button>
+    </div>
+    <div class="mini-row">
+      <button id="btn-flow-arrow" title="Ausgewählte Karte als Start, dann Ziel anklicken">➜ Pfeil ziehen</button>
+      <button id="btn-flow-label" title="Zuletzt gezogenen Pfeil beschriften (Text aus dem Eingabefeld)">🏷 Zweig</button>
+    </div>
+    <div class="mini-row">
+      <button id="btn-flow-layout" title="Prozess waagerecht anordnen">⤓ Anordnen</button>
+      <button id="btn-flow" title="Ablauf im Eingabefeld beschreiben – Claude baut das Diagramm">✨ Aus Text</button>
+      <button id="btn-mermaid" title="Prozessdiagramm als Mermaid-Datei herunterladen">⬇️ Mermaid</button>
     </div>
 
     <div class="mini-row">
@@ -413,6 +454,10 @@
     <button data-action="related">✨ Verwandte Ideen</button>
     <button data-action="critic">😈 Kritiker</button>
     <button data-action="connect">🔗 Verbinden mit…</button>
+    <button data-action="flow-arrow">➜ Pfeil ziehen zu…</button>
+    <!-- Formauswahl direkt an der Karte – wird aus FLOW_TYPES aufgebaut,
+         genau wie die Farbpunkte darunter. -->
+    <div class="chip-row" id="context-flow-row"></div>
     <div class="color-row" id="color-row"></div>
     <button data-action="delete" class="danger">🗑️ Karte löschen</button>
   </div>

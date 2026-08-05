@@ -6,16 +6,22 @@ import * as THREE from 'three';
 // hinter alle seine Vorgänger, innerhalb einer Zeile werden Geschwister
 // waagerecht verteilt. Alles rein lokal gerechnet – keine KI, keine Bibliothek.
 //
-// Ergebnis ist eine flache Tafel vor dem Nutzer, Fluss von oben nach unten. Ein
-// Flussdiagramm ist von Natur aus flach; gebogene oder frei im Raum verteilte
-// Knoten kosten Lesbarkeit ohne Gegenwert. Der Gewinn in VR liegt in der Größe –
-// man geht an einer wandfüllenden Kette entlang, statt zu scrollen.
+// Ergebnis ist eine flache Tafel vor dem Nutzer, Fluss **von links nach rechts**.
+//
+// Waagerecht, weil der Platz nach unten schlicht ausgeht: Zwischen Boden und
+// bequemer Blickhöhe liegen keine eineinhalb Meter, das reicht für vier bis
+// fünf Zeilen. Zur Seite ist dagegen Platz ohne Ende – und lange Prozesse sind
+// die Regel, während eine Verzweigung selten mehr als zwei, drei Äste hat. Also
+// bekommt die Kette die Waagerechte und die Geschwister die Senkrechte.
+//
+// Der Gewinn in VR liegt genau darin: Man geht an einer wandfüllenden Kette
+// entlang, statt zu scrollen.
 
-const COL_GAP = 0.5; // seitlicher Abstand zwischen Geschwistern
-const ROW_GAP = 0.34; // Abstand zwischen zwei Zeilen
-const DISTANCE = 2.0; // Abstand der Tafel vom Nutzer
-const TOP_Y = 2.05; // Oberkante (erste Zeile) über dem Boden
-const MIN_Y = 0.55; // tiefer wird nicht gesetzt – sonst liegt das Ende am Boden
+const RANK_GAP = 0.62; // Abstand zwischen zwei Rängen (waagerecht, entlang des Flusses)
+const SIBLING_GAP = 0.42; // Abstand zwischen Geschwistern desselben Rangs (senkrecht)
+const MIN_DISTANCE = 2.0; // Mindestabstand der Tafel vom Nutzer
+const EYE_Y = 1.5; // Höhe der Mittelachse des Diagramms
+const MIN_Y = 0.6; // tiefer wird nicht gesetzt – sonst liegt ein Knoten am Boden
 
 // Rückführungen finden: Kanten, die auf einen Knoten zeigen, der im selben
 // Pfad schon weiter oben liegt („Unterlagen nachfordern" → zurück zur Prüfung).
@@ -119,18 +125,24 @@ export function computeLayout(nodes, edges, { origin, right, forward }) {
   }
 
   const placed = new Map();
-  const sortedRows = [...rows.keys()].sort((a, b) => a - b);
-  sortedRows.forEach((r, rowIndex) => {
-    const row = rows.get(r);
-    const spanStart = -((row.length - 1) * COL_GAP) / 2;
-    const y = Math.max(TOP_Y - rowIndex * ROW_GAP, MIN_Y);
-    row.forEach((node, i) => {
-      const offset = spanStart + i * COL_GAP;
+  const sortedRanks = [...rows.keys()].sort((a, b) => a - b);
+
+  // Je länger die Kette, desto weiter weg die Tafel – sonst laufen die äußeren
+  // Knoten aus dem Blickfeld und man müsste den Kopf verrenken.
+  const width = (sortedRanks.length - 1) * RANK_GAP;
+  const distance = Math.max(MIN_DISTANCE, width * 0.6);
+
+  sortedRanks.forEach((r, rankIndex) => {
+    const column = rows.get(r);
+    // Ganze Kette mittig vor dem Nutzer statt am ersten Knoten ausgerichtet
+    const x = (rankIndex - (sortedRanks.length - 1) / 2) * RANK_GAP;
+    const top = ((column.length - 1) * SIBLING_GAP) / 2;
+    column.forEach((node, i) => {
       const position = origin
         .clone()
-        .addScaledVector(forward, DISTANCE)
-        .addScaledVector(right, offset);
-      position.y = y;
+        .addScaledVector(forward, distance)
+        .addScaledVector(right, x);
+      position.y = Math.max(EYE_Y + top - i * SIBLING_GAP, MIN_Y);
       placed.set(node.id, position);
     });
   });
@@ -151,7 +163,11 @@ export function layoutFlow(cards, connections, camera) {
   forward.y = 0;
   if (forward.lengthSq() < 1e-6) forward.set(0, 0, -1);
   forward.normalize();
-  const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).negate().normalize();
+  // forward × up ergibt die Rechte des Betrachters (Three.js ist rechtshändig,
+  // die Kamera blickt entlang -Z). Kein negate() – solange der Rang nur die
+  // Geschwister symmetrisch verteilte, war das Vorzeichen egal; jetzt trägt es
+  // die Flussrichtung und ein Dreher ließe den Prozess nach links laufen.
+  const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
 
   const placed = computeLayout(nodes, edges, { origin: camPos, right, forward });
   for (const node of nodes) {

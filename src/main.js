@@ -791,8 +791,39 @@ function toggleVoiceCommands() {
 // Autosave und Export, ohne dass davon etwas nachgebaut werden müsste.
 
 // Reihenfolge beim Durchschalten: erst die häufigen Arten, dann zurück zur
-// gewöhnlichen Ideenkarte.
+// gewöhnlichen Ideenkarte. Nur für VR – am Desktop wird die Form direkt
+// gewählt (Formleiste im Overlay und im Kontextmenü).
 const FLOW_CYCLE = ['task', 'decision', 'start', 'end', null];
+
+// Kurzzeichen für die enge Formleiste. Text stünde dort nicht.
+const FLOW_GLYPHS = { start: '⬭', task: '▭', decision: '◇', end: '⬬' };
+
+// Eine Form setzen und den Schritt festhalten. Einziger Weg dorthin, damit
+// Overlay, Kontextmenü und VR-Menü sich nicht auseinanderentwickeln.
+function applyFlowType(card, id) {
+  if (!card) {
+    setStatus('Bitte zuerst eine Karte auswählen.');
+    return;
+  }
+  card.setFlowType(id);
+  commit('Form gewechselt');
+  updateFlowShapeRow();
+  setStatus(`Form: ${id ? flowTypeById(id).label : 'Normale Karte'}`);
+}
+
+// Formleiste im Overlay: zeigt, welche Form die ausgewählte Karte hat, und
+// setzt beim Klick direkt die gewünschte – kein Durchschalten wie in VR.
+function updateFlowShapeRow() {
+  const row = document.getElementById('flow-shapes');
+  if (!row) return;
+  const current = cardManager.selected?.flowType ?? null;
+  const hasSelection = Boolean(cardManager.selected);
+  for (const button of row.querySelectorAll('button')) {
+    const id = button.dataset.flowType || null;
+    button.classList.toggle('active', hasSelection && id === current);
+    button.disabled = !hasSelection;
+  }
+}
 
 async function newFlowNode() {
   const text = await getUserText();
@@ -800,6 +831,7 @@ async function newFlowNode() {
   const card = cardManager.spawnIdeas([text], camera)[0];
   card.setFlowType('task');
   cardManager.select(card);
+  updateFlowShapeRow();
   commit('Prozessschritt angelegt');
   setStatus('Schritt angelegt – „◇ Form wechseln" macht daraus Start, Entscheidung oder Ende.');
 }
@@ -811,11 +843,7 @@ function cycleFlowType() {
     return;
   }
   const at = FLOW_CYCLE.indexOf(card.flowType);
-  const next = FLOW_CYCLE[(at + 1) % FLOW_CYCLE.length];
-  card.setFlowType(next);
-  commit('Form gewechselt');
-  const label = next ? flowTypeById(next).label : 'Ideenkarte';
-  setStatus(`Form: ${label}`);
+  applyFlowType(card, FLOW_CYCLE[(at + 1) % FLOW_CYCLE.length]);
 }
 
 async function labelFlowEdge() {
@@ -956,6 +984,9 @@ const DESKTOP_BUTTONS = {
   'btn-export': 'export',
   'btn-mermaid': 'flow-export',
   'btn-flow': 'flow-generate',
+  'btn-flow-arrow': 'flow-arrow',
+  'btn-flow-label': 'flow-label',
+  'btn-flow-layout': 'flow-layout',
   'btn-clear': 'clear',
   'btn-env': 'environment',
   'btn-undo': 'undo',
@@ -966,6 +997,15 @@ const DESKTOP_BUTTONS = {
 for (const [id, action] of Object.entries(DESKTOP_BUTTONS)) {
   document.getElementById(id)?.addEventListener('click', () => handleAction(action));
 }
+
+// Formleiste: setzt die Form der ausgewählten Karte direkt.
+document.getElementById('flow-shapes')?.addEventListener('click', (e) => {
+  const id = e.target?.dataset?.flowType;
+  if (id === undefined) return;
+  applyFlowType(cardManager.selected, id || null);
+});
+cardManager.onSelect = () => updateFlowShapeRow();
+updateFlowShapeRow();
 document.getElementById('idea-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleAction('new');
 });
@@ -1155,8 +1195,31 @@ contextMenu.addEventListener('click', (e) => {
   } else if (action === 'connect') {
     cardManager.select(card);
     startLinking();
+  } else if (action === 'flow-arrow') {
+    cardManager.select(card);
+    startLinking('flow');
   }
 });
+
+// Formauswahl im Kontextmenü – nach demselben Muster wie die Farbpunkte.
+const contextFlowRow = document.getElementById('context-flow-row');
+if (contextFlowRow) {
+  const entries = [
+    ...FLOW_TYPES.map((t) => ({ id: t.id, label: t.label, glyph: FLOW_GLYPHS[t.id] })),
+    { id: null, label: 'Normale Karte', glyph: '✕' },
+  ];
+  for (const entry of entries) {
+    const button = document.createElement('button');
+    button.textContent = entry.glyph;
+    button.title = entry.label;
+    button.addEventListener('click', () => {
+      const card = contextCard;
+      closeContextMenu();
+      if (card) applyFlowType(card, entry.id);
+    });
+    contextFlowRow.appendChild(button);
+  }
+}
 
 // Farbpunkte im Kontextmenü
 const colorRow = document.getElementById('color-row');

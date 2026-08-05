@@ -78,7 +78,9 @@ export function boardToMermaid(data) {
   const nodes = (data?.cards ?? []).filter((c) => c.flowType);
   if (!nodes.length) return null;
   const names = new Map(nodes.map((n, i) => [n.id, `n${i + 1}`]));
-  const lines = ['flowchart TD'];
+  // LR statt TD: passt zur waagerechten Anordnung in der App, und lange
+  // Prozesse sind auch im Dokument breit besser lesbar als hoch.
+  const lines = ['flowchart LR'];
 
   for (const node of nodes) {
     const [open, close] = MERMAID_WRAP[node.flowType] ?? MERMAID_WRAP.task;
