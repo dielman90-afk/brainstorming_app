@@ -125,7 +125,10 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     Rang eines Knotens im Kreis immer weiterwachsen.
   - **✨ Aus Text bauen:** Ablauf in Worten beschreiben, Claude liefert Knoten und
     Kanten als strukturiertes JSON (`FLOW_SCHEMA` in `server/ai-core.js`, dieselbe
-    Strecke wie *Cluster*), die App baut und ordnet das Diagramm.
+    Strecke wie *Cluster*), die App baut und ordnet das Diagramm. Ein **vorhandenes
+    Prozessdiagramm wird dabei ersetzt** – zwei Prozesse gleichzeitig würden sich
+    beim Anordnen dieselben Spalten teilen und ineinander stehen. Ideenkarten
+    bleiben unberührt, und „↶ Rückgängig" holt den alten Prozess zurück.
   - **⬇️ Als Mermaid:** Export als `flowchart LR` (waagerecht wie in der App) –
     Stadion `([…])`, Rechteck
     `[…]`, Raute `{…}`, beschriftete Kanten `-->|ja|`. GitHub, Notion, Obsidian

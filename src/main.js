@@ -204,6 +204,13 @@ function applyBoardJSON(data) {
   connectionManager.loadJSON(data?.connections ?? []);
   whiteboard.loadJSON(data?.whiteboard);
   zoneManager.loadJSON(data?.zones ?? []);
+  // Beim Laden und bei jedem Undo werden alle Verbindungen neu aufgebaut – ein
+  // gemerkter Pfeil zeigt danach auf ein entsorgtes Objekt.
+  lastFlowEdge = null;
+  // Befund 8: `applyState` ändert die Form der weiterhin ausgewählten Karte,
+  // ohne die Auswahl anzufassen. Ohne diesen Aufruf bliebe die Markierung in
+  // der Formleiste nach einem Undo auf der alten Form stehen.
+  updateFlowShapeRow();
 }
 
 const keyboard = new VirtualKeyboard(scene, {
@@ -464,7 +471,7 @@ async function handleAction(action) {
       return;
     }
     if (action === 'flow-layout') {
-      const count = layoutFlow(cardManager.cards, connectionManager.connections, camera);
+      const count = layoutFlow(cardManager.cards, connectionManager.connections, camera, scene);
       if (!count) {
         setStatus('Noch keine Prozessschritte da – erst „＋ Schritt" oder „✨ Aus Text bauen".');
         return;
@@ -858,11 +865,20 @@ async function labelFlowEdge() {
     setStatus('Erst einen Pfeil ziehen – oder die Karte wählen, von der er ausgeht.');
     return;
   }
+  // Leere Eingabe entfernt die Beschriftung. `getUserText()` liefert dafür
+  // null – dasselbe wie ein Abbruch –, deshalb wird hier unterschieden: Bei
+  // einer bereits beschrifteten Kante gilt „nichts eingegeben" als Löschen,
+  // sonst als Abbruch. Vorher war das Entfernen schlicht nicht erreichbar.
   const text = await getUserText();
-  if (text === null) return;
-  connectionManager.setLabel(edge, text);
+  if (text === null && !edge.label) return;
+  const next = text ?? '';
+  if (!connectionManager.setLabel(edge, next)) {
+    lastFlowEdge = null;
+    setStatus('Dieser Pfeil gibt es nicht mehr.');
+    return;
+  }
   commit('Zweig benannt');
-  setStatus(text ? `🏷 Zweig „${text}".` : 'Beschriftung entfernt.');
+  setStatus(next ? `🏷 Zweig „${next}".` : 'Beschriftung entfernt.');
 }
 
 // Prozess aus einer Beschreibung bauen lassen und sofort anordnen.
@@ -881,6 +897,16 @@ async function buildFlowFromText() {
     const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
     if (!nodes.length) throw new Error('Claude hat keinen verwertbaren Prozess geliefert.');
 
+    // Vorhandene Prozessschritte weichen dem neuen Diagramm.
+    //
+    // Ohne das lägen zwei Prozesse übereinander: „⤓ Anordnen" rangiert alle
+    // Prozessknoten gemeinsam, beide Startknoten landen auf Rang 0 und beide
+    // Ketten teilen sich dieselben Spalten – das sieht nach kaputtem Layout
+    // aus, nicht nach zwei Diagrammen. Ideenkarten bleiben unangetastet, und
+    // Rückgängig holt den alten Prozess zurück.
+    const previous = cardManager.cards.filter((c) => c.flowType);
+    for (const node of previous) cardManager.removeCard(node);
+
     // Antwort-IDs sind nur innerhalb der Antwort gültig – hier auf die echten
     // Karten-IDs abgebildet.
     const byResponseId = new Map();
@@ -893,9 +919,14 @@ async function buildFlowFromText() {
       const to = byResponseId.get(edge.to);
       if (from && to) connectionManager.connect(from, to, { label: edge.label });
     }
-    layoutFlow(cardManager.cards, connectionManager.connections, camera);
+    layoutFlow(cardManager.cards, connectionManager.connections, camera, scene);
     commit('Prozess erzeugt');
-    setStatus(`✨ Prozess mit ${nodes.length} Schritten gebaut.`);
+    setStatus(
+      previous.length
+        ? `✨ Prozess mit ${nodes.length} Schritten gebaut – der vorherige wurde ersetzt (↶ holt ihn zurück).`
+        : `✨ Prozess mit ${nodes.length} Schritten gebaut.`,
+      7000
+    );
   } catch (err) {
     showError(err.message);
   } finally {
@@ -1506,7 +1537,7 @@ window.__app = {
   connectionManager,
   keyboard,
   voice,
-  flow: { layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera), types: FLOW_TYPES },
+  flow: { layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera, scene), types: FLOW_TYPES },
   wristMenu,
   whiteboard,
   zoneManager,

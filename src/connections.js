@@ -39,6 +39,10 @@ export class ConnectionManager {
     this._neg = new THREE.Vector3();
     this._local = new THREE.Vector3();
     this._quat = new THREE.Quaternion();
+    // Eigener Zwischenspeicher für die Kamera – _quat ist beim Zeichnen der
+    // Beschriftung schon von der Randberechnung belegt.
+    this._camQuat = new THREE.Quaternion();
+    this._camPos = new THREE.Vector3();
     this._up = new THREE.Vector3(0, 1, 0);
   }
 
@@ -103,6 +107,14 @@ export class ConnectionManager {
       this.connections.splice(existing, 1);
       return 'removed';
     }
+    // Eine lose Mindmap-Linie zwischen denselben Karten weicht dem Pfeil: Beide
+    // liefen sonst deckungsgleich übereinander – eine graue Strebe im
+    // amberfarbenen Pfeil –, und die Aussage des Pfeils ist die stärkere.
+    const loose = this._indexOf(cardA, cardB, false);
+    if (loose >= 0) {
+      this._dispose(this.connections[loose]);
+      this.connections.splice(loose, 1);
+    }
     this._create(cardA, cardB, { directed: true, label });
     return 'added';
   }
@@ -118,9 +130,18 @@ export class ConnectionManager {
     return this.connections.filter((c) => c.directed && c.a === card.id);
   }
 
+  // Gehört die Kante noch zum Board? Ein außerhalb gemerkter Zeiger (main.js
+  // hält den zuletzt gezogenen Pfeil fest) überlebt das Löschen der Karte.
+  // Ohne diese Prüfung landete das Schild einer längst entsorgten Kante in der
+  // Szene, wurde von update() nie angefasst und schwebte bei (0, 0, 0).
+  has(conn) {
+    return Boolean(conn) && this.connections.includes(conn);
+  }
+
   setLabel(conn, text) {
-    if (!conn) return;
+    if (!this.has(conn)) return false;
     this._setLabel(conn, text);
+    return true;
   }
 
   _setLabel(conn, text) {
@@ -151,8 +172,12 @@ export class ConnectionManager {
       singleLine: true,
       doubleSided: false,
     });
+    // Kein `depthTest = false`: Damit hätte das Schild einer weit entfernten
+    // Kante über einer nahen Karte gelegen. Verdeckt werden soll es normal –
+    // nur nicht vom eigenen Pfeilschaft, durch den es hindurchgeht. Dafür
+    // rückt es in update() ein paar Millimeter zum Betrachter.
     conn.labelPanel.mesh.renderOrder = 12;
-    conn.labelPanel.mesh.material.depthTest = false;
+    conn.labelPanel.mesh.name = 'edge-label';
     this.scene.add(conn.labelPanel.mesh);
   }
 
@@ -228,11 +253,25 @@ export class ConnectionManager {
 
       if (conn.labelPanel) {
         this._mid.copy(this._va).addScaledVector(this._dir, startAt + (endAt - startAt) / 2);
+        if (camera) {
+          // Ein paar Millimeter zum Betrachter, damit das Schild vor dem
+          // Pfeilschaft liegt, durch den es sonst mittig hindurchginge.
+          camera.getWorldPosition(this._camPos);
+          this._neg.copy(this._camPos).sub(this._mid);
+          if (this._neg.lengthSq() > 1e-8) this._mid.addScaledVector(this._neg.normalize(), 0.012);
+        }
         conn.labelPanel.mesh.position.copy(this._mid);
         // Beschriftung immer zum Betrachter drehen – ein Pfeil kann in jede
         // Richtung laufen, ein mitgedrehtes Schild wäre oft von der Seite zu
         // sehen.
-        if (camera) conn.labelPanel.mesh.quaternion.copy(camera.quaternion);
+        //
+        // Weltdrehung, nicht die lokale: Die Kamera hängt am Player-Rig, und der
+        // Snap-Turn dreht dieses Rig. Mit `camera.quaternion` standen die
+        // Schilder nach der ersten Drehung in VR schief – bei 180° mit dem
+        // Rücken zum Nutzer und damit (einseitiges Panel) unsichtbar.
+        if (camera) {
+          conn.labelPanel.mesh.quaternion.copy(camera.getWorldQuaternion(this._camQuat));
+        }
       }
     }
   }

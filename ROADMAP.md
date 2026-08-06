@@ -37,7 +37,12 @@ gegen den tatsächlichen Code geprüft.
       Kontextmenü), Erzeugung aus einer Beschreibung durch Claude und Export als
       Mermaid (`src/flowLayout.js`, `FLOW_TYPES` in `src/cards.js`, Aktion
       `flow` in `server/ai-core.js`). *(erledigt am 2026-08-05)*
+      *(QA-Runde am 2026-08-05: neun Befunde behoben – u. a. schief stehende
+      Zweigbeschriftungen bei gedrehtem Player-Rig, ein gegriffener Knoten, der
+      beim Anordnen am Rig hängenblieb, ein Schild am Weltursprung nach
+      gelöschter Kante und sich stapelnde Geschwister bei vielen Zweigen.)*
       Offen als Fortsetzung: rechtwinklige Kantenführung wie bei Miro,
+      `flowId` für mehrere Diagramme nebeneinander mit einer Zone als Rahmen,
       Schwimmbahnen für Rollen über `src/zones.js`, Mermaid-**Import**.
 - [ ] **Snap-Grid** – optionales Einrasten der Karten an einem Raster zum sauberen
       Ausrichten. *(Das „Karten zu mir holen" aus diesem Punkt ist erledigt:

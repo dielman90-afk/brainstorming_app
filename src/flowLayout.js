@@ -18,10 +18,11 @@ import * as THREE from 'three';
 // entlang, statt zu scrollen.
 
 const RANK_GAP = 0.62; // Abstand zwischen zwei Rängen (waagerecht, entlang des Flusses)
-const SIBLING_GAP = 0.42; // Abstand zwischen Geschwistern desselben Rangs (senkrecht)
+const SIBLING_GAP = 0.42; // Wunschabstand zwischen Geschwistern desselben Rangs
+const MIN_SIBLING_GAP = 0.22; // enger wird nicht gestaucht – sonst überlappen sie
 const MIN_DISTANCE = 2.0; // Mindestabstand der Tafel vom Nutzer
 const EYE_Y = 1.5; // Höhe der Mittelachse des Diagramms
-const MIN_Y = 0.6; // tiefer wird nicht gesetzt – sonst liegt ein Knoten am Boden
+const LOW_Y = 0.6; // bis hierhin soll eine Spalte möglichst passen
 
 // Rückführungen finden: Kanten, die auf einen Knoten zeigen, der im selben
 // Pfad schon weiter oben liegt („Unterlagen nachfordern" → zurück zur Prüfung).
@@ -136,13 +137,23 @@ export function computeLayout(nodes, edges, { origin, right, forward }) {
     const column = rows.get(r);
     // Ganze Kette mittig vor dem Nutzer statt am ersten Knoten ausgerichtet
     const x = (rankIndex - (sortedRanks.length - 1) / 2) * RANK_GAP;
-    const top = ((column.length - 1) * SIBLING_GAP) / 2;
+
+    // Bei vielen Geschwistern den Abstand **stauchen**, nicht die Position
+    // klemmen. Ein `Math.max(..., MIN_Y)` je Knoten hätte alle betroffenen auf
+    // exakt dieselbe Höhe gesetzt – sie lägen aufeinander statt untereinander.
+    // Der Fußpunkt gibt vor, wie viel Platz die Spalte hat; unter
+    // MIN_SIBLING_GAP wird nicht weiter gestaucht, dann wächst die Spalte eben
+    // nach unten hinaus.
+    const steps = Math.max(column.length - 1, 1);
+    const gap = Math.max(Math.min(SIBLING_GAP, (2 * (EYE_Y - LOW_Y)) / steps), MIN_SIBLING_GAP);
+    const top = ((column.length - 1) * gap) / 2;
+
     column.forEach((node, i) => {
       const position = origin
         .clone()
         .addScaledVector(forward, distance)
         .addScaledVector(right, x);
-      position.y = Math.max(EYE_Y + top - i * SIBLING_GAP, MIN_Y);
+      position.y = EYE_Y + top - i * gap;
       placed.set(node.id, position);
     });
   });
@@ -150,7 +161,9 @@ export function computeLayout(nodes, edges, { origin, right, forward }) {
 }
 
 // Prozessknoten des Boards auf die Tafel legen und zum Nutzer drehen.
-export function layoutFlow(cards, connections, camera) {
+//
+// `scene` wird gebraucht, um gegriffene Knoten zurückzuhängen – siehe unten.
+export function layoutFlow(cards, connections, camera, scene = null) {
   const nodes = cards.filter((c) => c.flowType);
   if (!nodes.length) return 0;
   const ids = new Set(nodes.map((n) => n.id));
@@ -175,9 +188,12 @@ export function layoutFlow(cards, connections, camera) {
     if (!target) continue;
     // Gerade gegriffene Knoten hängen am Controller – zurück in die Szene,
     // sonst wäre die gesetzte Weltposition relativ zur Hand.
-    if (node.group.parent && node.group.parent.type !== 'Scene') {
-      node.group.parent.parent?.attach?.(node.group);
-    }
+    //
+    // Ausdrücklich an die Szene, nicht an `parent.parent`: Der Elternteil eines
+    // Controllers ist das Player-Rig, nicht die Szene. Der Knoten wäre dann
+    // dort hängengeblieben und bei jeder Fortbewegung mitgefahren. Dasselbe
+    // Muster wie in `CardManager.applyState`.
+    if (scene && node.group.parent !== scene) scene.attach(node.group);
     node.group.position.copy(target);
     node.group.lookAt(camPos.x, target.y, camPos.z);
   }

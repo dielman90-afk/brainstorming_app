@@ -274,13 +274,22 @@ function parsePayload(action, text) {
         text: n.text.trim(),
       }));
     const known = new Set(nodes.map((n) => n.id));
-    const edges = (Array.isArray(data.edges) ? data.edges : [])
-      .filter((e) => known.has(e?.from) && known.has(e?.to) && e.from !== e.to)
-      .map((e) => ({
+    // Doppelte Kanten aussortieren: Der Client legt Pfeile per Toggle an, ein
+    // zweites `from → to` würde den gerade erzeugten Pfeil wieder entfernen –
+    // er fehlte dann kommentarlos im Diagramm.
+    const seen = new Set();
+    const edges = [];
+    for (const e of Array.isArray(data.edges) ? data.edges : []) {
+      if (!known.has(e?.from) || !known.has(e?.to) || e.from === e.to) continue;
+      const key = `${e.from}\u0000${e.to}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      edges.push({
         from: e.from,
         to: e.to,
         label: typeof e.label === 'string' ? e.label.trim() : '',
-      }));
+      });
+    }
     return { nodes, edges };
   }
   if (!Array.isArray(data.ideas)) {

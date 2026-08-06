@@ -113,6 +113,10 @@ export class IdeaCard {
     this.border.visible = false;
 
     this.group.add(this.border, this.panel.mesh);
+    // Zeigt der Ray gerade auf die Karte, muss die Aufhellung nach dem Neubau
+    // wieder drauf – sonst springt eine Karte beim Formwechsel unter dem
+    // Cursor auf die Grundfarbe zurück.
+    if (this.hovered) this._applyBackground();
   }
 
   // Knotenart setzen (null = zurück zur normalen Ideenkarte).
