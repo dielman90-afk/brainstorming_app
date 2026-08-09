@@ -459,10 +459,10 @@ function buildRain() {
         const tick = Math.floor(time * (2.5 + hashInt(c, row, 1) * 4));
         const glyph = GLYPHS[Math.floor(hashInt(c, row, tick) * GLYPHS.length)];
         if (k === 0) {
-          ctx.fillStyle = 'rgba(214,255,224,0.95)';
+          ctx.fillStyle = 'rgba(186,255,206,0.98)';
         } else {
           const fade = (1 - k / RAIN.trail) ** 1.6;
-          ctx.fillStyle = `rgba(74,214,116,${(fade * 0.5).toFixed(3)})`;
+          ctx.fillStyle = `rgba(86,232,132,${(fade * 0.78).toFixed(3)})`;
         }
         ctx.fillText(glyph, x, y);
       }
@@ -717,7 +717,7 @@ export function buildAtmosphere(renderer) {
     uniforms: {
       uTime: { value: 0 },
       uColor: { value: new THREE.Color(SUN.color) },
-      uIntensity: { value: 0.16 },
+      uIntensity: { value: 0.06 },
     },
     vertexShader: BEAM_VERTEX,
     fragmentShader: SHAFT_FRAGMENT,
@@ -738,7 +738,7 @@ export function buildAtmosphere(renderer) {
 
   const poolMaterial = shaftMaterial.clone();
   poolMaterial.fragmentShader = POOL_FRAGMENT;
-  poolMaterial.uniforms.uIntensity.value = 0.22;
+  poolMaterial.uniforms.uIntensity.value = 0.09;
   const pools = new THREE.Mesh(buildPoolGeometry(), poolMaterial);
   pools.name = 'dojo-light-pools';
   pools.renderOrder = 2;

@@ -1383,7 +1383,8 @@ export function buildProps() {
       { x: -0.72, z: -3.62, r: 0.36, opacity: 0.8 },
       { x: 0.72, z: -3.62, r: 0.36, opacity: 0.8 },
       { x: censer.x, z: censer.z, r: 0.1, y: TOKONOMA.floorY + 0.008, opacity: 1 },
-      { x: WALL.west + 0.24, z: -1.78, r: 0.16, opacity: 0.9 },
+      { x: WALL.west + 0.26, z: -1.86, r: 0.2, opacity: 1 },
+      { x: WALL.west + 0.26, z: -1.7, r: 0.2, opacity: 1 },
     ])
   );
 
