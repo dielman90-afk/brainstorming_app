@@ -488,7 +488,7 @@ function buildRain() {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false,
-      opacity: 0.13,
+      opacity: 0.055,
       fog: false,
     })
   );
@@ -538,7 +538,7 @@ function buildDust() {
       color: 0xffe7c2,
       size: 0.028,
       transparent: true,
-      opacity: 0.12,
+      opacity: 0.045,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
@@ -618,7 +618,7 @@ function buildBloom() {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false,
-      opacity: 0.07,
+      opacity: 0.028,
       side: THREE.DoubleSide,
       fog: false,
     })
@@ -764,7 +764,7 @@ export function buildAtmosphere(renderer) {
       dust.update(time);
       // Sehr langsames Atmen der Blende – die Luft vor einem Fenster steht nie
       // ganz still. Größer als ein paar Prozent wird daraus ein Flackern.
-      bloom.material.opacity = 0.07 + 0.008 * Math.sin(time * 0.27);
+      bloom.material.opacity = 0.028 + 0.004 * Math.sin(time * 0.27);
       if (time - lastRain >= RAIN.interval) {
         lastRain = time;
         rain.draw(time);

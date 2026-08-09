@@ -83,7 +83,7 @@ export function buildArchitecture() {
   // Verlegt im Wechsel (quer/längs paarweise), wie es üblich ist – ein
   // durchgehendes Raster sähe aus wie Fliesen, nicht wie Matten.
   const matGeo = board(TATAMI.long, TATAMI.thickness, TATAMI.short, 0.42);
-  const borderGeo = new THREE.BoxGeometry(TATAMI.long, TATAMI.thickness * 0.94, 0.032);
+  const borderGeo = new THREE.BoxGeometry(TATAMI.long, 0.005, 0.055);
   const mats = [];
   const borders = [];
   const matY = 0.055 + TATAMI.thickness / 2;
@@ -113,8 +113,13 @@ export function buildArchitecture() {
       mats.push({ x: cx, y: matY, z, scale: [sx, 1, 1] });
       // Dunkle Leinenborte (Heri) an den Längsseiten – ohne sie zerfließt das
       // Feld zu einer grünen Fläche und die Mattengrenzen verschwinden.
-      borders.push({ x: cx, y: matY + 0.0006, z: z - TATAMI.short / 2 + 0.016, scale: [sx, 1, 1] });
-      borders.push({ x: cx, y: matY + 0.0006, z: z + TATAMI.short / 2 - 0.016, scale: [sx, 1, 1] });
+      // Knapp **über** der Mattenoberkante. Vorher lag die Borte auf halber
+      // Mattenhöhe, also vollständig im Tatami versteckt: Das Feld las sich als
+      // eine einzige grüne Fläche, und damit fehlte dem Raum der Maßstab, an
+      // dem man seine Größe überhaupt ablesen kann.
+      const heriY = 0.055 + TATAMI.thickness + 0.0015;
+      borders.push({ x: cx, y: heriY, z: z - TATAMI.short / 2 + 0.028, scale: [sx, 1, 1] });
+      borders.push({ x: cx, y: heriY, z: z + TATAMI.short / 2 - 0.028, scale: [sx, 1, 1] });
       x += len;
       first = false;
     }
@@ -178,9 +183,12 @@ export function buildArchitecture() {
     shape.lineTo(ROOM.maxX, ROOM.wallTop);
     shape.closePath();
     const gable = new THREE.ShapeGeometry(shape);
-    gable.translate(0, 0, z + (z < 0 ? -t / 2 : t / 2));
-    // Beide Giebel zeigen nach innen.
+    // **Erst drehen, dann verschieben.** `rotateY` dreht um den Ursprung, nicht
+    // um den eigenen Mittelpunkt – in der umgekehrten Reihenfolge landete der
+    // Südgiebel gespiegelt bei negativem z, also mitten im Raum, und ragte als
+    // Spitze aus dem Dach. In der Silhouette war das sofort zu sehen.
     if (z > 0) gable.rotateY(Math.PI);
+    gable.translate(0, 0, z + (z < 0 ? -t / 2 : t / 2));
     wallGeos.push(gable);
   }
 
@@ -355,8 +363,12 @@ export function buildArchitecture() {
     );
   }
   const deck = new THREE.Mesh(mergeGeometries(deckGeos, false), new THREE.MeshStandardMaterial({
-    color: 0x4a3d33,
+    color: 0x7d6650,
     roughness: 0.95,
+    // Die Unterseite bekommt von der Sonne nichts ab – sie zeigt nach unten.
+    // Ohne einen Eigenanteil bleibt sie schwarz und liest sich als Loch in den
+    // Nachthimmel statt als Bretterschalung über den Sparren.
+    emissive: 0x241c15,
     side: THREE.DoubleSide,
   }));
   deck.name = 'dojo-deck';
@@ -371,6 +383,13 @@ export function buildArchitecture() {
   const engT = [];
   for (let i = 0; i < 5; i++) engT.push({ x: 0, y: -0.06, z: ROOM.maxZ + 0.1 + i * 0.17 });
   engawa.add(instanced(deckBoard, hinokiDark, engT, { name: 'dojo-engawa-deck' }));
+  // Stützpfosten: Ohne sie schwebt das Deck sichtbar über dem Boden – in der
+  // Silhouette war es ein losgelöstes Brett neben dem Gebäude.
+  const pierGeo = board(0.11, 0.42, 0.11, 0.3);
+  const piers = [];
+  for (const x of [-4.6, -2.3, 0, 2.3, 4.6]) piers.push({ x, y: -0.30, z: ROOM.maxZ + 0.72 });
+  engawa.add(instanced(pierGeo, hinokiDark, piers, { name: 'dojo-engawa-piers' }));
+
   const stepBoard = new THREE.Mesh(board(2.6, 0.11, 0.34, 0.5), hinokiDark);
   stepBoard.position.set(0, -0.17, ROOM.maxZ + 1.05);
   stepBoard.castShadow = true;
