@@ -58,17 +58,20 @@ gegen den tatsächlichen Code geprüft.
       Offen als Fortsetzung: Kanten als Kurven statt Geraden, und ein zweiter
       Knopf, der nur den Teilbaum unter der ausgewählten Karte neu ordnet.
 - [~] **Konstrukt-Dojo als fünfte Umgebung** – Samurai-Trainingsraum im Stil des
-      Films, in eigenen Dateien unter `src/dojo/` (Maße, Materialien,
-      Architektur, Requisiten, Atmosphäre getrennt). Erste Umgebung der App mit
+      Films, in eigenen Dateien unter `src/dojo/`. Erste Umgebung der App mit
       echten Schatten, PBR-Materialien und prozeduraler Environment-Map.
-      Zeichenlast im Budget (54 Draw-Calls, 41k Dreiecke).
-      **Offen:** Die Frame-Zeit liegt beim 6,8-fachen des Zen-Gartens – die
-      Kosten stecken im Fragment (Schattenpass, IBL, additive Lagen), nicht in
-      der Geometrie. Vor einem Einsatz auf der Quest 3 muss das gemessen und
-      gesenkt werden (kleinere Schattenkarte, weniger Überzeichnung).
-      Ebenfalls offen: Bokken schweben über dem Boden, die Kalligrafie auf dem
-      Rollbild liest sich unfreiwillig als Smiley, und die Kritik-Runde gegen
-      die volle Rubrik ist erst teilweise gelaufen. *(Stand 2026-08-09)*
+      Zeichenlast im Budget (57 Draw-Calls, 41k Dreiecke).
+      Drei Kritik-Runden gegen die Rubrik gelaufen (0/9 → 2/9 → laufend).
+      **Offen:**
+      • Frame-Zeit beim 7,4-fachen des Zen-Gartens. Die Kosten stecken im
+        Fragment (Schattenpass, IBL, additive Lagen), nicht in der Geometrie.
+        Vor einem Einsatz auf der Quest 3 messen und senken.
+      • Die Sonnenseite brennt weiterhin teilweise aus.
+      • Bokken ohne sichtbaren Kontaktschatten.
+      • Coderegen ist als Motiv noch zu schwach lesbar.
+      • Ein schmaler Restspalt am Traufansatz; vermutlich die absichtlich
+        offene Südseite, nicht abschließend geprüft.
+      *(Stand 2026-08-09)*
 - [ ] **Snap-Grid** – optionales Einrasten der Karten an einem Raster zum sauberen
       Ausrichten. *(Das „Karten zu mir holen" aus diesem Punkt ist erledigt:
       `recenterOnNextFrame` in `src/main.js` ordnet beim XR-Start neu an.)*

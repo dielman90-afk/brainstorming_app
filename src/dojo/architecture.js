@@ -56,7 +56,7 @@ export function buildArchitecture() {
   // Das Papier leuchtet, weil die Sonne dahintersteht. Der Wert ist bewusst
   // hoch: Washi im Gegenlicht ist die hellste Fläche im ganzen Raum, und der
   // Kontrast dazu trägt die Stimmung.
-  const washi = washiMaterial({ emissive: 0xffeccc, emissiveIntensity: 0.16 });
+  const washi = washiMaterial({ emissive: 0xffeccc, emissiveIntensity: 0.62 });
 
   // --- Dielenboden ----------------------------------------------------------
   const PLANK = 0.19;
@@ -154,6 +154,17 @@ export function buildArchitecture() {
     board(t, h, ROOM.maxZ - ROOM.minZ, 1.1).translate(WALL.west + t / 2, h / 2, (ROOM.minZ + ROOM.maxZ) / 2),
     // Süd, nur als Brüstung – hier ist der Zugang
     board(ROOM.maxX - ROOM.minX, 0.5, t, 1.1).translate(0, 0.25, WALL.south + t / 2),
+    // Traufabschluss auf beiden Längsseiten. Die verlängerte Schalung kommt der
+    // Wandkrone bis auf wenige Zentimeter nahe – und wenige Zentimeter Schlitz
+    // über neun Meter Länge sind von unten ein breiter heller Keil. Diese
+    // beiden Bretter schließen ihn; billiger als die Wand höher zu ziehen und
+    // damit alle Höhenbezüge der Shoji neu zu ordnen.
+    board(t, 0.62, ROOM.maxZ - ROOM.minZ, 1.1).translate(
+      WALL.west + t / 2, ROOM.wallTop + 0.2, (ROOM.minZ + ROOM.maxZ) / 2
+    ),
+    board(t, 0.62, ROOM.maxZ - ROOM.minZ, 1.1).translate(
+      WALL.east - t / 2, ROOM.wallTop + 0.2, (ROOM.minZ + ROOM.maxZ) / 2
+    ),
     // Über dem Tokonoma-Sturz bis zur Traufe – sonst sieht man über der Nische
     // in den schwarzen Hintergrund.
     board(TOKONOMA.width + 0.3, h - TOKONOMA.headY - 0.22, t, 1.1).translate(
@@ -178,9 +189,14 @@ export function buildArchitecture() {
   // Raum, der nach oben offen ist, ist kein Raum.
   for (const z of [WALL.north, WALL.south]) {
     const shape = new THREE.Shape();
-    shape.moveTo(ROOM.minX, ROOM.wallTop);
-    shape.lineTo(0, ROOM.ridgeY + 0.12);
-    shape.lineTo(ROOM.maxX, ROOM.wallTop);
+    // Basis bewusst **unterhalb** der Traufhöhe: Stossen Giebel, Schalung und
+    // Wandkrone exakt aneinander, bleibt in jeder der vier Traufecken ein
+    // Restspalt von wenigen Millimetern – und ein paar Millimeter sind aus
+    // flachem Blickwinkel ein handbreiter heller Keil. Ueberlappen ist hier
+    // billiger und robuster als Passgenauigkeit.
+    shape.moveTo(ROOM.minX - 0.2, ROOM.wallTop - 0.7);
+    shape.lineTo(0, ROOM.ridgeY + 0.2);
+    shape.lineTo(ROOM.maxX + 0.2, ROOM.wallTop - 0.7);
     shape.closePath();
     const gable = new THREE.ShapeGeometry(shape);
     // **Erst drehen, dann verschieben.** `rotateY` dreht um den Ursprung, nicht
@@ -361,13 +377,31 @@ export function buildArchitecture() {
 
   // Dachschalung als geschlossene Fläche darüber – sonst sieht man durch das
   // Dach in den schwarzen Hintergrund und der Raum verliert seinen Abschluss.
+  const EAVE_OVERHANG = 1.1; // Dachueberstand ueber die Traufe hinaus
   const deckGeos = [];
+  // **Länger als die Sparren.** Die Schalung endete exakt auf Sparrenlänge und
+  // damit rund 17 cm oberhalb der Traufe – über die ganze Länge beider Seiten
+  // blieb ein Spalt, durch den man von unten ins Freie sah. Von innen las sich
+  // das als „schwarze Decke", weshalb drei Versuche, das Material aufzuhellen,
+  // nichts bewirken konnten: Da war kein Material, da war nichts. Sichtbar
+  // wurde es erst mit knallrosa Hintergrund – was rosa ist, ist ein Loch.
+  const deckLen = rafterLen + 2 * EAVE_OVERHANG;
+  const slope = Math.atan2(rise, run);
   for (const side of [-1, 1]) {
+    // Mittelpunkt zusaetzlich **hangabwaerts** verschoben. Nur zu verlaengern
+    // reicht nicht: Das schiebt oben am First genauso viel dazu wie unten an der
+    // Traufe, und der Spalt sitzt unten. Verschoben liegt der Ueberstand dort,
+    // wo er gebraucht wird – und ein weit vorstehendes Dach ist bei einem
+    // japanischen Bau ohnehin richtig, nicht bloss ein Notbehelf.
     deckGeos.push(
-      new THREE.PlaneGeometry(rafterLen, ROOM.maxZ - ROOM.minZ)
+      new THREE.PlaneGeometry(deckLen, ROOM.maxZ - ROOM.minZ)
         .rotateX(-Math.PI / 2)
-        .rotateZ(side * Math.atan2(rise, run))
-        .translate((side * run) / 2, (ROOM.wallTop + ROOM.ridgeY) / 2 + 0.17, (ROOM.minZ + ROOM.maxZ) / 2)
+        .rotateZ(side * slope)
+        .translate(
+          side * (run / 2 + EAVE_OVERHANG * Math.cos(slope)),
+          (ROOM.wallTop + ROOM.ridgeY) / 2 + 0.17 - EAVE_OVERHANG * Math.sin(slope),
+          (ROOM.minZ + ROOM.maxZ) / 2
+        )
     );
   }
   const deck = new THREE.Mesh(mergeGeometries(deckGeos, false), new THREE.MeshStandardMaterial({

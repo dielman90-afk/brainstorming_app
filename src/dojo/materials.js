@@ -412,7 +412,7 @@ export function washiTexture() {
 export function washiMaterial({ emissive = 0x000000, emissiveIntensity = 0 } = {}) {
   return new THREE.MeshStandardMaterial({
     map: washiTexture(),
-    color: 0xf3efe4,
+    color: 0x7d776a,
     emissive: new THREE.Color(emissive),
     emissiveIntensity,
     roughness: 0.88,

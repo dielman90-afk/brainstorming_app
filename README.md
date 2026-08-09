@@ -96,8 +96,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     die Sonnenrichtung stehen in `src/dojo/layout.js`, damit Schatten,
     Lichtschächte und Glanzlichter zwangsläufig zusammenpassen.
   - **Bekannte Schwäche:** Der Raum ist pro Pixel deutlich teurer als die
-    übrigen Umgebungen – gemessen 6,8-fache Frame-Zeit gegenüber dem
-    Zen-Garten bei fast gleicher Zahl an Draw-Calls (54 gegen 51). Die Last
+    übrigen Umgebungen – gemessen 7,4-fache Frame-Zeit gegenüber dem
+    Zen-Garten bei fast gleicher Zahl an Draw-Calls (57 gegen 51). Die Last
     liegt nicht in der Geometrie, sondern im Fragment: Schattendurchgang,
     PBR mit Normal- und Rauheitskarte, IBL-Abtastung und mehrere additive
     Lagen übereinander. Gemessen wurde headless auf SwiftShader, einem
