@@ -44,6 +44,19 @@ gegen den tatsächlichen Code geprüft.
       Offen als Fortsetzung: rechtwinklige Kantenführung wie bei Miro,
       `flowId` für mehrere Diagramme nebeneinander mit einer Zone als Rahmen,
       Schwimmbahnen für Rollen über `src/zones.js`, Mermaid-**Import**.
+- [x] **Automatisches Mindmap-Layout** – ein Knopf ordnet die Karten radial nach
+      ihren Verbindungen an: Wurzel in der Mitte (die ausgewählte Karte, sonst die
+      bestverbundene), Spannbaum per Breitensuche, **Sektor proportional zur
+      Größe des Teilbaums** statt gleicher Winkel für jeden Ast. Das flache
+      Radiallayout wird auf eine gekrümmte Wand um den Nutzer projiziert, damit
+      alles gleich weit weg und gleich lesbar bleibt; mehrere Inseln liegen
+      nebeneinander, verbindungslose Karten in einer Reihe darunter. Die Karten
+      **fahren** über eine knappe halbe Sekunde an ihren Platz (`src/tween.js`)
+      statt zu springen. Bewusst deterministisch statt kräftebasiert: Zweimal
+      denselben Knopf drücken muss zweimal dasselbe Bild ergeben.
+      (`src/mindmapLayout.js`, Aktion `mindmap`). *(erledigt am 2026-08-09)*
+      Offen als Fortsetzung: Kanten als Kurven statt Geraden, und ein zweiter
+      Knopf, der nur den Teilbaum unter der ausgewählten Karte neu ordnet.
 - [ ] **Snap-Grid** – optionales Einrasten der Karten an einem Raster zum sauberen
       Ausrichten. *(Das „Karten zu mir holen" aus diesem Punkt ist erledigt:
       `recenterOnNextFrame` in `src/main.js` ordnet beim XR-Start neu an.)*

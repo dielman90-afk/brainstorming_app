@@ -4,7 +4,9 @@ import { createTextPanel } from './textPanel.js';
 // Das Menü ist auf zwei Reiter aufgeteilt: 21 Aktionen untereinander wären ein
 // über 80 cm hohes Panel an der Hand. Zwei Seiten à sechs Reihen bleiben
 // kompakt und sind auch verkleinert auf der Handfläche noch lesbar.
-const PAGES = [
+// Exportiert, damit Tests die Seiten prüfen können, ohne die Knopf-Meshes
+// auseinanderzunehmen.
+export const PAGES = [
   {
     id: 'ideas',
     label: '💡 Ideen',
@@ -27,6 +29,7 @@ const PAGES = [
     actions: [
       { id: 'undo', label: '↶ Rückgängig' },
       { id: 'redo', label: '↷ Wiederholen' },
+      { id: 'mindmap', label: '🕸 Mindmap ordnen' },
       { id: 'zone', label: '🗂️ Zone' },
       { id: 'timer', label: '⏱️ Timer' },
       { id: 'whiteboard', label: '📋 Whiteboard' },

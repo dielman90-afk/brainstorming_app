@@ -4,6 +4,8 @@ import './fonts.js'; // lokal gebündelte Schriften (kein CDN nötig)
 import { CardManager, CARD_COLORS, CARD_FONT_STEPS, FLOW_TYPES, flowTypeById } from './cards.js';
 import { ConnectionManager } from './connections.js';
 import { layoutFlow } from './flowLayout.js';
+import { computeMindmap, layoutMindmap } from './mindmapLayout.js';
+import { Tweener } from './tween.js';
 import { InteractionManager } from './interactions.js';
 import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
@@ -164,7 +166,14 @@ controls.update();
 
 const cardManager = new CardManager(scene);
 const connectionManager = new ConnectionManager(scene, cardManager);
-cardManager.onCardRemoved = (card) => connectionManager.removeForCard(card);
+// Fährt Karten sanft an neue Plätze, statt sie springen zu lassen.
+const tweener = new Tweener();
+cardManager.onCardRemoved = (card) => {
+  connectionManager.removeForCard(card);
+  // Eine gelöschte Karte darf nicht weiter animiert werden – sonst schreibt
+  // der Tweener noch Positionen in ein entsorgtes Objekt.
+  tweener.cancel(card.group);
+};
 
 // Kartenschrift (Barrierefreiheit): gewählte Stufe überdauert einen Reload und
 // wird gesetzt, bevor die ersten Karten entstehen.
@@ -200,6 +209,10 @@ function boardToJSON() {
 }
 
 function applyBoardJSON(data) {
+  // Erst die laufenden Bewegungen abbrechen: Ein Undo mitten in der
+  // Mindmap-Animation würde die geladenen Positionen sonst gleich wieder
+  // überschrieben bekommen.
+  tweener.clear();
   cardManager.loadJSON(data);
   connectionManager.loadJSON(data?.connections ?? []);
   whiteboard.loadJSON(data?.whiteboard);
@@ -385,6 +398,7 @@ function updateHistoryButtons() {
   if (redo) redo.disabled = !history.canRedo;
 }
 
+interactions.onCardGrabStart = (card) => tweener.cancel(card.group);
 interactions.onCardMoved = () => commit('Karte verschoben');
 interactions.onCardScaled = () => commitSoon('Kartengröße');
 // Zonen hängen ebenfalls im Verlauf; die Whiteboard-Griffleiste löst hier zwar
@@ -478,6 +492,20 @@ async function handleAction(action) {
       }
       commit('Prozess angeordnet');
       setStatus(`⤓ ${count} Schritte angeordnet.`);
+      return;
+    }
+    if (action === 'mindmap') {
+      const count = runMindmapLayout();
+      if (!count) {
+        setStatus('Noch keine Karten da, die sich ordnen ließen.');
+        return;
+      }
+      // Erst nach der Fahrt sichern: `commit` liest die Kartenpositionen, und
+      // die stehen mitten in der Animation noch am alten Platz. Ein sofortiges
+      // commit würde den Verlaufsschritt mit dem Zustand *vorher* füllen.
+      commitSoon('Mindmap geordnet', 600);
+      const root = cardManager.selected ? ' – ausgewählte Karte als Mitte' : '';
+      setStatus(`🕸 ${count} Karten nach ihren Verbindungen geordnet${root}.`);
       return;
     }
     if (action === 'flow-generate') {
@@ -797,6 +825,15 @@ function toggleVoiceCommands() {
 // FLOW_TYPES in cards.js). Dadurch erben sie Greifen, Auswahl, Undo/Redo,
 // Autosave und Export, ohne dass davon etwas nachgebaut werden müsste.
 
+// Mindmap ordnen: Karten nach ihren Verbindungen radial anordnen. Die
+// ausgewählte Karte wird die Mitte – so kann man dasselbe Board von
+// verschiedenen Themen aus betrachten, ohne etwas zu verschieben.
+function runMindmapLayout(options = {}) {
+  return layoutMindmap(cardManager.cards, connectionManager.connections, camera, scene, tweener, {
+    preferredRoot: options.preferredRoot ?? cardManager.selected?.id ?? null,
+  });
+}
+
 // Reihenfolge beim Durchschalten: erst die häufigen Arten, dann zurück zur
 // gewöhnlichen Ideenkarte. Nur für VR – am Desktop wird die Form direkt
 // gewählt (Formleiste im Overlay und im Kontextmenü).
@@ -1008,6 +1045,7 @@ const DESKTOP_BUTTONS = {
   'btn-critic': 'critic',
   'btn-cluster': 'cluster',
   'btn-summary': 'summary',
+  'btn-mindmap': 'mindmap',
   'btn-zone': 'zone',
   'btn-timer': 'timer',
   'btn-topic': 'topic',
@@ -1495,6 +1533,9 @@ renderer.setAnimationLoop(() => {
   // Rigs und liefert die echte Weltpose (dieselbe Falle wie in locomotion.js).
   wristMenu.update(camera);
   hud.update(dt);
+  // Vor connectionManager.update: Die Linien sollen den fahrenden Karten in
+  // demselben Frame folgen, nicht einen hinterher.
+  tweener.update(dt);
   connectionManager.update(camera);
   if (envIndex >= 0) environments[envIndex].update?.(elapsed);
   timer.update(elapsed);
@@ -1538,6 +1579,11 @@ window.__app = {
   keyboard,
   voice,
   flow: { layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera, scene), types: FLOW_TYPES },
+  mindmap: {
+    layout: (options) => runMindmapLayout(options),
+    compute: computeMindmap,
+  },
+  tweener,
   wristMenu,
   whiteboard,
   zoneManager,
