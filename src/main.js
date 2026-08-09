@@ -105,16 +105,27 @@ function applyEnvironment() {
     env.group.visible = i === envIndex;
   });
   if (envIndex >= 0) {
-    scene.background = environments[envIndex].background;
-    scene.fog = environments[envIndex].fog ?? null;
+    const env = environments[envIndex];
+    scene.background = env.background;
+    scene.fog = env.fog ?? null;
+    // Environment-Map (IBL) für Umgebungen, die spiegelnde Materialien haben.
+    // Erst hier gebaut, nicht beim Laden: Der PMREM-Generator braucht einen
+    // lebenden Renderer und rechnet auf der GPU – das wäre Startzeit für jeden,
+    // der die Umgebung nie aufruft. Ohne die Karte rendern Metall und Lack
+    // schwarz, weil ein Metall ohne etwas zu spiegeln keine diffuse Komponente
+    // hat.
+    env.ensureEnvironment?.(renderer);
+    scene.environment = env.environment ?? null;
     desktopFloor.visible = false;
   } else if (inPassthrough) {
     scene.background = null;
     scene.fog = null;
+    scene.environment = null;
     desktopFloor.visible = false;
   } else {
     scene.background = DESKTOP_BG;
     scene.fog = null;
+    scene.environment = null;
     desktopFloor.visible = true;
   }
 }

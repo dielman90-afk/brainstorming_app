@@ -1,11 +1,19 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+// HINWEIS: Wird gleich wieder eingehängt – siehe createEnvironments unten.
+// import { createDojoEnvironment } from './dojo/index.js';
 
-// Vier umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
+// Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
 //   🌌 Nachthimmel  – Sternenfeld, Mond und rötlicher Mars-Untergrund
 //   🪷 Zen-Garten   – ruhige Kies-/Steinlandschaft
 //   ⬜ Konstrukt    – nahtloser, komplett weißer Void („Matrix"-Ladeprogramm)
+//   ⛩ Konstrukt-Dojo – der Trainingsraum aus demselben Film (src/dojo/)
+//
+// Das Dojo bricht bewusst mit dem flachen Low-Poly-Stil der anderen vier: echte
+// Schatten, PBR-Materialien mit Normal- und Rauheitskarten, eine prozedurale
+// Environment-Map. Es liegt deshalb in eigenen Dateien unter `src/dojo/` –
+// diese hier hat schon 2600 Zeilen.
 //
 // Das frühere „🌐 Studio" (heller Verlauf mit weichem Boden) ist entfernt: Es war
 // vom Konstrukt kaum zu unterscheiden – beides eine helle, leere Kuppel – und
@@ -2662,6 +2670,11 @@ export function createEnvironments(scene) {
     createNightEnvironment(),
     createZenEnvironment(),
     createMatrixEnvironment(),
+    // **Angehängt, nicht eingeschoben.** Die Reihenfolge ist der Index, den
+    // `cycleEnvironment` durchläuft und den die Testskripte hart verdrahtet
+    // haben (Konstrukt = 3). Ein Einschub in der Mitte würde jedes davon still
+    // auf die falsche Welt zeigen lassen.
+    // createDojoEnvironment(),
   ];
   for (const env of environments) {
     env.group.visible = false;
