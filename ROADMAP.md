@@ -60,17 +60,21 @@ gegen den tatsächlichen Code geprüft.
 - [~] **Konstrukt-Dojo als fünfte Umgebung** – Samurai-Trainingsraum im Stil des
       Films, in eigenen Dateien unter `src/dojo/`. Erste Umgebung der App mit
       echten Schatten, PBR-Materialien und prozeduraler Environment-Map.
-      Zeichenlast im Budget (57 Draw-Calls, 41k Dreiecke).
-      Drei Kritik-Runden gegen die Rubrik gelaufen (0/9 → 2/9 → laufend).
+      Zeichenlast im Budget (58 Draw-Calls, 43k Dreiecke).
+      **Vier Kritik-Runden gegen die Rubrik: 0/9 → 2/9 → 6/9.**
       **Offen:**
       • Frame-Zeit beim 7,4-fachen des Zen-Gartens. Die Kosten stecken im
         Fragment (Schattenpass, IBL, additive Lagen), nicht in der Geometrie.
-        Vor einem Einsatz auf der Quest 3 messen und senken.
-      • Die Sonnenseite brennt weiterhin teilweise aus.
-      • Bokken ohne sichtbaren Kontaktschatten.
-      • Coderegen ist als Motiv noch zu schwach lesbar.
-      • Ein schmaler Restspalt am Traufansatz; vermutlich die absichtlich
-        offene Südseite, nicht abschließend geprüft.
+        Vor einem Einsatz auf der Quest 3 messen und senken. Das Perf-Gate des
+        Plans ist damit **nicht** erfüllt.
+      • Restspalt am Dach: Der Grund (Giebel und Schalung wurden aus getrennten
+        Zahlensätzen abgeleitet) ist behoben, beide folgen jetzt derselben
+        Quelle. Am äußersten Bildrand bleibt ein schmaler Keil sichtbar.
+      • Die Sonnenseite ist gemessen deutlich ruhiger (Bildmittel 66,7 → 54,1,
+        Spitze 224 → 200 von 255), liest sich aber weiter als heller Fleck.
+        Geklemmt war dabei nie etwas.
+      • Silhouette zeigt zwei ungeklärte Fortsätze.
+      • Coderegen ist als Motiv lesbar, aber flächenmäßig noch ein Token.
       *(Stand 2026-08-09)*
 - [ ] **Snap-Grid** – optionales Einrasten der Karten an einem Raster zum sauberen
       Ausrichten. *(Das „Karten zu mir holen" aus diesem Punkt ist erledigt:

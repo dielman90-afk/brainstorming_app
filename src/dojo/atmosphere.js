@@ -717,7 +717,7 @@ export function buildAtmosphere(renderer) {
     uniforms: {
       uTime: { value: 0 },
       uColor: { value: new THREE.Color(SUN.color) },
-      uIntensity: { value: 0.06 },
+      uIntensity: { value: 0.035 },
     },
     vertexShader: BEAM_VERTEX,
     fragmentShader: SHAFT_FRAGMENT,
@@ -738,7 +738,7 @@ export function buildAtmosphere(renderer) {
 
   const poolMaterial = shaftMaterial.clone();
   poolMaterial.fragmentShader = POOL_FRAGMENT;
-  poolMaterial.uniforms.uIntensity.value = 0.09;
+  poolMaterial.uniforms.uIntensity.value = 0.05;
   const pools = new THREE.Mesh(buildPoolGeometry(), poolMaterial);
   pools.name = 'dojo-light-pools';
   pools.renderOrder = 2;

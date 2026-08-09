@@ -95,7 +95,7 @@ export const SUN = {
   position: [11.5, 5.2, 1.5],
   target: [-1.0, 1.1, -3.0],
   color: 0xffe9c4,
-  intensity: 2.5,
+  intensity: 1.9,
   // Ortho-Frustum eng um den Innenraum. Zu weit gefasst = weiche, matschige
   // Schatten; zu eng = abgeschnittene Schatten am Rand.
   shadow: { halfExtent: 8.5, near: 0.5, far: 26, mapSize: 1024, bias: -0.0012, normalBias: 0.02 },
@@ -116,7 +116,7 @@ export function sunDirection() {
 // Fülllicht: kühl, schwach, von der gegenüberliegenden Seite. Ohne das säuft
 // alles ab, was die Sonne nicht trifft; mit zu viel davon verschwindet der
 // Kontrast, der den Raum plastisch macht.
-export const FILL = { color: 0x9fc2d8, ground: 0x7a6549, intensity: 0.7 };
+export const FILL = { color: 0x9fc2d8, ground: 0x7a6549, intensity: 0.85 };
 
 // --- Zeichenbudget ----------------------------------------------------------
 //

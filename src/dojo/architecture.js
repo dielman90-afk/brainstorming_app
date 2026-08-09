@@ -58,6 +58,34 @@ export function buildArchitecture() {
   // Kontrast dazu trägt die Stimmung.
   const washi = washiMaterial({ emissive: 0xffeccc, emissiveIntensity: 0.62 });
 
+  // --- Dachgeometrie: eine Quelle fuer Schalung *und* Giebel ----------------
+  //
+  // Vorher wurden beide unabhaengig voneinander mit geschaetzten Zahlen gebaut.
+  // Sie konnten deshalb gar nicht zusammenpassen: Die Giebelkante stieg mit
+  // 0,435, die Dachflaeche mit 0,30 – an der Traufe klaffte dadurch ein
+  // Dreiviertelmeter. Zweimal wurde daran herumgeflickt (Traufbretter,
+  // ueberlappende Giebel, Dachueberstand), ohne dass der Grund verschwand: Zwei
+  // Bauteile, die aneinanderstossen muessen, aus zwei getrennten Zahlensaetzen
+  // abzuleiten, geht auf Dauer nie gut.
+  const ROOF = (() => {
+    const rise = ROOM.ridgeY - ROOM.wallTop;
+    const run = (ROOM.maxX - ROOM.minX) / 2;
+    const slope = Math.atan2(rise, run);
+    const overhang = 1.1;
+    const rafterLen = Math.hypot(rise, run);
+    const centerX = run / 2 + overhang * Math.cos(slope);
+    const centerY = (ROOM.wallTop + ROOM.ridgeY) / 2 + 0.17 - overhang * Math.sin(slope);
+    const apexY = centerY + centerX * Math.tan(slope);
+    return {
+      rise, run, slope, overhang, rafterLen,
+      deckLen: rafterLen + 2 * overhang,
+      centerX, centerY,
+      // Unterkante der Schalung an beliebiger x-Stelle – der Bezug, an dem sich
+      // alles andere auszurichten hat.
+      deckY: (x) => apexY - Math.abs(x) * Math.tan(slope),
+    };
+  })();
+
   // --- Dielenboden ----------------------------------------------------------
   const PLANK = 0.19;
   const plankCount = Math.ceil((ROOM.maxZ - ROOM.minZ) / PLANK);
@@ -194,9 +222,13 @@ export function buildArchitecture() {
     // Restspalt von wenigen Millimetern – und ein paar Millimeter sind aus
     // flachem Blickwinkel ein handbreiter heller Keil. Ueberlappen ist hier
     // billiger und robuster als Passgenauigkeit.
-    shape.moveTo(ROOM.minX - 0.2, ROOM.wallTop - 0.7);
-    shape.lineTo(0, ROOM.ridgeY + 0.2);
-    shape.lineTo(ROOM.maxX + 0.2, ROOM.wallTop - 0.7);
+    const gx = ROOM.maxX + 0.35;
+    const gBase = ROOM.wallTop - 0.7;
+    shape.moveTo(-gx, gBase);
+    shape.lineTo(-gx, ROOF.deckY(gx));
+    shape.lineTo(0, ROOF.deckY(0) + 0.1);
+    shape.lineTo(gx, ROOF.deckY(gx));
+    shape.lineTo(gx, gBase);
     shape.closePath();
     const gable = new THREE.ShapeGeometry(shape);
     // **Erst drehen, dann verschieben.** `rotateY` dreht um den Ursprung, nicht
@@ -357,9 +389,7 @@ export function buildArchitecture() {
   roof.add(ridge);
 
   // Sparren: vom Traufbalken schräg zum First, beide Dachseiten
-  const rise = ROOM.ridgeY - ROOM.wallTop;
-  const run = (ROOM.maxX - ROOM.minX) / 2;
-  const rafterLen = Math.hypot(rise, run);
+  const { rise, run, slope, rafterLen } = ROOF;
   const rafterGeo = board(rafterLen, 0.1, 0.075, 0.6);
   const rafterT = [];
   const step = 0.52;
@@ -377,7 +407,6 @@ export function buildArchitecture() {
 
   // Dachschalung als geschlossene Fläche darüber – sonst sieht man durch das
   // Dach in den schwarzen Hintergrund und der Raum verliert seinen Abschluss.
-  const EAVE_OVERHANG = 1.1; // Dachueberstand ueber die Traufe hinaus
   const deckGeos = [];
   // **Länger als die Sparren.** Die Schalung endete exakt auf Sparrenlänge und
   // damit rund 17 cm oberhalb der Traufe – über die ganze Länge beider Seiten
@@ -385,8 +414,7 @@ export function buildArchitecture() {
   // das als „schwarze Decke", weshalb drei Versuche, das Material aufzuhellen,
   // nichts bewirken konnten: Da war kein Material, da war nichts. Sichtbar
   // wurde es erst mit knallrosa Hintergrund – was rosa ist, ist ein Loch.
-  const deckLen = rafterLen + 2 * EAVE_OVERHANG;
-  const slope = Math.atan2(rise, run);
+  const deckLen = ROOF.deckLen;
   for (const side of [-1, 1]) {
     // Mittelpunkt zusaetzlich **hangabwaerts** verschoben. Nur zu verlaengern
     // reicht nicht: Das schiebt oben am First genauso viel dazu wie unten an der
@@ -398,8 +426,8 @@ export function buildArchitecture() {
         .rotateX(-Math.PI / 2)
         .rotateZ(side * slope)
         .translate(
-          side * (run / 2 + EAVE_OVERHANG * Math.cos(slope)),
-          (ROOM.wallTop + ROOM.ridgeY) / 2 + 0.17 - EAVE_OVERHANG * Math.sin(slope),
+          side * ROOF.centerX,
+          ROOF.centerY,
           (ROOM.minZ + ROOM.maxZ) / 2
         )
     );
