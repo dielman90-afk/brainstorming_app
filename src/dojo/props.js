@@ -918,27 +918,29 @@ function scrollTexture() {
     ctx.fillRect(rx - r, ry - r, r * 2, r * 2);
   }
 
-  // --- 心 (kokoro, „Herz/Geist") ---------------------------------------------
-  // Vier Striche: linker Punkt, der große liegende Haken, zwei Punkte. Ein
-  // komplexeres Zeichen (無, 空) hätte bei dieser Auflösung nur Matsch ergeben.
+  // --- Kalligrafie: Klinge -------------------------------------------------
+  // Vorher stand hier das Zeichen fuer Herz/Geist. Zeichnerisch war das ein
+  // Fehlgriff: eine grosse liegende Schale mit drei Punkten darueber ist exakt
+  // die Anordnung, aus der das Auge ein Gesicht macht - zwei Augen und ein
+  // Mund. Auf dem Rollbild in der Nische, also genau im Blickzentrum beim
+  // Betreten, las es sich unfreiwillig als Smiley.
+  //
+  // Das Zeichen fuer Klinge hat nur zwei Striche, keine freistehenden Punkte
+  // und damit keine Gesichtslesart. Fuer einen Schwertsaal ist es ausserdem das
+  // passendere Zeichen. Komplexere Kandidaten waeren bei dieser Aufloesung zu
+  // Matsch zerfallen.
   const box = [inset + 14, paperTop + 96, W - inset * 2 - 28, 470];
   ctx.fillStyle = 'rgba(24,20,24,0.94)';
   const strokes = [
+    // Waagerechter Ansatz, dann der Haken nach unten links.
     {
-      p: [[0.17, 0.2], [0.21, 0.3], [0.26, 0.42]],
-      w: [0.02, 0.06, 0.016],
+      p: [[0.30, 0.15], [0.62, 0.17], [0.72, 0.30], [0.69, 0.55], [0.55, 0.74]],
+      w: [0.030, 0.052, 0.058, 0.046, 0.012],
     },
+    // Der lange fallende Strich, zum Ende hin duenn auslaufend.
     {
-      p: [[0.34, 0.18], [0.375, 0.44], [0.47, 0.66], [0.63, 0.72], [0.77, 0.6], [0.855, 0.44]],
-      w: [0.028, 0.05, 0.072, 0.07, 0.045, 0.008],
-    },
-    {
-      p: [[0.5, 0.2], [0.545, 0.3], [0.59, 0.4]],
-      w: [0.018, 0.055, 0.014],
-    },
-    {
-      p: [[0.72, 0.08], [0.765, 0.18], [0.81, 0.28]],
-      w: [0.018, 0.055, 0.014],
+      p: [[0.50, 0.13], [0.42, 0.40], [0.31, 0.66], [0.17, 0.87]],
+      w: [0.032, 0.056, 0.038, 0.008],
     },
   ];
   for (const s of strokes) brushStroke(ctx, s.p, s.w, box);

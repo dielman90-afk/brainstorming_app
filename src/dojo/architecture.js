@@ -304,6 +304,14 @@ export function buildArchitecture() {
 
   const paper = new THREE.Mesh(mergeGeometries(papers, false), washi);
   paper.name = 'dojo-washi';
+  // **Papier wirft Schatten.** Ohne das schien die Sonne ungehindert durch die
+  // Shoji auf den Boden, als stünde dort gar keine Wand – der ganze
+  // Ostbereich brannte auf reines Weiß aus. Drei Runden Zurücknehmen an den
+  // additiven Lagen haben das Symptom bekämpft und die Ursache nicht berührt.
+  // Washi lässt Licht durch, aber es *dämpft* es; genau diese Dämpfung fehlte.
+  // Das Durchscheinen macht weiterhin `emissive` plus die Lichtschächte.
+  paper.castShadow = true;
+  paper.receiveShadow = true;
   shoji.add(paper);
 
   // Sturz und Schwelle über die ganze Front

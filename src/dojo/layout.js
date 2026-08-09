@@ -116,7 +116,7 @@ export function sunDirection() {
 // Fülllicht: kühl, schwach, von der gegenüberliegenden Seite. Ohne das säuft
 // alles ab, was die Sonne nicht trifft; mit zu viel davon verschwindet der
 // Kontrast, der den Raum plastisch macht.
-export const FILL = { color: 0x9fc2d8, ground: 0x3a3730, intensity: 0.55 };
+export const FILL = { color: 0x9fc2d8, ground: 0x7a6549, intensity: 0.7 };
 
 // --- Zeichenbudget ----------------------------------------------------------
 //

@@ -488,7 +488,7 @@ function buildRain() {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false,
-      opacity: 0.055,
+      opacity: 0.42,
       fog: false,
     })
   );
@@ -538,7 +538,7 @@ function buildDust() {
       color: 0xffe7c2,
       size: 0.028,
       transparent: true,
-      opacity: 0.045,
+      opacity: 0.30,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
@@ -618,7 +618,7 @@ function buildBloom() {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       toneMapped: false,
-      opacity: 0.028,
+      opacity: 0.14,
       side: THREE.DoubleSide,
       fog: false,
     })
@@ -717,7 +717,7 @@ export function buildAtmosphere(renderer) {
     uniforms: {
       uTime: { value: 0 },
       uColor: { value: new THREE.Color(SUN.color) },
-      uIntensity: { value: 0.5 },
+      uIntensity: { value: 0.16 },
     },
     vertexShader: BEAM_VERTEX,
     fragmentShader: SHAFT_FRAGMENT,
@@ -738,7 +738,7 @@ export function buildAtmosphere(renderer) {
 
   const poolMaterial = shaftMaterial.clone();
   poolMaterial.fragmentShader = POOL_FRAGMENT;
-  poolMaterial.uniforms.uIntensity.value = 0.85;
+  poolMaterial.uniforms.uIntensity.value = 0.22;
   const pools = new THREE.Mesh(buildPoolGeometry(), poolMaterial);
   pools.name = 'dojo-light-pools';
   pools.renderOrder = 2;
@@ -764,7 +764,7 @@ export function buildAtmosphere(renderer) {
       dust.update(time);
       // Sehr langsames Atmen der Blende – die Luft vor einem Fenster steht nie
       // ganz still. Größer als ein paar Prozent wird daraus ein Flackern.
-      bloom.material.opacity = 0.028 + 0.004 * Math.sin(time * 0.27);
+      bloom.material.opacity = 0.14 + 0.012 * Math.sin(time * 0.27);
       if (time - lastRain >= RAIN.interval) {
         lastRain = time;
         rain.draw(time);
