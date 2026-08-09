@@ -19,8 +19,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 
 - **Mixed Reality / VR:** Startet bevorzugt als `immersive-ar` (Passthrough auf der
   Quest 3), Fallback auf `immersive-vr`.
-- **Vier virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
-  externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
+- **Fünf virtuelle Umgebungen** (`src/environments.js` und `src/dojo/`, komplett
+  prozedural, ohne externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
   Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Büschen,
   Pilzen, Blumen, Fluss samt Wasserfall mit Schaum & Regenbogen, hängenden Ranken
   unter den Inseln, kreisenden Vögeln, Schmetterlingen, 3D-Wolken – auch unter den
@@ -73,6 +73,38 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Liste – ein gemerkter Index zeigt nach dem Entfernen einer Umgebung auf die
   falsche Welt); eine reine VR-Session startet direkt in der zuletzt genutzten
   Umgebung (sonst Himmelsinsel).
+- **⛩ Konstrukt-Dojo** (`src/dojo/`, fünfte Umgebung): der Trainingsraum aus
+  demselben Film. Bricht bewusst mit dem flachen Low-Poly-Stil der anderen vier
+  und ist der einzige Ort in der App mit **echten Schatten, PBR-Materialien und
+  einer Environment-Map**.
+  - **Materialien** (`src/dojo/materials.js`): acht Materialien aus zehn
+    prozeduralen Karten – Hinoki mit Jahresringen, Tatami-Binsengeflecht,
+    Kalkputz, Washi, geschmiedeter Stahl mit Hamon-Verlauf in der Rauheit,
+    Eisen, Urushi-Lack, Reisstroh-Seil. Erzeugt über ein verallgemeinertes
+    `heightToMaps()` (Höhenfeld → Sobel → Normal- und Rauheitskarte), dasselbe
+    Verfahren wie bei der Ledernarbung des Ohrensessels.
+  - **Periodisches Rauschen.** Ein Boden kachelt seine Textur rund zwanzig Mal;
+    nicht wiederholendes Rauschen legt dabei ein sichtbares Nahtgitter über die
+    ganze Fläche. Die Gitterindizes laufen deshalb modulo einer Periode, und
+    weil jede Oktave die Frequenz verdoppelt, verdoppelt sich die Periode mit.
+  - **Environment-Map statt Himmelskuppel:** eine Innenraum-Sonde (heller
+    warmer Schlitz im Osten, dunkles Holz unten) durch den `PMREMGenerator`.
+    Ohne sie rendern Klingen und Lack **schwarz** – ein Metall ohne etwas zu
+    spiegeln hat keine diffuse Komponente. Gebaut erst beim ersten Aktivieren,
+    nicht beim Laden.
+  - **Ein** gerichtetes Licht mit **einer** 1024er-Schattenkarte; alle Maße und
+    die Sonnenrichtung stehen in `src/dojo/layout.js`, damit Schatten,
+    Lichtschächte und Glanzlichter zwangsläufig zusammenpassen.
+  - **Bekannte Schwäche:** Der Raum ist pro Pixel deutlich teurer als die
+    übrigen Umgebungen – gemessen 6,8-fache Frame-Zeit gegenüber dem
+    Zen-Garten bei fast gleicher Zahl an Draw-Calls (54 gegen 51). Die Last
+    liegt nicht in der Geometrie, sondern im Fragment: Schattendurchgang,
+    PBR mit Normal- und Rauheitskarte, IBL-Abtastung und mehrere additive
+    Lagen übereinander. Gemessen wurde headless auf SwiftShader, einem
+    Software-Rasterizer – der überzeichnet Fragmentkosten stark, aber mobile
+    GPUs sind ebenfalls füllratenbegrenzt. **Auf der Quest 3 ist das
+    ungeprüft.**
+
 - **Weltmaßstab:** Die Himmelsinsel ist 1:1 zum Nutzer bemaßt – Bäume rund 6 m,
   die Hauptinsel gut 40 m breit, Büsche auf Schulterhöhe. Sie war ursprünglich
   als Diorama modelliert (Bäume 1,6 m, Insel 10 m), wodurch man in VR wie ein

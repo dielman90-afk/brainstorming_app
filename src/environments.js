@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-// HINWEIS: Wird gleich wieder eingehängt – siehe createEnvironments unten.
-// import { createDojoEnvironment } from './dojo/index.js';
+import { createDojoEnvironment } from './dojo/index.js';
 
 // Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
@@ -2674,7 +2673,7 @@ export function createEnvironments(scene) {
     // `cycleEnvironment` durchläuft und den die Testskripte hart verdrahtet
     // haben (Konstrukt = 3). Ein Einschub in der Mitte würde jedes davon still
     // auf die falsche Welt zeigen lassen.
-    // createDojoEnvironment(),
+    createDojoEnvironment(),
   ];
   for (const env of environments) {
     env.group.visible = false;
