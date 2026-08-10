@@ -1455,6 +1455,10 @@ renderer.xr.addEventListener('sessionstart', () => {
   setXRPresenting(true);
   voice.stop();
   controls.enabled = false;
+  // Sparsame Fassung in der Brille. Gemessen kostet allein die IBL-Abtastung
+  // ein Viertel der Frame-Zeit; welche Umgebung das betrifft, entscheidet sie
+  // selbst (siehe src/dojo/quality.js).
+  for (const env of environments) env.setQuality?.(true);
   locomotion.reset(); // Fortbewegungs-Rig zentriert starten
   if (xrMode === 'immersive-ar') {
     // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
@@ -1473,6 +1477,7 @@ renderer.xr.addEventListener('sessionstart', () => {
 renderer.xr.addEventListener('sessionend', () => {
   setXRPresenting(false);
   controls.enabled = true;
+  for (const env of environments) env.setQuality?.(false);
   // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
   locomotion.reset();
   camera.position.set(0, 1.6, 1.2);

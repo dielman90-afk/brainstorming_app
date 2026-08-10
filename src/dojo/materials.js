@@ -452,26 +452,26 @@ export function steelMaps() {
 
 export function steelMaterial(color = 0xd7dde2) {
   const maps = steelMaps();
-  return new THREE.MeshStandardMaterial({
+  return needsEnvironment(new THREE.MeshStandardMaterial({
     color,
     normalMap: maps.normalMap,
     roughnessMap: maps.roughnessMap,
     roughness: 1, // wird von der Karte moduliert
     metalness: 1,
     normalScale: new THREE.Vector2(0.35, 0.35),
-  });
+  }));
 }
 
 // Eisenbeschläge (Tsuba, Nägel, Beschläge): dieselbe Struktur, aber dunkel,
 // stumpf und weniger spiegelnd. Spart eine komplette Textur.
 export function ironMaterial(color = 0x3a3d42) {
-  return new THREE.MeshStandardMaterial({
+  return needsEnvironment(new THREE.MeshStandardMaterial({
     color,
     normalMap: steelMaps().normalMap,
     roughness: 0.62,
     metalness: 0.9,
     normalScale: new THREE.Vector2(0.8, 0.8),
-  });
+  }));
 }
 
 // --- Urushi-Lack: Saya, Waffenständer, Bordüren ------------------------------
@@ -482,11 +482,11 @@ export function ironMaterial(color = 0x3a3d42) {
 // Raumreflexion, die es glaubwürdig macht. Keine eigene Textur: Lack ist
 // spiegelglatt, jede Struktur darin wäre falsch.
 export function lacquerMaterial(color = 0x140f0e) {
-  return new THREE.MeshStandardMaterial({
+  return needsEnvironment(new THREE.MeshStandardMaterial({
     color,
     roughness: 0.12,
     metalness: 0.1,
-  });
+  }));
 }
 
 // --- Reisstroh-Seil: Makiwara-Wicklung, Shimenawa ---------------------------
@@ -518,6 +518,26 @@ export function ropeMaterial(color = 0xbfa878) {
     roughness: 0.94,
     metalness: 0,
   });
+}
+
+// --- Wer braucht die Environment-Map? ---------------------------------------
+//
+// Gemessen ist die IBL-Abtastung der teuerste Posten der ganzen Umgebung:
+// knapp 25 % der Frame-Zeit. `scene.environment` gilt aber fuer **alle**
+// Standardmaterialien der Szene – three kompiliert den Envmap-Pfad in jeden
+// Shader, auch in den des Bodens. `envMapIntensity = 0` spart nichts, der
+// Shader tastet trotzdem ab.
+//
+// Boden, Tatami, Putz und Schalung sind rau und gewinnen fast nichts durch eine
+// Spiegelung, tragen aber den Grossteil der Pixel. Klinge, Beschlag und Lack
+// gewinnen alles – ohne Environment-Map rendern sie **schwarz**, weil ein
+// Metall ohne etwas zu spiegeln keine diffuse Komponente hat.
+//
+// Deshalb werden genau diese drei markiert und bekommen die Karte spaeter
+// einzeln zugewiesen, statt sie ueber die ganze Szene zu legen.
+function needsEnvironment(material) {
+  material.userData.needsEnv = true;
+  return material;
 }
 
 // Alle Karten einmal anfassen, damit die Kosten an einer bekannten Stelle

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { buildArchitecture } from './architecture.js';
 import { buildProps } from './props.js';
 import { buildAtmosphere } from './atmosphere.js';
+import { applyQuality } from './quality.js';
 import { ROOM } from './layout.js';
 
 // ⛩ Konstrukt-Dojo – der Trainingsraum aus dem Film.
@@ -32,6 +33,9 @@ export function createDojoEnvironment() {
   group.add(architecture.group, props.group);
 
   let atmosphere = null;
+  let envMap = null;
+  // Startwert Desktop. Die XR-Sitzung meldet sich, wenn sie beginnt.
+  let inXR = false;
 
   return {
     id: 'dojo',
@@ -48,10 +52,25 @@ export function createDojoEnvironment() {
     // Metall ohne etwas zu spiegeln hat keine diffuse Komponente. Das ist
     // nachgemessen, nicht vermutet.
     ensureEnvironment(renderer) {
-      if (atmosphere || !renderer) return this.environment ?? null;
-      atmosphere = buildAtmosphere(renderer);
-      group.add(atmosphere.group);
-      this.environment = atmosphere.environment;
+      if (!atmosphere && renderer) {
+        atmosphere = buildAtmosphere(renderer);
+        group.add(atmosphere.group);
+        envMap = atmosphere.environment;
+      }
+      // Stufe erneut anwenden: Beim ersten Aufruf gibt es die Effektlagen aus
+      // atmosphere.js noch gar nicht, sie können also beim Umschalten davor
+      // nicht erfasst worden sein.
+      this.setQuality(inXR);
+      return this.environment;
+    },
+
+    // Desktop bekommt alles, die Brille die sparsame Fassung. Aufgerufen aus
+    // `applyEnvironment` und an den XR-Hooks in main.js – gemessene Grundlage
+    // steht in quality.js.
+    setQuality(nextInXR) {
+      inXR = Boolean(nextInXR);
+      if (!envMap) return null;
+      this.environment = applyQuality(group, envMap, inXR);
       return this.environment;
     },
 

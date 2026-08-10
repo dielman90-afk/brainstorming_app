@@ -1,0 +1,141 @@
+// Zwei Qualitätsstufen für das Dojo.
+//
+// Anlass ist eine Messung, keine Vermutung. Das Dojo braucht das 7,4-fache der
+// Frame-Zeit des Zen-Gartens bei fast gleicher Zahl an Draw-Calls; die Last
+// steckt im Fragment. `cost.mjs` hat jede Last einzeln abgeschaltet und gewogen:
+//
+//   IBL (scene.environment)          24,9 %
+//   additive Lagen                   10,6 %
+//   Schattenpass ganz aus             9,5 %
+//   DoubleSide → FrontSide            9,0 %
+//   Rauheitskarten (große Flächen)    8,8 %
+//   Normal-Maps (große Flächen)       6,6 %
+//   Schattenkarte 512 statt 1024      2,5 %
+//
+// Zwei Ergebnisse haben den ursprünglichen Plan umgeworfen:
+//
+// **Die Schattenkarte zu halbieren bringt fast nichts.** 2,5 % für sichtbar
+// grobere Schatten ist ein schlechter Tausch – sie bleibt in beiden Stufen bei
+// 1024. Teuer ist nicht ihre Auflösung, sondern der zusätzliche Durchgang, und
+// der trägt den wertvollsten Teil des Looks.
+//
+// **Die IBL ist mit Abstand der größte Posten** – und zugleich unverzichtbar:
+// Ohne Environment-Map rendern Klingen, Beschläge und Lack schwarz, weil ein
+// Metall ohne etwas zu spiegeln keine diffuse Komponente hat. Deshalb wird sie
+// nicht abgeschaltet, sondern **gezielt zugewiesen**.
+//
+// Normal-Maps bleiben ebenfalls in beiden Stufen: 6,6 % für das, was den
+// gesamten Materialeindruck trägt, lohnt nicht.
+
+import * as THREE from 'three';
+
+// Materialien, die spürbar Fläche im Bild einnehmen. Bei ihnen zahlt sich jede
+// eingesparte Texturabtastung aus; ihre Rauheit ist ohnehin so hoch, dass eine
+// Rauheitskarte kaum etwas beiträgt.
+const LARGE_SURFACES = new Set([
+  'dojo-floor',
+  'dojo-tatami',
+  'dojo-tatami-heri',
+  'dojo-walls',
+  'dojo-deck',
+  'dojo-tokonoma',
+]);
+
+// Ausgangszustand je Material einmal sichern, damit das Zurückschalten den
+// exakten Zustand wiederherstellt statt einen nachgebauten.
+function remember(material) {
+  if (!material.userData._q) {
+    material.userData._q = {
+      roughnessMap: material.roughnessMap ?? null,
+      roughness: material.roughness,
+      side: material.side,
+    };
+  }
+  return material.userData._q;
+}
+
+function eachMaterial(root, fn) {
+  root.traverse((o) => {
+    if (!o.isMesh && !o.isPoints) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) if (m) fn(m, o);
+  });
+}
+
+/**
+ * Setzt die Qualitätsstufe der Dojo-Gruppe.
+ *
+ * @param {THREE.Object3D} group   Wurzel der Umgebung
+ * @param {THREE.Texture}  envMap  Prozedurale Environment-Map (PMREM)
+ * @param {boolean}        inXR    true = Brille (sparsam), false = Desktop
+ * @returns {THREE.Texture|null}   Was als `scene.environment` gesetzt werden
+ *                                 soll – in XR bewusst `null`.
+ */
+export function applyQuality(group, envMap, inXR) {
+  eachMaterial(group, (material, object) => {
+    const base = remember(material);
+
+    // --- Environment-Map ---------------------------------------------------
+    //
+    // `scene.environment` gilt für **alle** Standardmaterialien der Szene:
+    // three kompiliert den Envmap-Pfad in jeden Shader, auch in den des
+    // Bodens. `envMapIntensity = 0` spart deshalb nichts, der Shader tastet
+    // trotzdem ab. Der einzige wirksame Weg ist, die Szene-Karte wegzulassen
+    // und sie den wenigen Materialien einzeln zu geben, die sie brauchen.
+    if (material.isMeshStandardMaterial) {
+      const wants = material.userData.needsEnv === true;
+      const next = inXR ? (wants ? envMap : null) : null;
+      if (material.envMap !== next) {
+        material.envMap = next;
+        material.needsUpdate = true;
+      }
+    }
+
+    // --- Rauheitskarten auf großen Flächen ---------------------------------
+    //
+    // Ersetzt durch einen Mittelwert. Auf einer gewachsten Diele ist die
+    // Streuung der Rauheit ohnehin klein; was den Boden trägt, ist die
+    // Normal-Map, und die bleibt.
+    const large = LARGE_SURFACES.has(object.name);
+    if (large && base.roughnessMap) {
+      const wantMap = inXR ? null : base.roughnessMap;
+      if (material.roughnessMap !== wantMap) {
+        material.roughnessMap = wantMap;
+        material.roughness = inXR ? 0.82 : base.roughness;
+        material.needsUpdate = true;
+      }
+    }
+
+    // --- Doppelseitig ------------------------------------------------------
+    //
+    // Doppelseitige Materialien schalten das Backface-Culling ab; jedes
+    // verdeckte Dreieck wird trotzdem schattiert. Papier und Dachschalung
+    // sieht man in der Brille praktisch nie von hinten.
+    if (base.side === THREE.DoubleSide) {
+      const wantSide = inXR ? THREE.FrontSide : THREE.DoubleSide;
+      if (material.side !== wantSide) {
+        material.side = wantSide;
+        material.needsUpdate = true;
+      }
+    }
+  });
+
+  // --- Additive Lagen ------------------------------------------------------
+  //
+  // Lichtschächte, Bodenpfützen, Blendenglühen, Staub und Coderegen sind große,
+  // halbtransparente Flächen: viel Überzeichnung für Stimmung. In der Brille
+  // sind sie das Erste, was geht.
+  group.traverse((o) => {
+    if (!o.isMesh && !o.isPoints) return;
+    const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    const additive = m?.blending === THREE.AdditiveBlending;
+    if (!additive) return;
+    if (o.userData._qVis === undefined) o.userData._qVis = o.visible;
+    o.visible = inXR ? false : o.userData._qVis;
+  });
+
+  // Desktop bekommt die Karte weiterhin über die Szene – dort ist Luft, und der
+  // Weg ist der einfachere. In XR bleibt `scene.environment` leer, damit der
+  // teure Pfad nicht doch wieder in jedem Shader landet.
+  return inXR ? null : envMap;
+}
