@@ -306,5 +306,5 @@ export const EXTERIOR = {
   ground: { size: 110, y: -0.42 },
   // Ferne Baumlinie als Zylindermantel. Radius so, dass sie hinter dem Hain
   // liegt, Höhe so, dass sie den Blick durch ein 2,85 m hohes Fenster füllt.
-  backdrop: { radius: 46, height: 26 },
+  backdrop: { radius: 46, height: 44 },
 };
