@@ -110,8 +110,12 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     Die Sprossen sind skalierte Einheitswürfel **ohne jede Drehung** – die
     Bauform, in der „welche Kante liegt auf welcher Achse" nicht mehr falsch
     sein kann.
-  - **Außenwelt** (`src/dojo/exterior.js`): ein Bambushain, eine gemalte
-    Baumlinie, eine Moosfläche. Der Hain ist zuerst **Schattenwerfer**: Er
+  - **Außenwelt** (`src/dojo/exterior.js`): ein Bambushain, ein japanischer
+    Garten hinter dem Süd-Eingang (Kiesbeet, Trittsteine, Kasuga-Laterne,
+    Tsukubai, Ahorn), eine gemalte Baumlinie, eine Moosfläche. Der ganze Garten
+    kostet **vier** Zeichenaufrufe: Laterne, Becken, Ahornstamm und
+    Beeteinfassung sind zu einem Netz verschmolzen und unterscheiden sich nur
+    in der Vertexfarbe – dasselbe Verfahren wie bei den Requisiten drinnen. Der Hain ist zuerst **Schattenwerfer**: Er
     steht zwischen Sonne und Ostfront und zeichnet seinen Schattenriss auf das
     Washi – das Bild, an dem man ein Dojo erkennt. Damit das funktioniert,
     hängt das Eigenleuchten des Papiers per `onBeforeCompile` an der

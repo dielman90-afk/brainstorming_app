@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { EXTERIOR, ROOM, SUN } from './layout.js';
 
 // 🎋 Die Welt vor den Fenstern.
@@ -230,6 +231,278 @@ function groundTexture() {
   return tex;
 }
 
+// --- Der Garten vor dem Eingang ---------------------------------------------
+//
+// **Vier Zeichenaufrufe für einen ganzen Garten**, und das ist der eigentliche
+// Entwurf hier. Laterne, Wasserbecken, Ahornstamm und Kiesbeeteinfassung sind
+// verschiedene Dinge aus verschiedenem Material – aber alle sind statisch,
+// undurchsichtig und rau. Sie werden deshalb zu **einem** Netz verschmolzen und
+// unterscheiden sich nur in der Vertexfarbe. Dasselbe Verfahren wie bei den
+// Requisiten drinnen (props.js), aus demselben Grund: Ein Garten aus zwölf
+// Einzelobjekten wären zwölf Draw-Calls plus zwölf im Schattendurchgang.
+//
+// Trittsteine und Blattwerk bleiben Instanzen, weil sie das sind, wofür es
+// Instanzen gibt: dieselbe Form, vielfach verteilt.
+function gardenPieces(r) {
+  const solids = []; // { geo, color }
+  const push = (geo, color) => solids.push({ geo, color });
+
+  const G = EXTERIOR.garden;
+  const y0 = EXTERIOR.ground.y;
+  const midZ = (G.z0 + G.z1) / 2;
+
+  // Kiesbeet-Einfassung: vier flache Balken, die das geharkte Feld rahmen.
+  // Ohne Kante zerläuft eine Kiesfläche zu einem hellen Fleck im Gras.
+  const edge = 0.14;
+  for (const [w, d, x, z] of [
+    [G.halfX * 2, edge, 0, G.z0],
+    [G.halfX * 2, edge, 0, G.z1],
+    [edge, G.z1 - G.z0, -G.halfX, midZ],
+    [edge, G.z1 - G.z0, G.halfX, midZ],
+  ]) {
+    push(new THREE.BoxGeometry(w, 0.12, d).translate(x, y0 + 0.06, z), 0x6b6357);
+  }
+
+  // Kasuga-Laterne. Sechs Teile von unten nach oben – Sockel, Schaft,
+  // Zwischenplatte, Feuerkorb, Dach, Knauf. Die Proportionen sind das, was eine
+  // Steinlaterne von einem Stapel Zylinder unterscheidet: schlanker Schaft,
+  // breit auskragendes Dach.
+  // Auf die Türachse zugerückt. Im ersten Bau standen Laterne, Becken und Ahorn
+  // so weit außen, dass durch den 2,5 m breiten Durchgang **nichts** davon zu
+  // sehen war – ein Garten, den man nur auf Screenshots von außen findet, ist
+  // kein Garten. Der Blick durch eine Tür ist ein enger Kegel; was wirken soll,
+  // muss hinein.
+  const lx = -1.85;
+  const lz = G.z0 + 1.25;
+  const lantern = [
+    [new THREE.CylinderGeometry(0.3, 0.34, 0.14, 8), 0.07],
+    [new THREE.CylinderGeometry(0.09, 0.11, 0.92, 8), 0.6],
+    [new THREE.CylinderGeometry(0.27, 0.2, 0.11, 8), 1.115],
+    [new THREE.CylinderGeometry(0.21, 0.23, 0.36, 6), 1.35],
+    [new THREE.CylinderGeometry(0.06, 0.46, 0.26, 6), 1.66],
+    [new THREE.SphereGeometry(0.085, 8, 6), 1.85],
+  ];
+  for (const [geo, y] of lantern) push(geo.translate(lx, y0 + y, lz), 0x9a978d);
+
+  // Tsukubai: das niedrige Wasserbecken, an dem man sich die Hände wäscht.
+  const bx = 1.9;
+  const bz = G.z0 + 0.75;
+  push(new THREE.CylinderGeometry(0.32, 0.36, 0.3, 10).translate(bx, y0 + 0.15, bz), 0x847f74);
+  // Wasserspiegel: eine Scheibe knapp unter der Beckenkante.
+  push(new THREE.CylinderGeometry(0.26, 0.26, 0.01, 12).translate(bx, y0 + 0.29, bz), 0x39505a);
+  // Bambusrohr, das darüber hängt.
+  const spout = new THREE.CylinderGeometry(0.035, 0.035, 0.55, 6);
+  spout.rotateX(Math.PI / 2);
+  push(spout.translate(bx, y0 + 0.62, bz - 0.34), 0xbcb473);
+  push(
+    new THREE.CylinderGeometry(0.045, 0.05, 0.85, 6).translate(bx, y0 + 0.42, bz - 0.6),
+    0x9f9a5e
+  );
+
+  // Ahorn: Stamm mit zwei Ästen. Steht seitlich, nicht in der Achse – ein Baum
+  // genau vor dem Eingang würde den Blick zumachen, den er rahmen soll.
+  const tx = -2.95;
+  const tz = G.z1 - 0.5;
+  const trunk = new THREE.CylinderGeometry(0.09, 0.17, 2.9, 7);
+  trunk.rotateZ(-0.09);
+  push(trunk.translate(tx, y0 + 1.45, tz), 0x5c4b3c);
+  for (const [ang, len, tilt] of [
+    [0.5, 1.25, 0.75],
+    [-1.9, 1.05, 0.62],
+  ]) {
+    const br = new THREE.CylinderGeometry(0.035, 0.07, len, 6);
+    br.rotateZ(tilt);
+    br.rotateY(ang);
+    push(br.translate(tx + Math.cos(ang) * 0.35, y0 + 2.35, tz + Math.sin(ang) * 0.35), 0x5c4b3c);
+  }
+
+  return { solids, lantern: [lx, lz], maple: [tx, tz], basin: [bx, bz] };
+}
+
+// Geharkter Kies. Die Rillen sind eine Textur, keine Geometrie – aus zwei
+// Metern Entfernung durch eine Türöffnung ist der Unterschied nicht zu sehen,
+// und echte Rillen wären ein paar tausend Dreiecke für ein Streifenmuster.
+function gravelTexture() {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  // Deutlich dunkler als der erste Anlauf (#c9c4b4). Ein Kiesbeet in der Sonne
+  // wurde damit zur hellsten Fläche im ganzen Bild – heller als das Washi,
+  // durch das die Sonne scheint. Ein Garten, der die Front überstrahlt, zieht
+  // den Blick auf den Boden statt nach draußen.
+  ctx.fillStyle = '#9c968a';
+  ctx.fillRect(0, 0, size, size);
+  const r = rng(0x9a17);
+  for (let i = 0; i < 5200; i++) {
+    const g = 138 + r() * 52;
+    ctx.fillStyle = `rgba(${g},${Math.round(g * 0.99)},${Math.round(g * 0.92)},0.55)`;
+    ctx.fillRect(r() * size, r() * size, 1 + r() * 2, 1 + r() * 2);
+  }
+  // Harkspuren als weiche Wellenlinien
+  for (let i = 0; i < 16; i++) {
+    const y = (i / 16) * size;
+    ctx.strokeStyle = 'rgba(112,108,99,0.55)';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    for (let x = 0; x <= size; x += 8) {
+      const yy = y + Math.sin((x / size) * Math.PI * 2 + i) * 2.4;
+      if (x === 0) ctx.moveTo(x, yy);
+      else ctx.lineTo(x, yy);
+    }
+    ctx.stroke();
+  }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(4, 3);
+  return tex;
+}
+
+function buildGarden(group, r) {
+  const G = EXTERIOR.garden;
+  const y0 = EXTERIOR.ground.y;
+
+  // --- Kiesfläche ----------------------------------------------------------
+  const gravelGeo = new THREE.PlaneGeometry(G.halfX * 2 - 0.1, G.z1 - G.z0 - 0.1);
+  gravelGeo.rotateX(-Math.PI / 2);
+  gravelGeo.translate(0, y0 + 0.055, (G.z0 + G.z1) / 2);
+  const gravel = new THREE.Mesh(
+    gravelGeo,
+    new THREE.MeshLambertMaterial({ map: gravelTexture() })
+  );
+  gravel.name = 'dojo-garden-kies';
+  gravel.receiveShadow = true;
+  group.add(gravel);
+
+  // --- Feste Teile, ein Netz ------------------------------------------------
+  const { solids, lantern, maple } = gardenPieces(r);
+  const tinted = solids.map(({ geo, color }) => {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    const c = new THREE.Color(color);
+    const p = g.attributes.position;
+    const arr = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+      // Feine Streuung je Vertex: Ein Stein aus einer einzigen Farbe sieht aus
+      // wie Plastik, und im Gegenlicht ist genau das der Unterschied.
+      const f = 0.9 + ((i * 37) % 17) / 80;
+      arr[i * 3] = c.r * f;
+      arr[i * 3 + 1] = c.g * f;
+      arr[i * 3 + 2] = c.b * f;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+    g.deleteAttribute('uv');
+    return g;
+  });
+  const solid = new THREE.Mesh(
+    mergeGeometries(tinted, false),
+    new THREE.MeshLambertMaterial({ vertexColors: true })
+  );
+  solid.name = 'dojo-garden-stein';
+  solid.castShadow = true;
+  solid.receiveShadow = true;
+  group.add(solid);
+
+  // --- Trittsteine und Findlinge -------------------------------------------
+  //
+  // Ein Weg, der vom Eingang zum Wasserbecken und weiter zur Laterne führt.
+  // Trittsteine liegen nicht auf einer Linie – die leichte Versetzung ist das,
+  // was sie als Weg lesbar macht statt als Fliesenreihe.
+  const stoneGeo = new THREE.CylinderGeometry(0.5, 0.44, 0.12, 7);
+  const stones = [];
+  for (let i = 0; i < 11; i++) {
+    const t = i / 10;
+    stones.push({
+      x: Math.sin(t * 2.6) * 1.9 + (r() - 0.5) * 0.22,
+      y: y0 + 0.06,
+      z: G.z0 - 0.5 + t * (G.z1 - G.z0 - 0.6),
+      ry: r() * Math.PI,
+      scale: [0.62 + r() * 0.2, 1, 0.5 + r() * 0.18],
+    });
+  }
+  // Findlinge: dieselbe Form, deutlich größer und tiefer eingegraben.
+  for (const [x, z, s] of [
+    [lantern[0] + 1.0, lantern[1] + 0.45, 1.15],
+    [-1.9, G.z1 - 0.5, 0.95],
+    [maple[0] + 1.1, maple[1] - 0.7, 0.8],
+  ]) {
+    stones.push({ x, y: y0 + 0.08, z, ry: r() * Math.PI, scale: [s, 2.2 * s, s * 0.85] });
+  }
+  const stoneMesh = new THREE.InstancedMesh(
+    stoneGeo,
+    new THREE.MeshLambertMaterial({ color: 0x8e8a80 }),
+    stones.length
+  );
+  stoneMesh.name = 'dojo-garden-trittsteine';
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  stones.forEach((s, i) => {
+    q.setFromEuler(new THREE.Euler(0, s.ry, 0));
+    m.compose(new THREE.Vector3(s.x, s.y, s.z), q, new THREE.Vector3(...s.scale));
+    stoneMesh.setMatrixAt(i, m);
+  });
+  stoneMesh.instanceMatrix.needsUpdate = true;
+  stoneMesh.castShadow = true;
+  stoneMesh.receiveShadow = true;
+  group.add(stoneMesh);
+
+  // --- Ahornlaub und Sträucher ---------------------------------------------
+  //
+  // Eine Instanz, zwei Rollen: die roten Büschel in der Ahornkrone und die
+  // dunkelgrünen Polster am Rand. Unterschieden über `setColorAt` – eine
+  // Instanzfarbe kostet nichts, ein zweites Mesh einen Draw-Call.
+  const foliage = [];
+  for (let i = 0; i < 16; i++) {
+    const a = r() * Math.PI * 2;
+    const rad = r() * 1.15;
+    foliage.push({
+      x: maple[0] + Math.cos(a) * rad,
+      y: y0 + 2.15 + r() * 1.1,
+      z: maple[1] + Math.sin(a) * rad,
+      s: 0.85 + r() * 0.75,
+      col: new THREE.Color().setHSL(0.035 + r() * 0.045, 0.72, 0.42 + r() * 0.12),
+    });
+  }
+  // **Im Blickkegel, nicht daneben.** Die Sträucher standen zuerst nur jenseits
+  // der Kiesbeetkante (|x| > 5,9). Durch eine 2,5 m breite Tür sieht man davon
+  // nichts – der Garten war aus dem Raum heraus eine Kiesfläche mit Bambus
+  // dahinter. Jetzt liegt der Streifen zwischen Beetkante und Hain, und ein
+  // Teil steht hinter dem Beet quer zur Achse.
+  for (let i = 0; i < 22; i++) {
+    const behind = i % 3 === 0;
+    const side = r() < 0.5 ? -1 : 1;
+    foliage.push({
+      x: behind ? (r() - 0.5) * 7.5 : side * (G.halfX + 0.35 + r() * 1.6),
+      y: y0 + 0.35 + r() * 0.35,
+      z: behind ? G.z1 + 0.35 + r() * 0.8 : G.z0 - 0.6 + r() * (G.z1 - G.z0 + 1.6),
+      s: 0.75 + r() * 0.7,
+      col: new THREE.Color().setHSL(0.27 + r() * 0.06, 0.42, 0.19 + r() * 0.12),
+    });
+  }
+  const folMesh = new THREE.InstancedMesh(
+    leafGeometry(),
+    new THREE.MeshLambertMaterial({
+      map: leafTexture(),
+      alphaTest: 0.5,
+      side: THREE.DoubleSide,
+      vertexColors: false,
+    }),
+    foliage.length
+  );
+  folMesh.name = 'dojo-garden-laub';
+  foliage.forEach((f, i) => {
+    q.setFromEuler(new THREE.Euler(0, r() * Math.PI, 0));
+    m.compose(new THREE.Vector3(f.x, f.y, f.z), q, new THREE.Vector3(f.s, f.s, f.s));
+    folMesh.setMatrixAt(i, m);
+    folMesh.setColorAt(i, f.col);
+  });
+  folMesh.instanceMatrix.needsUpdate = true;
+  if (folMesh.instanceColor) folMesh.instanceColor.needsUpdate = true;
+  folMesh.castShadow = true;
+  folMesh.userData.fullCount = foliage.length;
+  group.add(folMesh);
+}
+
 export function buildExterior() {
   const group = new THREE.Group();
   group.name = 'dojo-exterior';
@@ -390,6 +663,7 @@ export function buildExterior() {
     })
   );
   backdrop.name = 'dojo-backdrop';
+  buildGarden(group, r);
   // **Kein `renderOrder: -1` und kein `depthWrite: false`.**
   //
   // Der übliche Himmel-Trick – zuerst zeichnen, keine Tiefe schreiben – ist

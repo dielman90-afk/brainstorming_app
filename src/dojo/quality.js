@@ -174,6 +174,22 @@ export function applyQuality(group, envMap, inXR) {
   // Lichtschächte, Bodenpfützen, Blendenglühen, Staub und Coderegen sind große,
   // halbtransparente Flächen: viel Überzeichnung für Stimmung. In der Brille
   // sind sie das Erste, was geht.
+  // **Die Lichtschächte bleiben in der Brille an.** Revidiert.
+  //
+  // Runde 5 hat *alle* additiven Lagen in XR abgeschaltet – gemessene 10,6 %
+  // für „Stimmung". Der Nutzer hat auf der Quest 3 dann gesehen, was diese
+  // Zahl bedeutet: kein einziger Lichtstrahl. Das war die falsche Entscheidung,
+  // und zwar aus einem Grund, der schon damals im Kommentar stand: Gemessen
+  // wurde headless auf **SwiftShader**, einem Software-Rasterizer. Der bestraft
+  // großflächige halbtransparente Geometrie weit härter als eine Adreno-GPU,
+  // die für genau solche Überzeichnung gebaut ist. Aus einer Rangfolge, die
+  // übertragbar ist, wurde ein Faktor gemacht, der es nicht ist.
+  //
+  // Die Schächte sind das, was den Raum von einer Kiste unterscheidet, und sie
+  // sind der sichtbarste Teil der einen Sonne, an der hier alles hängt. Sie
+  // bleiben. Was geht, ist das, was man in Bewegung ohnehin kaum sieht: Staub
+  // und Coderegen – viele kleine Flächen, hohe Überzeichnung, wenig Bild.
+  const XR_KEEP_ADDITIVE = /shaft|pool|schacht|bloom/i;
   group.traverse((o) => {
     if (!o.isMesh && !o.isPoints) return;
     const thin = XR_THIN.get(o.name);
@@ -184,7 +200,8 @@ export function applyQuality(group, envMap, inXR) {
     const additive = m?.blending === THREE.AdditiveBlending;
     if (!additive && !XR_HIDDEN.has(o.name)) return;
     if (o.userData._qVis === undefined) o.userData._qVis = o.visible;
-    o.visible = inXR ? false : o.userData._qVis;
+    const keep = additive && XR_KEEP_ADDITIVE.test(o.name || '');
+    o.visible = inXR && !keep ? false : o.userData._qVis;
   });
 
   // Desktop bekommt die Karte weiterhin über die Szene – dort ist Luft, und der
