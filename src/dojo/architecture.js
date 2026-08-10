@@ -221,6 +221,25 @@ export function buildArchitecture() {
   }
   group.add(instanced(plankGeo, hinoki, planks, { cast: false, name: 'dojo-floor' }));
 
+  // **Blindboden unter den Dielen.**
+  //
+  // Zwischen zwei Dielen stehen 8 mm Fuge – gewollt, daran bricht das
+  // Streiflicht. Darunter war bisher nichts: In flachem Blickwinkel sah man
+  // durch die Fugen in den Hintergrund. Solange der schwarz war und der Nebel
+  // ihn schluckte, fiel das niemandem auf; seit unter dem Gebäude eine Wiese
+  // liegt, sind es grüne Striche im Fußboden.
+  //
+  // Ein Brett darunter, dunkel, ein Zeichenaufruf. Die Fuge bleibt als Fuge
+  // sichtbar – sie hat jetzt nur einen Boden.
+  const subfloor = new THREE.Mesh(
+    board(ROOM.maxX - ROOM.minX + 0.3, 0.03, ROOM.maxZ - ROOM.minZ + 0.3, 1.2),
+    hinokiDark
+  );
+  subfloor.name = 'dojo-subfloor';
+  subfloor.position.set(0, 0.012, (ROOM.minZ + ROOM.maxZ) / 2);
+  subfloor.receiveShadow = true;
+  group.add(subfloor);
+
   // --- Tatami-Feld ----------------------------------------------------------
   //
   // Normmaß 0,91 × 1,82 m. Das ist der Maßstabsgeber des Raums: Wer hier
@@ -302,13 +321,33 @@ export function buildArchitecture() {
         ? board(t, upLen, alongLen, 1.1).translate(d, y, tCenter)
         : board(alongLen, upLen, t, 1.1).translate(tCenter, y, d);
 
+    // **An den Raumecken über die Flucht hinaus.**
+    //
+    // Zwei Wandscheiben, die exakt an der Ecke aneinanderstoßen, teilen sich
+    // dort eine Kante – und aus flachem Blickwinkel bleibt an dieser Kante ein
+    // Schlitz von wenigen Pixeln offen. Solange draußen nichts war, war das ein
+    // dunkler Strich; jetzt ist es ein Streifen Bambushain. Endet ein
+    // Wandstück dagegen an einer Öffnung oder an der Tokonoma, darf es **nicht**
+    // verlängert werden, sonst mauert es sie zu.
+    const alongMin = axis === 'x' ? ROOM.minZ : ROOM.minX;
+    const alongMax = axis === 'x' ? ROOM.maxZ : ROOM.maxX;
+    const lo2 = Math.abs(lo - alongMin) < 1e-6 ? lo - t : lo;
+    const hi2 = Math.abs(hi - alongMax) < 1e-6 ? hi + t : hi;
+
     const out = [];
     // Enden links und rechts der Öffnung, volle Höhe
-    if (from - lo > 1e-3) out.push(put((lo + from) / 2, h / 2, from - lo, h));
-    if (hi - to > 1e-3) out.push(put((to + hi) / 2, h / 2, hi - to, h));
-    // Über dem Sturz bis zur Wandkrone
-    const above = h - spec.headY - 0.14;
-    if (above > 1e-3) out.push(put((from + to) / 2, spec.headY + 0.14 + above / 2, to - from, above));
+    if (from - lo > 1e-3) out.push(put((lo2 + from) / 2, h / 2, from - lo2, h));
+    if (hi - to > 1e-3) out.push(put((to + hi2) / 2, h / 2, hi2 - to, h));
+    // Über dem Sturz bis zur Wandkrone.
+    //
+    // Beginnt bei `headY`, nicht bei `headY + 0.14`. Die 14 cm waren die Höhe
+    // des Sturzbalkens der bodentiefen Fronten – ein hohes Fensterband hat
+    // keinen, und dort klaffte dadurch ein Spalt von 14,5 cm über die ganze
+    // Bandlänge, durch den man ins Freie sah. An einer Fuge ist Überlappen
+    // robuster als Passgenauigkeit; das ist in diesem Raum die dritte Stelle,
+    // an der dieselbe Lehre fällig war.
+    const above = h - spec.headY;
+    if (above > 1e-3) out.push(put((from + to) / 2, spec.headY + above / 2, to - from, above));
     // Unter der Brüstung. Bodentiefe Fronten haben dort ihr Koshi-Feld und
     // brauchen keinen Putz; ein hohes Band steht dagegen auf einer Wand.
     if (!spec.koshi && spec.sillY > 1e-3) {
@@ -324,8 +363,21 @@ export function buildArchitecture() {
     ...wallAround(SHOJI, ROOM.minZ, ROOM.maxZ),
     ...wallAround(SHOJI_SOUTH, ROOM.minX, ROOM.maxX),
     ...wallAround(BAND_WEST, ROOM.minZ, ROOM.maxZ),
-    ...wallAround(BAND_NORTH[0], ROOM.minX, TOKONOMA.centerX - TOKONOMA.width / 2 - 0.15),
-    ...wallAround(BAND_NORTH[1], TOKONOMA.centerX + TOKONOMA.width / 2 + 0.15, ROOM.maxX),
+    // Der Putz endet **auf** der Tokonoma-Wange, nicht daneben. Bei den zuvor
+    // gesetzten 0,15 m endete er bei ±1,50, die Wange reicht bis ±1,47 – drei
+    // Zentimeter Schlitz über die volle Wandhöhe, den die Magenta-Probe als
+    // senkrechte Linie neben der Nische zeigte. Mit `t / 2` überlappen sich
+    // beide um sechs Zentimeter.
+    ...wallAround(
+      BAND_NORTH[0],
+      ROOM.minX,
+      TOKONOMA.centerX - TOKONOMA.width / 2 - WALL.thickness / 2
+    ),
+    ...wallAround(
+      BAND_NORTH[1],
+      TOKONOMA.centerX + TOKONOMA.width / 2 + WALL.thickness / 2,
+      ROOM.maxX
+    ),
     // Abschluss zwischen Ranma-Oberkante und Decke, rundum. Ohne den bliebe
     // genau der Spalt offen, der beim alten Dach vier Runden gekostet hat –
     // diesmal ist er von vornherein zu.
