@@ -1533,6 +1533,7 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+const _boundsHead = new THREE.Vector3();
 const clock = new THREE.Clock();
 let elapsed = 0;
 
@@ -1561,6 +1562,34 @@ renderer.setAnimationLoop(() => {
     updateDesktopMovement(dt);
     controls.update();
   }
+  // Den Nutzer im Raum halten.
+  //
+  // Eine geschlossene Umgebung kann eine Begrenzung angeben; wer sie hat,
+  // bekommt sie jeden Frame durchgesetzt. Ohne das laeuft man mit dem Stick
+  // durch die Wand und steht im schwarzen Nichts hinter der Szene – was in VR
+  // besonders unangenehm ist, weil nichts mehr Orientierung gibt.
+  //
+  // Geklemmt wird das **Rig**, nicht die Kamera: Die Kamera ist Kind des Rigs
+  // und traegt in XR zusaetzlich die Kopfpose. Die Kamera zu verschieben wuerde
+  // gegen das Headset-Tracking arbeiten und Uebelkeit ausloesen.
+  const activeBounds = envIndex >= 0 ? environments[envIndex].bounds : null;
+  if (activeBounds) {
+    const head = camera.getWorldPosition(_boundsHead);
+    // Der Versatz zwischen Rig und Kopf muss erhalten bleiben, sonst springt
+    // die Welt, sobald man sich in der Spielflaeche zur Seite lehnt.
+    const dx = head.x - player.position.x;
+    const dz = head.z - player.position.z;
+    player.position.x = Math.min(
+      Math.max(player.position.x, activeBounds.minX - dx),
+      activeBounds.maxX - dx
+    );
+    player.position.z = Math.min(
+      Math.max(player.position.z, activeBounds.minZ - dz),
+      activeBounds.maxZ - dz
+    );
+    player.position.y = Math.min(Math.max(player.position.y, activeBounds.minY), activeBounds.maxY);
+  }
+
   renderer.render(scene, camera);
 
   // Nach dem ersten gerenderten XR-Frame hat die XR-Kamera eine gültige Pose –

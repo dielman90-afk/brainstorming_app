@@ -44,8 +44,20 @@ export function createDojoEnvironment() {
     // sieht nirgends hinaus. Was durch die Shoji dringt, ist Licht, keine
     // Landschaft – ein Himmel dahinter würde die Illusion sofort zerstören.
     background: new THREE.Color(0x0a0c0e),
-    fog: new THREE.Fog(0x0a0c0e, ROOM.ridgeY * 2.4, 34),
+    fog: new THREE.Fog(0x0a0c0e, ROOM.ceilingY * 3.2, 34),
     group,
+
+    // Begehbarer Bereich. Der Raum ist geschlossen; ohne Begrenzung laeuft man
+    // durch die Wand und steht im Nichts. Die Renderschleife klemmt den Spieler
+    // jeden Frame hier hinein (main.js).
+    bounds: {
+      minX: ROOM.minX + 0.45,
+      maxX: ROOM.maxX - 0.45,
+      minZ: ROOM.minZ + 0.45,
+      maxZ: ROOM.maxZ - 0.45,
+      minY: 0,
+      maxY: ROOM.ranmaTop - 0.4,
+    },
 
     // Wird von `applyEnvironment` beim Aktivieren aufgerufen. Ohne die
     // Environment-Map rendern Klingen, Beschläge und Lack **schwarz** – ein

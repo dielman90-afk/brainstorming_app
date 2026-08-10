@@ -19,10 +19,22 @@ export const ROOM = {
   minZ: -6.5,
   maxZ: 2.5,
   floorY: 0,
-  // Traufhöhe innen. Ein Dojo ist hoch – unter 3,5 m wirkt es wie ein Keller,
-  // und der Sinn der ganzen Übung ist ein Raum, in dem man sich klein fühlt.
-  wallTop: 3.6,
-  ridgeY: 5.4, // First des offenen Dachstuhls
+  // **Geschlossene Decke statt offenem Dachstuhl.**
+  //
+  // Zuerst stand hier ein offener Giebeldachstuhl mit sichtbaren Sparren – weil
+  // er dramatisch wirkt. Er war die Quelle praktisch jedes Lochs, an dem vier
+  // Runden lang gearbeitet wurde (schwarze Decke, Magenta an den Traufen, zwei
+  // Fortsätze in der Silhouette), und er entspricht nicht dem, wie ein Dojo
+  // gebaut ist: Referenzbilder zeigen durchweg eine **geschlossene, flache
+  // Decke** mit sichtbaren Unterzügen darunter und einem Fensterband (Ranma)
+  // zwischen Wandkrone und Decke.
+  //
+  // Die geschlossene Decke ist zugleich billiger, dichter und leichter richtig
+  // hinzubekommen. Höhe bleibt großzügig – unter drei Metern wirkt der Raum
+  // wie ein Keller.
+  wallTop: 3.05,   // Oberkante der geschlossenen Wand
+  ranmaTop: 3.72,  // Oberkante des Fensterbands darüber
+  ceilingY: 3.95,  // Unterseite der Deckenschalung
 };
 
 export const ROOM_WIDTH = ROOM.maxX - ROOM.minX; // 12
@@ -92,8 +104,20 @@ export const MAKIWARA = { x: -2.9, z: -0.4 };
 // Raum muss zu dieser Richtung passen – Rubrikpunkt 3, und der häufigste Weg,
 // wie eine Szene „computergeneriert" aussieht, ist genau hier zu schludern.
 export const SUN = {
-  position: [11.5, 5.2, 1.5],
-  target: [-1.0, 1.1, -3.0],
+  // Tiefer und schraeger als zuvor (rund 11 statt 18 Grad ueber dem Horizont).
+  //
+  // Kompositionsentscheidung, keine Helligkeitsfrage: Gemessen war nie etwas
+  // geklemmt (Spitze 200 von 255), das Bild wurde nur von einer grossen Flaeche
+  // ohne Binnenzeichnung an der Ostseite beherrscht. Steht die Sonne flacher,
+  // ziehen sich Schaechte und Lichtpfuetzen **quer durch den Raum** bis zur
+  // Westwand, statt sich neben der Shoji zu stauen – und die Fensterschatten
+  // laufen ueber den ganzen Boden.
+  //
+  // Weil Schatten, Schaechte und Glanzlichter alle aus dieser einen Quelle
+  // abgeleitet werden, gehen sie zwangslaeufig mit; genau dafuer steht sie hier
+  // und nicht dreimal verteilt.
+  position: [12.5, 3.9, 2.4],
+  target: [-2.8, 0.85, -3.6],
   color: 0xffe9c4,
   intensity: 1.9,
   // Ortho-Frustum eng um den Innenraum. Zu weit gefasst = weiche, matschige

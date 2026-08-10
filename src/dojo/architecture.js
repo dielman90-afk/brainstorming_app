@@ -58,34 +58,6 @@ export function buildArchitecture() {
   // Kontrast dazu trägt die Stimmung.
   const washi = washiMaterial({ emissive: 0xffeccc, emissiveIntensity: 0.62 });
 
-  // --- Dachgeometrie: eine Quelle fuer Schalung *und* Giebel ----------------
-  //
-  // Vorher wurden beide unabhaengig voneinander mit geschaetzten Zahlen gebaut.
-  // Sie konnten deshalb gar nicht zusammenpassen: Die Giebelkante stieg mit
-  // 0,435, die Dachflaeche mit 0,30 – an der Traufe klaffte dadurch ein
-  // Dreiviertelmeter. Zweimal wurde daran herumgeflickt (Traufbretter,
-  // ueberlappende Giebel, Dachueberstand), ohne dass der Grund verschwand: Zwei
-  // Bauteile, die aneinanderstossen muessen, aus zwei getrennten Zahlensaetzen
-  // abzuleiten, geht auf Dauer nie gut.
-  const ROOF = (() => {
-    const rise = ROOM.ridgeY - ROOM.wallTop;
-    const run = (ROOM.maxX - ROOM.minX) / 2;
-    const slope = Math.atan2(rise, run);
-    const overhang = 1.1;
-    const rafterLen = Math.hypot(rise, run);
-    const centerX = run / 2 + overhang * Math.cos(slope);
-    const centerY = (ROOM.wallTop + ROOM.ridgeY) / 2 + 0.17 - overhang * Math.sin(slope);
-    const apexY = centerY + centerX * Math.tan(slope);
-    return {
-      rise, run, slope, overhang, rafterLen,
-      deckLen: rafterLen + 2 * overhang,
-      centerX, centerY,
-      // Unterkante der Schalung an beliebiger x-Stelle – der Bezug, an dem sich
-      // alles andere auszurichten hat.
-      deckY: (x) => apexY - Math.abs(x) * Math.tan(slope),
-    };
-  })();
-
   // --- Dielenboden ----------------------------------------------------------
   const PLANK = 0.19;
   const plankCount = Math.ceil((ROOM.maxZ - ROOM.minZ) / PLANK);
@@ -180,17 +152,40 @@ export function buildArchitecture() {
     ),
     // West (Putzwand, davor steht der Waffenständer)
     board(t, h, ROOM.maxZ - ROOM.minZ, 1.1).translate(WALL.west + t / 2, h / 2, (ROOM.minZ + ROOM.maxZ) / 2),
-    // Süd, nur als Brüstung – hier ist der Zugang
-    board(ROOM.maxX - ROOM.minX, 0.5, t, 1.1).translate(0, 0.25, WALL.south + t / 2),
+    // Süd: **volle Wand.** Vorher stand hier nur eine 50-cm-Brüstung, darüber
+    // war der Raum offen – wer sich umdrehte, sah in den fast schwarzen
+    // Hintergrund. Ein Raum, aus dem man in ein Nichts blickt, ist kein Raum;
+    // die Referenzen zeigen ausnahmslos vier geschlossene Wände.
+    board(ROOM.maxX - ROOM.minX, h, t, 1.1).translate(0, h / 2, WALL.south + t / 2),
+    // Abschluss zwischen Ranma-Oberkante und Decke, rundum. Ohne den bliebe
+    // genau der Spalt offen, der beim alten Dach vier Runden gekostet hat –
+    // diesmal ist er von vornherein zu.
+    board(t, ROOM.ceilingY - ROOM.ranmaTop + 0.02, ROOM.maxZ - ROOM.minZ + 0.4, 1.1).translate(
+      WALL.west + t / 2, (ROOM.ranmaTop + ROOM.ceilingY) / 2, (ROOM.minZ + ROOM.maxZ) / 2
+    ),
+    board(t, ROOM.ceilingY - ROOM.ranmaTop + 0.02, ROOM.maxZ - ROOM.minZ + 0.4, 1.1).translate(
+      WALL.east - t / 2, (ROOM.ranmaTop + ROOM.ceilingY) / 2, (ROOM.minZ + ROOM.maxZ) / 2
+    ),
+    board(ROOM.maxX - ROOM.minX + 0.4, ROOM.ceilingY - ROOM.ranmaTop + 0.02, t, 1.1).translate(
+      0, (ROOM.ranmaTop + ROOM.ceilingY) / 2, WALL.north - t / 2
+    ),
+    board(ROOM.maxX - ROOM.minX + 0.4, ROOM.ceilingY - ROOM.ranmaTop + 0.02, t, 1.1).translate(
+      0, (ROOM.ranmaTop + ROOM.ceilingY) / 2, WALL.south + t / 2
+    ),
     // Traufabschluss auf beiden Längsseiten. Die verlängerte Schalung kommt der
     // Wandkrone bis auf wenige Zentimeter nahe – und wenige Zentimeter Schlitz
     // über neun Meter Länge sind von unten ein breiter heller Keil. Diese
     // beiden Bretter schließen ihn; billiger als die Wand höher zu ziehen und
     // damit alle Höhenbezüge der Shoji neu zu ordnen.
-    board(t, 0.62, ROOM.maxZ - ROOM.minZ, 1.1).translate(
+    // Laenger als der Raum: An den Enden stiess das Traufbrett bisher stumpf an
+    // die Giebel, und aus flachem Blickwinkel blieb dort ein Keil offen –
+    // gemessen 0,875 % der Bildflaeche in der Magenta-Probe. Dieselbe Lehre wie
+    // schon zweimal an diesem Dach: An einer Fuge ist Ueberlappen robuster als
+    // Passgenauigkeit.
+    board(t, 0.62, ROOM.maxZ - ROOM.minZ + 1.0, 1.1).translate(
       WALL.west + t / 2, ROOM.wallTop + 0.2, (ROOM.minZ + ROOM.maxZ) / 2
     ),
-    board(t, 0.62, ROOM.maxZ - ROOM.minZ, 1.1).translate(
+    board(t, 0.62, ROOM.maxZ - ROOM.minZ + 1.0, 1.1).translate(
       WALL.east - t / 2, ROOM.wallTop + 0.2, (ROOM.minZ + ROOM.maxZ) / 2
     ),
     // Über dem Tokonoma-Sturz bis zur Traufe – sonst sieht man über der Nische
@@ -212,33 +207,10 @@ export function buildArchitecture() {
       WALL.east - t / 2, h / 2, (SHOJI.toZ + ROOM.maxZ) / 2
     ),
   ];
-  // Giebeldreiecke: Zwischen Traufhöhe und Dachfläche klaffte an Nord- und
-  // Südseite ein offenes Dreieck, durch das man in den Hintergrund sah. Ein
-  // Raum, der nach oben offen ist, ist kein Raum.
-  for (const z of [WALL.north, WALL.south]) {
-    const shape = new THREE.Shape();
-    // Basis bewusst **unterhalb** der Traufhöhe: Stossen Giebel, Schalung und
-    // Wandkrone exakt aneinander, bleibt in jeder der vier Traufecken ein
-    // Restspalt von wenigen Millimetern – und ein paar Millimeter sind aus
-    // flachem Blickwinkel ein handbreiter heller Keil. Ueberlappen ist hier
-    // billiger und robuster als Passgenauigkeit.
-    const gx = ROOM.maxX + 0.35;
-    const gBase = ROOM.wallTop - 0.7;
-    shape.moveTo(-gx, gBase);
-    shape.lineTo(-gx, ROOF.deckY(gx));
-    shape.lineTo(0, ROOF.deckY(0) + 0.1);
-    shape.lineTo(gx, ROOF.deckY(gx));
-    shape.lineTo(gx, gBase);
-    shape.closePath();
-    const gable = new THREE.ShapeGeometry(shape);
-    // **Erst drehen, dann verschieben.** `rotateY` dreht um den Ursprung, nicht
-    // um den eigenen Mittelpunkt – in der umgekehrten Reihenfolge landete der
-    // Südgiebel gespiegelt bei negativem z, also mitten im Raum, und ragte als
-    // Spitze aus dem Dach. In der Silhouette war das sofort zu sehen.
-    if (z > 0) gable.rotateY(Math.PI);
-    gable.translate(0, 0, z + (z < 0 ? -t / 2 : t / 2));
-    wallGeos.push(gable);
-  }
+  // (Die frueheren Giebeldreiecke sind entfallen. Mit einer flachen Decke gibt
+  // es keinen Giebel mehr – und damit auch keine der vier Traufecken, an denen
+  // vier Runden lang Loecher auftauchten. Das ist der eigentliche Gewinn des
+  // Umbaus: nicht ein weiterer Flicken, sondern eine Fuge weniger.)
 
   const walls = new THREE.Mesh(mergeGeometries(wallGeos, false), plaster);
   walls.name = 'dojo-walls';
@@ -330,7 +302,12 @@ export function buildArchitecture() {
         x: SHOJI.x - 0.012,
         y: SHOJI.sillY + (panelH * r) / lrows,
         z: cz,
-        rz: Math.PI / 2,
+        // **Um X drehen, nicht um Z.** Der Stab ist ein Quader, dessen Laenge
+        // auf der lokalen Y-Achse liegt. Eine Drehung um Z legt diese Achse auf
+        // world-X – also **in den Raum hinein**: Die waagerechten Sprossen
+        // standen dadurch als Staebe aus dem Fenster heraus. Um X gedreht liegt
+        // sie auf world-Z, also entlang des Fensters, wo sie hingehoert.
+        rx: Math.PI / 2,
         scale: [1, panelW / 1, 1],
       });
     }
@@ -369,82 +346,99 @@ export function buildArchitecture() {
   shoji.add(head);
   group.add(shoji);
 
-  // --- Offener Dachstuhl ----------------------------------------------------
+  // --- Geschlossene Decke mit Unterzügen -------------------------------------
   //
-  // Sichtbar von unten bis zum First. Ein geschlossener Deckel auf 3,6 m würde
-  // den Raum halbieren; die Höhe ist der halbe Grund, warum ein Dojo
-  // beeindruckt.
+  // Ersetzt den früheren offenen Giebeldachstuhl. Der sah in Einzelbildern
+  // eindrucksvoll aus, war aber die Ursache praktisch jedes Lochs in diesem
+  // Raum: schwarze Decke, Magenta an den Traufen, zwei Fortsätze in der
+  // Silhouette. Vier Runden Flickarbeit haben ihn nie dicht bekommen, weil
+  // Schalung, Giebel, Traufbrett und Sparren alle irgendwo aneinanderstoßen
+  // mussten. Eine geschlossene Decke hat genau **eine** Fläche und keine Fuge.
+  //
+  // Sie ist außerdem das, was Referenzbilder eines Dojo durchweg zeigen: flache
+  // oder kassettierte Decke, sichtbare Unterzüge darunter, darüber nichts.
   const roof = new THREE.Group();
-  roof.name = 'dojo-roof';
+  roof.name = 'dojo-ceiling';
 
-  // Querbalken (Hari) – dick, unregelmäßig verteilt, tragend aussehend
-  const hariGeo = board(ROOM.maxX - ROOM.minX, 0.26, 0.22, 0.7);
-  const hariT = [-5.2, -3.4, -1.6, 0.2, 2.0].map((z) => ({ x: 0, y: ROOM.wallTop + 0.13, z }));
-  roof.add(instanced(hariGeo, hinokiDark, hariT, { receive: false, name: 'dojo-hari' }));
+  // Deckenschalung: eine einzige Fläche, nach unten gerichtet.
+  const ceilGeo = new THREE.PlaneGeometry(ROOM.maxX - ROOM.minX, ROOM.maxZ - ROOM.minZ);
+  ceilGeo.rotateX(Math.PI / 2); // Normale nach unten – wir sehen sie von innen
+  scaleUV(ceilGeo, (ROOM.maxX - ROOM.minX) / 0.4, (ROOM.maxZ - ROOM.minZ) / 0.4);
+  ceilGeo.translate(0, ROOM.ceilingY, (ROOM.minZ + ROOM.maxZ) / 2);
+  const ceiling = new THREE.Mesh(ceilGeo, hinokiMaterial({ color: 0xb69a76 }));
+  ceiling.name = 'dojo-deck';
+  ceiling.receiveShadow = true;
+  roof.add(ceiling);
 
-  // Firstbalken
-  const ridge = new THREE.Mesh(board(0.2, 0.24, ROOM.maxZ - ROOM.minZ, 0.7), hinokiDark);
-  ridge.position.set(0, ROOM.ridgeY, (ROOM.minZ + ROOM.maxZ) / 2);
-  ridge.castShadow = true;
-  roof.add(ridge);
-
-  // Sparren: vom Traufbalken schräg zum First, beide Dachseiten
-  const { rise, run, slope, rafterLen } = ROOF;
-  const rafterGeo = board(rafterLen, 0.1, 0.075, 0.6);
-  const rafterT = [];
-  const step = 0.52;
-  for (let z = ROOM.minZ + 0.3; z <= ROOM.maxZ - 0.3; z += step) {
-    for (const side of [-1, 1]) {
-      rafterT.push({
-        x: (side * run) / 2,
-        y: (ROOM.wallTop + ROOM.ridgeY) / 2 + 0.1,
-        z,
-        rz: side * Math.atan2(rise, run) * -1,
-      });
-    }
+  // Unterzüge quer zum Raum, kräftig und dunkel – sie geben der Decke Tiefe und
+  // sind in jedem Referenzbild das auffälligste Element über Augenhöhe.
+  const beamGeo = board(ROOM.maxX - ROOM.minX, 0.24, 0.2, 0.7);
+  const beamT = [];
+  const BEAM_STEP = 1.5;
+  for (let z = ROOM.minZ + 0.75; z <= ROOM.maxZ - 0.5; z += BEAM_STEP) {
+    beamT.push({ x: 0, y: ROOM.ceilingY - 0.13, z });
   }
-  roof.add(instanced(rafterGeo, hinoki, rafterT, { receive: false, name: 'dojo-rafters' }));
+  roof.add(instanced(beamGeo, hinokiDark, beamT, { receive: false, name: 'dojo-beams' }));
 
-  // Dachschalung als geschlossene Fläche darüber – sonst sieht man durch das
-  // Dach in den schwarzen Hintergrund und der Raum verliert seinen Abschluss.
-  const deckGeos = [];
-  // **Länger als die Sparren.** Die Schalung endete exakt auf Sparrenlänge und
-  // damit rund 17 cm oberhalb der Traufe – über die ganze Länge beider Seiten
-  // blieb ein Spalt, durch den man von unten ins Freie sah. Von innen las sich
-  // das als „schwarze Decke", weshalb drei Versuche, das Material aufzuhellen,
-  // nichts bewirken konnten: Da war kein Material, da war nichts. Sichtbar
-  // wurde es erst mit knallrosa Hintergrund – was rosa ist, ist ein Loch.
-  const deckLen = ROOF.deckLen;
-  for (const side of [-1, 1]) {
-    // Mittelpunkt zusaetzlich **hangabwaerts** verschoben. Nur zu verlaengern
-    // reicht nicht: Das schiebt oben am First genauso viel dazu wie unten an der
-    // Traufe, und der Spalt sitzt unten. Verschoben liegt der Ueberstand dort,
-    // wo er gebraucht wird – und ein weit vorstehendes Dach ist bei einem
-    // japanischen Bau ohnehin richtig, nicht bloss ein Notbehelf.
-    deckGeos.push(
-      new THREE.PlaneGeometry(deckLen, ROOM.maxZ - ROOM.minZ)
-        .rotateX(-Math.PI / 2)
-        .rotateZ(side * slope)
-        .translate(
-          side * ROOF.centerX,
-          ROOF.centerY,
-          (ROOM.minZ + ROOM.maxZ) / 2
-        )
-    );
-  }
-  const deck = new THREE.Mesh(mergeGeometries(deckGeos, false), new THREE.MeshStandardMaterial({
-    color: 0x7d6650,
-    roughness: 0.95,
-    // Die Unterseite bekommt von der Sonne nichts ab – sie zeigt nach unten.
-    // Ohne einen Eigenanteil bleibt sie schwarz und liest sich als Loch in den
-    // Nachthimmel statt als Bretterschalung über den Sparren.
-    emissive: 0x241c15,
-    side: THREE.DoubleSide,
-  }));
-  deck.name = 'dojo-deck';
-  deck.receiveShadow = true;
-  roof.add(deck);
+  // Längsunterzug auf der Mittelachse, etwas tiefer – bricht die reine
+  // Querstreifung und stützt die Querbalken optisch ab.
+  const spine = new THREE.Mesh(board(0.22, 0.2, ROOM.maxZ - ROOM.minZ, 0.7), hinokiDark);
+  spine.position.set(0, ROOM.ceilingY - 0.28, (ROOM.minZ + ROOM.maxZ) / 2);
+  spine.castShadow = true;
+  roof.add(spine);
   group.add(roof);
+
+  // --- Ranma: Fensterband zwischen Wandkrone und Decke -----------------------
+  //
+  // Der schmale Streifen mit feinem Gitter, der in den Referenzen rundum über
+  // den Wänden läuft. Er bringt das Licht **oben** in den Raum – der Grund,
+  // warum ein Dojo hell wirkt, ohne dass eine Wand fehlt – und er schließt die
+  // Lücke zwischen Wand und Decke, die vorher offen war.
+  const ranma = new THREE.Group();
+  ranma.name = 'dojo-ranma';
+  const ranmaH = ROOM.ranmaTop - ROOM.wallTop;
+  const ranmaGeos = [];
+  const ranmaBars = [];
+  const RANMA_STEP = 0.34;
+
+  const runRanma = (fixedAxis, fixedVal, from, to, along) => {
+    // Rahmen oben und unten über die ganze Länge
+    const len = to - from;
+    const mid = (from + to) / 2;
+    for (const y of [ROOM.wallTop + 0.03, ROOM.ranmaTop - 0.03]) {
+      const g = along === 'z'
+        ? board(0.1, 0.06, len, 0.4).translate(fixedVal, y, mid)
+        : board(len, 0.06, 0.1, 0.4).translate(mid, y, fixedVal);
+      ranmaGeos.push(g);
+    }
+    // Senkrechte Sprossen
+    for (let t = from + RANMA_STEP; t < to - 0.05; t += RANMA_STEP) {
+      ranmaBars.push(along === 'z'
+        ? { x: fixedVal, y: (ROOM.wallTop + ROOM.ranmaTop) / 2, z: t }
+        : { x: t, y: (ROOM.wallTop + ROOM.ranmaTop) / 2, z: fixedVal });
+    }
+    // Papierfeld dahinter – dieselbe Wirkung wie bei der Shoji-Front
+    const paperGeo = along === 'z'
+      ? new THREE.PlaneGeometry(len, ranmaH - 0.06).rotateY(-Math.PI / 2).translate(fixedVal + 0.03, (ROOM.wallTop + ROOM.ranmaTop) / 2, mid)
+      : new THREE.PlaneGeometry(len, ranmaH - 0.06).translate(mid, (ROOM.wallTop + ROOM.ranmaTop) / 2, fixedVal + 0.03);
+    return paperGeo;
+  };
+
+  const ranmaPapers = [
+    runRanma('x', WALL.east - 0.06, ROOM.minZ, ROOM.maxZ, 'z'),
+    runRanma('x', WALL.west + 0.06, ROOM.minZ, ROOM.maxZ, 'z'),
+    runRanma('z', WALL.north + 0.06, ROOM.minX, ROOM.maxX, 'x'),
+    runRanma('z', WALL.south - 0.06, ROOM.minX, ROOM.maxX, 'x'),
+  ];
+  const ranmaFrame = new THREE.Mesh(mergeGeometries(ranmaGeos, false), hinokiDark);
+  ranmaFrame.castShadow = true;
+  ranma.add(ranmaFrame);
+  const ranmaBarGeo = new THREE.BoxGeometry(0.028, ranmaH - 0.06, 0.028);
+  ranma.add(instanced(ranmaBarGeo, hinokiDark, ranmaBars, { receive: false, name: 'dojo-ranma-bars' }));
+  const ranmaPaper = new THREE.Mesh(mergeGeometries(ranmaPapers, false), washi);
+  ranmaPaper.name = 'dojo-ranma-paper';
+  ranma.add(ranmaPaper);
+  group.add(ranma);
 
   // --- Engawa (Veranda) im Süden -------------------------------------------
   const engawa = new THREE.Group();
