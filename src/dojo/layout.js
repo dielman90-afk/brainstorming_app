@@ -136,6 +136,14 @@ export const SHOJI_SOUTH = {
   headY: 2.85,
   koshi: true,
   shaded: true,
+  // Die beiden mittleren Felder stehen offen: der Eingang zum Garten.
+  //
+  // Kein eigenes Bauteil, sondern zwei Feldnummern – dadurch sitzt der
+  // Durchgang zwangsläufig im Raster der Front, mit denselben Pfosten und
+  // demselben Sturz wie alles daneben. 2,5 m breit, also breit genug, dass
+  // zwei Menschen nebeneinander hindurchgehen, und schmal genug, dass die
+  // Front eine Front bleibt.
+  openPanels: [3, 4],
   lattice: { cols: 4, rows: 7, barWidth: 0.022, barDepth: 0.016 },
 };
 
@@ -286,8 +294,12 @@ export const EXTERIOR = {
   // Papier, weit genug, dass die Halme nicht in der Wand stehen.
   grove: { x0: 6.9, x1: 11.4, z0: -9.5, z1: 10.5, count: 46 },
   // Zweite Gruppe vor der Südfront – dort schaut man durch offene Felder
-  // hinaus, hier zählt die Sicht und nicht der Schatten.
-  south: { x0: -8.5, x1: 8.5, z0: 9.4, z1: 14.0, count: 26 },
+  // hinaus, hier zählt die Sicht und nicht der Schatten. Nach hinten gerückt,
+  // seit davor der Garten liegt: Bambus **im** Kiesbeet wäre kein Garten.
+  south: { x0: -10, x1: 10, z0: 13.2, z1: 17.5, count: 26 },
+  // Der Garten vor dem Eingang. Kiesfläche, Trittsteine, Laterne, Wasserbecken,
+  // Ahorn – die Fläche zwischen Engawa (endet bei maxZ + 1,2) und Hain.
+  garden: { z0: 8.9, z1: 12.9, halfX: 5.4 },
   // Der Boden muss **über** die Kulisse hinausreichen (Radius 46), sonst endet
   // er sichtbar vor ihr und zwischen Bodenkante und Baumlinie steht ein heller
   // Streifen Himmel am Horizont.

@@ -115,15 +115,38 @@ function buildOpening(spec) {
       : board(alongLen, upLen, fd, 0.4).translate(x, yy, z);
   };
 
+  // Offene Felder: der Durchgang.
+  //
+  // Ein Eingang ist kein eigenes Bauteil, sondern ein Feld, das kein Papier und
+  // keine Brüstung bekommt. Alles andere – Pfosten links und rechts, Sturz
+  // darüber, der Putz ringsum – ist dasselbe wie bei jedem anderen Feld. So
+  // bleibt der Durchgang zwangsläufig auf dem Raster der Front, statt als Loch
+  // daneben zu stehen.
+  const open = new Set(spec.openPanels ?? []);
+
   for (let p = 0; p < panels; p++) {
     const ct = from + panelW * (p + 0.5);
-    // Zwei senkrechte Holme, oben und unten ein Riegel
-    frames.push(
-      plank(ct - panelW / 2 + fw / 2, (sillY + headY) / 2, fw, panelH, 0.025),
-      plank(ct + panelW / 2 - fw / 2, (sillY + headY) / 2, fw, panelH, 0.025),
-      plank(ct, sillY + fw / 2, panelW, fw, 0.025),
-      plank(ct, headY - fw / 2, panelW, fw, 0.025)
-    );
+    const isOpen = open.has(p);
+    // Zwei senkrechte Holme, oben ein Riegel. Der untere entfällt im Durchgang –
+    // eine Schwelle auf Kniehöhe wäre eine Stolperkante.
+    //
+    // **Zwischen zwei offenen Feldern steht kein Pfosten.** Sonst teilt ein
+    // Holm den Durchgang in der Mitte, und aus einer 2,5 m breiten Tür werden
+    // zwei schmale Schlitze – im ersten Bau genau so passiert.
+    if (!(isOpen && open.has(p - 1))) {
+      frames.push(plank(ct - panelW / 2 + fw / 2, (sillY + headY) / 2, fw, panelH, 0.025));
+    }
+    if (!(isOpen && open.has(p + 1))) {
+      frames.push(plank(ct + panelW / 2 - fw / 2, (sillY + headY) / 2, fw, panelH, 0.025));
+    }
+    frames.push(plank(ct, headY - fw / 2, panelW, fw, 0.025));
+    if (!isOpen) frames.push(plank(ct, sillY + fw / 2, panelW, fw, 0.025));
+    if (isOpen) {
+      // Flache Holzschwelle über die volle Feldbreite – der Übergang von
+      // Diele nach draußen, 3 cm hoch.
+      frames.push(plank(ct, 0.015, panelW, 0.03, 0.03));
+      continue;
+    }
 
     // Gitterstäbe.
     //
@@ -202,7 +225,14 @@ export function buildArchitecture() {
   // gleichwertige Lichtquellen, und damit gäbe es keine Sonnenseite mehr; genau
   // die trägt aber die ganze Lichtstimmung. Kühler und deutlich schwächer:
   // Himmelslicht statt Sonne, physikalisch wie kompositorisch richtig.
-  const washiShade = washiMaterial({ emissive: 0xcfe0ea, emissiveIntensity: 0.16 });
+  //
+  // **Warm, nicht blau.** Der erste Versuch war himmelblau (0xcfe0ea) mit der
+  // Begründung „Himmelslicht statt Sonne". Physikalisch vertretbar, im Bild
+  // falsch: Das Ranma lief als kalter grauer Streifen quer über den ganzen
+  // Raum, während darunter alles warmes Holz und warmes Papier war – der
+  // auffälligste Fremdkörper im Bild. Reflektiertes Licht in einem Holzhaus ist
+  // von diesem Holz gefärbt. Also warm und nur *dunkler* als die Sonnenseite.
+  const washiShade = washiMaterial({ emissive: 0xffe2bc, emissiveIntensity: 0.2 });
 
   // --- Dielenboden ----------------------------------------------------------
   const PLANK = 0.19;
@@ -678,7 +708,21 @@ export function buildArchitecture() {
   // ohne Querstäbe – und `inward` gibt es genau einmal je Wand.
   const ranma = new THREE.Group();
   ranma.name = 'dojo-ranma';
-  const RANMA_STEP = 0.34;
+  // **Kumiko-Feld statt Lattenzaun.**
+  //
+  // Der erste Bau war *ein* Feld über die ganze Wand mit gleichmäßig verteilten
+  // senkrechten Stäben, alle 34 cm einer. Das ist technisch ein Ranma und
+  // optisch eine Fabrikverglasung: ein vierzehn Meter langer Streifen ohne
+  // Gliederung, ohne Pfosten, ohne Maßstab. Ein echtes Ranma besteht aus
+  // **einzelnen Feldern** – jedes mit eigenem Rahmen, in der Breite ungefähr
+  // quadratisch – und in jedem sitzt ein feines Kumiko-Gitter aus senkrechten
+  // *und* waagerechten Stäben.
+  //
+  // Beides folgt jetzt aus der Feldbreite: rund 1,15 m je Feld (so kommt man
+  // bei 12 und 14 m Wandlänge auf glatte Teilungen), darin ein 4×3-Gitter aus
+  // dünneren Stäben. Dünner ist wichtig – 28 mm waren Pfosten, 18 mm sind
+  // Sprossen.
+  const RANMA_PANEL = 1.15;
   const ranmaSpec = (axis, fixedVal, inward, from, to) => ({
     axis,
     [axis]: fixedVal,
@@ -690,14 +734,8 @@ export function buildArchitecture() {
     sillY: ROOM.wallTop,
     headY: ROOM.ranmaTop,
     koshi: false,
-    panels: 1,
-    // Nur senkrechte Sprossen, dafür dicht – das ist das Bild eines Ranma.
-    lattice: {
-      cols: Math.max(2, Math.round((to - from) / RANMA_STEP)),
-      rows: 0,
-      barWidth: 0.028,
-      barDepth: 0.028,
-    },
+    panels: Math.max(2, Math.round((to - from) / RANMA_PANEL)),
+    lattice: { cols: 4, rows: 3, barWidth: 0.018, barDepth: 0.018 },
   });
 
   const ranmaGeos = [];

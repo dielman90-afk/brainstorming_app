@@ -78,9 +78,20 @@ gegen den tatsächlichen Code geprüft.
       • Außenwelt: Bambushain als Schattenwerfer auf dem Washi (25,8 % der
         Fensterbreite, 34 Wechsel), Baumlinie, Moosfläche.
       • Begrenzung: Der Raum lässt sich nicht mehr verlassen.
+      **Nachgezogen am 2026-08-10 (zweite Runde Nutzerkritik):**
+      • Ranma: Kumiko-Felder statt Lattenzaun, Papier warm statt himmelblau.
+      • Lichtschächte sind in der Brille wieder an. Sie waren pauschal
+        abgeschaltet, weil eine Messung auf **SwiftShader** 10,6 % ergab –
+        aus einer übertragbaren Rangfolge war ein nicht übertragbarer Faktor
+        geworden. Auf der Quest 3 war deshalb kein einziger Strahl zu sehen.
+      • Süd-Eingang: zwei Felder der Front stehen offen, dahinter der Garten.
+      • Waffenwand: Ständer mit Naginata, Yari, Bo, Jo und den beiden Bokken,
+        die vorher frei an der Wand lehnten; Wandbild in Tusche auf Goldgrund;
+        zwei Bodenvasen am Eingang.
       **Offen:**
       • Frame-Zeit: Desktop 7,9× Zen-Garten, XR-Stufe 3,6× – **das Gate von
-        3,5× ist knapp verfehlt.** Nach Runde 5 lag die XR-Stufe bei 1,16×;
+        3,5× ist knapp verfehlt.** Die Lichtschächte kommen seit dieser Runde
+        wieder dazu; neu gemessen ist das noch nicht. Nach Runde 5 lag die XR-Stufe bei 1,16×;
         seither ist der Raum 55 % größer und hat eine Außenwelt. Die p95-
         Referenz schwankt zwischen identischen Läufen um rund 10 %.
         Auf der Quest 3 weiterhin **ungeprüft**.

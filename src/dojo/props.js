@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
+  ROOM,
   RACK,
   MAKIWARA,
   TOKONOMA,
@@ -1451,6 +1452,270 @@ function addBokken(B, matrix, hex) {
   B.wood.geos.push(tint(geo, hex, contactAO(0.3)));
 }
 
+// --- Buki-Kake: Ständer für Stangenwaffen ------------------------------------
+//
+// Der Anlass ist eine Nutzerfrage: „Was sollen die zwei Stäbe sein, die aus dem
+// Boden ragen?" – und die Frage war berechtigt. Zwei Bokken lehnten frei an der
+// Wand, ohne Halterung, ohne Bezug zueinander. Ein Gegenstand, der ohne Grund
+// im Raum steht, liest sich als Fehler, egal wie gut er modelliert ist.
+//
+// Jetzt stehen sie in einem Ständer, zusammen mit dem, was in einem Waffensaal
+// sonst noch dazugehört: Naginata, Yari, Bo und Jo. Der Ständer besteht aus
+// einer Fußschwelle mit Mulden und einem Kopfriegel mit Löchern – genau die
+// zwei Teile, an denen man sieht, dass etwas gehalten wird statt zu lehnen.
+const POLE = { x: WALL.west + 0.34, z: -1.15, span: 1.22, headY: 1.42 };
+
+function addPoleRack(B) {
+  const put = (bucket, geo, hex, shade) => B[bucket].geos.push(tint(geo, hex, shade));
+  const ao = contactAO(0.25);
+  const slots = 6;
+  const step = POLE.span / slots;
+  const z0 = POLE.z - POLE.span / 2 + step / 2;
+
+  // Zwei Pfosten
+  for (const zz of [POLE.z - POLE.span / 2 - 0.05, POLE.z + POLE.span / 2 + 0.05]) {
+    const post = roundedBox(0.09, POLE.headY + 0.12, 0.09, 0.012);
+    post.translate(POLE.x, (POLE.headY + 0.12) / 2, zz);
+    put('wood', post, 0xcbae83, ao);
+  }
+  // Fußschwelle und Kopfriegel
+  const sill = roundedBox(0.17, 0.07, POLE.span + 0.22, 0.014);
+  sill.translate(POLE.x, 0.035, POLE.z);
+  put('wood', sill, 0xc2a279, ao);
+  const head = roundedBox(0.13, 0.08, POLE.span + 0.22, 0.014);
+  head.translate(POLE.x, POLE.headY, POLE.z);
+  put('wood', head, 0xd2b184, ao);
+
+  // Die Waffen. Jede ist ein Schaft plus höchstens ein Kopf; die Schäfte sind
+  // schlichte verjüngte Zylinder, weil an einem zwei Meter langen Stab die
+  // Silhouette alles ist und der Querschnitt nichts.
+  const shaft = (z, len, rBase, rTop, hex, lean) => {
+    const g = new THREE.CylinderGeometry(rTop, rBase, len, 8);
+    g.rotateX(lean); // leichte Rückneigung gegen den Kopfriegel
+    g.translate(POLE.x - Math.sin(lean) * len * 0.5, len / 2 + 0.06, z);
+    put('wood', g, hex, ao);
+    return len + 0.06;
+  };
+
+  const zs = Array.from({ length: slots }, (_, i) => z0 + i * step);
+
+  // 1 – Naginata: langer Schaft, gebogene Klinge obenauf.
+  {
+    const top = shaft(zs[0], 1.95, 0.021, 0.017, 0x8d6a44, -0.03);
+    const R = 0.55;
+    const rings = [];
+    const vs = [];
+    const N = 16;
+    for (let i = 0; i < N; i++) {
+      const k = i / (N - 1);
+      const s = k * 0.42;
+      // Breiter als im ersten Anlauf. 3,6 cm sind für eine Naginata-Klinge
+      // nicht falsch, aber aus drei Metern Entfernung war sie ein Draht – und
+      // eine Klinge, die man nicht als Klinge erkennt, ist keine.
+      const w = 0.058 * (1 - 0.42 * k) * (k > 0.9 ? (1 - k) / 0.1 + 0.08 : 1);
+      const h = 0.006 * (1 - 0.35 * k);
+      rings.push(bladeSection(w, h).map(([a, b]) => sectionPoint(R, s, a, b)));
+      vs.push(k * 2);
+    }
+    // **Keine Drehung.** Die Klinge entsteht über `sectionPoint()` bereits
+    // entlang +Y – sie setzt den Schaft also von selbst fort. Der erste Anlauf
+    // drehte sie um Z und dann um Y „damit sie richtig steht" und legte sie
+    // damit waagerecht: eine Klinge, die zwei Meter über dem Boden quer in der
+    // Luft schwebt. Dieselbe Verwechslung wie schon zweimal bei den Sprossen.
+    const blade = loft(rings, vs, { flat: true, capEnd: true });
+    blade.translate(POLE.x, top, zs[0]);
+    put('steel', tint(blade, 0xd7dde2), 0xd7dde2);
+    // Messingzwinge am Übergang
+    const collar = new THREE.CylinderGeometry(0.026, 0.026, 0.07, 8);
+    collar.translate(POLE.x, top - 0.02, zs[0]);
+    put('metal', collar, 0xb08d4a);
+  }
+
+  // 2 – Yari: gerade Stichklinge, dreieckig im Querschnitt.
+  {
+    const top = shaft(zs[1], 2.05, 0.02, 0.016, 0x6f533a, -0.03);
+    const head = new THREE.ConeGeometry(0.034, 0.36, 4);
+    head.rotateY(Math.PI / 4);
+    head.translate(POLE.x, top + 0.15, zs[1]);
+    put('steel', tint(head, 0xd7dde2), 0xd7dde2);
+    const collar = new THREE.CylinderGeometry(0.028, 0.03, 0.09, 8);
+    collar.translate(POLE.x, top + 0.01, zs[1]);
+    put('metal', collar, 0xb08d4a);
+  }
+
+  // 3 – Bo: sechs Fuß, gleichmäßig, ohne alles. Der Kontrast dazu ist der
+  //     Punkt: Neben zwei Waffen mit Klinge liest sich der blanke Stab sofort
+  //     als Übungswaffe.
+  shaft(zs[2], 1.82, 0.019, 0.019, 0xb08a58, -0.02);
+  // 4 – Jo: kürzer, heller.
+  shaft(zs[3], 1.28, 0.0165, 0.0165, 0xc6a06a, -0.02);
+
+  // 5 und 6 – die beiden Bokken, jetzt **im** Ständer statt daneben.
+  //
+  // Aufrecht heißt hier **gar keine Drehung**: `addBokken()` baut entlang +Y,
+  // steht also von sich aus. Eine Drehung um X um 90 Grad – der erste Versuch –
+  // legt es flach auf den Boden, und genau so lag es dann auch.
+  for (const [i, zz] of [zs[4], zs[5]].entries()) {
+    const q = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      -0.03 + i * 0.015
+    );
+    const m = new THREE.Matrix4().compose(
+      new THREE.Vector3(POLE.x - 0.012, 0.3, zz),
+      q,
+      new THREE.Vector3(1, 1, 1)
+    );
+    addBokken(B, m, i === 0 ? 0xc79a63 : 0xb2854f);
+  }
+}
+
+// --- Wandbild an der Waffenwand ----------------------------------------------
+//
+// Ein Fusuma-artiges Tafelbild: Goldgrund, Kiefernast in Tusche, ferne Berge.
+//
+// **Gemalt statt modelliert.** Ein Bild ist ein Bild – es hier als Geometrie zu
+// bauen wäre die teuerste denkbare Art, eine Fläche mit Farbe zu füllen. Die
+// Tafel ist ein Brett mit einer prozeduralen Textur; was sie trägt, ist der
+// dunkle Rahmen ringsum und die Tatsache, dass sie flach an der Wand sitzt
+// statt zu schweben.
+function paintingTexture() {
+  const w = 1024;
+  const h = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+
+  // Goldgrund mit Blattgold-Kacheln – die feinen Fugen sind das, was echtes
+  // Blattgold von einer gelben Fläche unterscheidet.
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  // Kräftiger als im ersten Anlauf. Blattgold in einem hellen Raum liest sich
+  // sonst als cremefarbene Fläche – gemessen hat es dieselbe Helligkeit wie der
+  // Putz daneben, und dann ist es kein Bild mehr, sondern ein heller Fleck.
+  bg.addColorStop(0, '#b98a35');
+  bg.addColorStop(0.42, '#d9ac59');
+  bg.addColorStop(1, '#a97a2c');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(120,86,30,0.35)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= w; x += 64) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x, h);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= h; y += 64) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(w, y);
+    ctx.stroke();
+  }
+
+  // Ferne Berge in blasser Tusche
+  ctx.fillStyle = 'rgba(74,88,86,0.62)';
+  ctx.beginPath();
+  ctx.moveTo(0, h * 0.62);
+  ctx.quadraticCurveTo(w * 0.16, h * 0.34, w * 0.34, h * 0.6);
+  ctx.quadraticCurveTo(w * 0.48, h * 0.42, w * 0.62, h * 0.62);
+  ctx.lineTo(w, h * 0.66);
+  ctx.lineTo(w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Nebelband darüber, damit die Berge nicht auf dem Boden aufsitzen
+  ctx.fillStyle = 'rgba(214,172,92,0.7)';
+  ctx.fillRect(0, h * 0.6, w, h * 0.1);
+
+  // Kiefer: Stamm von rechts hereinwachsend, drei Astebenen mit Nadelpolstern.
+  const ink = (a) => `rgba(16,15,14,${a})`;
+  ctx.strokeStyle = ink(0.92);
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 21;
+  ctx.beginPath();
+  ctx.moveTo(w * 0.92, h * 1.02);
+  ctx.bezierCurveTo(w * 0.86, h * 0.72, w * 0.8, h * 0.6, w * 0.66, h * 0.42);
+  ctx.stroke();
+  const branches = [
+    [0.66, 0.42, 0.36, 0.3, 0.5],
+    [0.74, 0.56, 0.5, 0.46, 0.42],
+    [0.83, 0.72, 0.62, 0.66, 0.34],
+  ];
+  const r = (() => {
+    let s = 0x51ce >>> 0;
+    return () => {
+      s = (Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) + 0x9e3779b9) | 0;
+      return ((s >>> 8) & 0xffffff) / 0x1000000;
+    };
+  })();
+  for (const [x0, y0, x1, y1, size] of branches) {
+    ctx.lineWidth = 11;
+    ctx.beginPath();
+    ctx.moveTo(w * x0, h * y0);
+    ctx.quadraticCurveTo(w * ((x0 + x1) / 2), h * (y1 - 0.08), w * x1, h * y1);
+    ctx.stroke();
+    // Nadelpolster: viele kurze Striche, radial – so zeichnet man Kiefer.
+    for (let i = 0; i < 150; i++) {
+      const t = 0.25 + r() * 0.8;
+      const bx = w * (x0 + (x1 - x0) * t) + (r() - 0.5) * w * 0.09;
+      const by = h * (y0 + (y1 - y0) * t) + (r() - 0.5) * h * 0.1;
+      const a = r() * Math.PI * 2;
+      const len = h * 0.02 * size * (0.6 + r() * 0.8);
+      ctx.strokeStyle = ink(0.55 + r() * 0.42);
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.moveTo(bx, by);
+      ctx.lineTo(bx + Math.cos(a) * len, by + Math.sin(a) * len);
+      ctx.stroke();
+    }
+  }
+
+  // Rotes Siegel unten links – das kleine Zeichen, an dem ein Bild als Bild
+  // liest und nicht als Tapete.
+  ctx.fillStyle = 'rgba(168,42,38,0.9)';
+  ctx.fillRect(w * 0.07, h * 0.78, w * 0.035, h * 0.07);
+  ctx.clearRect(w * 0.079, h * 0.795, w * 0.006, h * 0.04);
+  ctx.clearRect(w * 0.075, h * 0.812, w * 0.02, h * 0.006);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// --- Vasen ---------------------------------------------------------------------
+//
+// Zwei Bodenvasen, die den Eingang flankieren. `LatheGeometry` ist hier genau
+// das richtige Werkzeug – eine Vase *ist* ein rotiertes Profil, und das ist der
+// eine Fall, in dem der Loft dieser Datei mehr Arbeit wäre als der Standardweg.
+function vaseGeometry(height, seed) {
+  // Erster Punkt auf Radius null: `LatheGeometry` setzt keinen Deckel, eine
+  // Vase mit Startradius > 0 ist unten offen und man sieht von schräg unten
+  // hinein.
+  const pts = [new THREE.Vector2(0, 0)];
+  const N = 18;
+  for (let i = 0; i < N; i++) {
+    const t = i / (N - 1);
+    // Profil: schmaler Fuß, bauchige Mitte, eingezogener Hals, ausgestellte
+    // Mündung. Die Einziehung am Hals ist das, was eine Vase von einem Topf
+    // unterscheidet.
+    // Schlanker und mit längerem Hals als im ersten Anlauf. Der war eine
+    // Kugel mit Loch – ein Ei, kein Gefäß. Was eine japanische Bodenvase
+    // ausmacht, ist die **Höhe über dem Bauch**: Der weiteste Punkt liegt bei
+    // gut einem Drittel, darüber zieht sich die Form über eine lange Strecke
+    // ein und öffnet sich erst ganz oben wieder.
+    let rr =
+      0.4 +
+      0.6 * Math.sin(Math.pow(t, 0.62) * Math.PI * 0.86) -
+      0.46 * Math.pow(Math.max(0, t - 0.42) / 0.58, 1.35);
+    if (t > 0.9) rr += (t - 0.9) * 3.4; // ausgestellte Mündung
+    rr *= 0.44 + 0.02 * Math.sin(t * 9 + seed);
+    pts.push(new THREE.Vector2(Math.max(0.02, rr) * height * 0.62, t * height));
+  }
+  return new THREE.LatheGeometry(pts, 14);
+}
+
 // --- Blob-Schatten ------------------------------------------------------------
 //
 // `makeBlobShadow` legt pro Aufruf ein eigenes Material an; sechs Requisiten
@@ -1535,18 +1800,28 @@ export function buildProps() {
   const censer = { x: 0.74, y: TOKONOMA.floorY, z: WALL.north - TOKONOMA.depth + 0.24 };
   addCenser(B, censer.x, censer.y, censer.z);
 
-  // Bokken-Paar an die Westwand gelehnt.
-  for (const [i, z] of [-1.86, -1.7].entries()) {
-    const lean = 0.155 + i * 0.02;
-    const q = new THREE.Quaternion()
-      .setFromAxisAngle(new THREE.Vector3(0, 0, 1), -lean)
-      .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), 1.4 + i * 0.5));
-    const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(WALL.west + 0.19 + i * 0.015, 0.245, z),
-      q,
-      new THREE.Vector3(1, 1, 1)
-    );
-    addBokken(B, m, i === 0 ? 0xc79a63 : 0xb2854f);
+  // Stangenwaffen-Ständer an der Westwand – er enthält auch die beiden Bokken,
+  // die vorher frei an der Wand lehnten.
+  addPoleRack(B);
+
+  // Zwei Bodenvasen, die den Süd-Eingang flankieren. Weit genug auseinander,
+  // dass sie den Durchgang rahmen statt ihn zu verengen.
+  for (const [i, x] of [-1.62, 1.62].entries()) {
+    const height = i === 0 ? 0.78 : 0.68;
+    const g = vaseGeometry(height, i * 2.3);
+    g.translate(x, 0.055, ROOM.maxZ - 0.62);
+    // Seladon und Eisenglasur – zwei Vasen in derselben Farbe wären ein Paar
+    // Kegel, zwei verschiedene sind zwei Vasen.
+    B.lacquer.geos.push(tint(g, i === 0 ? 0x4a5f56 : 0x2b2a2e, contactAO(0.22)));
+    // Zweig darin: ein paar Striche aus Holz, mehr braucht es nicht.
+    for (let k = 0; k < 3; k++) {
+      const len = 0.5 + k * 0.16;
+      const br = new THREE.CylinderGeometry(0.006, 0.011, len, 5);
+      br.rotateZ((k - 1) * 0.28);
+      br.rotateY(k * 1.9);
+      br.translate(x + (k - 1) * 0.05, 0.055 + height + len * 0.42, ROOM.maxZ - 0.62);
+      B.wood.geos.push(tint(br, 0x5a4632));
+    }
   }
 
   for (const key of Object.keys(B)) {
@@ -1562,6 +1837,43 @@ export function buildProps() {
     group.add(mesh);
     for (const g of geos) g.dispose();
   }
+
+  // Wandbild an der Waffenwand. Eigenes Mesh, weil es als einziges Prop eine
+  // Farbtextur trägt – in einen Materialeimer gesteckt bräuchte der ganze
+  // Eimer sie.
+  const artW = 2.6;
+  const artH = 1.3;
+  const artGeo = new THREE.PlaneGeometry(artW, artH);
+  artGeo.rotateY(Math.PI / 2);
+  artGeo.translate(WALL.west + 0.135, 1.02, 1.9);
+  const painting = new THREE.Mesh(
+    artGeo,
+    new THREE.MeshStandardMaterial({ map: paintingTexture(), roughness: 0.86, metalness: 0.08 })
+  );
+  painting.name = 'dojo-wandbild';
+  painting.receiveShadow = true;
+  group.add(painting);
+
+  // Rahmen ringsum, dunkles Holz – ohne ihn klebt die Tafel als Aufkleber an
+  // der Wand statt davorzustehen.
+  const frameGeos = [];
+  for (const [w, h, dy, dz] of [
+    [artW + 0.13, 0.065, artH / 2 + 0.03, 0],
+    [artW + 0.13, 0.065, -artH / 2 - 0.03, 0],
+    [0.065, artH + 0.19, 0, artW / 2 + 0.03],
+    [0.065, artH + 0.19, 0, -artW / 2 - 0.03],
+  ]) {
+    frameGeos.push(
+      new THREE.BoxGeometry(0.055, h, w).translate(WALL.west + 0.115, 1.02 + dy, 1.9 + dz)
+    );
+  }
+  const artFrame = new THREE.Mesh(
+    mergeGeometries(frameGeos, false),
+    new THREE.MeshStandardMaterial({ color: 0x3a2c22, roughness: 0.7 })
+  );
+  artFrame.name = 'dojo-wandbild-rahmen';
+  artFrame.castShadow = true;
+  group.add(artFrame);
 
   const scroll = buildScroll();
   group.add(scroll);
