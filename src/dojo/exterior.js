@@ -47,7 +47,10 @@ function rng(seed) {
 // Vertexfarben liest, und sichtbar genau dann, wenn Licht seitlich einfällt.
 function culmGeometry() {
   const H = 1; // Einheitshöhe, die Instanz skaliert
-  const RINGS = 26;
+  // Zehn statt 26 Ringe. Ein Halm ist eine gerade, leicht verjüngte Stange –
+  // die Ringe tragen nur den Farbverlauf der Knoten, nicht die Silhouette.
+  // Bei 108 Halmen sind das 20 000 Dreiecke Unterschied.
+  const RINGS = 10;
   const geo = new THREE.CylinderGeometry(0.55, 1, H, 6, RINGS - 1, true);
   geo.translate(0, H / 2, 0); // Fuß auf y = 0, damit die Instanz auf dem Boden steht
 
@@ -373,16 +376,103 @@ function blobGeometry(detail, seed, squash) {
 
 // --- Der Garten vor dem Eingang ---------------------------------------------
 //
-// **Vier Zeichenaufrufe für einen ganzen Garten**, und das ist der eigentliche
-// Entwurf hier. Laterne, Wasserbecken, Ahornstamm und Kiesbeeteinfassung sind
-// verschiedene Dinge aus verschiedenem Material – aber alle sind statisch,
-// undurchsichtig und rau. Sie werden deshalb zu **einem** Netz verschmolzen und
-// unterscheiden sich nur in der Vertexfarbe. Dasselbe Verfahren wie bei den
-// Requisiten drinnen (props.js), aus demselben Grund: Ein Garten aus zwölf
-// Einzelobjekten wären zwölf Draw-Calls plus zwölf im Schattendurchgang.
+// **Klein, dicht, und nach hinten zu.**
 //
-// Trittsteine und Blattwerk bleiben Instanzen, weil sie das sind, wofür es
-// Instanzen gibt: dieselbe Form, vielfach verteilt.
+// Der erste Garten war eine Kiesfläche mit ein paar Gegenständen darauf und
+// freiem Blick auf eine gemalte Ferne. Das hatte zwei Probleme, die sich
+// gegenseitig verstärkten: Der Blick lief bis zum Horizont, also musste der
+// Horizont überzeugen – und weil er das als Textur nie ganz kann, fiel der
+// ganze Garten mit ihm.
+//
+// Ein japanischer Hofgarten (Tsuboniwa) löst das anders herum: Er ist **klein
+// und geschlossen**. Was man sieht, endet nach fünf Metern in einer grünen
+// Wand. Damit wandert das gesamte Qualitätsbudget von einer 90-m-Landschaft in
+// einen 11 × 5 m großen Ausschnitt, den man aus vier Metern betrachtet – und
+// genau dort ist Dichte bezahlbar.
+//
+// Drei Pflanzschichten schließen den Blick von unten nach oben:
+//   1. Farne und Gräser am Boden, zwischen und vor den Steinen
+//   2. eine Bank aus Formschnitt-Polstern, nach hinten größer werdend
+//   3. Großsträucher und Baumkronen, die den oberen Bildrand füllen
+// Dahinter erst der Bambushain. Der Horizont ist damit aus dem Türblick
+// verschwunden, ohne dass er entfernt werden musste.
+//
+// **Zeichenlast.** Alles Feste – Laterne, Becken, Stämme, Äste, Einfassung –
+// bleibt ein einziges verschmolzenes Netz mit Vertexfarben. Dazu drei
+// Instanzen (Polster, Farne, Trittsteine) und zwei Flächen (Kies, Moos).
+
+// Ein Farnwedel: fünf bis neun Blätter, fächerförmig aus einem Punkt, jedes
+// nach außen gebogen. Als Geometrie und nicht als Alphakarte – bei einem
+// Gegenstand, der einen halben Meter vor dem Betrachter steht, ist die
+// Rechteckkante eines Billboards das Erste, was man sieht.
+function frondGeometry(seed) {
+  const r = rng(seed);
+  const parts = [];
+  const blades = 6 + Math.floor(r() * 4);
+  for (let b = 0; b < blades; b++) {
+    const a = (b / blades) * Math.PI * 2 + r() * 0.4;
+    const lean = 0.5 + r() * 0.5; // wie stark der Wedel nach außen kippt
+    const len = 0.7 + r() * 0.5;
+    const SEG = 5;
+    const pos = [];
+    const idx = [];
+    for (let s = 0; s <= SEG; s++) {
+      const t = s / SEG;
+      // Bogen: steigt an, kippt dann nach außen ab
+      const y = Math.sin(t * 1.35) * len * (1 - lean * 0.45);
+      const rad = t * len * lean;
+      const half = 0.055 * (1 - t * 0.85) * (t < 0.12 ? t / 0.12 : 1);
+      const cx = Math.cos(a) * rad;
+      const cz = Math.sin(a) * rad;
+      // Blattbreite quer zur Wuchsrichtung
+      pos.push(cx - Math.sin(a) * half, y, cz + Math.cos(a) * half);
+      pos.push(cx + Math.sin(a) * half, y, cz - Math.cos(a) * half);
+      if (s > 0) {
+        const o = (s - 1) * 2;
+        idx.push(o, o + 1, o + 2, o + 1, o + 3, o + 2);
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    parts.push(g);
+  }
+  const merged = mergeGeometries(parts, false);
+  merged.computeVertexNormals();
+  return merged;
+}
+
+// Ast mit Verzweigung. Rekursiv, drei Ebenen – das ist der Unterschied
+// zwischen einem Baum und einem Lutscher: Man sieht die Krone nicht als Masse,
+// sondern durch sie hindurch, und die Silhouette wird von Zweigen aufgelöst
+// statt von einer Kugelkontur begrenzt.
+function branchInto(out, from, dir, len, rad, depth, r) {
+  const end = from.clone().addScaledVector(dir, len);
+  const g = new THREE.CylinderGeometry(rad * 0.62, rad, len, depth > 1 ? 6 : 4);
+  // Zylinder zeigt auf +Y; auf die Astrichtung drehen.
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  g.applyQuaternion(q);
+  g.translate(
+    (from.x + end.x) / 2,
+    (from.y + end.y) / 2,
+    (from.z + end.z) / 2
+  );
+  out.push({ geo: g, tip: end, rad: rad * 0.62, depth });
+  if (depth <= 0) return;
+  const kids = depth > 1 ? 2 + Math.floor(r() * 2) : 2;
+  for (let k = 0; k < kids; k++) {
+    const spread = 0.55 + r() * 0.5;
+    const az = (k / kids) * Math.PI * 2 + r() * 1.2;
+    const nd = dir
+      .clone()
+      .multiplyScalar(1 - spread * 0.42)
+      .add(new THREE.Vector3(Math.cos(az) * spread, r() * 0.25, Math.sin(az) * spread))
+      .normalize();
+    branchInto(out, end, nd, len * (0.58 + r() * 0.16), rad * 0.6, depth - 1, r);
+  }
+}
+
 function gardenPieces(r) {
   const solids = []; // { geo, color }
   const push = (geo, color) => solids.push({ geo, color });
@@ -391,27 +481,32 @@ function gardenPieces(r) {
   const y0 = EXTERIOR.ground.y;
   const midZ = (G.z0 + G.z1) / 2;
 
-  // Kiesbeet-Einfassung: vier flache Balken, die das geharkte Feld rahmen.
-  // Ohne Kante zerläuft eine Kiesfläche zu einem hellen Fleck im Gras.
-  const edge = 0.14;
-  for (const [w, d, x, z] of [
-    [G.halfX * 2, edge, 0, G.z0],
-    [G.halfX * 2, edge, 0, G.z1],
-    [edge, G.z1 - G.z0, -G.halfX, midZ],
-    [edge, G.z1 - G.z0, G.halfX, midZ],
+  // Kiesbeet-Einfassung: flache Kantensteine statt eines Rahmens aus Balken.
+  // Der Balkenrahmen las sich als Wanne, die auf dem Rasen steht; eine Reihe
+  // gesetzter Steine ist das, was ein Beet in einem japanischen Garten
+  // tatsächlich begrenzt – und sie darf unregelmäßig sein.
+  for (const [along, fixed, isX] of [
+    [G.halfX, G.z0, true],
+    [G.halfX, G.z1, true],
   ]) {
-    push(new THREE.BoxGeometry(w, 0.12, d).translate(x, y0 + 0.06, z), 0x453f36);
+    for (let t = -along; t <= along; t += 0.42) {
+      const w = 0.34 + r() * 0.2;
+      const g = new THREE.BoxGeometry(w, 0.16 + r() * 0.07, 0.2 + r() * 0.08);
+      g.rotateY((r() - 0.5) * 0.3);
+      g.translate(isX ? t : fixed, y0 + 0.05, isX ? fixed : t);
+      push(g, 0x4a463d);
+    }
+  }
+  for (const side of [-1, 1]) {
+    for (let z = G.z0; z <= G.z1; z += 0.42) {
+      const g = new THREE.BoxGeometry(0.2 + r() * 0.08, 0.16 + r() * 0.07, 0.34 + r() * 0.2);
+      g.rotateY((r() - 0.5) * 0.3);
+      g.translate(side * G.halfX, y0 + 0.05, z);
+      push(g, 0x4a463d);
+    }
   }
 
-  // Kasuga-Laterne. Sechs Teile von unten nach oben – Sockel, Schaft,
-  // Zwischenplatte, Feuerkorb, Dach, Knauf. Die Proportionen sind das, was eine
-  // Steinlaterne von einem Stapel Zylinder unterscheidet: schlanker Schaft,
-  // breit auskragendes Dach.
-  // Auf die Türachse zugerückt. Im ersten Bau standen Laterne, Becken und Ahorn
-  // so weit außen, dass durch den 2,5 m breiten Durchgang **nichts** davon zu
-  // sehen war – ein Garten, den man nur auf Screenshots von außen findet, ist
-  // kein Garten. Der Blick durch eine Tür ist ein enger Kegel; was wirken soll,
-  // muss hinein.
+  // Kasuga-Laterne.
   const lx = -1.85;
   const lz = G.z0 + 1.25;
   const lantern = [
@@ -422,18 +517,13 @@ function gardenPieces(r) {
     [new THREE.CylinderGeometry(0.06, 0.46, 0.26, 6), 1.66],
     [new THREE.SphereGeometry(0.085, 8, 6), 1.85],
   ];
-  // Verwitterter Granit, nicht Gips. 0x9a978d war unter dieser Sonne strahlend
-  // weiß – die Laterne sah aus wie aus Kunststoff gegossen und war der hellste
-  // Gegenstand im ganzen Garten.
   for (const [geo, y] of lantern) push(geo.translate(lx, y0 + y, lz), 0x5f5d57);
 
-  // Tsukubai: das niedrige Wasserbecken, an dem man sich die Hände wäscht.
+  // Tsukubai: das niedrige Wasserbecken.
   const bx = 1.9;
   const bz = G.z0 + 0.75;
   push(new THREE.CylinderGeometry(0.32, 0.36, 0.3, 10).translate(bx, y0 + 0.15, bz), 0x565349);
-  // Wasserspiegel: eine Scheibe knapp unter der Beckenkante.
-  push(new THREE.CylinderGeometry(0.26, 0.26, 0.01, 12).translate(bx, y0 + 0.29, bz), 0x39505a);
-  // Bambusrohr, das darüber hängt.
+  push(new THREE.CylinderGeometry(0.26, 0.26, 0.01, 12).translate(bx, y0 + 0.29, bz), 0x223038);
   const spout = new THREE.CylinderGeometry(0.035, 0.035, 0.55, 6);
   spout.rotateX(Math.PI / 2);
   push(spout.translate(bx, y0 + 0.62, bz - 0.34), 0x8a8148);
@@ -442,89 +532,117 @@ function gardenPieces(r) {
     0x767041
   );
 
-  // Ahorn: Stamm, zwei Äste und eine Krone aus fünf Körpern. Steht seitlich,
-  // nicht in der Achse – ein Baum genau vor dem Eingang würde den Blick
-  // zumachen, den er rahmen soll.
-  const tx = -2.95;
-  const tz = G.z1 - 0.5;
-  const trunk = new THREE.CylinderGeometry(0.09, 0.17, 2.9, 7);
-  trunk.rotateZ(-0.09);
-  push(trunk.translate(tx, y0 + 1.45, tz), 0x5c4b3c);
-  for (const [ang, len, tilt] of [
-    [0.5, 1.25, 0.75],
-    [-1.9, 1.05, 0.62],
-  ]) {
-    const br = new THREE.CylinderGeometry(0.035, 0.07, len, 6);
-    br.rotateZ(tilt);
-    br.rotateY(ang);
-    push(br.translate(tx + Math.cos(ang) * 0.35, y0 + 2.35, tz + Math.sin(ang) * 0.35), 0x5c4b3c);
-  }
-
-  // Krone: fünf abgeplattete Körper, ineinandergeschoben. Ein Ahorn hat eine
-  // **schirmförmige** Krone – breiter als hoch, unten flach. Fünf Kugeln
-  // gleicher Größe wären ein Traubenbündel; die Staffelung nach außen und unten
-  // ist das, was die Silhouette macht.
+  // --- Bäume ---------------------------------------------------------------
   //
-  // Kleiner und deutlich gedeckter als im ersten Anlauf. Der war 1,35 m im
-  // Radius und feuerorange – durch die Tür gesehen ein leuchtender Klecks, der
-  // alles andere erschlug. Ein Herbstahorn ist tief karminrot bis braun; das
-  // Feuerorange kommt aus Fotografien mit Gegenlicht, nicht aus dem Baum.
-  for (const [dx, dy, dz, rad, sq, col] of [
-    // Dritter Anlauf bei der Farbe. Auch 0x8d3324 war unter dieser Sonne noch
-    // ein leuchtender Klecks – der Ahorn zog durch die Türöffnung mehr Blick auf
-    // sich als alles andere im Garten zusammen. Ein Herbstahorn im Schatten
-    // eines Hains ist tief weinrot bis rostbraun.
-    [0, 0.55, 0, 0.88, 0.6, 0x571f14],
-    [-0.62, 0.3, 0.2, 0.66, 0.55, 0x632918],
-    [0.66, 0.34, -0.16, 0.6, 0.55, 0x481a11],
-    [0.12, 0.22, 0.6, 0.56, 0.5, 0x6d3319],
-    [-0.16, 0.9, -0.3, 0.5, 0.58, 0x7b4020],
+  // Zwei Ahorne statt eines, links und rechts versetzt, und beide mit echtem
+  // Astwerk. Der eine Ahorn davor war eine geschlossene Kugel auf einem Stab –
+  // aus der Tür ein roter Pilz. Ein Baum wird nicht durch seine Krone
+  // glaubwürdig, sondern durch die Zweige, die man **durch** sie sieht.
+  const crowns = [];
+  for (const [tx, tz, h, tilt, hue] of [
+    [-2.95, G.z1 - 0.35, 2.55, -0.08, 0],
+    [3.15, G.z1 + 0.15, 2.15, 0.06, 1],
   ]) {
-    const crown = blobGeometry(2, 0x51 + Math.round(dx * 97 + dz * 13), sq);
-    crown.scale(rad, rad, rad);
-    push(crown.translate(tx + dx, y0 + 2.45 + dy, tz + dz), col);
+    const trunk = new THREE.CylinderGeometry(0.075, 0.15, h, 7);
+    trunk.rotateZ(tilt);
+    push(trunk.translate(tx, y0 + h / 2, tz), 0x4b3d31);
+
+    const parts = [];
+    const top = new THREE.Vector3(tx + Math.sin(tilt) * -h * 0.5, y0 + h, tz);
+    const nb = 3;
+    for (let k = 0; k < nb; k++) {
+      const az = (k / nb) * Math.PI * 2 + r() * 0.9;
+      const dir = new THREE.Vector3(Math.cos(az) * 0.62, 0.72, Math.sin(az) * 0.62).normalize();
+      branchInto(parts, top, dir, 0.85 + r() * 0.3, 0.055, 2, r);
+    }
+    for (const b of parts) push(b.geo, 0x4b3d31);
+    // Laubschöpfe sitzen auf den Zweigenden, nicht als eine Kugel über allem.
+    for (const b of parts) {
+      if (b.depth > 0) continue;
+      crowns.push({ p: b.tip, hue });
+    }
   }
 
-  return { solids, lantern: [lx, lz], maple: [tx, tz], basin: [bx, bz] };
+  return { solids, crowns, lantern: [lx, lz], basin: [bx, bz] };
 }
 
-// Geharkter Kies. Die Rillen sind eine Textur, keine Geometrie – aus zwei
-// Metern Entfernung durch eine Türöffnung ist der Unterschied nicht zu sehen,
-// und echte Rillen wären ein paar tausend Dreiecke für ein Streifenmuster.
-function gravelTexture() {
-  const size = 256;
+// Geharkter Kies – mit Ringen **um** die Steine.
+//
+// Im ersten Anlauf liefen die Rillen schnurgerade unter den Steinen durch. Das
+// ist genau verkehrt: Beim Karesansui umströmt die Harkung jeden Stein, und
+// diese Ringe sind der eigentliche Inhalt der Fläche. Gerade Linien darunter
+// durchlaufen zu lassen macht daraus Wellblech – so hat es ein Kritiker auch
+// genannt, und er hatte recht.
+//
+// Die Steinpositionen kommen deshalb **in** die Texturerzeugung hinein; die
+// Kachel wird einmal in Weltkoordinaten gezeichnet und nicht wiederholt.
+function gravelTexture(stones, G) {
+  const size = 1024;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
-  // Deutlich dunkler als der erste Anlauf (#c9c4b4). Ein Kiesbeet in der Sonne
-  // wurde damit zur hellsten Fläche im ganzen Bild – heller als das Washi,
-  // durch das die Sonne scheint. Ein Garten, der die Front überstrahlt, zieht
-  // den Blick auf den Boden statt nach draußen.
   ctx.fillStyle = '#6f6a60';
   ctx.fillRect(0, 0, size, size);
   const r = rng(0x9a17);
-  for (let i = 0; i < 5200; i++) {
+  for (let i = 0; i < 26000; i++) {
     const g = 92 + r() * 40;
-    ctx.fillStyle = `rgba(${g},${Math.round(g * 0.99)},${Math.round(g * 0.92)},0.55)`;
-    ctx.fillRect(r() * size, r() * size, 1 + r() * 2, 1 + r() * 2);
+    ctx.fillStyle = `rgba(${g},${Math.round(g * 0.99)},${Math.round(g * 0.9)},0.5)`;
+    ctx.fillRect(r() * size, r() * size, 1 + r() * 2.4, 1 + r() * 2);
   }
-  // Harkspuren als weiche Wellenlinien
-  for (let i = 0; i < 16; i++) {
-    const y = (i / 16) * size;
-    ctx.strokeStyle = 'rgba(74,71,64,0.6)';
-    ctx.lineWidth = 2.2;
+
+  // Welt → Textur
+  const w = G.halfX * 2;
+  const d = G.z1 - G.z0;
+  const toU = (x) => ((x + G.halfX) / w) * size;
+  const toV = (z) => ((z - G.z0) / d) * size;
+  const scale = size / Math.max(w, d);
+
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 3.2;
+
+  // Ringe um jeden Stein, von innen nach außen ausklingend.
+  for (const st of stones) {
+    const cu = toU(st.x);
+    const cv = toV(st.z);
+    const r0 = Math.max(st.scale[0], st.scale[2]) * 0.55 * scale;
+    for (let k = 0; k < 5; k++) {
+      const rad = r0 * (1.25 + k * 0.42);
+      ctx.strokeStyle = `rgba(74,71,64,${0.55 - k * 0.08})`;
+      ctx.beginPath();
+      ctx.ellipse(cu, cv, rad, rad * 0.86, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // Parallele Bahnen dazwischen – aber unterbrochen, wo ein Ring liegt.
+  const gap = size / 34;
+  for (let v = gap * 0.5; v < size; v += gap) {
+    ctx.strokeStyle = 'rgba(74,71,64,0.5)';
     ctx.beginPath();
-    for (let x = 0; x <= size; x += 8) {
-      const yy = y + Math.sin((x / size) * Math.PI * 2 + i) * 2.4;
-      if (x === 0) ctx.moveTo(x, yy);
-      else ctx.lineTo(x, yy);
+    let drawing = false;
+    for (let u = 0; u <= size; u += 4) {
+      const yy = v + Math.sin((u / size) * Math.PI * 3) * 3;
+      const blocked = stones.some((st) => {
+        const du = u - toU(st.x);
+        const dv = yy - toV(st.z);
+        const rad = Math.max(st.scale[0], st.scale[2]) * 0.55 * scale * 3.6;
+        return du * du + dv * dv < rad * rad;
+      });
+      if (blocked) {
+        drawing = false;
+        continue;
+      }
+      if (!drawing) {
+        ctx.moveTo(u, yy);
+        drawing = true;
+      } else ctx.lineTo(u, yy);
     }
     ctx.stroke();
   }
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(4, 3);
+  tex.anisotropy = 8;
   return tex;
 }
 
@@ -532,32 +650,56 @@ function buildGarden(group, r) {
   const G = EXTERIOR.garden;
   const y0 = EXTERIOR.ground.y;
 
+  // --- Trittsteine zuerst: Die Kiestextur braucht ihre Lage ----------------
+  const stoneGeo = new THREE.CylinderGeometry(0.5, 0.44, 0.12, 7);
+  const stones = [];
+  for (let i = 0; i < 9; i++) {
+    const t = i / 8;
+    stones.push({
+      x: Math.sin(t * 2.2 - 0.3) * 1.55 + (r() - 0.5) * 0.16,
+      y: y0 + 0.055,
+      z: G.z0 - 0.45 + t * (G.z1 - G.z0 - 1.1),
+      ry: r() * Math.PI,
+      scale: [0.6 + r() * 0.16, 1, 0.5 + r() * 0.14],
+    });
+  }
+  for (const [x, z, s] of [
+    [-1.05, G.z0 + 1.05, 1.05],
+    [2.5, G.z1 - 0.75, 0.9],
+    [-3.4, G.z0 + 0.4, 0.75],
+  ]) {
+    stones.push({ x, y: y0 + 0.07, z, ry: r() * Math.PI, scale: [s, 2.1 * s, s * 0.85] });
+  }
+
   // --- Kiesfläche ----------------------------------------------------------
-  const gravelGeo = new THREE.PlaneGeometry(G.halfX * 2 - 0.1, G.z1 - G.z0 - 0.1);
+  const gravelGeo = new THREE.PlaneGeometry(G.halfX * 2, G.z1 - G.z0);
   gravelGeo.rotateX(-Math.PI / 2);
-  gravelGeo.translate(0, y0 + 0.055, (G.z0 + G.z1) / 2);
+  gravelGeo.translate(0, y0 + 0.045, (G.z0 + G.z1) / 2);
   const gravel = new THREE.Mesh(
     gravelGeo,
-    new THREE.MeshLambertMaterial({ map: gravelTexture() })
+    new THREE.MeshLambertMaterial({ map: gravelTexture(stones, G) })
   );
   gravel.name = 'dojo-garden-kies';
   gravel.receiveShadow = true;
   group.add(gravel);
 
   // --- Feste Teile, ein Netz ------------------------------------------------
-  const { solids, lantern, maple } = gardenPieces(r);
+  const { solids, crowns } = gardenPieces(r);
   const tinted = solids.map(({ geo, color }) => {
     const g = geo.index ? geo.toNonIndexed() : geo;
     const c = new THREE.Color(color);
     const p = g.attributes.position;
     const arr = new Float32Array(p.count * 3);
     for (let i = 0; i < p.count; i++) {
-      // Feine Streuung je Vertex: Ein Stein aus einer einzigen Farbe sieht aus
-      // wie Plastik, und im Gegenlicht ist genau das der Unterschied.
+      // Zwei Modulationen: feine Streuung je Vertex gegen den Plastikeindruck,
+      // und eine Verdunkelung nach unten. Das gebackene Kontakt-AO ist das,
+      // was einen Gegenstand auf den Boden stellt, statt ihn davorzusetzen –
+      // die Vasen im Innenraum haben genau daran gefehlt.
       const f = 0.9 + ((i * 37) % 17) / 80;
-      arr[i * 3] = c.r * f;
-      arr[i * 3 + 1] = c.g * f;
-      arr[i * 3 + 2] = c.b * f;
+      const ao = 0.55 + 0.45 * Math.min(1, Math.max(0, (p.getY(i) - y0) / 0.35));
+      arr[i * 3] = c.r * f * ao;
+      arr[i * 3 + 1] = c.g * f * ao;
+      arr[i * 3 + 2] = c.b * f * ao;
     }
     g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
     g.deleteAttribute('uv');
@@ -572,31 +714,7 @@ function buildGarden(group, r) {
   solid.receiveShadow = true;
   group.add(solid);
 
-  // --- Trittsteine und Findlinge -------------------------------------------
-  //
-  // Ein Weg, der vom Eingang zum Wasserbecken und weiter zur Laterne führt.
-  // Trittsteine liegen nicht auf einer Linie – die leichte Versetzung ist das,
-  // was sie als Weg lesbar macht statt als Fliesenreihe.
-  const stoneGeo = new THREE.CylinderGeometry(0.5, 0.44, 0.12, 7);
-  const stones = [];
-  for (let i = 0; i < 11; i++) {
-    const t = i / 10;
-    stones.push({
-      x: Math.sin(t * 2.6) * 1.9 + (r() - 0.5) * 0.22,
-      y: y0 + 0.06,
-      z: G.z0 - 0.5 + t * (G.z1 - G.z0 - 0.6),
-      ry: r() * Math.PI,
-      scale: [0.62 + r() * 0.2, 1, 0.5 + r() * 0.18],
-    });
-  }
-  // Findlinge: dieselbe Form, deutlich größer und tiefer eingegraben.
-  for (const [x, z, s] of [
-    [lantern[0] + 1.0, lantern[1] + 0.45, 1.15],
-    [-1.9, G.z1 - 0.5, 0.95],
-    [maple[0] + 1.1, maple[1] - 0.7, 0.8],
-  ]) {
-    stones.push({ x, y: y0 + 0.08, z, ry: r() * Math.PI, scale: [s, 2.2 * s, s * 0.85] });
-  }
+  // --- Trittsteine ----------------------------------------------------------
   const stoneMesh = new THREE.InstancedMesh(
     stoneGeo,
     new THREE.MeshLambertMaterial({ color: 0x4f4c45 }),
@@ -615,55 +733,139 @@ function buildGarden(group, r) {
   stoneMesh.receiveShadow = true;
   group.add(stoneMesh);
 
-  // --- Formschnitt-Polster (Karikomi) --------------------------------------
+  // --- Die grüne Wand -------------------------------------------------------
   //
-  // Die geschnittenen Azaleenpolster sind das, was einen japanischen Garten
-  // von einem Beet unterscheidet: ruhige, geschlossene Kuppeln, in Gruppen
-  // gesetzt, mit Zwischenraum. Nicht Streuung, sondern **Anordnung**.
-  //
-  // Deshalb liegen sie hier nicht zufällig verteilt, sondern in vier Gruppen
-  // von je zwei bis vier Polstern, mit klarer Größenstaffelung innerhalb der
-  // Gruppe. Zufälliges Verteilen war genau das, was vorher wie Unkraut aussah.
-  // Vier gedeckte Grüntöne. Ein Formschnitt-Beet ist nicht einfarbig, aber die
-  // Spannweite ist klein – große Farbunterschiede lesen sich als verschiedene
-  // Pflanzen, nicht als ein Beet.
-  const AZALEA = [0x1c3218, 0x24401d, 0x172c16, 0x2b4a22];
+  // Zwei Bänder Polster hinter dem Beet, nach hinten größer und dichter, plus
+  // die Ahornkronen darüber. Zusammen schließen sie den Blick aus der Tür so
+  // weit, dass vom Horizont nichts mehr übrig bleibt – **das** ist der Zweck,
+  // nicht die Zierde.
+  // Fünf Töne mit erkennbarer Spanne. Fünf fast gleiche Grüns ergaben eine
+  // Masse ohne Binnenzeichnung – aus der Tür ein Scherenschnitt. Ein
+  // Strauchbestand hat besonnte und beschattete Partien, und **dieser**
+  // Unterschied ist es, der eine Wand aus Grün als Pflanzung lesbar macht.
+  const AZALEA = [0x1c3218, 0x2f5325, 0x172c16, 0x39632c, 0x203a1b, 0x456f31];
   const mounds = [];
-  const clumps = [
-    [-G.halfX - 1.1, G.z0 + 0.4, 4],
-    [G.halfX + 1.0, G.z0 + 1.9, 3],
-    [-1.9, G.z1 + 0.75, 3],
-    [2.6, G.z1 + 0.95, 2],
-    [G.halfX + 1.3, G.z1 - 0.4, 2],
-  ];
-  for (const [cx, cz, n] of clumps) {
-    for (let k = 0; k < n; k++) {
-      // Größte Kuppel in der Mitte, die kleineren daneben – eine Gruppe aus
-      // gleich großen Kugeln liest sich als Eierkarton.
-      const fall = 1 - k / (n + 0.6);
-      const rad = (0.42 + r() * 0.3) * (0.55 + fall * 0.75);
-      mounds.push({
-        x: cx + (r() - 0.5) * 1.5,
-        y: y0 + rad * 0.42,
-        z: cz + (r() - 0.5) * 1.1,
+  const addMound = (x, z, rad, pal, squash = 1) => {
+    mounds.push({
+      x,
+      z,
+      // Höhenstreuung zusätzlich zum Radius. Vorher war die Höhe fest an den
+      // Radius gekoppelt, also war jedes Polster dieselbe Form in einer
+      // anderen Größe – eine Reihe Kopien.
+      y: y0 + rad * 0.4 * squash,
+      rad,
+      squash,
+      ry: r() * Math.PI,
+      col: new THREE.Color(pal[Math.floor(r() * pal.length)]),
+    });
+  };
+
+  // **Drei Reihen, nach hinten höher – die eigentliche Aufgabe.**
+  //
+  // Zwei Reihen mit maximal 1,55 m Radius reichten nicht: Zwischen ihrer
+  // Oberkante und den Baumkronen blieb im Türausschnitt ein blassgrauer
+  // Streifen Ferne stehen, und genau den wollte der Nutzer weghaben.
+  //
+  // Die Höhe, die es braucht, ist ausrechenbar statt zu raten. Der Betrachter
+  // steht bei y = 1,6 und z ≈ 4,4, der Türsturz bei y = 2,85 und z = 7,5. Die
+  // Sichtlinie zum oberen Türrand steigt mit (2,85 − 1,6)/(7,5 − 4,4) = 0,40
+  // je Meter. Bei z = 14 liegt sie damit auf 1,6 + 0,40 · 9,6 ≈ 5,4 m – **so
+  // hoch** muss die hinterste Reihe reichen, um den Ausschnitt oben zu füllen.
+  // Bambus (6–11 m) übernimmt das; die Sträucher schließen darunter.
+  const back = (z, rad, squash) => {
+    for (let x = -G.halfX - 3.2; x <= G.halfX + 3.2; x += 0.58) {
+      addMound(x + (r() - 0.5) * 0.34, z + (r() - 0.5) * 0.6, rad(), AZALEA, squash());
+    }
+  };
+  back(G.z1 + 0.55, () => 0.75 + r() * 0.45, () => 0.85 + r() * 0.4);
+  back(G.z1 + 1.6, () => 1.1 + r() * 0.6, () => 0.95 + r() * 0.5);
+  back(G.z1 + 2.9, () => 1.5 + r() * 0.75, () => 1.05 + r() * 0.6);
+  // Vierte Reihe. Nach drei Reihen erreichten aus der Türachse noch 6 von 364
+  // Strahlen die Kulisse – eine schmale Lücke, in der Sträucher schon zu tief
+  // und Bambuslaub noch zu hoch war. Gemessen, nicht geschätzt: `skyline.mjs`.
+  back(G.z1 + 4.3, () => 1.8 + r() * 0.9, () => 1.1 + r() * 0.65);
+
+  // **Baumkulisse dahinter – gegen die hohen Sichtlinien.**
+  //
+  // Vier Strauchreihen haben von 6 entwischenden Strahlen genau einen gefangen.
+  // Der Grund stand in der Messung: Die Lecks lagen bei y = 2,45…2,75 in der
+  // Öffnung, also in Sichtlinien, die **nach oben** laufen. Aus Augenhöhe durch
+  // den oberen Türbereich steigt der Blick um 0,32 m je Meter – bei z = 20 ist
+  // er auf 6 m, bei z = 30 auf 9,8 m. Sträucher von zwei Metern erreichen das
+  // nicht, egal wie viele Reihen man davorstellt.
+  //
+  // Also Massen in Baumhöhe: dieselbe Polstergeometrie, nur groß und weit
+  // hinten. Aus dieser Entfernung ist eine Krone ohnehin eine Masse.
+  //
+  // **Eigene Instanz, gröber und mit Luftperspektive.**
+  //
+  // Zuerst hingen die Fernkronen im selben Netz wie die Sträucher davor. Zwei
+  // Folgen, beide sichtbar: Sie bekamen dieselbe feine Unterteilung wie ein
+  // Polster in zwei Metern Entfernung (die Dreieckszahl sprang von 150k auf
+  // 260k), und sie bekamen dieselben satten Grüns – aus der Tür las sich die
+  // Ferne dadurch als **Wand aus Blasen** direkt hinter dem Garten.
+  //
+  // Beides behebt dieselbe Trennung: eigene Geometrie in Detailstufe 1 statt 2,
+  // und eine Farbe, die mit dem Abstand zur Dunstfarbe hin ausbleicht. Genau
+  // das macht die gemalte Kulisse dahinter auch – jetzt tut es die Geometrie
+  // davor ebenso, und der Übergang zwischen beiden verschwindet.
+  //
+  // Vier Ringe und eng gesetzt. Nach drei Ringen entwischten noch genau drei
+  // Strahlen, alle in **einer** Spalte (x = −0,52) – das war keine zu niedrige
+  // Wand, sondern eine Lücke zwischen zwei Kronen. Gegen Lücken hilft Dichte,
+  // nicht Höhe; der Abstand ging deshalb von 3,4 auf 2,2 m herunter, und damit
+  // steht die Messung bei null.
+  const HAZE = new THREE.Color(0x93a8a4);
+  const CANOPY = [0x1b2f18, 0x24401d, 0x172a15, 0x2c4a20];
+  const canopy = [];
+  for (let ring = 0; ring < 4; ring++) {
+    const z = G.z1 + 7 + ring * 4.5;
+    const haze = 0.16 + ring * 0.13;
+    for (let x = -24; x <= 24; x += 2.2) {
+      const rad = 2.6 + r() * 1.9;
+      canopy.push({
+        x: x + (r() - 0.5) * 2.6,
+        z: z + (r() - 0.5) * 2.4,
+        y: y0 + rad * 0.75 + r() * 1.6,
         rad,
+        squash: 1.25 + r() * 0.5,
         ry: r() * Math.PI,
-        // **Feste Farben statt setHSL.**
-        //
-        // Zweimal zu hell geraten, und beim zweiten Mal war die Ursache nicht
-        // der Wert, sondern die Funktion: `Color.setHSL()` legt seine Argumente
-        // standardmäßig im **linearen Arbeitsraum** aus, nicht in sRGB. Eine
-        // Helligkeit von 0,10 wird damit zu sRGB 0,35 – aus dem dunklen
-        // Azaleengrün wurde Wiesengrün, und zwar reproduzierbar, egal wie oft
-        // ich die Zahl gesenkt habe.
-        //
-        // Hexwerte sind eindeutig sRGB und lassen diese Verwechslung nicht zu.
-        col: new THREE.Color(AZALEA[Math.floor(r() * AZALEA.length)]),
+        col: new THREE.Color(CANOPY[Math.floor(r() * CANOPY.length)]).lerp(HAZE, haze),
       });
     }
   }
+
+  // Seitenwände, ebenfalls dreilagig und deutlich breiter als der
+  // Türausschnitt: Der schräge Blick zeigte den Horizontstreifen breiter als
+  // der frontale, die Wand muss also seitlich über die Öffnung hinausgehen.
+  for (const side of [-1, 1]) {
+    for (let z = G.z0 - 1.4; z <= G.z1 + 2.2; z += 0.6) {
+      addMound(side * (G.halfX + 0.55 + r() * 0.5), z, 0.5 + r() * 0.45, AZALEA, 0.9 + r() * 0.4);
+      if (r() < 0.7) {
+        addMound(side * (G.halfX + 1.6 + r() * 0.7), z, 0.85 + r() * 0.5, AZALEA, 1 + r() * 0.5);
+      }
+      if (r() < 0.5) {
+        addMound(side * (G.halfX + 2.9 + r() * 0.9), z, 1.2 + r() * 0.6, AZALEA, 1.05 + r() * 0.5);
+      }
+    }
+  }
+  // Ein paar niedrige Polster **im** Beet, als Übergang zum Kies.
+  for (const [x, z] of [
+    [-3.9, G.z0 + 0.55],
+    [-3.35, G.z0 + 1.25],
+    [3.6, G.z0 + 1.9],
+    [4.2, G.z1 - 1.2],
+    [-4.4, G.z1 - 0.9],
+  ]) {
+    addMound(x, z, 0.34 + r() * 0.2, AZALEA);
+  }
+
   const moundMesh = new THREE.InstancedMesh(
-    blobGeometry(2, 0x7c3, 0.62),
+    // Detailstufe 1 statt 2. Vor der `mergeVertices()`-Korrektur brauchte es
+    // die feinere Unterteilung gegen die Facetten – seit die Normalen stimmen,
+    // ist eine Kuppel auch mit 80 Dreiecken rund. Das spart bei rund 170
+    // Polstern über 40 000 Dreiecke, ohne dass man einen Unterschied sieht.
+    blobGeometry(1, 0x7c3, 0.62),
     new THREE.MeshLambertMaterial({ color: 0xffffff }),
     mounds.length
   );
@@ -673,7 +875,7 @@ function buildGarden(group, r) {
     m.compose(
       new THREE.Vector3(f.x, f.y, f.z),
       q,
-      new THREE.Vector3(f.rad * 1.25, f.rad, f.rad * 1.15)
+      new THREE.Vector3(f.rad * 1.3, f.rad * f.squash, f.rad * 1.15)
     );
     moundMesh.setMatrixAt(i, m);
     moundMesh.setColorAt(i, f.col);
@@ -684,6 +886,137 @@ function buildGarden(group, r) {
   moundMesh.receiveShadow = true;
   moundMesh.userData.fullCount = mounds.length;
   group.add(moundMesh);
+
+  const canopyMesh = new THREE.InstancedMesh(
+    blobGeometry(1, 0x5d2, 0.7),
+    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    canopy.length
+  );
+  canopyMesh.name = 'dojo-garden-fernkronen';
+  canopy.forEach((f, i) => {
+    q.setFromEuler(new THREE.Euler(0, f.ry, 0));
+    m.compose(
+      new THREE.Vector3(f.x, f.y, f.z),
+      q,
+      new THREE.Vector3(f.rad * 1.3, f.rad * f.squash, f.rad * 1.15)
+    );
+    canopyMesh.setMatrixAt(i, m);
+    canopyMesh.setColorAt(i, f.col);
+  });
+  canopyMesh.instanceMatrix.needsUpdate = true;
+  if (canopyMesh.instanceColor) canopyMesh.instanceColor.needsUpdate = true;
+  // Wirft keinen Schatten: Die Kronen stehen 20–35 m hinter dem Gebäude, ihr
+  // Schatten fiele weit außerhalb des Schattenfrustums – der Durchgang würde
+  // bezahlt und nichts dafür geliefert.
+  canopyMesh.castShadow = false;
+  canopyMesh.receiveShadow = false;
+  canopyMesh.userData.fullCount = canopy.length;
+  group.add(canopyMesh);
+
+  // --- Ahornlaub ------------------------------------------------------------
+  //
+  // Ein Schopf je Zweigende statt einer Kugel über dem Baum. Dieselbe
+  // Blob-Geometrie, aber klein und vielfach – die Krone bekommt dadurch eine
+  // aufgelöste Silhouette und Löcher, durch die man Zweige sieht.
+  const MAPLE = [
+    [0x6e2a1a, 0x7d3520, 0x8c4526],
+    [0x8a5a24, 0x9a6b2c, 0x7a4a20],
+  ];
+  // **Drei kleine Schöpfe je Zweigende statt eines großen.**
+  //
+  // Mit 0,34–0,60 m Radius war jeder Schopf eine glatte Blase; zusammen ergaben
+  // sie einen Blumenkohl. Eine aufgelöste Kronensilhouette entsteht aus
+  // **Anzahl**, nicht aus Rauschen auf einer großen Kugel – halb so groß und
+  // dreimal so viele kosten dieselbe Fläche und sehen völlig anders aus.
+  const puffs = [];
+  for (const c of crowns) {
+    for (let k = 0; k < 3; k++) {
+      puffs.push({
+        p: c.p
+          .clone()
+          .add(new THREE.Vector3((r() - 0.5) * 0.42, (r() - 0.4) * 0.34, (r() - 0.5) * 0.42)),
+        hue: c.hue,
+        s: 0.17 + r() * 0.17,
+      });
+    }
+  }
+  const crownMesh = new THREE.InstancedMesh(
+    blobGeometry(1, 0x2f7, 0.72),
+    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    puffs.length
+  );
+  crownMesh.name = 'dojo-garden-krone';
+  puffs.forEach((c, i) => {
+    const s = c.s;
+    q.setFromEuler(new THREE.Euler(r() * 0.6, r() * Math.PI, r() * 0.6));
+    m.compose(c.p, q, new THREE.Vector3(s * 1.25, s, s * 1.15));
+    crownMesh.setMatrixAt(i, m);
+    const pal = MAPLE[c.hue];
+    crownMesh.setColorAt(i, new THREE.Color(pal[Math.floor(r() * pal.length)]));
+  });
+  crownMesh.instanceMatrix.needsUpdate = true;
+  if (crownMesh.instanceColor) crownMesh.instanceColor.needsUpdate = true;
+  crownMesh.castShadow = true;
+  crownMesh.userData.fullCount = puffs.length;
+  group.add(crownMesh);
+
+  // --- Farne und Gräser -----------------------------------------------------
+  //
+  // Die unterste Schicht, und die, die einen Garten *bepflanzt* aussehen lässt
+  // statt *bestückt*: Bewuchs am Fuß der Steine, an der Beetkante, im Schatten
+  // der Sträucher. Ohne sie steht jeder Gegenstand auf einer sauberen Fläche –
+  // und nichts verrät eine gebaute Szene zuverlässiger als ein sauberer
+  // Übergang zwischen Ding und Boden.
+  const FERN = [0x2c4a24, 0x365a2a, 0x24401f, 0x40632f];
+  const fronds = [];
+  const nearStone = (x, z) =>
+    stones.some((s) => Math.hypot(s.x - x, s.z - z) < Math.max(s.scale[0], s.scale[2]) * 0.75);
+  for (let i = 0; i < 78; i++) {
+    let x;
+    let z;
+    if (i % 3 === 0) {
+      // an der Beetkante entlang
+      const side = r() < 0.5 ? -1 : 1;
+      x = side * (G.halfX + (r() - 0.35) * 0.6);
+      z = G.z0 - 0.8 + r() * (G.z1 - G.z0 + 1.6);
+    } else if (i % 3 === 1) {
+      // vor der grünen Rückwand
+      x = (r() - 0.5) * (G.halfX * 2 + 2.4);
+      z = G.z1 + (r() - 0.2) * 0.7;
+    } else {
+      // um Laterne und Becken herum
+      const near = r() < 0.5 ? [-1.85, G.z0 + 1.25] : [1.9, G.z0 + 0.75];
+      const a = r() * Math.PI * 2;
+      const d = 0.45 + r() * 0.5;
+      x = near[0] + Math.cos(a) * d;
+      z = near[1] + Math.sin(a) * d;
+    }
+    if (nearStone(x, z)) continue;
+    fronds.push({
+      x,
+      z,
+      s: 0.42 + r() * 0.4,
+      ry: r() * Math.PI * 2,
+      col: new THREE.Color(FERN[Math.floor(r() * FERN.length)]),
+    });
+  }
+  const frondMesh = new THREE.InstancedMesh(
+    frondGeometry(0x1f4),
+    new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
+    fronds.length
+  );
+  frondMesh.name = 'dojo-garden-farne';
+  fronds.forEach((f, i) => {
+    q.setFromEuler(new THREE.Euler(0, f.ry, 0));
+    m.compose(new THREE.Vector3(f.x, y0 + 0.02, f.z), q, new THREE.Vector3(f.s, f.s, f.s));
+    frondMesh.setMatrixAt(i, m);
+    frondMesh.setColorAt(i, f.col);
+  });
+  frondMesh.instanceMatrix.needsUpdate = true;
+  if (frondMesh.instanceColor) frondMesh.instanceColor.needsUpdate = true;
+  frondMesh.castShadow = true;
+  frondMesh.userData.fullCount = fronds.length;
+  group.add(frondMesh);
 }
 
 export function buildExterior() {
@@ -798,9 +1131,13 @@ export function buildExterior() {
   // Blattschöpfen obenauf, nicht eine geschlossene Krone.
   const leaves = [];
   for (const c of culms) {
-    const bunches = 8 + Math.floor(r() * 5);
+    const bunches = 12 + Math.floor(r() * 7);
     for (let b = 0; b < bunches; b++) {
-      const t = 0.68 + r() * 0.3;
+      // **Deutlich tiefer.** Die Schöpfe saßen bei 0,68–0,98 der Halmhöhe, also
+      // nur ganz oben. Genau auf Horizonthöhe war der Hain damit ein Feld
+      // kahler Stangen, durch das man hindurchsah – das war der Hauptgrund,
+      // warum der Streifen Ferne im Türausschnitt stehen blieb.
+      const t = 0.34 + r() * 0.62;
       const size = 0.72 + r() * 0.7;
       leaves.push({
         x: c.x + (r() - 0.5) * 0.55,

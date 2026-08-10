@@ -296,7 +296,12 @@ export const EXTERIOR = {
   // Zweite Gruppe vor der Südfront – dort schaut man durch offene Felder
   // hinaus, hier zählt die Sicht und nicht der Schatten. Nach hinten gerückt,
   // seit davor der Garten liegt: Bambus **im** Kiesbeet wäre kein Garten.
-  south: { x0: -10, x1: 10, z0: 13.2, z1: 17.5, count: 26 },
+  //
+  // Näher herangerückt und verbreitert. Bei z ab 13,2 standen die Halme so
+  // weit hinten, dass sie in der Höhe des Horizonts nichts mehr verdeckten –
+  // dort ist ein Halm ohnehin kahl, das Laub sitzt oben. Ab 11,5 füllen sie
+  // den Türausschnitt in genau der Höhe, in der der Horizontstreifen stand.
+  south: { x0: -14, x1: 14, z0: 11.5, z1: 17.5, count: 62 },
   // Der Garten vor dem Eingang. Kiesfläche, Trittsteine, Laterne, Wasserbecken,
   // Ahorn – die Fläche zwischen Engawa (endet bei maxZ + 1,2) und Hain.
   garden: { z0: 8.9, z1: 12.9, halfX: 5.4 },
