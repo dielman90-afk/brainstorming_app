@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { buildArchitecture } from './architecture.js';
 import { buildProps } from './props.js';
 import { buildAtmosphere } from './atmosphere.js';
+import { buildExterior } from './exterior.js';
 import { applyQuality } from './quality.js';
 import { ROOM } from './layout.js';
 
@@ -30,7 +31,8 @@ export function createDojoEnvironment() {
 
   const architecture = buildArchitecture();
   const props = buildProps();
-  group.add(architecture.group, props.group);
+  const exterior = buildExterior();
+  group.add(architecture.group, props.group, exterior.group);
 
   let atmosphere = null;
   let envMap = null;
@@ -40,11 +42,19 @@ export function createDojoEnvironment() {
   return {
     id: 'dojo',
     name: '⛩ Konstrukt-Dojo',
-    // Hintergrund und Nebel sind fast schwarz: Der Raum ist geschlossen, man
-    // sieht nirgends hinaus. Was durch die Shoji dringt, ist Licht, keine
-    // Landschaft – ein Himmel dahinter würde die Illusion sofort zerstören.
-    background: new THREE.Color(0x0a0c0e),
-    fog: new THREE.Fog(0x0a0c0e, ROOM.ceilingY * 3.2, 34),
+    // **Hintergrund und Nebel sind nicht mehr schwarz.**
+    //
+    // Vorher war beides fast schwarz, mit der Begründung: Der Raum ist
+    // geschlossen, man sieht nirgends hinaus, und ein Himmel dahinter würde die
+    // Illusion zerstören. Das galt, solange draußen nichts war – dann ist
+    // Schwarz die ehrlichste Farbe für „hier endet die Welt".
+    //
+    // Jetzt steht dort ein Hain und dahinter eine Baumlinie, und man sieht
+    // durch die Südfront wirklich hinaus. Der Nebel beginnt deshalb erst hinter
+    // der Rückwand des Raums (14 m Tiefe) und trägt von da an die Ferne; im
+    // Innenraum ist er nach wie vor nicht vorhanden.
+    background: new THREE.Color(0x9fb0b4),
+    fog: new THREE.Fog(0xa8b6b0, ROOM.maxZ - ROOM.minZ + 4, 62),
     group,
 
     // Begehbarer Bereich. Der Raum ist geschlossen; ohne Begrenzung laeuft man
@@ -91,6 +101,7 @@ export function createDojoEnvironment() {
     update(time) {
       architecture.update?.(time);
       props.update?.(time);
+      exterior.update?.(time);
       atmosphere?.update?.(time);
     },
   };

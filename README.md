@@ -92,18 +92,46 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     Ohne sie rendern Klingen und Lack **schwarz** – ein Metall ohne etwas zu
     spiegeln hat keine diffuse Komponente. Gebaut erst beim ersten Aktivieren,
     nicht beim Laden.
-  - **Ein** gerichtetes Licht mit **einer** 1024er-Schattenkarte; alle Maße und
-    die Sonnenrichtung stehen in `src/dojo/layout.js`, damit Schatten,
-    Lichtschächte und Glanzlichter zwangsläufig zusammenpassen.
+  - **Ein** gerichtetes Licht mit **einer** Schattenkarte (2048 am Desktop,
+    1024 in der Brille); alle Maße und die Sonnenrichtung stehen in
+    `src/dojo/layout.js`, damit Schatten, Lichtschächte und Glanzlichter
+    zwangsläufig zusammenpassen. Position **und** Ziel der Sonne wurden beim
+    Verlängern des Raums um denselben Vektor verschoben – die Richtung ist
+    dadurch unverändert, nur der beschattete Ausschnitt wandert mit.
+  - **Öffnungen aus einer Beschreibung** (`buildOpening()` in
+    `architecture.js`): Ostfront, Südfront, die hohen Bänder auf West- und
+    Nordwand und das Ranma sind derselbe Bauteiltyp, unterschieden nur durch
+    Maße und ein Vorzeichen `inward` – die Richtung von der Wandebene in den
+    Raum. Vorher versetzten zwei getrennte Blöcke ihre Teile mit
+    vorzeichenlosen Konstanten; das stimmte auf der Ostwand zufällig und
+    stellte auf West und Nord das Papier vor das Gitter, auf West und Süd mit
+    der Rückseite nach innen. Am Desktop unsichtbar (Washi ist beidseitig), in
+    der Brille drei Löcher, weil `quality.js` dort auf `FrontSide` schaltet.
+    Die Sprossen sind skalierte Einheitswürfel **ohne jede Drehung** – die
+    Bauform, in der „welche Kante liegt auf welcher Achse" nicht mehr falsch
+    sein kann.
+  - **Außenwelt** (`src/dojo/exterior.js`): ein Bambushain, eine gemalte
+    Baumlinie, eine Moosfläche. Der Hain ist zuerst **Schattenwerfer**: Er
+    steht zwischen Sonne und Ostfront und zeichnet seinen Schattenriss auf das
+    Washi – das Bild, an dem man ein Dojo erkennt. Damit das funktioniert,
+    hängt das Eigenleuchten des Papiers per `onBeforeCompile` an der
+    Schattenmaske; ohne das leuchtet Papier gleichmäßig weiter, egal was davor
+    steht. Gemessen verschattet der Hain 25,8 % der Fensterbreite in 34
+    Hell-Dunkel-Wechseln. Die Außenwelt ist reine Kulisse: Die Begrenzung in
+    `index.js` hält den Spieler im Raum.
   - **Bekannte Schwäche:** Der Raum ist pro Pixel deutlich teurer als die
-    übrigen Umgebungen – gemessen 7,4-fache Frame-Zeit gegenüber dem
-    Zen-Garten bei fast gleicher Zahl an Draw-Calls (57 gegen 51). Die Last
-    liegt nicht in der Geometrie, sondern im Fragment: Schattendurchgang,
-    PBR mit Normal- und Rauheitskarte, IBL-Abtastung und mehrere additive
-    Lagen übereinander. Gemessen wurde headless auf SwiftShader, einem
-    Software-Rasterizer – der überzeichnet Fragmentkosten stark, aber mobile
-    GPUs sind ebenfalls füllratenbegrenzt. **Auf der Quest 3 ist das
-    ungeprüft.**
+    übrigen Umgebungen. Gemessen (p95, headless): Desktop-Stufe rund das
+    **7,9-fache** des Zen-Gartens, XR-Stufe das **3,6-fache** – bei 67 gegen 50
+    Draw-Calls. Die Last liegt nicht in der Geometrie, sondern im Fragment:
+    Schattendurchgang, PBR mit Normal- und Rauheitskarte, IBL-Abtastung und
+    additive Lagen. Die XR-Stufe lag nach Runde 5 noch beim 1,16-fachen; seither
+    ist der Raum um 55 % größer geworden und hat eine Außenwelt bekommen.
+    **Das Perf-Gate von 3,5× ist damit knapp verfehlt.** Gemessen wurde headless
+    auf SwiftShader, einem Software-Rasterizer – der überzeichnet Fragmentkosten
+    stark, aber mobile GPUs sind ebenfalls füllratenbegrenzt, und die
+    *Rangfolge* der Posten überträgt sich. **Auf der Quest 3 ist das ungeprüft.**
+    Zu beachten: Die p95-Referenz schwankt zwischen identischen Läufen um rund
+    10 %; p50 ist das stabilere Signal (XR 504 ms gegen Zen 134 ms).
 
 - **Weltmaßstab:** Die Himmelsinsel ist 1:1 zum Nutzer bemaßt – Bäume rund 6 m,
   die Hauptinsel gut 40 m breit, Büsche auf Schulterhöhe. Sie war ursprünglich

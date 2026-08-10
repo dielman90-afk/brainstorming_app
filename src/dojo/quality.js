@@ -39,7 +39,31 @@ const LARGE_SURFACES = new Set([
   'dojo-walls',
   'dojo-deck',
   'dojo-tokonoma',
+  'dojo-exterior-ground',
 ]);
+
+// Bauteile der Außenwelt, die in der Brille entfallen.
+//
+// Das Blattwerk ist der teuerste Posten dort: gekreuzte Flächen mit
+// `alphaTest`, also viel Überzeichnung *und* ein Schattendurchgang darüber. Die
+// Halme dagegen bleiben – sie sind das, was die Schatten auf dem Papier macht,
+// und genau deswegen steht der Hain überhaupt da. Die Kulisse bleibt ebenfalls:
+// ein einziger unbeleuchteter Zylinder ist billiger als das Loch, das ihr
+// Fehlen hinterlassen würde.
+const XR_HIDDEN = new Set(['dojo-bamboo-laub']);
+
+// Instanzen, die in der Brille ausgedünnt werden: Name → Anteil.
+//
+// Ein `InstancedMesh` zeichnet nur die ersten `count` Instanzen; das kostet
+// eine Zuweisung und spart sowohl im Bild als auch im Schattendurchgang. Die
+// Halme sind in exterior.js gemischt abgelegt, damit die Kürzung Ost- und
+// Südhain gleichmäßig trifft statt einen davon ganz zu entfernen.
+//
+// 55 % ist kein runder Wunschwert, sondern das, was nötig war, um mit dem
+// verlängerten Raum und der Außenwelt wieder unter das Frame-Zeit-Gate zu
+// kommen. Sichtbar ist der Unterschied auf dem Papier kaum – der Schattenriss
+// wird lichter, nicht anders.
+const XR_THIN = new Map([['dojo-bamboo', 0.55]]);
 
 // Ausgangszustand je Material einmal sichern, damit das Zurückschalten den
 // exakten Zustand wiederherstellt statt einen nachgebauten.
@@ -72,6 +96,31 @@ function eachMaterial(root, fn) {
  *                                 soll – in XR bewusst `null`.
  */
 export function applyQuality(group, envMap, inXR) {
+  // --- Schattenkarte ---------------------------------------------------------
+  //
+  // **Revidiert gegenüber Runde 5.** Damals stand hier: 512 statt 1024 spart
+  // 2,5 %, das ist den sichtbaren Verlust nicht wert – bleibt in beiden Stufen
+  // gleich. Diese Zahl gilt nicht mehr.
+  //
+  // Seither ist die Karte auf 2048 gewachsen (der verlängerte Raum brauchte ein
+  // größeres Frustum, und die Bambusschatten auf dem Papier brauchen die
+  // Auflösung), und der Schattenpass zeichnet jetzt zusätzlich rund 550
+  // Außenobjekte. Neu gemessen kostet 2048 gegenüber 1024 rund 6,5 % der
+  // Frame-Zeit – bei vierfacher Fläche.
+  //
+  // Desktop behält 2048, weil dort der Schattenriss des Hains das Bild trägt.
+  // In der Brille zählt die Bildrate mehr als die Schärfe eines Halmschattens.
+  group.traverse((o) => {
+    if (!o.isDirectionalLight || !o.castShadow) return;
+    const want = inXR ? 1024 : 2048;
+    if (o.shadow.mapSize.x === want) return;
+    o.shadow.mapSize.set(want, want);
+    // Ohne das Verwerfen behält three die alte Textur und die neue Größe
+    // greift nie – ein stiller Fehlschlag, der wie ein Messfehler aussähe.
+    o.shadow.map?.dispose();
+    o.shadow.map = null;
+  });
+
   eachMaterial(group, (material, object) => {
     const base = remember(material);
 
@@ -127,9 +176,13 @@ export function applyQuality(group, envMap, inXR) {
   // sind sie das Erste, was geht.
   group.traverse((o) => {
     if (!o.isMesh && !o.isPoints) return;
+    const thin = XR_THIN.get(o.name);
+    if (thin !== undefined && o.isInstancedMesh && o.userData.fullCount) {
+      o.count = inXR ? Math.max(1, Math.round(o.userData.fullCount * thin)) : o.userData.fullCount;
+    }
     const m = Array.isArray(o.material) ? o.material[0] : o.material;
     const additive = m?.blending === THREE.AdditiveBlending;
-    if (!additive) return;
+    if (!additive && !XR_HIDDEN.has(o.name)) return;
     if (o.userData._qVis === undefined) o.userData._qVis = o.visible;
     o.visible = inXR ? false : o.userData._qVis;
   });

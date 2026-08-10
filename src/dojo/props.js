@@ -548,6 +548,36 @@ function buildSaya() {
   return loft(rings, vs, { capStart: true, capEnd: true });
 }
 
+// Unterseite des Schwertes, gemessen als Abstand vom Rückgrat (der
+// Schneidenlinie) quer zur Klinge – also genau die Größe, die `sectionPoint()`
+// als `across` erwartet.
+//
+// Auf dem Ständer zeigt die Schneide nach oben, das Schwert liegt folglich auf
+// dem **Mune** auf. Und der ist nicht überall gleich weit von der Schneide
+// entfernt: Die Klinge verjüngt sich von 31,5 mm am Machi auf 22,5 mm am
+// Yokote. Wer ein Schwert „eine Klingenbreite über den Arm" legt, trifft
+// deshalb höchstens *eine* der beiden Auflagen – die 9 mm Verjüngung sind ein
+// Vielfaches des Spalts, den man noch als Berührung durchgehen lässt.
+//
+// Die beiden Funktionen spiegeln die Profile aus `buildBlade()` und
+// `buildSaya()`; ändert sich dort die Kontur, müssen sie mit.
+function bladeBack(s) {
+  const { nagasa, wMachi, wYokote, kissaki } = KATANA;
+  const yokote = nagasa - kissaki;
+  if (s <= 0) return wMachi;
+  if (s <= yokote) return wMachi + (wYokote - wMachi) * (s / yokote);
+  const e = Math.sin((1 - (s - yokote) / kissaki) * Math.PI * 0.5);
+  return wYokote * (Math.max(0.02, e) + (1 - e) * 0.92);
+}
+
+function sayaBack(s) {
+  const L = KATANA.nagasa + 0.028;
+  const k = Math.min(1, Math.max(0, (s + 0.004) / L));
+  let scale = 1 - 0.1 * k;
+  if (k < 0.035) scale *= 1.07; // Koiguchi, wie in buildSaya()
+  return (KATANA.wMachi + 0.008) * scale - 0.004 * scale;
+}
+
 // Ein vollständiges Schwert in die Eimer legen.
 //
 // `matrix` setzt das lokale Schwertsystem in den Raum. Jedes Teil wird sofort
@@ -634,16 +664,168 @@ function swordMatrix(x, y, z, beta) {
 
 // --- Katana-Kake: der Waffenständer ------------------------------------------
 //
-// Drei Etagen, zwei Böcke, die Schwerter liegen längs der Westwand. Die
-// Auflagen sind nach oben offene Gabeln – deshalb bekommt jeder Arm eine
-// hochstehende Nase, sonst rollt das Schwert optisch vom Brett.
-const TIERS = [0.31, 0.5, 0.69];
+// Drei Etagen, zwei Böcke, die Schwerter liegen längs der Westwand.
+//
+// **Die Auflage ist eine Kerbe, kein Regalbrett.** Vorher lag jedes Schwert auf
+// einem flachen Arm mit einer Nase am äußeren Ende. Ein Schwert liegt damit
+// *neben* etwas statt *in* etwas, und weil nichts es seitlich fasst, gibt es
+// auch keine Stelle, an der man die Berührung sehen könnte. Jeder Arm bekommt
+// deshalb zwei Wangen und dazwischen eine nach oben offene Kerbe: Die Klinge
+// sinkt bis über die halbe Höhe hinein, Holz steht links und rechts davor. Das
+// ist die Form, an der man auf einen Blick sieht, dass etwas getragen wird.
+//
+// TIERS sind ab hier die **Kerbengründe**, nicht mehr die Armmitten – auf
+// dieser Höhe liegt der Mune auf.
+const TIERS = [0.32, 0.51, 0.7];
+
+// Mitte der Kerbe. Weil das Schwert genau in der Kerbe liegt, ist das zugleich
+// seine x-Achse; zwei getrennte Zahlen dafür wären zwei Zahlen, die
+// auseinanderlaufen können.
+const ARM_X = RACK.x + 0.088;
+
+// Halber Bockabstand. Nicht frei wählbar, sondern die Zahl, die entscheidet,
+// *wo unter dem Schwert* die beiden Kerben sitzen: Bei den vorherigen 0,31 m
+// lagen sie 0,62 m auseinander, das ist fast die ganze Klingenlänge – eine
+// Auflage wäre im Griff gelandet, die andere in der Kissaki. 0,27 m rückt
+// beide auf den tragenden Teil der Klinge und lässt vorn wie hinten Überstand.
+const ARM_SPAN = 0.27;
+
+// Bogenlänge, an der die spitzenseitige Kerbe trägt: gut 5 cm vor dem Yokote.
+// Weiter vorn läge das Schwert auf der Spitze auf, und eine Kissaki trägt
+// nichts – sie ist der dünnste und empfindlichste Teil der Klinge.
+const S_TIP = 0.615;
+
+// Maße der Gabel.
+//
+// `throat` muss die dickste Auflage fassen – das ist die Saya mit 15,3 mm, also
+// bleiben knapp 2 mm Luft je Seite. `mouth` ist mehr als doppelt so weit: Die
+// Kerbe ist oben offen und unten eng, und *diese Verjüngung* ist das, woran man
+// eine Kerbe als Kerbe erkennt. `horn` bleibt bewusst unter der Klingenhöhe
+// (23–35 mm über dem Kerbengrund) – ein Horn, das über die Klinge ragt, sieht
+// aus wie eine Klemme, nicht wie eine Auflage.
+//
+// `z` ist die Armtiefe längs des Ständers und die einzige Zahl hier, die eine
+// versteckte Fehlerquelle hat: Der Kerbengrund ist eben, die Klinge ist es
+// nicht. Über 32 mm Armtiefe weicht der Bogen um 1,3 mm vom ebenen Grund ab –
+// bei den 50 mm des ersten Versuchs waren es 2,2 mm, und die sah man.
+const CRADLE = {
+  z: 0.032,
+  half: 0.03, // halbe Breite der Gabelplatte
+  throat: 0.0095, // halbe lichte Weite am Kerbengrund
+  mouth: 0.02, // halbe lichte Weite an den Hornspitzen
+  horn: 0.019, // Hornhöhe über dem Kerbengrund
+  base: 0.026, // Material unter dem Kerbengrund
+};
+
+// Die Gabel eines Arms: eine U-Platte quer zum Schwert.
+//
+// Als Silhouette gezeichnet und extrudiert – dasselbe Verfahren wie beim Tsuba
+// (`buildTsuba()`), und aus demselben Grund: Eine Kerbe *ist* eine Kontur. Aus
+// Quadern zusammengesetzt bleibt sie ein Stapel Klötze; der Einlauf der Wange
+// in den Kerbengrund, also genau die Linie, an der man die Auflage abliest,
+// lässt sich damit gar nicht bauen.
+function forkPlate() {
+  const { half, throat, mouth, horn, base, z } = CRADLE;
+  const r = 0.006;
+  const s = new THREE.Shape();
+  s.moveTo(-half, -base);
+  s.lineTo(half, -base);
+  s.lineTo(half, horn - r);
+  s.quadraticCurveTo(half, horn, half - r, horn); // äußere Hornkuppe
+  s.lineTo(mouth, horn);
+  s.quadraticCurveTo(throat, horn * 0.5, throat, 0); // Flanke, unten einlaufend
+  s.lineTo(-throat, 0); // Kerbengrund – hier liegt der Mune auf
+  s.quadraticCurveTo(-throat, horn * 0.5, -mouth, horn);
+  s.lineTo(-half + r, horn);
+  s.quadraticCurveTo(-half, horn, -half, horn - r);
+  s.closePath();
+
+  // **`bevelOffset: -bevelSize` – und das ist keine Feinheit, sondern der
+  // Unterschied zwischen „liegt auf" und „steckt im Holz".**
+  //
+  // `ExtrudeGeometry` verschiebt die Kontur nach *außen*: `scalePt2()` addiert
+  // `bevelSize` entlang der Winkelhalbierenden, und der Rumpf sitzt bei
+  // `bevelSize + bevelOffset`. Bei einer konvexen Form fällt das nicht auf – die
+  // Platte wird 2 mm breiter. Bei einer **konkaven** Kerbe zieht dieselbe
+  // Verschiebung den Grund nach oben und die Flanken zusammen. Gemessen an
+  // genau dieser Kontur:
+  //
+  //   ohne Ausgleich   Kerbengrund y = 0.00220   lichte Weite = 0.01506
+  //   mit Ausgleich    Kerbengrund y = 0.00000   lichte Weite = 0.01900
+  //
+  // Beides war falsch, und beides auf dieselbe Art: Die Klinge hätte 2,2 mm im
+  // Holz gesteckt, und die Saya (15,3 mm) hätte sich in einer auf 15,06 mm
+  // verengten Kerbe verkeilt, statt auf dem Grund aufzuliegen.
+  //
+  // Mit `bevelOffset = -bevelSize` liegt der Rumpf bei 0, also exakt auf der
+  // gezeichneten Kontur, und die Fase läuft nach innen in die beiden
+  // Deckflächen. `roundedBox()` löst dasselbe Problem oben durch Vorschrumpfen
+  // der Kontur; hier geht das nicht, weil die Kerbe in die Gegenrichtung
+  // wandert wie der Umriss.
+  const b = 0.0022;
+  const geometry = new THREE.ExtrudeGeometry(s, {
+    depth: z - b * 2,
+    bevelEnabled: true,
+    bevelSize: b,
+    bevelOffset: -b,
+    bevelThickness: b,
+    bevelSegments: 2,
+    curveSegments: 5,
+    steps: 1,
+  });
+  geometry.translate(0, 0, b - z / 2);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+// Ein Schwert in die beiden Kerben setzen.
+//
+// Zwei Auflagen, ein starrer Bogen: Damit das Schwert **beide** Kerben berührt
+// – und genau das unterscheidet „liegt" von „schwebt daneben" –, muss der Mune
+// an beiden Armen gleich hoch sein. Das ist *nicht* dieselbe Neigung, bei der
+// die Sehne der Schneide waagerecht liegt, denn zwischen den Auflagen verjüngt
+// sich die Klinge um 7 mm. Genau diese Verwechslung war der alte Fehler.
+//
+// Mit a = s/R und u = Abstand Rückgrat→Unterseite lauten Höhe und Lage der
+// Auflagelinie im Weltsystem geschlossen (aus `spineAt()` und `swordMatrix()`):
+//   y(a) = y0 − R·cos β + (R−u)·cos(a−β)
+//   z(a) = z0 − R·sin β − (R−u)·sin(a−β)
+// Gleiche Höhe an beiden Auflagen ergibt daraus direkt
+//   tan β = (rG·cos aG − rT·cos aT) / (rT·sin aT − rG·sin aG).
+// Wo die griffseitige Auflage liegt, hängt seinerseits von β ab; das zieht die
+// Schleife nach. Bogenlänge und Sehne sind bei 5° Neigung fast dasselbe, sie
+// steht nach drei Durchläufen (gemessen: ±0,01 mm).
+function seatKatana(floorY, sheathed) {
+  const R = KATANA_R;
+  const under = sheathed ? sayaBack : bladeBack;
+  const rTip = R - under(S_TIP);
+  const aTip = S_TIP / R;
+  let sGrip = S_TIP - 2 * ARM_SPAN;
+  let beta = 0;
+  let rGrip = R;
+  let aGrip = 0;
+  for (let i = 0; i < 8; i++) {
+    rGrip = R - under(sGrip);
+    aGrip = sGrip / R;
+    beta = Math.atan2(
+      rGrip * Math.cos(aGrip) - rTip * Math.cos(aTip),
+      rTip * Math.sin(aTip) - rGrip * Math.sin(aGrip)
+    );
+    // Abstand der beiden Auflagepunkte in z, verglichen mit dem Bockabstand.
+    sGrip += rTip * Math.sin(aTip - beta) - rGrip * Math.sin(aGrip - beta) - 2 * ARM_SPAN;
+  }
+  return swordMatrix(
+    ARM_X,
+    floorY + R * Math.cos(beta) - rGrip * Math.cos(aGrip - beta),
+    RACK.z + ARM_SPAN + R * Math.sin(beta) + rGrip * Math.sin(aGrip - beta),
+    beta
+  );
+}
 
 function addRack(B) {
   const put = (bucket, geo, hex, shade) => B[bucket].geos.push(tint(geo, hex, shade));
   const ao = contactAO(0.2);
-  const postZ = [RACK.z - 0.31, RACK.z + 0.31];
-  const armX = RACK.x + 0.075;
+  const postZ = [RACK.z - ARM_SPAN, RACK.z + ARM_SPAN];
 
   for (const pz of postZ) {
     // Posten, nach oben leicht verjüngt – ein gleichmäßiger Klotz sieht
@@ -669,34 +851,45 @@ function addRack(B) {
     put('wood', foot, 0xcbae83, ao);
 
     for (const y of TIERS) {
-      const arm = roundedBox(0.1, 0.024, 0.042, 0.009);
-      arm.translate(armX, y, pz);
-      put('wood', arm, 0xd8bb8e, ao);
-      const lip = roundedBox(0.02, 0.045, 0.042, 0.008);
-      lip.translate(armX + 0.04, y + 0.02, pz);
-      put('wood', lip, 0xd8bb8e, ao);
+      // Gebackener Kontaktschatten der Kerbe. Eine Auflage ohne Schattenfuge
+      // sitzt zwar richtig, sieht aber trotzdem aufgelegt aus: Wo Klinge und
+      // Holz sich berühren, kommt kein Licht mehr hin, und dieser dunkle
+      // Strich ist das, was das Auge als „Berührung" liest.
+      const seat = (x, yy) => {
+        const dy = Math.abs(yy - y) / 0.024;
+        const dx = Math.max(0, Math.abs(x - ARM_X) - CRADLE.throat) / 0.03;
+        return ao(x, yy) * (0.52 + 0.48 * Math.min(1, Math.max(dy, dx)));
+      };
+
+      // Konsole vom Posten bis unter die Gabel. Gleiche Tiefe wie die Gabel,
+      // damit beide als *ein* Arm lesen und nicht als Platte auf einem Brett.
+      const inner = RACK.x + 0.018;
+      const outer = ARM_X - 0.012;
+      const arm = roundedBox(outer - inner, CRADLE.base, CRADLE.z, 0.008);
+      arm.translate((inner + outer) / 2, y - CRADLE.base / 2 - 0.002, pz);
+      put('wood', arm, 0xd2b184, seat);
+
+      const fork = forkPlate();
+      fork.translate(ARM_X, y, pz);
+      put('wood', fork, 0xd8bb8e, seat);
     }
   }
-  // Untere Traverse zwischen den Böcken
-  const rail = roundedBox(0.05, 0.03, 0.55, 0.01);
+  // Untere Traverse zwischen den Böcken. Länge aus dem Bockabstand, damit sie
+  // beim Verschieben der Böcke nicht in der Luft endet.
+  const rail = roundedBox(0.05, 0.03, 2 * ARM_SPAN - 0.07, 0.01);
   rail.translate(RACK.x, 0.055, RACK.z);
   put('wood', rail, 0xc9a97d, ao);
 
   // Die Schwerter. Zwei blank, das unterste in der Saya – ein Ständer, auf dem
   // alles gleich aussieht, wirkt wie ein Ladenregal.
-  const beta = KATANA.nagasa / KATANA_R / 2;
-  // Auflagehöhe: Die Mune-Linie liegt auf der Gabel, das Rückgrat (Schneide)
-  // also um die Klingenbreite darüber.
-  addKatana(B, swordMatrix(armX + 0.012, TIERS[2] + 0.012 + KATANA.wMachi, RACK.z - 0.1, beta), {
-    itoColor: 0x211d26,
-  });
-  addKatana(B, swordMatrix(armX + 0.012, TIERS[1] + 0.012 + KATANA.wMachi, RACK.z - 0.1, beta), {
-    itoColor: 0x2a2320,
-  });
-  addKatana(B, swordMatrix(armX + 0.012, TIERS[0] + 0.014 + KATANA.wMachi, RACK.z - 0.1, beta), {
-    sheathed: true,
-    itoColor: 0x1d2530,
-  });
+  //
+  // Lage und Neigung kommen aus `seatKatana()`, nicht aus geschätzten Offsets:
+  // Die Saya ist dicker als die blanke Klinge und verjüngt sich anders, sie
+  // braucht deshalb eine andere Höhe *und* eine andere Neigung, um auf
+  // derselben Kerbenform aufzuliegen.
+  addKatana(B, seatKatana(TIERS[2], false), { itoColor: 0x211d26 });
+  addKatana(B, seatKatana(TIERS[1], false), { itoColor: 0x2a2320 });
+  addKatana(B, seatKatana(TIERS[0], true), { sheathed: true, itoColor: 0x1d2530 });
 }
 
 // Abgerundetes Rechteck als Punktliste (für Loft-Querschnitte).

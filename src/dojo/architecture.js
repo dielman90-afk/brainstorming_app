@@ -1,7 +1,18 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { hinokiMaterial, plasterMaterial, tatamiMaterial, washiMaterial, scaleUV } from './materials.js';
-import { ROOM, SHOJI, TATAMI, TOKONOMA, WALL, FREE_RADIUS } from './layout.js';
+import {
+  ROOM,
+  SHOJI,
+  SHOJI_SOUTH,
+  BAND_WEST,
+  BAND_NORTH,
+  FIELD,
+  TATAMI,
+  TOKONOMA,
+  WALL,
+  FREE_RADIUS,
+} from './layout.js';
 
 // Die Hülle des Konstrukt-Dojos: Boden, Wände, Shoji-Front, Tokonoma,
 // offener Dachstuhl, Engawa.
@@ -45,6 +56,129 @@ function instanced(geometry, material, transforms, { cast = true, receive = true
   return mesh;
 }
 
+// --- Eine Wandöffnung -------------------------------------------------------
+//
+// Rahmen, Gitter und Papier für **eine** Öffnung – ob bodentiefe Shoji-Front
+// oder hohes Fensterband, ob Ost, West, Nord oder Süd.
+//
+// **Warum das eine Funktion ist.** Vorher stand der Shoji-Bau als Block für die
+// Ostwand da, und der Ranma daneben als zweiter, ähnlicher Block. Beide
+// versetzten ihre Teile mit *vorzeichenlosen* Konstanten von der Wandebene weg.
+// Auf der Ostwand stimmte das, weil der Raum dort zufällig in −x liegt; auf
+// West und Nord schob dieselbe Zahl das Papier **vor** die Sprossen in den
+// Raum, auf West und Süd zeigte die Ebene mit der Rückseite nach innen. Auf dem
+// Desktop fiel nur die Lage auf (Washi ist beidseitig); in der Brille schaltet
+// quality.js auf FrontSide, und dann waren dort schlicht Löcher.
+//
+// Ein Vorzeichen `inward` – die Richtung von der Wandebene in den Raum –
+// erledigt beides und macht die ganze Fehlerklasse unmöglich. Die drei
+// Abstände sind gestaffelt: Rahmen innen (25 mm), Gitter dazwischen (12 mm),
+// Papier außen (4 mm). So liegt das Papier **hinter** dem Gitter, wie bei einer
+// echten Shoji, und trägt dessen Schattenriss.
+function buildOpening(spec) {
+  const { axis, inward, panels, sillY, headY, koshi, lattice } = spec;
+  const fixedVal = axis === 'x' ? spec.x : spec.z;
+  const from = axis === 'x' ? spec.fromZ ?? spec.from : spec.from;
+  const to = axis === 'x' ? spec.toZ ?? spec.to : spec.to;
+
+  const span = to - from;
+  const panelW = span / panels;
+  const panelH = headY - sillY;
+  const fw = 0.045; // Rahmenbreite längs der Wand
+  const fd = 0.05; // Rahmentiefe quer zur Wand
+
+  // Gestaffelte Abstände von der Wandebene, alle nach innen positiv. Der Wert
+  // für das Gitter ist **abgeleitet**, nicht gesetzt: Bei einem festen 12 mm
+  // lag die Rückseite eines 16-mm-Stabes exakt auf der Papierebene – nicht
+  // draußen, aber bündig, und zwei bündige Flächen sind eine Einladung zum
+  // Z-Fighting. Aus `barDepth` gerechnet bleiben immer 2 mm Luft, unabhängig
+  // davon, wie dick die Sprossen einer Öffnung sind (das Ranma hat 28 mm).
+  const { cols, rows, barWidth = 0.022, barDepth = 0.016 } = lattice;
+  const paperD = 0.004;
+  const barD = paperD + barDepth / 2 + 0.002;
+
+  const frames = [];
+  const bars = [];
+  const papers = [];
+
+  // Lage eines Bauteils: `t` läuft längs der Wand, `d` ist der Abstand von der
+  // Wandebene in den Raum hinein.
+  const at = (t, y, d) =>
+    axis === 'x' ? [fixedVal + inward * d, y, t] : [t, y, fixedVal + inward * d];
+
+  // Ein Brett quer zur Wand ablegen. `alongLen`/`upLen` sind Länge längs der
+  // Wand und Höhe; die Tiefe ist immer `fd`.
+  const plank = (t, y, alongLen, upLen, d) => {
+    const [x, yy, z] = at(t, y, d);
+    return axis === 'x'
+      ? board(fd, upLen, alongLen, 0.4).translate(x, yy, z)
+      : board(alongLen, upLen, fd, 0.4).translate(x, yy, z);
+  };
+
+  for (let p = 0; p < panels; p++) {
+    const ct = from + panelW * (p + 0.5);
+    // Zwei senkrechte Holme, oben und unten ein Riegel
+    frames.push(
+      plank(ct - panelW / 2 + fw / 2, (sillY + headY) / 2, fw, panelH, 0.025),
+      plank(ct + panelW / 2 - fw / 2, (sillY + headY) / 2, fw, panelH, 0.025),
+      plank(ct, sillY + fw / 2, panelW, fw, 0.025),
+      plank(ct, headY - fw / 2, panelW, fw, 0.025)
+    );
+
+    // Gitterstäbe.
+    //
+    // **Keine Drehungen, nur Skalierung eines Einheitswürfels.** Ein Stab ist
+    // ein Quader mit drei verschiedenen Kantenlängen; welche Drehung welche
+    // Kante auf welche Weltachse legt, war in diesem Raum bereits zweimal
+    // falsch: erst `rz` statt `rx`, wodurch die waagerechten Sprossen als
+    // Spieße aus dem Fenster standen, dann auf Nord und Süd eine Drehung, die
+    // zwar die Länge richtig legte, aber Breite und Tiefe vertauschte – die
+    // Stäbe ragten 3 mm durch das Papier nach draußen.
+    //
+    // Mit einem Einheitswürfel und einer Skalierung **in Weltachsen** gibt es
+    // keine Drehung, die falsch sein könnte. Die drei Kantenlängen stehen
+    // direkt da, in der Reihenfolge x, y, z: Tiefe quer zur Wand, Länge, Breite
+    // längs der Wand. Das ist nicht nur der Fix, es ist die Bauform, in der
+    // dieser Fehler nicht mehr vorkommen kann.
+    const acrossWall = (deep, along) => (axis === 'x' ? [deep, along] : [along, deep]);
+    for (let c = 1; c < cols; c++) {
+      const [x, y, z] = at(ct - panelW / 2 + (panelW * c) / cols, (sillY + headY) / 2, barD);
+      const [sx, sz] = acrossWall(barDepth, barWidth);
+      bars.push({ x, y, z, scale: [sx, panelH, sz] });
+    }
+    for (let r = 1; r < rows; r++) {
+      const [x, y, z] = at(ct, sillY + (panelH * r) / rows, barD);
+      const [sx, sz] = acrossWall(barDepth, panelW);
+      bars.push({ x, y, z, scale: [sx, barWidth, sz] });
+    }
+
+    // Papierfeld, außen. `rotateY(inward · π/2)` dreht die Vorderseite in den
+    // Raum; bei einer Nord-/Südwand zeigt die ungedrehte Ebene bereits nach
+    // +Z, für die Südseite ist sie also um π zu wenden.
+    const paper = new THREE.PlaneGeometry(panelW - fw * 2, panelH - fw * 2);
+    if (axis === 'x') paper.rotateY((inward * Math.PI) / 2);
+    else if (inward < 0) paper.rotateY(Math.PI);
+    const [px, py, pz] = at(ct, (sillY + headY) / 2, paperD);
+    papers.push(paper.translate(px, py, pz));
+
+    // Brüstungsfeld (Koshi) unter dem Papier – volles Holz, kein Licht.
+    if (koshi) frames.push(plank(ct, sillY / 2, panelW, sillY, 0.025));
+  }
+
+  // Sturz über die ganze Front. Nur bei bodentiefen Fronten; ein Fensterband
+  // hat seinen Abschluss schon im Rahmen.
+  if (koshi) {
+    const [hx, hy, hz] = at((from + to) / 2, headY + 0.07, 0.045);
+    frames.push(
+      axis === 'x'
+        ? board(0.09, 0.14, span + 0.2, 0.6).translate(hx, hy, hz)
+        : board(span + 0.2, 0.14, 0.09, 0.6).translate(hx, hy, hz)
+    );
+  }
+
+  return { frames, bars, papers };
+}
+
 export function buildArchitecture() {
   const group = new THREE.Group();
   group.name = 'dojo-architecture';
@@ -56,7 +190,19 @@ export function buildArchitecture() {
   // Das Papier leuchtet, weil die Sonne dahintersteht. Der Wert ist bewusst
   // hoch: Washi im Gegenlicht ist die hellste Fläche im ganzen Raum, und der
   // Kontrast dazu trägt die Stimmung.
-  const washi = washiMaterial({ emissive: 0xffeccc, emissiveIntensity: 0.62 });
+  // `shadowedEmissive`: Das Leuchten hört auf, wo der Bambushain davorsteht –
+  // ohne das wirft der Hain zwar Schatten, aber nicht dorthin, wo man sie sieht.
+  const washi = washiMaterial({
+    emissive: 0xffeccc,
+    emissiveIntensity: 0.62,
+    shadowedEmissive: true,
+  });
+  // Papier auf den drei Schattenseiten. Süd, West und Nord liegen im Schatten
+  // des eigenen Gebäudes – die Sonne steht im Osten. Gleich hell wären sie vier
+  // gleichwertige Lichtquellen, und damit gäbe es keine Sonnenseite mehr; genau
+  // die trägt aber die ganze Lichtstimmung. Kühler und deutlich schwächer:
+  // Himmelslicht statt Sonne, physikalisch wie kompositorisch richtig.
+  const washiShade = washiMaterial({ emissive: 0xcfe0ea, emissiveIntensity: 0.16 });
 
   // --- Dielenboden ----------------------------------------------------------
   const PLANK = 0.19;
@@ -89,10 +235,9 @@ export function buildArchitecture() {
   const matY = 0.055 + TATAMI.thickness / 2;
 
   // Feldgrenzen: die eigentliche Übungsfläche, ringsum bleibt Diele frei.
-  const FX0 = -3.64;
-  const FX1 = 3.64;
-  const FZ0 = -5.0;
-  const FIELD_ROWS = 6;
+  // Stehen in layout.js und sind aus ROOM abgeleitet – als feste Zahlen hier
+  // wäre das Feld beim Verlängern des Raums stehen geblieben.
+  const { x0: FX0, x1: FX1, z0: FZ0, rows: FIELD_ROWS } = FIELD;
 
   for (let r = 0; r < FIELD_ROWS; r++) {
     const z = FZ0 + r * TATAMI.short + TATAMI.short / 2;
@@ -138,25 +283,49 @@ export function buildArchitecture() {
   // demselben Material, das sind drei Draw-Calls ohne jeden Gewinn.
   const t = WALL.thickness;
   const h = ROOM.wallTop;
+
+  // Putz um eine Öffnung herum: darunter, darüber und an beiden Enden.
+  //
+  // Das ist die Stelle, an der „alle Wände sind geschlossen" gewonnen oder
+  // verloren wird. Vier Öffnungen von Hand zu umbauen hieße sechzehn
+  // Wandstücke von Hand zu rechnen; jedes einzelne davon eine Gelegenheit für
+  // genau die Lücke, die man dann im Gegenlicht als leuchtenden Keil sieht.
+  // Deshalb leitet sich der Putz aus derselben Beschreibung ab wie die Öffnung.
+  const wallAround = (spec, lo, hi) => {
+    const axis = spec.axis;
+    const fixedVal = axis === 'x' ? spec.x : spec.z;
+    const from = axis === 'x' ? spec.fromZ ?? spec.from : spec.from;
+    const to = axis === 'x' ? spec.toZ ?? spec.to : spec.to;
+    const d = fixedVal - spec.inward * (t / 2); // Wandmitte, von der Ebene weg
+    const put = (tCenter, y, alongLen, upLen) =>
+      axis === 'x'
+        ? board(t, upLen, alongLen, 1.1).translate(d, y, tCenter)
+        : board(alongLen, upLen, t, 1.1).translate(tCenter, y, d);
+
+    const out = [];
+    // Enden links und rechts der Öffnung, volle Höhe
+    if (from - lo > 1e-3) out.push(put((lo + from) / 2, h / 2, from - lo, h));
+    if (hi - to > 1e-3) out.push(put((to + hi) / 2, h / 2, hi - to, h));
+    // Über dem Sturz bis zur Wandkrone
+    const above = h - spec.headY - 0.14;
+    if (above > 1e-3) out.push(put((from + to) / 2, spec.headY + 0.14 + above / 2, to - from, above));
+    // Unter der Brüstung. Bodentiefe Fronten haben dort ihr Koshi-Feld und
+    // brauchen keinen Putz; ein hohes Band steht dagegen auf einer Wand.
+    if (!spec.koshi && spec.sillY > 1e-3) {
+      out.push(put((from + to) / 2, spec.sillY / 2, to - from, spec.sillY));
+    }
+    return out;
+  };
+
   const wallGeos = [
-    // Nord (hinter dem Tokonoma), in zwei Stücken links und rechts der Nische
-    board((ROOM.maxX - ROOM.minX) / 2 - TOKONOMA.width / 2 + 0.4, h, t, 1.1).translate(
-      (ROOM.minX + TOKONOMA.centerX - TOKONOMA.width / 2) / 2 - 0.2,
-      h / 2,
-      WALL.north - t / 2
-    ),
-    board((ROOM.maxX - ROOM.minX) / 2 - TOKONOMA.width / 2 + 0.4, h, t, 1.1).translate(
-      (ROOM.maxX + TOKONOMA.centerX + TOKONOMA.width / 2) / 2 + 0.2,
-      h / 2,
-      WALL.north - t / 2
-    ),
-    // West (Putzwand, davor steht der Waffenständer)
-    board(t, h, ROOM.maxZ - ROOM.minZ, 1.1).translate(WALL.west + t / 2, h / 2, (ROOM.minZ + ROOM.maxZ) / 2),
-    // Süd: **volle Wand.** Vorher stand hier nur eine 50-cm-Brüstung, darüber
-    // war der Raum offen – wer sich umdrehte, sah in den fast schwarzen
-    // Hintergrund. Ein Raum, aus dem man in ein Nichts blickt, ist kein Raum;
-    // die Referenzen zeigen ausnahmslos vier geschlossene Wände.
-    board(ROOM.maxX - ROOM.minX, h, t, 1.1).translate(0, h / 2, WALL.south + t / 2),
+    // Putz um die vier Öffnungen. Die Nordwand ist in zwei Abschnitte links
+    // und rechts der Tokonoma geteilt; die Nische bekommt ihre eigene Rückwand
+    // (weiter unten) und darf hier nicht zugemauert werden.
+    ...wallAround(SHOJI, ROOM.minZ, ROOM.maxZ),
+    ...wallAround(SHOJI_SOUTH, ROOM.minX, ROOM.maxX),
+    ...wallAround(BAND_WEST, ROOM.minZ, ROOM.maxZ),
+    ...wallAround(BAND_NORTH[0], ROOM.minX, TOKONOMA.centerX - TOKONOMA.width / 2 - 0.15),
+    ...wallAround(BAND_NORTH[1], TOKONOMA.centerX + TOKONOMA.width / 2 + 0.15, ROOM.maxX),
     // Abschluss zwischen Ranma-Oberkante und Decke, rundum. Ohne den bliebe
     // genau der Spalt offen, der beim alten Dach vier Runden gekostet hat –
     // diesmal ist er von vornherein zu.
@@ -193,19 +362,6 @@ export function buildArchitecture() {
     board(TOKONOMA.width + 0.3, h - TOKONOMA.headY - 0.22, t, 1.1).translate(
       TOKONOMA.centerX, (TOKONOMA.headY + 0.22 + h) / 2, WALL.north - t / 2
     ),
-    // Ost: die Shoji-Front füllt nur z = fromZ…toZ und reicht bis headY. Der
-    // Rest muss zu, sonst sieht man über und neben ihr in den schwarzen
-    // Hintergrund – im ersten Durchgang war das ein leuchtendes Loch, das die
-    // halbe Ostseite ausgebrannt hat.
-    board(t, h - SHOJI.headY - 0.14, SHOJI.toZ - SHOJI.fromZ, 1.1).translate(
-      WALL.east - t / 2, (SHOJI.headY + 0.14 + h) / 2, (SHOJI.fromZ + SHOJI.toZ) / 2
-    ),
-    board(t, h, SHOJI.fromZ - ROOM.minZ, 1.1).translate(
-      WALL.east - t / 2, h / 2, (ROOM.minZ + SHOJI.fromZ) / 2
-    ),
-    board(t, h, ROOM.maxZ - SHOJI.toZ, 1.1).translate(
-      WALL.east - t / 2, h / 2, (SHOJI.toZ + ROOM.maxZ) / 2
-    ),
   ];
   // (Die frueheren Giebeldreiecke sind entfallen. Mit einer flachen Decke gibt
   // es keinen Giebel mehr – und damit auch keine der vier Traufecken, an denen
@@ -228,6 +384,40 @@ export function buildArchitecture() {
   tokBack.position.set(TOKONOMA.centerX, TOKONOMA.headY / 2, WALL.north - TOKONOMA.depth - t / 2);
   tokBack.receiveShadow = true;
   tok.add(tokBack);
+
+  // **Wangen und Sturzfläche der Nische.**
+  //
+  // Die Nische ist ein 50 cm tiefer Rücksprung; sie hatte bisher nur eine
+  // Rückwand. Solange draußen nichts war, fiel das nicht auf – seitlich sah man
+  // in denselben fast schwarzen Hintergrund, den auch der Nebel lieferte. Seit
+  // es einen Bambushain gibt, sieht man an der Nische **vorbei ins Grüne**, und
+  // aus der Bildnische wird ein Fenster.
+  //
+  // Genau derselbe Mechanismus wie beim Dach: Ein Loch bleibt unbemerkt,
+  // solange dahinter nichts ist, das es verrät.
+  const tokSides = [];
+  for (const side of [-1, 1]) {
+    tokSides.push(
+      board(t, TOKONOMA.headY, TOKONOMA.depth + t, 0.8).translate(
+        TOKONOMA.centerX + side * (TOKONOMA.width / 2 + t / 2),
+        TOKONOMA.headY / 2,
+        WALL.north - TOKONOMA.depth / 2
+      )
+    );
+  }
+  // Deckel über der Nische, sonst sieht man von unten über die Rückwand hinweg.
+  tokSides.push(
+    board(TOKONOMA.width + 2 * t, t, TOKONOMA.depth + t, 0.8).translate(
+      TOKONOMA.centerX,
+      TOKONOMA.headY + t / 2,
+      WALL.north - TOKONOMA.depth / 2
+    )
+  );
+  const tokJambs = new THREE.Mesh(mergeGeometries(tokSides, false), plasterMaterial(0x9c968a));
+  tokJambs.name = 'dojo-tokonoma-wangen';
+  tokJambs.receiveShadow = true;
+  tokJambs.castShadow = true;
+  tok.add(tokJambs);
 
   // Erhöhter Nischenboden aus einem einzigen dicken Brett
   const tokFloor = new THREE.Mesh(board(TOKONOMA.width, TOKONOMA.floorY, TOKONOMA.depth, 0.5), hinokiDark);
@@ -262,88 +452,64 @@ export function buildArchitecture() {
   tok.add(lintel);
   group.add(tok);
 
-  // --- Shoji-Front (Ost) ----------------------------------------------------
+  // --- Öffnungen: Shoji-Fronten und Fensterbänder ---------------------------
   //
   // Das Gitter ist **echte Geometrie**, keine Textur. Im Gegenlicht ist genau
   // dieses Gitter die Silhouette, die den Raum als japanisch lesbar macht; als
   // Textur auf einer Fläche hätte es keinen eigenen Schattenwurf und keine
   // Tiefe, und die Lichtschächte träfen auf nichts.
+  //
+  // Vier Wände, vier Aufrufe derselben Funktion. Die Ostfront steht in der
+  // Sonne und bekommt das leuchtende Washi; Süd, West und Nord liegen im
+  // Schatten des eigenen Gebäudes und bekommen das gedämpfte. Ein zweites
+  // gleich helles Fenster hätte die Lichtrichtung zerstört, an der vier Runden
+  // lang gearbeitet wurde – es gäbe dann keine Sonnenseite mehr.
   const shoji = new THREE.Group();
   shoji.name = 'dojo-shoji';
-  const spanZ = SHOJI.toZ - SHOJI.fromZ;
-  const panelW = spanZ / SHOJI.panels;
-  const panelH = SHOJI.headY - SHOJI.sillY;
+
+  const sunny = [SHOJI];
+  const shaded = [SHOJI_SOUTH, BAND_WEST, ...BAND_NORTH];
   const frameGeos = [];
   const latticeT = [];
-  const papers = [];
+  const sunPapers = [];
+  const shadePapers = [];
 
-  for (let p = 0; p < SHOJI.panels; p++) {
-    const cz = SHOJI.fromZ + panelW * (p + 0.5);
-    const fw = 0.045;
-    // Rahmen: zwei senkrechte Holme, oben und unten ein Riegel
-    frameGeos.push(
-      board(0.05, panelH, fw, 0.4).translate(SHOJI.x - 0.025, (SHOJI.sillY + SHOJI.headY) / 2, cz - panelW / 2 + fw / 2),
-      board(0.05, panelH, fw, 0.4).translate(SHOJI.x - 0.025, (SHOJI.sillY + SHOJI.headY) / 2, cz + panelW / 2 - fw / 2),
-      board(0.05, fw, panelW, 0.4).translate(SHOJI.x - 0.025, SHOJI.sillY + fw / 2, cz),
-      board(0.05, fw, panelW, 0.4).translate(SHOJI.x - 0.025, SHOJI.headY - fw / 2, cz)
-    );
-    // Gitterstäbe
-    const { cols, rows: lrows, barWidth, barDepth } = SHOJI.lattice;
-    for (let c = 1; c < cols; c++) {
-      latticeT.push({
-        x: SHOJI.x - 0.012,
-        y: (SHOJI.sillY + SHOJI.headY) / 2,
-        z: cz - panelW / 2 + (panelW * c) / cols,
-        scale: [1, panelH / 1, 1],
-      });
-    }
-    for (let r = 1; r < lrows; r++) {
-      latticeT.push({
-        x: SHOJI.x - 0.012,
-        y: SHOJI.sillY + (panelH * r) / lrows,
-        z: cz,
-        // **Um X drehen, nicht um Z.** Der Stab ist ein Quader, dessen Laenge
-        // auf der lokalen Y-Achse liegt. Eine Drehung um Z legt diese Achse auf
-        // world-X – also **in den Raum hinein**: Die waagerechten Sprossen
-        // standen dadurch als Staebe aus dem Fenster heraus. Um X gedreht liegt
-        // sie auf world-Z, also entlang des Fensters, wo sie hingehoert.
-        rx: Math.PI / 2,
-        scale: [1, panelW / 1, 1],
-      });
-    }
-    papers.push(
-      new THREE.PlaneGeometry(panelW - fw * 2, panelH - fw * 2)
-        .rotateY(-Math.PI / 2)
-        .translate(SHOJI.x - 0.004, (SHOJI.sillY + SHOJI.headY) / 2, cz)
-    );
-    // Brüstungsfeld (Koshi) unter dem Papier – volles Holz, kein Licht
-    frameGeos.push(board(0.05, SHOJI.sillY, panelW, 0.4).translate(SHOJI.x - 0.025, SHOJI.sillY / 2, cz));
+  for (const spec of [...sunny, ...shaded]) {
+    const part = buildOpening(spec);
+    frameGeos.push(...part.frames);
+    latticeT.push(...part.bars);
+    (spec.shaded ? shadePapers : sunPapers).push(...part.papers);
   }
+
   const frames = new THREE.Mesh(mergeGeometries(frameGeos, false), hinokiDark);
+  frames.name = 'dojo-frames';
   frames.castShadow = true;
   frames.receiveShadow = true;
   shoji.add(frames);
 
-  const barGeo = new THREE.BoxGeometry(SHOJI.lattice.barDepth, 1, SHOJI.lattice.barWidth);
+  // Ein Einheitswürfel für **alle** Sprossen im Raum – Shoji, Fensterbänder und
+  // Ranma. Die Kantenlängen stecken in der Instanzskalierung; damit ist es eine
+  // Geometrie, ein Material, ein Zeichenaufruf für rund zweihundert Stäbe.
+  const barGeo = new THREE.BoxGeometry(1, 1, 1);
   shoji.add(instanced(barGeo, hinokiDark, latticeT, { receive: false, name: 'dojo-lattice' }));
 
-  const paper = new THREE.Mesh(mergeGeometries(papers, false), washi);
-  paper.name = 'dojo-washi';
   // **Papier wirft Schatten.** Ohne das schien die Sonne ungehindert durch die
   // Shoji auf den Boden, als stünde dort gar keine Wand – der ganze
   // Ostbereich brannte auf reines Weiß aus. Drei Runden Zurücknehmen an den
   // additiven Lagen haben das Symptom bekämpft und die Ursache nicht berührt.
   // Washi lässt Licht durch, aber es *dämpft* es; genau diese Dämpfung fehlte.
   // Das Durchscheinen macht weiterhin `emissive` plus die Lichtschächte.
+  const paper = new THREE.Mesh(mergeGeometries(sunPapers, false), washi);
+  paper.name = 'dojo-washi';
   paper.castShadow = true;
   paper.receiveShadow = true;
   shoji.add(paper);
 
-  // Sturz und Schwelle über die ganze Front
-  const head = new THREE.Mesh(board(0.09, 0.14, spanZ + 0.2, 0.6), hinokiDark);
-  head.position.set(SHOJI.x - 0.045, SHOJI.headY + 0.07, (SHOJI.fromZ + SHOJI.toZ) / 2);
-  head.castShadow = true;
-  shoji.add(head);
+  const shadePaper = new THREE.Mesh(mergeGeometries(shadePapers, false), washiShade);
+  shadePaper.name = 'dojo-washi-schatten';
+  shadePaper.castShadow = true;
+  shadePaper.receiveShadow = true;
+  shoji.add(shadePaper);
   group.add(shoji);
 
   // --- Geschlossene Decke mit Unterzügen -------------------------------------
@@ -386,6 +552,59 @@ export function buildArchitecture() {
   spine.position.set(0, ROOM.ceilingY - 0.28, (ROOM.minZ + ROOM.maxZ) / 2);
   spine.castShadow = true;
   roof.add(spine);
+
+  // --- Walmdach von außen ---------------------------------------------------
+  //
+  // Von innen sieht man davon **nichts** – die Decke ist geschlossen. Es steht
+  // trotzdem hier, aus zwei Gründen.
+  //
+  // Erstens: Ohne Dach ist das Gebäude von außen eine oben offene Kiste, in die
+  // man von schräg oben hineinsieht (die Deckenschalung ist einseitig und nach
+  // unten gerichtet, von oben also gar nicht da). Seit es eine Außenwelt gibt,
+  // ist das eine Ansicht, die vorkommt.
+  //
+  // Zweitens, und wichtiger: Das Dach **wirft Schatten**. Bei einer Sonne, die
+  // 11 Grad über dem Horizont steht, legt der Überstand einen Streifen über den
+  // Boden vor der Ostfront – der Übergang von Innenraum zu Außenwelt bekommt
+  // damit eine Kante, statt in gleichmäßige Helligkeit auszulaufen.
+  //
+  // Als ein einziges Netz aus sechs Dreiecken gebaut; ein Walmdach ist genau
+  // das, und aus Quadern zusammengesetzt wäre es ein Stapel Kisten.
+  const EAVE = 0.95; // Überstand über die Wandflucht
+  const RIDGE_UP = 1.9; // Höhe des Firsts über der Traufe
+  const HIP = 3.4; // Einzug des Firsts an den Schmalseiten
+  const ex0 = ROOM.minX - EAVE;
+  const ex1 = ROOM.maxX + EAVE;
+  const ez0 = ROOM.minZ - EAVE;
+  const ez1 = ROOM.maxZ + EAVE;
+  const ry0 = ROOM.ceilingY + 0.12;
+  const ry1 = ry0 + RIDGE_UP;
+  const roofPos = [
+    // Westseite (Traufe West → First)
+    ex0, ry0, ez0, ex0, ry0, ez1, 0, ry1, ez1 - HIP,
+    ex0, ry0, ez0, 0, ry1, ez1 - HIP, 0, ry1, ez0 + HIP,
+    // Ostseite
+    ex1, ry0, ez1, ex1, ry0, ez0, 0, ry1, ez0 + HIP,
+    ex1, ry0, ez1, 0, ry1, ez0 + HIP, 0, ry1, ez1 - HIP,
+    // Walm Nord und Süd
+    ex0, ry0, ez0, 0, ry1, ez0 + HIP, ex1, ry0, ez0,
+    ex1, ry0, ez1, 0, ry1, ez1 - HIP, ex0, ry0, ez1,
+  ];
+  const roofGeo = new THREE.BufferGeometry();
+  roofGeo.setAttribute('position', new THREE.Float32BufferAttribute(roofPos, 3));
+  // UVs aus der Grundfläche: Die Ziegelreihen laufen damit über alle vier
+  // Flächen im gleichen Maßstab weiter, statt an jedem Grat zu springen.
+  const roofUv = [];
+  for (let i = 0; i < roofPos.length; i += 3) {
+    roofUv.push(roofPos[i] / 0.9, roofPos[i + 2] / 0.9);
+  }
+  roofGeo.setAttribute('uv', new THREE.Float32BufferAttribute(roofUv, 2));
+  roofGeo.computeVertexNormals();
+  const roofShell = new THREE.Mesh(roofGeo, hinokiMaterial({ color: 0x4b4f52, uvScale: 1 }));
+  roofShell.name = 'dojo-roof';
+  roofShell.castShadow = true;
+  roofShell.receiveShadow = true;
+  roof.add(roofShell);
   group.add(roof);
 
   // --- Ranma: Fensterband zwischen Wandkrone und Decke -----------------------
@@ -394,49 +613,66 @@ export function buildArchitecture() {
   // den Wänden läuft. Er bringt das Licht **oben** in den Raum – der Grund,
   // warum ein Dojo hell wirkt, ohne dass eine Wand fehlt – und er schließt die
   // Lücke zwischen Wand und Decke, die vorher offen war.
+  //
+  // **Hier steckte der Fehler, nach dem der Nutzer gefragt hat.** Der frühere
+  // `runRanma` versetzte sein Papier mit einem vorzeichenlosen `+0,03` und
+  // baute die Ebene ohne Rücksicht darauf, wo der Raum liegt. Auf Ost und Süd
+  // ging das Papier damit nach außen, auf West und Nord nach innen – es stand
+  // *vor* den Sprossen im Raum. Und die Vorderseite zeigte auf West und Süd
+  // nach draußen; auf dem Desktop unsichtbar, weil Washi beidseitig ist, in der
+  // Brille ein Loch, weil quality.js dort auf FrontSide schaltet.
+  //
+  // Jetzt ist das Ranma dieselbe Öffnung wie jedes Fenster, nur flacher und
+  // ohne Querstäbe – und `inward` gibt es genau einmal je Wand.
   const ranma = new THREE.Group();
   ranma.name = 'dojo-ranma';
-  const ranmaH = ROOM.ranmaTop - ROOM.wallTop;
+  const RANMA_STEP = 0.34;
+  const ranmaSpec = (axis, fixedVal, inward, from, to) => ({
+    axis,
+    [axis]: fixedVal,
+    inward,
+    from,
+    to,
+    fromZ: from,
+    toZ: to,
+    sillY: ROOM.wallTop,
+    headY: ROOM.ranmaTop,
+    koshi: false,
+    panels: 1,
+    // Nur senkrechte Sprossen, dafür dicht – das ist das Bild eines Ranma.
+    lattice: {
+      cols: Math.max(2, Math.round((to - from) / RANMA_STEP)),
+      rows: 0,
+      barWidth: 0.028,
+      barDepth: 0.028,
+    },
+  });
+
   const ranmaGeos = [];
   const ranmaBars = [];
-  const RANMA_STEP = 0.34;
+  const ranmaPapers = [];
+  for (const spec of [
+    ranmaSpec('x', WALL.east, -1, ROOM.minZ, ROOM.maxZ),
+    ranmaSpec('x', WALL.west, 1, ROOM.minZ, ROOM.maxZ),
+    ranmaSpec('z', WALL.north, 1, ROOM.minX, ROOM.maxX),
+    ranmaSpec('z', WALL.south, -1, ROOM.minX, ROOM.maxX),
+  ]) {
+    const part = buildOpening(spec);
+    ranmaGeos.push(...part.frames);
+    ranmaBars.push(...part.bars);
+    ranmaPapers.push(...part.papers);
+  }
 
-  const runRanma = (fixedAxis, fixedVal, from, to, along) => {
-    // Rahmen oben und unten über die ganze Länge
-    const len = to - from;
-    const mid = (from + to) / 2;
-    for (const y of [ROOM.wallTop + 0.03, ROOM.ranmaTop - 0.03]) {
-      const g = along === 'z'
-        ? board(0.1, 0.06, len, 0.4).translate(fixedVal, y, mid)
-        : board(len, 0.06, 0.1, 0.4).translate(mid, y, fixedVal);
-      ranmaGeos.push(g);
-    }
-    // Senkrechte Sprossen
-    for (let t = from + RANMA_STEP; t < to - 0.05; t += RANMA_STEP) {
-      ranmaBars.push(along === 'z'
-        ? { x: fixedVal, y: (ROOM.wallTop + ROOM.ranmaTop) / 2, z: t }
-        : { x: t, y: (ROOM.wallTop + ROOM.ranmaTop) / 2, z: fixedVal });
-    }
-    // Papierfeld dahinter – dieselbe Wirkung wie bei der Shoji-Front
-    const paperGeo = along === 'z'
-      ? new THREE.PlaneGeometry(len, ranmaH - 0.06).rotateY(-Math.PI / 2).translate(fixedVal + 0.03, (ROOM.wallTop + ROOM.ranmaTop) / 2, mid)
-      : new THREE.PlaneGeometry(len, ranmaH - 0.06).translate(mid, (ROOM.wallTop + ROOM.ranmaTop) / 2, fixedVal + 0.03);
-    return paperGeo;
-  };
-
-  const ranmaPapers = [
-    runRanma('x', WALL.east - 0.06, ROOM.minZ, ROOM.maxZ, 'z'),
-    runRanma('x', WALL.west + 0.06, ROOM.minZ, ROOM.maxZ, 'z'),
-    runRanma('z', WALL.north + 0.06, ROOM.minX, ROOM.maxX, 'x'),
-    runRanma('z', WALL.south - 0.06, ROOM.minX, ROOM.maxX, 'x'),
-  ];
   const ranmaFrame = new THREE.Mesh(mergeGeometries(ranmaGeos, false), hinokiDark);
+  ranmaFrame.name = 'dojo-ranma-frame';
   ranmaFrame.castShadow = true;
   ranma.add(ranmaFrame);
-  const ranmaBarGeo = new THREE.BoxGeometry(0.028, ranmaH - 0.06, 0.028);
-  ranma.add(instanced(ranmaBarGeo, hinokiDark, ranmaBars, { receive: false, name: 'dojo-ranma-bars' }));
-  const ranmaPaper = new THREE.Mesh(mergeGeometries(ranmaPapers, false), washi);
+  ranma.add(instanced(barGeo, hinokiDark, ranmaBars, { receive: false, name: 'dojo-ranma-bars' }));
+  // Das Ranma liegt unter der Traufe und sieht keine direkte Sonne – es bekommt
+  // dasselbe gedämpfte Papier wie die drei Schattenwände.
+  const ranmaPaper = new THREE.Mesh(mergeGeometries(ranmaPapers, false), washiShade);
   ranmaPaper.name = 'dojo-ranma-paper';
+  ranmaPaper.castShadow = true;
   ranma.add(ranmaPaper);
   group.add(ranma);
 
