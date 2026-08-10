@@ -206,20 +206,36 @@ function backdropTexture() {
     ctx.save();
     ctx.filter = `blur(${blur}px)`;
     ctx.fillStyle = colour;
+    // **Über den Rand hinaus zeichnen.** `ctx.filter = blur()` tastet außerhalb
+    // der Leinwand als *durchsichtig* ab: An x = 0 und x = w entsteht dadurch
+    // ein aufgehellter Streifen, und beim Kacheln treffen sich die beiden zu
+    // einer hellen senkrechten Linie mitten in der Ferne. Genau die hat der
+    // Kritiker als Tapetennaht gemeldet – und sie blieb, nachdem die
+    // Frequenzen längst ganzzahlig waren, weil sie nie an den Frequenzen lag.
+    //
+    // Die Kammfunktion ist in u periodisch, lässt sich also gefahrlos über
+    // beide Ränder hinaus fortsetzen; die Weichzeichnung bekommt damit auf
+    // beiden Seiten echten Inhalt.
+    const OVER = w * 0.12;
     ctx.beginPath();
-    ctx.moveTo(0, h);
-    for (let x = 0; x <= w; x += 6) {
+    ctx.moveTo(-OVER, h);
+    for (let x = -OVER; x <= w + OVER; x += 6) {
       const u = (x / w) * Math.PI * 2;
+      // **Nur ganzzahlige Frequenzen.** 2,3 · 4,7 · 9,1 sahen als Kammlinie
+      // besser aus, kachelten aber nicht: Die Textur läuft einmal um den
+      // Zylinder, und wo u = 0 auf u = 1 trifft, sprang die Linie um mehrere
+      // Pixel. Genau diese senkrechte Naht mitten im Bild hat die ganze Ferne
+      // als Tapete verraten. Ganzzahlige Vielfache schließen sich exakt.
       const y =
         baseY -
         amp *
-          (0.52 * Math.sin(u * 1.0 + ph[0]) +
-            0.3 * Math.sin(u * 2.3 + ph[1]) +
-            0.14 * Math.sin(u * 4.7 + ph[2]) +
-            0.08 * Math.sin(u * 9.1 + ph[3]));
+          (0.52 * Math.sin(u * 1 + ph[0]) +
+            0.3 * Math.sin(u * 2 + ph[1]) +
+            0.14 * Math.sin(u * 5 + ph[2]) +
+            0.08 * Math.sin(u * 9 + ph[3]));
       ctx.lineTo(x, y);
     }
-    ctx.lineTo(w, h);
+    ctx.lineTo(w + OVER, h);
     ctx.closePath();
     ctx.fill();
     ctx.restore();
@@ -227,12 +243,15 @@ function backdropTexture() {
 
   // Von hinten nach vorn. Die Mischung zur Himmelsfarbe ist der Kern: Die
   // hinterste Kette liegt bei 78 % Himmel, die vorderste bei 12 %.
-  const base = [52, 68, 58];
+  // Kräftiger als im ersten Anlauf: Mit 0,78 Dunst auf einem ohnehin hellen
+  // Grün war die hinterste Kette praktisch unsichtbar und die Ferne ein
+  // gleichmäßiger heller Nebel ohne Staffelung.
+  const base = [34, 52, 41];
   const layers = [
-    [h * 0.42, h * 0.15, 0.78, 7],
-    [h * 0.56, h * 0.13, 0.58, 5],
-    [h * 0.7, h * 0.11, 0.36, 3.5],
-    [h * 0.84, h * 0.09, 0.12, 2],
+    [h * 0.42, h * 0.15, 0.66, 7],
+    [h * 0.56, h * 0.13, 0.46, 5],
+    [h * 0.7, h * 0.11, 0.26, 3.5],
+    [h * 0.84, h * 0.09, 0.07, 2],
   ];
   layers.forEach(([y, amp, haze, blur], i) => {
     const c = base.map((v, k) => Math.round(v * (1 - haze) + SKY_LOW[k] * haze));
@@ -256,9 +275,15 @@ function backdropTexture() {
   ctx.filter = 'blur(2px)';
   ctx.fillStyle = 'rgb(52,66,52)';
   ctx.beginPath();
-  ctx.moveTo(0, h);
-  for (let x = 0; x <= w; x += 11) {
-    ctx.lineTo(x, h * 0.955 - r() * h * 0.035);
+  ctx.moveTo(-70, h);
+  const saum = [];
+  for (let x = 0; x <= w; x += 11) saum.push(r());
+  saum[saum.length - 1] = saum[0]; // schließt die Kachel
+  // Dieselbe Überzeichnung wie oben: eine Kachelbreite links und rechts
+  // fortgesetzt, damit die 2-px-Weichzeichnung nicht in den leeren Rand greift.
+  for (let k = -6; k < saum.length + 6; k++) {
+    const kk = ((k % (saum.length - 1)) + saum.length - 1) % (saum.length - 1);
+    ctx.lineTo(k * 11, h * 0.955 - saum[kk] * h * 0.035);
   }
   ctx.lineTo(w, h);
   ctx.closePath();
@@ -810,8 +835,12 @@ export function buildExterior() {
 
   // --- Ferne ---------------------------------------------------------------
   const { radius, height } = EXTERIOR.backdrop;
+  // **Höher und tiefer angesetzt.** Der obere Rand des Mantels lag zuvor im
+  // Blickfeld und zeichnete einen Bogen quer über den Himmel – man sah der
+  // Kulisse an, dass sie ein Zylinder ist. Jetzt reicht sie weit über den
+  // Horizont hinaus und beginnt deutlich unter dem Boden.
   const backGeo = new THREE.CylinderGeometry(radius, radius, height, 40, 1, true);
-  backGeo.translate(0, height / 2 + EXTERIOR.ground.y - 3, (ROOM.minZ + ROOM.maxZ) / 2);
+  backGeo.translate(0, height / 2 + EXTERIOR.ground.y - 9, (ROOM.minZ + ROOM.maxZ) / 2);
   const backdrop = new THREE.Mesh(
     backGeo,
     new THREE.MeshBasicMaterial({
