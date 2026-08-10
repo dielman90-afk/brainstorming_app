@@ -60,22 +60,36 @@ gegen den tatsächlichen Code geprüft.
 - [~] **Konstrukt-Dojo als fünfte Umgebung** – Samurai-Trainingsraum im Stil des
       Films, in eigenen Dateien unter `src/dojo/`. Erste Umgebung der App mit
       echten Schatten, PBR-Materialien und prozeduraler Environment-Map.
-      Zeichenlast im Budget (58 Draw-Calls, 43k Dreiecke).
+      Zeichenlast im Budget (67 Draw-Calls, 100k Dreiecke).
       **Vier Kritik-Runden gegen die Rubrik: 0/9 → 2/9 → 6/9.**
+      **Erledigt am 2026-08-10** (die vier Rückfragen zu den Referenzbildern):
+      • Dach: offener Giebeldachstuhl durch geschlossene Decke ersetzt, dazu ein
+        Walmdach nach außen. Magenta-Lochprobe **0,0 %** (vorher 0,429 %).
+      • Schwarze Wand ins Nichts: Südseite ist eine volle Wand mit Shoji-Front;
+        der Raum ist nach Süden von 9 auf 14 m verlängert.
+      • Abstehende Fensterstäbe: Sprossen sind skalierte Einheitswürfel ohne
+        Drehung. Zusätzlich fand `windows.mjs` einen zweiten, kleineren Fall
+        derselben Art (3 mm Überstand auf Nord und Süd).
+      • Schwerter auf dem Ständer: Auflage ist jetzt eine Kerbe, Neigung und
+        Höhe werden geschlossen gelöst. Gemessen liegen alle sechs
+        Auflagepunkte innerhalb **±0,17 mm**.
+      • Fenster auf allen leeren Wänden; das Ranma hatte ein Vorzeichenproblem,
+        das in der Brille drei Wände geöffnet hätte.
+      • Außenwelt: Bambushain als Schattenwerfer auf dem Washi (25,8 % der
+        Fensterbreite, 34 Wechsel), Baumlinie, Moosfläche.
+      • Begrenzung: Der Raum lässt sich nicht mehr verlassen.
       **Offen:**
-      • Frame-Zeit beim 7,4-fachen des Zen-Gartens. Die Kosten stecken im
-        Fragment (Schattenpass, IBL, additive Lagen), nicht in der Geometrie.
-        Vor einem Einsatz auf der Quest 3 messen und senken. Das Perf-Gate des
-        Plans ist damit **nicht** erfüllt.
-      • Restspalt am Dach: Der Grund (Giebel und Schalung wurden aus getrennten
-        Zahlensätzen abgeleitet) ist behoben, beide folgen jetzt derselben
-        Quelle. Am äußersten Bildrand bleibt ein schmaler Keil sichtbar.
-      • Die Sonnenseite ist gemessen deutlich ruhiger (Bildmittel 66,7 → 54,1,
-        Spitze 224 → 200 von 255), liest sich aber weiter als heller Fleck.
-        Geklemmt war dabei nie etwas.
-      • Silhouette zeigt zwei ungeklärte Fortsätze.
+      • Frame-Zeit: Desktop 7,9× Zen-Garten, XR-Stufe 3,6× – **das Gate von
+        3,5× ist knapp verfehlt.** Nach Runde 5 lag die XR-Stufe bei 1,16×;
+        seither ist der Raum 55 % größer und hat eine Außenwelt. Die p95-
+        Referenz schwankt zwischen identischen Läufen um rund 10 %.
+        Auf der Quest 3 weiterhin **ungeprüft**.
+      • Die Sonnenseite liest sich weiter als großer heller Bereich. Geklemmt
+        ist gemessen nichts (0 % gesättigt, Spitze 228 von 255) – es ist eine
+        Frage der Komposition, nicht der Belichtung.
       • Coderegen ist als Motiv lesbar, aber flächenmäßig noch ein Token.
-      *(Stand 2026-08-09)*
+      • Tatami-Geflecht liest sich als Textil-Abziehbild statt als Binsen.
+      *(Stand 2026-08-10)*
 - [ ] **Snap-Grid** – optionales Einrasten der Karten an einem Raster zum sauberen
       Ausrichten. *(Das „Karten zu mir holen" aus diesem Punkt ist erledigt:
       `recenterOnNextFrame` in `src/main.js` ordnet beim XR-Start neu an.)*

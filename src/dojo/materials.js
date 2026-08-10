@@ -409,8 +409,12 @@ export function washiTexture() {
   return _washi;
 }
 
-export function washiMaterial({ emissive = 0x000000, emissiveIntensity = 0 } = {}) {
-  return new THREE.MeshStandardMaterial({
+export function washiMaterial({
+  emissive = 0x000000,
+  emissiveIntensity = 0,
+  shadowedEmissive = false,
+} = {}) {
+  const material = new THREE.MeshStandardMaterial({
     map: washiTexture(),
     color: 0x7d776a,
     emissive: new THREE.Color(emissive),
@@ -419,6 +423,86 @@ export function washiMaterial({ emissive = 0x000000, emissiveIntensity = 0 } = {
     metalness: 0,
     side: THREE.DoubleSide,
   });
+  if (shadowedEmissive) shadowTheGlow(material);
+  return material;
+}
+
+// **Das Eigenleuchten des Papiers in den Schatten stellen.**
+//
+// Ein Shoji leuchtet, weil Sonne *durch* das Papier fällt. Modelliert ist das
+// als `emissive` – und genau daran scheitert der Bambushain: Eigenleuchten
+// kennt keinen Schatten. Der Hain steht zwischen Sonne und Fenster, wirft
+// seinen Schatten brav auf die Papierfläche, und man sieht nichts davon, weil
+// die Fläche ohnehin von sich aus hell ist.
+//
+// Der reguläre Schattenterm hilft hier nicht: Er dämpft nur *direktes* Licht,
+// und die Innenseite des Papiers ist von der Sonne abgewandt – ihr direkter
+// Anteil ist ohnehin null. Es gibt also nichts, was der Schatten dämpfen
+// könnte.
+//
+// Deshalb ein kleiner Eingriff in den Shader: `getShadowMask()` liefert genau
+// die Zahl, die three sonst auf das direkte Licht anwendet (1 = besonnt,
+// 0 = verschattet). Auf `totalEmissiveRadiance` angewandt hört das Papier
+// genau dort auf zu leuchten, wo ein Halm davorsteht – was physikalisch die
+// richtige Regel ist: Wo kein Licht ankommt, wird auch keins durchgelassen.
+//
+// Ein Rest bleibt stehen (`0.18`), damit ein verschatteter Streifen nicht in
+// reines Schwarz kippt: Auch im Schatten trifft Himmelslicht auf das Papier.
+function shadowTheGlow(material) {
+  material.userData.shadowedEmissive = true;
+  material.onBeforeCompile = (shader) => {
+    // **Der Einfügeort war zweimal falsch, und beide Male anders.**
+    //
+    // Erst hing der Baustein an `<common>`: Compilerfehler, weil
+    // `getShadowMask()` die Strukturen und Sampler aus
+    // `<shadowmap_pars_fragment>` braucht und die weiter unten stehen.
+    //
+    // Dann stand die Anwendung vor `<opaque_fragment>` – das kompilierte
+    // sauber und tat **nichts**. `outgoingLight` wird ein paar Zeilen vorher
+    // aus `totalDiffuse + totalSpecular + totalEmissiveRadiance` gebildet; was
+    // danach an `totalEmissiveRadiance` geschrieben wird, liest niemand mehr.
+    // Aufgefallen ist das nur, weil eine Probe mit festem Faktor 0,15 die
+    // gemessene Helligkeit der Papierfläche **exakt unverändert** ließ
+    // (126,1 vorher wie nachher). Am Bild wäre es als „wirkt halt schwach"
+    // durchgegangen.
+    //
+    // Richtiger Anker ist deshalb `<aomap_fragment>`: nach der Beleuchtung,
+    // vor der Summe.
+    //
+    // **Und der dritte Fehler war die Maske selbst.** Mit `getShadowMask()`
+    // wurde das Papier gleichmäßig dunkel – es verschattete **sich selbst**.
+    // Das Washi wirft Schatten (bewusst, sonst schiene die Sonne durch die
+    // Shoji, als stünde dort keine Wand), steht damit als Nulldicke-Fläche in
+    // der Schattenkarte, und die Innenseite liegt genau dahinter. `normalBias`
+    // macht es sogar schlimmer: Er versetzt die Abtastung entlang der Normalen,
+    // und die zeigt hier **von der Sonne weg**.
+    //
+    // Also eine eigene Abfrage mit grobem Bias statt der Standardmaske.
+    // −0,02 in Kartentiefe sind bei einem Frustum von 33,5 m rund 0,67 m: weit
+    // genug, um die eigene Fläche zu überspringen, und weit weniger als der
+    // Abstand zum nächsten Halm (mindestens 0,9 m vor der Front). Die Schleife
+    // entfällt, weil dieser Raum per Konstruktion **eine** Sonne hat
+    // (layout.js:SUN) – gäbe es eine zweite, wäre das hier nicht die einzige
+    // Stelle, die anzupassen wäre.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <aomap_fragment>',
+      `#include <aomap_fragment>
+        #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
+          totalEmissiveRadiance *= mix( 0.16, 1.0, getShadow(
+            directionalShadowMap[ 0 ],
+            directionalLightShadows[ 0 ].shadowMapSize,
+            directionalLightShadows[ 0 ].shadowIntensity,
+            -0.02,
+            directionalLightShadows[ 0 ].shadowRadius,
+            vDirectionalShadowCoord[ 0 ] ) );
+        #endif`
+    );
+  };
+  // Zwei Materialien mit demselben Schlüssel teilen sich ein kompiliertes
+  // Programm. Ohne eigenen Schlüssel bekäme das gedämpfte Papier das Programm
+  // des ungedämpften – oder umgekehrt, je nachdem, was zuerst kompiliert.
+  material.customProgramCacheKey = () => 'washi-shadowed-emissive';
+  return material;
 }
 
 // --- Geschmiedeter Stahl: Klingen -------------------------------------------
