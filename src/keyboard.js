@@ -1,0 +1,319 @@
+import * as THREE from 'three';
+import { createTextPanel } from './textPanel.js';
+import { flatLayer, makeRoundedPanel } from './wristMenu.js';
+
+// Texteingabe in XR: virtuelle Tastatur.
+//
+// Ohne Diktat-Knopf – in der Brille gibt es keine Spracherkennung, siehe die
+// Begründung weiter unten bei „Kein Diktat in XR".
+//
+// Optisch bewusst wie die übrigen Oberflächen („Soft Spatial Minimal"):
+// abgerundetes Glas-Panel mit Amber-Rahmen, weich abgerundete Tasten, gleiche
+// Farbwelt wie Hand-Menü und Whiteboard-Leiste – vorher war es ein Raster
+// harter, dunkelblauer Rechtecke, das aus dem Rest der App herausfiel.
+
+const KEY = 0.052;
+const GAP = 0.008;
+const PAD = 0.022;
+const PREVIEW_H = 0.078;
+const ROW_GAP = 0.009;
+
+// Feste Zeichenreihenfolge gegen Transparenz-Flackern (wie Menü/Whiteboard):
+// Hintergrund unten, Tasten oben. Über den Menü-Ordnungen (20–23), damit die
+// modale Tastatur zuoberst liegt.
+const KB_LAYER = { bg: 30, preview: 31, key: 32 };
+
+// Deutsches Layout inklusive Umlauten und der gängigen Satzzeichen.
+const ROWS = [
+  ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+  ['q', 'w', 'e', 'r', 't', 'z', 'u', 'i', 'o', 'p', 'ü'],
+  ['a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ö', 'ä'],
+  ['y', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '-', 'ß'],
+];
+const MAX_COLS = Math.max(...ROWS.map((row) => row.length));
+
+// Farbwelt wie im Hand-Menü
+const COLORS = {
+  panelFill: 'rgba(24, 22, 28, 0.98)',
+  panelBorder: 'rgba(255, 180, 84, 0.45)',
+  key: '#2c2933',
+  keyHover: '#3b3644',
+  previewBg: '#221f28',
+  accent: '#ffb454',
+  accentHover: '#ffc06f',
+  accentText: '#231b10',
+  danger: '#3a2830',
+  dangerHover: '#4e3540',
+  active: '#4a3a24',
+  text: '#f0eef2',
+  muted: '#8f8a98',
+};
+
+export class VirtualKeyboard {
+  // onStatus: kurze Rückmeldungen nach außen reichen.
+  constructor(scene, { onStatus = null } = {}) {
+    this.scene = scene;
+    this.onStatus = onStatus;
+    this.group = new THREE.Group();
+    this.group.name = 'virtualKeyboard';
+    this.group.visible = false;
+    this.keys = [];
+    this.letterKeys = [];
+    this.text = '';
+    this.callbacks = null;
+    this.shift = true; // Deutsche Sätze fangen groß an
+
+    const boardW = MAX_COLS * KEY + (MAX_COLS - 1) * GAP + PAD * 2;
+    const rowsH = ROWS.length * KEY + ROWS.length * ROW_GAP;
+    const boardH = PAD + PREVIEW_H + 0.014 + rowsH + KEY + ROW_GAP + PAD;
+    this.boardW = boardW;
+
+    const panel = makeRoundedPanel(boardW, boardH, {
+      fill: COLORS.panelFill,
+      border: COLORS.panelBorder,
+    });
+    panel.position.z = -0.004;
+    flatLayer(panel, KB_LAYER.bg);
+    this.group.add(panel);
+
+    // --- Eingabefeld ---
+    this.preview = createTextPanel({
+      width: boardW - PAD * 2,
+      height: PREVIEW_H,
+      text: '',
+      background: COLORS.previewBg,
+      color: COLORS.text,
+      border: 'rgba(255, 255, 255, 0.10)',
+      fontSize: 34,
+      radius: 20,
+      padding: 40,
+      align: 'left',
+      singleLine: true,
+      doubleSided: false,
+    });
+    this.preview.mesh.position.set(0, boardH / 2 - PAD - PREVIEW_H / 2, 0.002);
+    flatLayer(this.preview.mesh, KB_LAYER.preview);
+    this.group.add(this.preview.mesh);
+
+    // --- Zeichen-Reihen ---
+    let y = boardH / 2 - PAD - PREVIEW_H - 0.014 - KEY / 2;
+    for (const row of ROWS) {
+      const rowW = row.length * KEY + (row.length - 1) * GAP;
+      row.forEach((label, i) => {
+        const key = this._addKey({
+          label,
+          x: -rowW / 2 + KEY / 2 + i * (KEY + GAP),
+          y,
+          width: KEY,
+          onClick: () => this._typeKey(key),
+        });
+        // Nur echte Buchstaben folgen der Umschalttaste. Das ß ist bewusst
+        // ausgenommen: sein toUpperCase() ist „SS" – zwei Zeichen auf einer
+        // Taste, die dann auch noch zwei Buchstaben schreiben würde.
+        const upper = label.toUpperCase();
+        if (upper !== label && upper.length === label.length) {
+          key.isLetter = true;
+          this.letterKeys.push(key);
+        }
+      });
+      y -= KEY + ROW_GAP;
+    }
+
+    // --- Funktionsreihe ---
+    //
+    // Breiten als Anteile, nicht in Metern: Feste Maße müssten bei jeder
+    // Änderung an Tastengröße oder Panelbreite nachgezogen werden, und sobald
+    // ihre Summe die Innenbreite übersteigt, wird der Zwischenraum negativ und
+    // die Tasten schieben sich sichtbar übereinander.
+    const inner = boardW - PAD * 2;
+    const specs = [
+      { id: 'shift', label: 'Aa', flex: 0.09, bg: COLORS.key, hover: COLORS.keyHover },
+      { id: 'cancel', label: 'Abbrechen', flex: 0.21, bg: COLORS.danger, hover: COLORS.dangerHover },
+      { id: 'space', label: 'Leerzeichen', flex: 0.4, bg: COLORS.key, hover: COLORS.keyHover },
+      { id: 'back', label: '←', flex: 0.09, bg: COLORS.key, hover: COLORS.keyHover },
+      { id: 'ok', label: '✓ OK', flex: 0.21, bg: COLORS.accent, hover: COLORS.accentHover, fg: COLORS.accentText },
+    ];
+    const gap = GAP;
+    const usable = inner - gap * (specs.length - 1);
+    const flexSum = specs.reduce((sum, spec) => sum + spec.flex, 0);
+    for (const spec of specs) spec.w = (usable * spec.flex) / flexSum;
+    const handlers = {
+      shift: () => this._toggleShift(),
+      cancel: () => this._cancel(),
+      space: () => this._type(' '),
+      back: () => this._backspace(),
+      ok: () => this._submit(),
+    };
+    let x = -inner / 2;
+    for (const spec of specs) {
+      const key = this._addKey({
+        label: spec.label,
+        x: x + spec.w / 2,
+        y,
+        width: spec.w,
+        bg: spec.bg,
+        hover: spec.hover,
+        fg: spec.fg ?? COLORS.text,
+        fontSize: 24,
+        onClick: handlers[spec.id],
+      });
+      this[`${spec.id}Key`] = key;
+      x += spec.w + gap;
+    }
+
+    this._applyShiftLabels();
+    this._updatePreview();
+    scene.add(this.group);
+  }
+
+  _addKey({ label, x, y, width, onClick, bg = COLORS.key, hover = COLORS.keyHover, fg = COLORS.text, fontSize = 30 }) {
+    const panel = createTextPanel({
+      width,
+      height: KEY,
+      text: label,
+      background: bg,
+      color: fg,
+      fontSize,
+      weight: 600,
+      radius: 18,
+      padding: 14,
+      singleLine: true,
+      doubleSided: false,
+    });
+    panel.mesh.position.set(x, y, 0.002);
+    flatLayer(panel.mesh, KB_LAYER.key);
+    const key = { mesh: panel.mesh, panel, label, bg, hover, fg, isLetter: false };
+    panel.mesh.userData.onClick = onClick;
+    panel.mesh.userData.setHover = (hovered) =>
+      panel.setColors({ background: hovered ? key.hover : key.bg });
+    this.group.add(panel.mesh);
+    this.keys.push(key);
+    return key;
+  }
+
+  // Farben einer Taste dauerhaft ändern (z. B. aktive Umschalttaste)
+  _setKeyColors(key, { bg, hover, fg }) {
+    key.bg = bg ?? key.bg;
+    key.hover = hover ?? key.hover;
+    key.fg = fg ?? key.fg;
+    key.panel.setColors({ background: key.bg, color: key.fg });
+  }
+
+  get uiTargets() {
+    return this.group.visible ? this.keys.map((key) => key.mesh) : [];
+  }
+
+  // --- Umschalttaste ---
+
+  _toggleShift() {
+    this.shift = !this.shift;
+    this._applyShiftLabels();
+  }
+
+  _applyShiftLabels() {
+    for (const key of this.letterKeys) {
+      const label = this.shift ? key.label.toUpperCase() : key.label;
+      key.panel.setText(label);
+    }
+    if (this.shiftKey) {
+      this._setKeyColors(this.shiftKey, {
+        bg: this.shift ? COLORS.active : COLORS.key,
+        hover: this.shift ? COLORS.active : COLORS.keyHover,
+        fg: this.shift ? COLORS.accent : COLORS.text,
+      });
+    }
+  }
+
+  _typeKey(key) {
+    const char = this.shift && key.isLetter ? key.label.toUpperCase() : key.label;
+    this._type(char);
+    // Umschalten gilt für genau ein Zeichen – wie auf dem Handy.
+    if (this.shift && key.isLetter) {
+      this.shift = false;
+      this._applyShiftLabels();
+    }
+  }
+
+  // Kein Diktat in XR.
+  //
+  // Hier saß eine „🎤 Sprechen"-Taste. Sie ist raus, weil es in der Brille
+  // nichts gibt, worauf sie sich stützen könnte: Der Quest-Browser meldet zwar
+  // `webkitSpeechRecognition`, hat darunter aber keinen Erkennungsdienst – der
+  // Aufruf riss den Browser mit. Der Umweg über die Systemtastatur der Brille
+  // (deren Mikrofon-Taste diktieren kann) hat auf echter Hardware ebenfalls
+  // nicht getragen.
+  //
+  // Diktiert wird deshalb nur noch am Desktop, über „🎤 Diktieren" im Overlay
+  // (Chrome/Edge, siehe main.js). In XR ist Tippen der Weg.
+
+  // Ein längerer Satz passt schnell nicht mehr ins Feld. Statt die Schrift immer
+  // weiter zu schrumpfen (singleLine tut das von sich aus) wird vorn gekürzt –
+  // das Ende mit der Schreibmarke bleibt sichtbar, wie in einem echten Feld.
+  _fit(text) {
+    const MAX = 46;
+    const shown = text.length > MAX ? `…${text.slice(-MAX)}` : text;
+    return `${shown}▏`;
+  }
+
+  // --- Öffnen/Schließen ---
+
+  open(camera, callbacks) {
+    this.callbacks = callbacks;
+    this.text = '';
+    this.shift = true;
+    this._applyShiftLabels();
+    this._updatePreview();
+
+    const camPos = new THREE.Vector3();
+    camera.getWorldPosition(camPos);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    dir.y = 0;
+    if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
+    dir.normalize();
+
+    const pos = camPos.clone().addScaledVector(dir, 0.7);
+    pos.y = camPos.y - 0.25;
+    this.group.position.copy(pos);
+    this.group.lookAt(camPos.x, pos.y + 0.2, camPos.z);
+    this.group.visible = true;
+  }
+
+  // close() informiert einen wartenden Aufrufer über onCancel (z. B. wenn die
+  // XR-Session endet, während die Tastatur offen ist) – sonst hinge dessen
+  // Eingabe-Promise für immer.
+  close() {
+    const callbacks = this.callbacks;
+    this.callbacks = null;
+    this.group.visible = false;
+    callbacks?.onCancel?.();
+  }
+
+  _updatePreview() {
+    this.preview.setText(this.text ? this._fit(this.text) : 'Text eingeben…▏');
+    this.preview.setColors({ color: this.text ? COLORS.text : COLORS.muted });
+  }
+
+  _type(ch) {
+    this.text += ch;
+    this._updatePreview();
+  }
+
+  _backspace() {
+    this.text = this.text.slice(0, -1);
+    this._updatePreview();
+  }
+
+  _submit() {
+    const finalText = this.text.trim();
+    const cb = this.callbacks;
+    this.callbacks = null; // vor close(), damit close() nicht zusätzlich onCancel feuert
+    this.close();
+    if (finalText) cb?.onSubmit?.(finalText);
+    else cb?.onCancel?.();
+  }
+
+  _cancel() {
+    this.close(); // feuert onCancel
+  }
+}

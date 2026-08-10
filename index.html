@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="data:," />
+  <title>WebXR Brainstorming</title>
+  <!-- Schriften kommen aus dem eigenen Build (src/fonts.js, @fontsource) statt
+       von fonts.googleapis.com – sonst fällt die App in Netzen ohne freien
+       Internetzugang auf den System-Font zurück. -->
+  <style>
+    :root {
+      --accent: #ffb454;
+      --accent-soft: rgba(255, 180, 84, 0.16);
+      --accent-text: #ffd8a0;
+      --danger: #ff9b9b;
+      --text: #f0eef2;
+      --muted: #9a94a3;
+      --panel: rgba(26, 24, 31, 0.68);
+      --panel-solid: rgba(28, 26, 33, 0.92);
+      --border: rgba(255, 255, 255, 0.09);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --display: 'Space Grotesk', system-ui, sans-serif;
+      --body: 'Sora', system-ui, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+      background: #100f13;
+      font-family: var(--body);
+    }
+    canvas { display: block; }
+
+    /* Das Panel selbst scrollt NICHT – es ist nur der abgerundete Rahmen und
+       schneidet ab (overflow: hidden). Gescrollt wird der Inhalt darin.
+       Vorher lag die Bildlaufleiste direkt auf dem Panel: Ihre Pfeil-Knöpfe
+       sitzen ganz oben und unten in der Spur und ragten damit in die runden
+       Ecken – sie standen sichtbar über den Rand hinaus. */
+    #overlay {
+      position: fixed;
+      top: 22px;
+      left: 22px;
+      z-index: 10;
+      width: 320px;
+      display: flex;
+      flex-direction: column;
+      max-height: calc(100vh - 44px);
+      overflow: hidden;
+      border-radius: 24px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      color: var(--text);
+      font: 14px/1.45 var(--body);
+    }
+    /* body hat overflow:hidden – der Inhalt muss sich deshalb selbst scrollen
+       lassen, sonst sind auf niedrigen Fenstern die unteren Bedienelemente
+       (XR-Button, Hinweise) schlicht nicht erreichbar. */
+    #overlay-scroll {
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding: 24px;
+    }
+    /* Pfeil-Knöpfe der Bildlaufleiste abschalten und die Spur oben/unten von
+       den runden Ecken freihalten. */
+    #overlay-scroll::-webkit-scrollbar { width: 10px; }
+    #overlay-scroll::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+    #overlay-scroll::-webkit-scrollbar-corner { background: transparent; }
+    #overlay-scroll::-webkit-scrollbar-track {
+      background: transparent;
+      margin: 18px 0;
+    }
+    #overlay-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.16);
+      border: 3px solid transparent;
+      background-clip: content-box;
+      border-radius: 99px;
+    }
+    #overlay-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.32);
+      background-clip: content-box;
+    }
+    /* Chrome/Edge ignorieren die ::-webkit-scrollbar-Regeln, sobald
+       scrollbar-width/-color gesetzt sind – und zeichnen dann wieder ihre
+       eigene Leiste samt Pfeilen. Deshalb nur dort setzen, wo die
+       Pseudo-Elemente fehlen (Firefox). */
+    @supports not selector(::-webkit-scrollbar) {
+      #overlay-scroll {
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+      }
+    }
+
+    /* Ein-/Ausklappen. Der Knopf steht bewusst NEBEN dem Panel statt darin:
+       Das Overlay scrollt, ein Knopf im Inhalt würde beim Scrollen verschwinden. */
+    #btn-collapse {
+      position: fixed;
+      top: 26px;
+      left: 348px;
+      z-index: 12;
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border-radius: 11px;
+      border: 1px solid var(--border-strong);
+      background: var(--panel-solid);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: var(--muted);
+      font: 600 15px/1 var(--body);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+      transition: left 0.18s ease, color 0.18s ease;
+    }
+    #btn-collapse:hover { color: var(--accent); border-color: rgba(255, 180, 84, 0.5); }
+    body.menu-collapsed #overlay { display: none; }
+    body.menu-collapsed #btn-collapse { left: 22px; }
+    /* Eingeklappt ist links Platz – das Status-Band rückt nach. */
+    body.menu-collapsed #status-band { left: 22px; max-width: calc(100vw - 44px); }
+    .eyebrow {
+      font: 400 12px var(--body);
+      color: var(--muted);
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    #overlay h1 {
+      margin: 0 0 20px;
+      font: 600 23px/1.1 var(--display);
+      color: var(--text);
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.11);
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--text);
+      font: 14px var(--body);
+      outline: none;
+      margin-bottom: 9px;
+    }
+    input[type="text"]::placeholder { color: #7a7580; }
+    input[type="text"]:focus { border-color: rgba(255, 180, 84, 0.5); }
+
+    .btn-primary {
+      width: 100%;
+      padding: 13px;
+      border-radius: 14px;
+      border: none;
+      background: var(--accent);
+      color: #231b10;
+      font: 600 14.5px var(--display);
+      cursor: pointer;
+      margin-bottom: 18px;
+    }
+    .btn-primary:hover { background: #ffc06f; }
+
+    .action-list { display: flex; flex-direction: column; margin-bottom: 16px; }
+    .action-list button {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+      padding: 12px 4px;
+      border: none;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      background: none;
+      color: var(--text);
+      font: 400 14px var(--body);
+      text-align: left;
+      cursor: pointer;
+    }
+    .action-list button:last-child { border-bottom: none; }
+    .action-list button:hover { color: var(--accent-text); }
+    .action-list button .ic { color: #6f6a77; font-size: 15px; }
+    .action-list button:hover .ic { color: var(--accent); }
+
+    .section-title {
+      font: 600 12px/1 var(--body);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #8b8593;
+      margin: 4px 0 10px;
+    }
+    /* Formauswahl: umbrechende Reihe kleiner Knöpfe. Anders als in VR wird die
+       Form hier direkt gewählt statt durchgeschaltet – am Desktop ist Platz. */
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .chip-row button {
+      flex: 1 1 auto;
+      padding: 7px 9px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      font: 12px var(--body);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .chip-row button:hover { background: rgba(255, 255, 255, 0.1); color: var(--accent-text); }
+    .chip-row button.active {
+      background: rgba(255, 180, 84, 0.16);
+      border-color: rgba(255, 180, 84, 0.45);
+      color: var(--accent);
+    }
+    .mini-row { display: flex; gap: 8px; margin-bottom: 16px; }
+    .mini-row button, .mini-row .file-btn {
+      flex: 1;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid var(--border-strong);
+      background: rgba(255, 255, 255, 0.04);
+      color: #cdc9d2;
+      font: 500 12.5px var(--body);
+      cursor: pointer;
+      text-align: center;
+    }
+    .mini-row button:hover:not(:disabled), .mini-row .file-btn:hover { background: rgba(255, 255, 255, 0.09); }
+    .mini-row button:disabled { opacity: 0.38; cursor: default; }
+    /* Dauerzustand (Sprachbefehle laufen) */
+    .mini-row button.active {
+      background: var(--accent-soft);
+      border-color: rgba(255, 180, 84, 0.5);
+      color: var(--accent-text);
+    }
+
+    #xr-button {
+      width: 100%;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid var(--border-strong);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      font: 600 14.5px var(--display);
+      cursor: pointer;
+    }
+    #xr-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.11); }
+    #xr-button:disabled { opacity: 0.55; cursor: default; }
+
+    .hint { margin: 16px 0 0; font: 12px/1.5 var(--body); color: #7f7a87; }
+    .build-stamp {
+      margin: 10px 0 0;
+      font: 11px/1.4 var(--body);
+      color: #5f5b68;
+      letter-spacing: 0.03em;
+    }
+
+    /* Status-Band unten – rechts neben dem Overlay, das jetzt bis zum unteren
+       Fensterrand reichen kann. */
+    #status-band {
+      position: fixed;
+      left: 364px;
+      bottom: 22px;
+      z-index: 20;
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 11px 16px;
+      border-radius: 14px;
+      background: rgba(26, 24, 31, 0.78);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: #c9c4d0;
+      font: 400 12.5px var(--body);
+      max-width: calc(100vw - 386px);
+    }
+    @media (max-width: 760px) {
+      #status-band { left: 22px; max-width: calc(100vw - 44px); }
+    }
+    #status-band.show { display: flex; }
+    #status-band .dot {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: #86efac; box-shadow: 0 0 8px #86efac; flex: none;
+    }
+    /* Während Claude arbeitet, wird aus dem Punkt ein laufender Ring. */
+    #status-band.busy .dot {
+      width: 13px; height: 13px;
+      background: none;
+      box-shadow: none;
+      border: 2px solid rgba(255, 180, 84, 0.25);
+      border-top-color: var(--accent);
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Kontextmenü */
+    #context-menu {
+      position: fixed;
+      z-index: 30;
+      min-width: 216px;
+      padding: 7px;
+      border-radius: 16px;
+      background: var(--panel-solid);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      font: 14px var(--body);
+      color: var(--text);
+    }
+    #context-menu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: none;
+      background: none;
+      color: var(--text);
+      padding: 10px 13px;
+      border-radius: 11px;
+      font: 14px var(--body);
+      cursor: pointer;
+    }
+    #context-menu button:hover { background: rgba(255, 255, 255, 0.06); }
+    #context-menu button[data-action="related"] { background: var(--accent-soft); }
+    #context-menu button.danger { color: var(--danger); }
+    #context-menu button.danger:hover { background: rgba(255, 155, 155, 0.12); }
+
+    .color-row {
+      display: flex;
+      gap: 10px;
+      padding: 12px 13px;
+      margin: 4px 4px;
+      border-top: 1px solid rgba(255, 255, 255, 0.07);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    }
+    .color-dot {
+      width: 17px; height: 17px; border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform 0.1s;
+    }
+    .color-dot:hover { transform: scale(1.18); }
+
+    /* Editor */
+    #edit-box {
+      position: fixed;
+      z-index: 30;
+      left: 50%;
+      top: 40%;
+      transform: translate(-50%, -50%);
+      width: 344px;
+      padding: 14px;
+      border-radius: 16px;
+      background: var(--panel-solid);
+      border: 1px solid rgba(255, 180, 84, 0.4);
+      box-shadow: 0 24px 50px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      color: var(--text);
+    }
+    #edit-box input { margin-bottom: 0; }
+    .hint-mini { font: 12px var(--body); color: var(--muted); margin-top: 9px; }
+  </style>
+</head>
+<body>
+  <button id="btn-collapse" type="button" aria-controls="overlay" aria-expanded="true"></button>
+
+  <div id="overlay">
+   <div id="overlay-scroll">
+    <div class="eyebrow">WebXR · Meta Quest 3</div>
+    <h1>Brainstorming</h1>
+    <input id="idea-input" type="text" placeholder="Idee oder Thema eingeben…" />
+    <!-- Beide über die volle Breite: „🎙 Sprachbefehle: aus" bricht nebeneinander
+         um und reißt dabei das Emoji auf eine eigene Zeile. -->
+    <div class="mini-row">
+      <button id="btn-dictate" title="Text ins Feld diktieren (Web Speech API)">🎤 Diktieren</button>
+    </div>
+    <div class="mini-row">
+      <button id="btn-voice" title="Sprachbefehle dauerhaft an/aus">🎙 Sprachbefehle: aus</button>
+    </div>
+    <button id="btn-topic" class="btn-primary">🚀 Themen-Start</button>
+
+    <div class="action-list">
+      <button id="btn-new">Neue Karte<span class="ic">＋</span></button>
+      <button id="btn-related">Verwandte Ideen<span class="ic">✨</span></button>
+      <button id="btn-critic">Kritiker<span class="ic">😈</span></button>
+      <button id="btn-cluster">Cluster anwenden<span class="ic">◇</span></button>
+      <button id="btn-summary">Zusammenfassen<span class="ic">≡</span></button>
+      <button id="btn-mindmap" title="Karten nach ihren Verbindungen radial anordnen – ausgewählte Karte wird die Mitte">Mindmap ordnen<span class="ic">🕸</span></button>
+      <button id="btn-zone">Zone<span class="ic">🗂️</span></button>
+      <button id="btn-timer">Timer<span class="ic">⏱️</span></button>
+      <button id="btn-whiteboard">Whiteboard<span class="ic">📋</span></button>
+      <button id="btn-env">Umgebung<span class="ic">🌐</span></button>
+    </div>
+
+    <!-- Prozessflussdiagramm. Am Desktop bewusst als eigener Block statt
+         verstreut in der Aktionsliste: Die Formen brauchen eine direkte
+         Auswahl, kein Durchschalten wie in VR – hier ist Platz dafür. -->
+    <div class="section-title">⚙️ Prozessdiagramm</div>
+    <div class="chip-row" id="flow-shapes" title="Form der ausgewählten Karte">
+      <button data-flow-type="start">⬭ Start</button>
+      <button data-flow-type="task">▭ Schritt</button>
+      <button data-flow-type="decision">◇ Entscheidung</button>
+      <button data-flow-type="end">⬭ Ende</button>
+      <button data-flow-type="">✕ Karte</button>
+    </div>
+    <div class="mini-row">
+      <button id="btn-flow-arrow" title="Ausgewählte Karte als Start, dann Ziel anklicken">➜ Pfeil ziehen</button>
+      <button id="btn-flow-label" title="Zuletzt gezogenen Pfeil beschriften (Text aus dem Eingabefeld)">🏷 Zweig</button>
+    </div>
+    <div class="mini-row">
+      <button id="btn-flow-layout" title="Prozess waagerecht anordnen">⤓ Anordnen</button>
+      <button id="btn-flow" title="Ablauf im Eingabefeld beschreiben – Claude baut das Diagramm">✨ Aus Text</button>
+      <button id="btn-mermaid" title="Prozessdiagramm als Mermaid-Datei herunterladen">⬇️ Mermaid</button>
+    </div>
+
+    <div class="mini-row">
+      <button id="btn-undo" title="Letzte Änderung rückgängig (Strg+Z)" disabled>↶ Rückgängig</button>
+      <button id="btn-redo" title="Wiederherstellen (Strg+Umschalt+Z)" disabled>↷ Wiederholen</button>
+    </div>
+
+    <div class="mini-row">
+      <button id="btn-save" title="Sicherungspunkt im Browser anlegen">💾 Sichern</button>
+      <button id="btn-load" title="Letzten Sicherungspunkt laden">📂 Laden</button>
+    </div>
+
+    <div class="mini-row">
+      <button id="btn-fontsize" title="Schriftgröße der Karten umschalten">Schrift: Normal</button>
+    </div>
+
+    <div class="mini-row">
+      <button id="btn-export" title="Board als JSON-Datei herunterladen">Export</button>
+      <label class="file-btn">Import<input id="import-file" type="file" accept=".json,application/json" hidden /></label>
+      <button id="btn-clear" title="Alle Karten löschen">🧹</button>
+    </div>
+
+    <button id="xr-button" disabled>WebXR wird geprüft…</button>
+
+    <p class="hint">
+      Ziehen = Umschauen · Klick = auswählen · Ziehen = verschieben · Doppelklick = bearbeiten<br />
+      <b>WASD / Pfeile = bewegen · Q/E = runter/hoch</b> · Rechtsklick = Menü · Entf = löschen · Mausrad / +/− = Größe<br />
+      Strg+Z = rückgängig · Strg+Umschalt+Z = wiederholen · M = Menü ein-/ausklappen<br />
+      Quest 3: linker Stick = gehen · rechter Stick = drehen · Trigger = greifen · Menü an der linken Hand
+    </p>
+    <!-- Baustand: zeigt, welche Fassung gerade läuft. Ohne das ist von außen
+         nicht zu erkennen, ob ein Fehler noch offen oder nur nicht deployt ist. -->
+    <p class="build-stamp" id="build-stamp"></p>
+   </div>
+  </div>
+
+  <div id="status-band"><span class="dot"></span><span id="status"></span></div>
+
+  <div id="context-menu" hidden>
+    <button data-action="edit">✏️ Text bearbeiten</button>
+    <button data-action="related">✨ Verwandte Ideen</button>
+    <button data-action="critic">😈 Kritiker</button>
+    <button data-action="connect">🔗 Verbinden mit…</button>
+    <button data-action="flow-arrow">➜ Pfeil ziehen zu…</button>
+    <!-- Formauswahl direkt an der Karte – wird aus FLOW_TYPES aufgebaut,
+         genau wie die Farbpunkte darunter. -->
+    <div class="chip-row" id="context-flow-row"></div>
+    <div class="color-row" id="color-row"></div>
+    <button data-action="delete" class="danger">🗑️ Karte löschen</button>
+  </div>
+
+  <div id="edit-box" hidden>
+    <input id="edit-input" type="text" />
+    <div class="hint-mini">Enter zum Speichern · Esc zum Abbrechen</div>
+  </div>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
