@@ -31,6 +31,18 @@ import { buildSkyEnvironment, applySkyTo } from './skylight.js';
 // Vorwurf am Garten war nie „zu dunkel im Mittel", sondern die schwarzen Löcher
 // zwischen den Blättern. Genau die füllt das Himmelslicht.
 const SKY_INTENSITY = 4.5;
+
+// Außenbauteile, die die Himmelskarte in der Brille wieder abgeben. Alles, was
+// hier **nicht** steht, behält sie – das sind die Polster, die Kartenbüschel,
+// die Kronen und die Fernkronen, also genau das Laub, dessen Tiefen der Himmel
+// aufhellen soll.
+const SKY_ONLY_ON_DESKTOP = [
+  'dojo-exterior-ground',
+  'dojo-garden-kies',
+  'dojo-garden-stein',
+  'dojo-garden-trittsteine',
+  'dojo-bamboo',
+];
 import { ROOM } from './layout.js';
 
 // ⛩ Konstrukt-Dojo – der Trainingsraum aus dem Film.
@@ -138,25 +150,41 @@ export function createDojoEnvironment() {
       // `envMap` bei *jedem* Standardmaterial der Dojo-Gruppe neu – am Desktop
       // auf `null`, in XR auf die Innenraumkarte. Wer den Himmel davor
       // zuweist, verliert ihn wieder, und zwar lautlos.
-      // **Die große Bodenfläche bleibt in der Brille ohne Himmelskarte.**
+      // **In der Brille bekommt nur das Laub die Himmelskarte.**
       //
-      // Sie ist 110 m groß und kann durch die Südfront den halben
-      // Bildausschnitt füllen – viel Fläche mal einer zusätzlichen
-      // IBL-Abtastung je Bildpunkt. Was sie dafür bekommt, ist fast nichts:
-      // Moos hat keine nennenswerte Spiegelung, und die Aufhellung der Tiefen,
-      // wegen der das Himmelslicht überhaupt da ist, gibt es auf einer ebenen
-      // Fläche ohne Tiefen nicht. Am Desktop ist Luft, dort bleibt sie drin –
-      // dieselbe Abwägung, die exterior.js für Lambert statt PBR trifft.
+      // Gemessen, Blick durch die Südtür, sparsame Fassung, alles in einer
+      // Sitzung (also unter gleicher Fremdlast, was hier entscheidend ist):
+      //
+      //   alles an                          1911,0 ms
+      //   ohne Himmelskarte                 1274,6 ms   (−33,3 %)
+      //   ohne Himmelskarte und Blattkarten  587,5 ms   (−69,3 %)
+      //   Wiederholung desselben Falls       591,8 ms   (0,7 % Streuung)
+      //
+      // **Was diese 33 % nicht heißen.** Auf SwiftShader gibt es keine
+      // Textur-Abtasteinheiten; ein Shader, der eine PMREM-Karte anfasst, wird
+      // dort überproportional bestraft. Die Rangfolge überträgt sich auf die
+      // Quest, der Faktor nicht – genau diese Verwechslung hat in Runde 5 die
+      // Lichtschächte gekostet. Der Himmel wird deshalb **nicht** wegen der
+      // Prozentzahl abgeschaltet.
+      //
+      // Abgezogen wird er dort, wo er unabhängig davon nichts leistet: Sein
+      // Zweck ist, die Tiefen **zwischen den Blättern** aufzuhellen (das war
+      // der Unterschied von 6,2 % auf 1,2 % fast schwarzer Bildpunkte). Kies,
+      // Trittsteine, Laterne, Becken und Halme haben solche Tiefen nicht, und
+      // die 110-m-Bodenfläche schon gar nicht – die kann durch die Südfront
+      // den halben Bildausschnitt füllen. Am Desktop ist Luft, dort bleibt
+      // alles wie es ist.
       //
       // `skipSky` ist der dafür vorgesehene Ausstieg (skylight.js). Die Karte
       // muss zusätzlich aktiv abgeräumt werden: `applySkyTo()` überspringt ein
       // abgemeldetes Material, es nimmt ihm nichts weg.
-      const groundMat = exterior.group.getObjectByName('dojo-exterior-ground')?.material;
-      if (groundMat) {
-        groundMat.userData.skipSky = inXR;
-        if (inXR && groundMat.envMap) {
-          groundMat.envMap = null;
-          groundMat.needsUpdate = true;
+      for (const name of SKY_ONLY_ON_DESKTOP) {
+        const material = exterior.group.getObjectByName(name)?.material;
+        if (!material) continue;
+        material.userData.skipSky = inXR;
+        if (inXR && material.envMap) {
+          material.envMap = null;
+          material.needsUpdate = true;
         }
       }
       if (sky) applySkyTo(exterior.group, sky, SKY_INTENSITY);
