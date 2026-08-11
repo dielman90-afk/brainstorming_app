@@ -1325,6 +1325,141 @@ function buildGarden(group, r) {
   return { water };
 }
 
+// --- Wald rings um das Dojo --------------------------------------------------
+//
+// Bisher stand um das Gebäude eine leere Wiese von 110 m Kantenlänge, und
+// dahinter direkt die gemalte Kulisse. Nach Süden fiel das nicht auf, weil dort
+// der Garten steht, nach Osten nicht, weil dort der Hain steht – aber jeder
+// Blick nach Norden oder Westen ging über eine Ebene bis zum Horizont, und ein
+// Dojo mitten auf einer leeren Fläche ist kein Dojo im Wald.
+//
+// **Warum das bezahlbar ist.** Ein Wald klingt teuer und ist es hier nicht:
+// Was ihn teuer macht, wäre Bildfläche – und die hat er nicht. Von innen sieht
+// man ihn durch Gitter und Papier in Streifen, von außen in der Ferne. Was er
+// braucht, ist Anzahl, nicht Auflösung.
+//
+// Deshalb die gröbsten Bausteine, die das Repertoire hergibt: eine
+// Ikosaeder-Krone in Detailstufe 0 (20 Dreiecke) und ein fünfseitiger Stamm
+// ohne Deckel (10 Dreiecke). Bei rund 340 Bäumen sind das etwa 10 000
+// Dreiecke – weniger als die vorderen Blattkarten des Gartens allein, und die
+// stehen auf vier Metern Abstand.
+//
+// **Kein Schattenwurf.** Das Schattenfrustum reicht 12 m um die Sonnenachse
+// (SUN.shadow.halfExtent); die nächsten Waldbäume stehen weiter draußen als
+// die Kulisse davon erfasst. Ein Durchgang, der bezahlt wird und nichts
+// liefert, ist genau das, was die Fernkronen des Gartens schon nicht tun.
+function buildForest(group, r) {
+  const y0 = EXTERIOR.ground.y;
+  const F = EXTERIOR.forest;
+  const G = EXTERIOR.garden;
+
+  // Detailstufe 0: eine Ikosaederkugel mit 20 Dreiecken. `blobGeometry`
+  // verrauscht sie und führt `mergeVertices()` aus, sonst wäre sie facettiert –
+  // bei zwanzig Dreiecken sieht man jede einzelne Facette.
+  const crownGeo = blobGeometry(0, 0x9e1, 0.74);
+  crownGeo.computeBoundingBox();
+  const crownReach = Math.max(crownGeo.boundingBox.max.x, -crownGeo.boundingBox.min.x);
+
+  // Offener Zylinder: Der Deckel säße unter der Krone und der Boden im Erdreich.
+  const trunkGeo = new THREE.CylinderGeometry(0.5, 1, 1, 5, 1, true);
+  trunkGeo.translate(0, 0.5, 0);
+
+  // Farbe nach Entfernung: Nadelgrün nahe, Dunstfarbe fern. Das ist dieselbe
+  // Luftperspektive, die die gemalte Kulisse zeigt – ohne sie steht der Wald
+  // als scharfe dunkle Wand davor und der Übergang wird zur Naht.
+  const HAZE = new THREE.Color(0x93a8a4);
+  const CONIFER = [0x1b2f18, 0x24401d, 0x172a15, 0x2c4a20, 0x30512a];
+
+  const trees = [];
+  const step = F.spacing;
+  const n = Math.ceil(F.radius / step);
+  for (let ix = -n; ix <= n; ix++) {
+    for (let iz = -n; iz <= n; iz++) {
+      // Gerastert und dann gestreut: reiner Zufall ergibt Klumpen und Lichtungen
+      // an Stellen, wo keine hingehören, ein reines Raster einen Forst.
+      const x = ix * step + (r() - 0.5) * step * 0.85;
+      const z = iz * step + (r() - 0.5) * step * 0.85 + (ROOM.minZ + ROOM.maxZ) / 2;
+      const dist = Math.hypot(x, z - (ROOM.minZ + ROOM.maxZ) / 2);
+      if (dist > F.radius) continue;
+
+      const rad = 1.5 + r() * 1.9;
+      const reach = rad * crownReach * 1.25;
+      // Nicht ins Gebäude und nicht bis an die Wand.
+      if (intrudesRoom(x, z, reach + F.clearing)) continue;
+      // Nicht ins Kiesbeet und nicht in die Pflanzung davor: Dort steht der
+      // Garten, und ein Waldbaum mitten im Karesansui wäre kein Zuwachs.
+      if (Math.abs(x) < G.halfX + 1.6 && z > G.z0 - 2.2 && z < G.z1 + 1.6) continue;
+
+      // Dunst nach Entfernung, aber erst ab zwölf Metern: Was nah steht, soll
+      // seine Farbe behalten, sonst wird der ganze Wald milchig.
+      const haze = Math.min(0.62, Math.max(0, (dist - 12) / 46));
+      trees.push({
+        x,
+        z,
+        rad,
+        dist,
+        squash: 1.15 + r() * 0.75,
+        ry: r() * Math.PI,
+        // Stammhöhe unter der Krone. Weiter außen höher, damit die Silhouette
+        // nach hinten aufsteigt statt flach abzuschließen.
+        h: 2.6 + r() * 3.4 + Math.min(2.4, dist * 0.06),
+        col: new THREE.Color(CONIFER[Math.floor(r() * CONIFER.length)]).lerp(HAZE, haze),
+      });
+    }
+  }
+
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+
+  const crowns = new THREE.InstancedMesh(
+    crownGeo,
+    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    trees.length
+  );
+  crowns.name = 'dojo-wald-kronen';
+  trees.forEach((t, i) => {
+    q.setFromEuler(e.set(0, t.ry, 0));
+    m.compose(
+      new THREE.Vector3(t.x, y0 + t.h + t.rad * t.squash * 0.55, t.z),
+      q,
+      new THREE.Vector3(t.rad * 1.25, t.rad * t.squash, t.rad * 1.1)
+    );
+    crowns.setMatrixAt(i, m);
+    crowns.setColorAt(i, t.col);
+  });
+  crowns.instanceMatrix.needsUpdate = true;
+  if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
+  crowns.castShadow = false;
+  crowns.receiveShadow = false;
+  crowns.userData.fullCount = trees.length;
+  group.add(crowns);
+
+  // **Stämme nur im Nahbereich.** Ab etwa fünfundzwanzig Metern ist ein Stamm
+  // von 20 cm Durchmesser schmaler als ein Bildpunkt; man bezahlt ihn und sieht
+  // ihn nicht. Was man dort sieht, ist die Kronenschicht – und die steht.
+  const nah = trees.filter((t) => t.dist < 26);
+  const trunks = new THREE.InstancedMesh(
+    trunkGeo,
+    new THREE.MeshLambertMaterial({ color: 0x40342a, side: THREE.DoubleSide }),
+    nah.length
+  );
+  trunks.name = 'dojo-wald-staemme';
+  nah.forEach((t, i) => {
+    q.setFromEuler(e.set(0, t.ry, 0));
+    const rr = 0.09 + t.rad * 0.045;
+    m.compose(new THREE.Vector3(t.x, y0, t.z), q, new THREE.Vector3(rr, t.h + t.rad * 0.4, rr));
+    trunks.setMatrixAt(i, m);
+  });
+  trunks.instanceMatrix.needsUpdate = true;
+  trunks.castShadow = false;
+  trunks.receiveShadow = false;
+  trunks.userData.fullCount = nah.length;
+  group.add(trunks);
+
+  return { trees: trees.length, staemme: nah.length };
+}
+
 export function buildExterior() {
   const group = new THREE.Group();
   group.name = 'dojo-exterior';
@@ -1525,6 +1660,7 @@ export function buildExterior() {
   );
   backdrop.name = 'dojo-backdrop';
   const garden = buildGarden(group, r);
+  buildForest(group, r);
   // **Kein `renderOrder: -1` und kein `depthWrite: false`.**
   //
   // Der übliche Himmel-Trick – zuerst zeichnen, keine Tiefe schreiben – ist
