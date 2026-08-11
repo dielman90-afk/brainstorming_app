@@ -50,7 +50,24 @@ const LARGE_SURFACES = new Set([
 // und genau deswegen steht der Hain überhaupt da. Die Kulisse bleibt ebenfalls:
 // ein einziger unbeleuchteter Zylinder ist billiger als das Loch, das ihr
 // Fehlen hinterlassen würde.
-const XR_HIDDEN = new Set(['dojo-bamboo-laub']);
+const XR_HIDDEN = new Set([
+  'dojo-bamboo-laub',
+  // **Der Wald entfällt in der Brille vollständig – gemessen, nicht vermutet.**
+  //
+  // Aus dem Raum ist er nicht zu sehen: Durch die Südöffnung erreichen 0 von
+  // 1176 Strahlen irgendetwas hinter dem Garten (skyline.mjs), und Nord-, West-
+  // und Ostfront sind Papier – dort kommt Licht durch, kein Bild. Der Spieler
+  // ist auf den Raum geklemmt, es gibt also keinen Standpunkt, von dem aus ein
+  // Waldbaum in einem Bild landet.
+  //
+  // WebGL verwirft nichts, nur weil eine Wand davorsteht; ohne diesen Eintrag
+  // würden rund 12 000 Dreiecke jedes Bild durch die Vertexstufe laufen und
+  // hinterher am Tiefentest scheitern. Am Desktop bleibt er sichtbar – dort
+  // gibt es die freie Kamera, und dort ist die Luft dafür da.
+  'dojo-wald-kronen',
+  'dojo-wald-kronen-fern',
+  'dojo-wald-staemme',
+]);
 
 // Instanzen, die in der Brille ausgedünnt werden: Name → Anteil.
 //
