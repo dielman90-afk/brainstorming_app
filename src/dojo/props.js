@@ -20,6 +20,19 @@ import {
   washiTexture,
   scaleUV,
 } from './materials.js';
+import { leafAtlas, cardCluster, foliageMaterial, applyFoliageMaterial } from './foliage.js';
+
+// Deterministischer Zufall, damit das Gesteck bei jedem Laden dasselbe ist.
+// Ein Ikebana, das sich bei jedem Start neu ordnet, ist kein Ikebana.
+function rng(seed) {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6d2b79f5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 // Die Requisiten des Dojos: Waffenständer mit Katana, Makiwara, Kakemono,
 // Zabuton, Weihrauchbrenner, Bokken.
@@ -258,8 +271,10 @@ function tint(geometry, hex, shade = null) {
 // Kontaktverdunkelung am Boden. Der Übergang Objekt→Boden ist die Stelle, an
 // der prozedurale Szenen typischerweise „schweben" – der Blob-Schatten allein
 // verdunkelt den Boden, nicht das Objekt.
-const contactAO = (h = 0.16, floor = 0) => (x, y) =>
-  0.52 + 0.48 * Math.min(1, Math.max(0, (y - floor) / h));
+const contactAO =
+  (h = 0.16, floor = 0) =>
+  (x, y) =>
+    0.52 + 0.48 * Math.min(1, Math.max(0, (y - floor) / h));
 
 // --- Klingen-Rückgrat --------------------------------------------------------
 //
@@ -346,9 +361,7 @@ function buildBlade() {
       h = hYokote * Math.max(0.06, e * 0.92 + 0.08);
       base = wYokote * (1 - e) * 0.92;
     }
-    rings.push(
-      bladeSection(w, h).map(([a, b]) => sectionPoint(R, s, base + a, b))
-    );
+    rings.push(bladeSection(w, h).map(([a, b]) => sectionPoint(R, s, base + a, b)));
     vs.push(s / 0.25); // V längs, damit die Schmiedezüge nicht gestaucht werden
   }
   return loft(rings, vs, { flat: true, capEnd: true });
@@ -503,11 +516,7 @@ function buildItoWrap(dir, phase) {
     const nx = (Math.cos(a) / rx) * 1;
     const nz = (Math.sin(a) / rz) * 1;
     const nlen = Math.hypot(nx, nz) || 1;
-    const surf = new THREE.Vector3(
-      (nrm.x * nx) / nlen,
-      (nrm.y * nx) / nlen,
-      nz / nlen
-    ).normalize();
+    const surf = new THREE.Vector3((nrm.x * nx) / nlen, (nrm.y * nx) / nlen, nz / nlen).normalize();
     const bi = new THREE.Vector3().crossVectors(t, surf).normalize().multiplyScalar(halfW);
     rings.push([p.clone().add(bi), p.clone().sub(bi)]);
     vs.push(k * TURNS * 3);
@@ -656,11 +665,7 @@ function swordMatrix(x, y, z, beta) {
     .setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2)
     .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2))
     .multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), beta));
-  return new THREE.Matrix4().compose(
-    new THREE.Vector3(x, y, z),
-    q,
-    new THREE.Vector3(1, 1, 1)
-  );
+  return new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(1, 1, 1));
 }
 
 // --- Katana-Kake: der Waffenständer ------------------------------------------
@@ -967,7 +972,12 @@ function addMakiwara(B) {
     );
     padVs.push(k * 5);
   }
-  put('fibre', loft(padRings, padVs, { capStart: true, capEnd: true }), 0xcbb180, contactAO(1.4, 0.6));
+  put(
+    'fibre',
+    loft(padRings, padVs, { capStart: true, capEnd: true }),
+    0xcbb180,
+    contactAO(1.4, 0.6)
+  );
 
   // Seilwicklung: eine Schraubenlinie, die der abgerundeten Rechteckkontur des
   // Polsters folgt. `TubeGeometry` mit einem Kreisquerschnitt reicht hier, weil
@@ -1032,7 +1042,10 @@ function brushStroke(ctx, pts, widths, box) {
       const p3 = at(seg + 2);
       const cr = (a, b, c, d) =>
         0.5 *
-        (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t * t + (-a + 3 * b - 3 * c + d) * t * t * t);
+        (2 * b +
+          (-a + c) * t +
+          (2 * a - 5 * b + 4 * c - d) * t * t +
+          (-a + 3 * b - 3 * c + d) * t * t * t);
       const x = cr(p0[0], p1[0], p2[0], p3[0]);
       const y = cr(p0[1], p1[1], p2[1], p3[1]);
       // Ableitung numerisch – reicht für die Normalenrichtung.
@@ -1040,7 +1053,10 @@ function brushStroke(ctx, pts, widths, box) {
       const t2 = Math.min(1, t + e);
       const cr2 = (a, b, c, d) =>
         0.5 *
-        (2 * b + (-a + c) * t2 + (2 * a - 5 * b + 4 * c - d) * t2 * t2 + (-a + 3 * b - 3 * c + d) * t2 * t2 * t2);
+        (2 * b +
+          (-a + c) * t2 +
+          (2 * a - 5 * b + 4 * c - d) * t2 * t2 +
+          (-a + 3 * b - 3 * c + d) * t2 * t2 * t2);
       const dx = cr2(p0[0], p1[0], p2[0], p3[0]) - x;
       const dy = cr2(p0[1], p1[1], p2[1], p3[1]) - y;
       const len = Math.hypot(dx, dy) || 1;
@@ -1128,12 +1144,23 @@ function scrollTexture() {
   const strokes = [
     // Waagerechter Ansatz, dann der Haken nach unten links.
     {
-      p: [[0.30, 0.15], [0.62, 0.17], [0.72, 0.30], [0.69, 0.55], [0.55, 0.74]],
-      w: [0.030, 0.052, 0.058, 0.046, 0.012],
+      p: [
+        [0.3, 0.15],
+        [0.62, 0.17],
+        [0.72, 0.3],
+        [0.69, 0.55],
+        [0.55, 0.74],
+      ],
+      w: [0.03, 0.052, 0.058, 0.046, 0.012],
     },
     // Der lange fallende Strich, zum Ende hin duenn auslaufend.
     {
-      p: [[0.50, 0.13], [0.42, 0.40], [0.31, 0.66], [0.17, 0.87]],
+      p: [
+        [0.5, 0.13],
+        [0.42, 0.4],
+        [0.31, 0.66],
+        [0.17, 0.87],
+      ],
       w: [0.032, 0.056, 0.038, 0.008],
     },
   ];
@@ -1150,7 +1177,12 @@ function scrollTexture() {
     const x = box[0] + (s.p[idx][0] + (s.p[idx + 1][0] - s.p[idx][0]) * f) * box[2];
     const y = box[1] + (s.p[idx][1] + (s.p[idx + 1][1] - s.p[idx][1]) * f) * box[3];
     ctx.fillStyle = `rgba(0,0,0,${0.25 + Math.random() * 0.4})`;
-    ctx.fillRect(x + (Math.random() - 0.5) * 26, y + (Math.random() - 0.5) * 20, 1 + Math.random() * 5, 1.2);
+    ctx.fillRect(
+      x + (Math.random() - 0.5) * 26,
+      y + (Math.random() - 0.5) * 20,
+      1 + Math.random() * 5,
+      1.2
+    );
   }
   ctx.globalCompositeOperation = 'source-over';
 
@@ -1689,31 +1721,150 @@ function paintingTexture() {
 // Zwei Bodenvasen, die den Eingang flankieren. `LatheGeometry` ist hier genau
 // das richtige Werkzeug – eine Vase *ist* ein rotiertes Profil, und das ist der
 // eine Fall, in dem der Loft dieser Datei mehr Arbeit wäre als der Standardweg.
-function vaseGeometry(height, seed) {
-  // Erster Punkt auf Radius null: `LatheGeometry` setzt keinen Deckel, eine
-  // Vase mit Startradius > 0 ist unten offen und man sieht von schräg unten
-  // hinein.
-  const pts = [new THREE.Vector2(0, 0)];
-  const N = 18;
-  for (let i = 0; i < N; i++) {
-    const t = i / (N - 1);
-    // Profil: schmaler Fuß, bauchige Mitte, eingezogener Hals, ausgestellte
-    // Mündung. Die Einziehung am Hals ist das, was eine Vase von einem Topf
-    // unterscheidet.
-    // Schlanker und mit längerem Hals als im ersten Anlauf. Der war eine
-    // Kugel mit Loch – ein Ei, kein Gefäß. Was eine japanische Bodenvase
-    // ausmacht, ist die **Höhe über dem Bauch**: Der weiteste Punkt liegt bei
-    // gut einem Drittel, darüber zieht sich die Form über eine lange Strecke
-    // ein und öffnet sich erst ganz oben wieder.
-    let rr =
-      0.4 +
-      0.6 * Math.sin(Math.pow(t, 0.62) * Math.PI * 0.86) -
-      0.46 * Math.pow(Math.max(0, t - 0.42) / 0.58, 1.35);
-    if (t > 0.9) rr += (t - 0.9) * 3.4; // ausgestellte Mündung
-    rr *= 0.44 + 0.02 * Math.sin(t * 9 + seed);
-    pts.push(new THREE.Vector2(Math.max(0.02, rr) * height * 0.62, t * height));
+function vaseProfile(height) {
+  // **Steuerpunkte statt Formel.** Der erste Anlauf hat das Profil aus einer
+  // Sinuskurve mit drei Korrekturtermen gerechnet. Das Ergebnis war ein
+  // Tropfen: kein Fuß, keine Schulter, kein Hals, kein Rand – und jede
+  // Nachbesserung an einer Stelle verzog zwei andere.
+  //
+  // Eine Vase ist ein gezeichnetes Profil, und die Stellen, an denen sie
+  // gelesen wird, sind benennbar: Standfläche, weitester Punkt (bei einer
+  // japanischen Bodenvase tief, bei gut einem Drittel), die lange Einziehung
+  // darüber, der engste Punkt am Hals und die ausgestellte Mündung.
+  //
+  // Erster Punkt auf Radius null: `LatheGeometry` setzt keinen Deckel, ein
+  // Startradius > 0 ließe die Vase unten offen.
+  const aussen = [
+    [0.0, 0.0],
+    // Flache Standfläche statt Spitze. Vorher lief das Profil unten auf einen
+    // Punkt zu, und die Vase stand im Bild auf einer Nadel.
+    [0.0, 0.3],
+    [0.015, 0.315],
+    [0.05, 0.4],
+    [0.13, 0.6],
+    [0.24, 0.78],
+    [0.36, 0.88], // weitester Punkt, tief angesetzt
+    [0.48, 0.86],
+    [0.6, 0.76],
+    [0.71, 0.6],
+    [0.8, 0.45],
+    [0.87, 0.355],
+    [0.92, 0.325], // engster Punkt: der Hals
+    [0.965, 0.35],
+    [1.0, 0.42], // ausgestellte Mündung
+  ];
+
+  // Der Rumpf wird dicht abgetastet, damit die Fläche glatt schattiert.
+  // `LatheGeometry` mittelt die Normalen entlang des Profils: viele Punkte
+  // ergeben eine weiche Wölbung, wenige eine Kante. Genau das wird hier
+  // ausgenutzt – der Rand darunter bleibt bewusst grob und bekommt dadurch
+  // seine Kante.
+  const kurve = new THREE.CatmullRomCurve3(
+    aussen.map(([t, rr]) => new THREE.Vector3(rr, t, 0)),
+    false,
+    'catmullrom',
+    0.5
+  );
+  const pts = kurve.getSpacedPoints(30).map((v) => new THREE.Vector2(v.x, v.y));
+
+  // Rand und Innenwand. Ohne sie ist die Mündung ein Loch in einer Schale: Man
+  // sieht bei rückseitenkulierten Flächen durch die Vase hindurch, und der
+  // Rand hat keine Dicke. Der Innenboden sitzt dicht unter dem Hals – tiefer
+  // sieht ohnehin niemand hinein, und jeder Punkt darunter wäre bezahlte
+  // Geometrie im Dunkeln.
+  for (const [t, rr] of [
+    [1.002, 0.395],
+    [0.975, 0.34],
+    [0.94, 0.3],
+    [0.9, 0.29],
+    [0.86, 0.0],
+  ]) {
+    pts.push(new THREE.Vector2(rr, t));
   }
-  return new THREE.LatheGeometry(pts, 14);
+
+  // Maßstab: Eine Bodenvase von 78 cm Höhe ist rund 30 cm breit. Der weiteste
+  // Punkt liegt bei 0,88 der Profilbreite, der Faktor folgt daraus.
+  const rMax = height * 0.195;
+  for (const v of pts) {
+    v.x = Math.max(0, v.x) * rMax;
+    v.y *= height;
+  }
+  return pts;
+}
+
+function vaseGeometry(height) {
+  // 26 statt 14 Segmente. Eine glasierte Fläche zeigt jede Facette; bei
+  // vierzehn sah der Bauch aus wie ein geschliffener Kristall.
+  return new THREE.LatheGeometry(vaseProfile(height), 26);
+}
+
+// --- Ikebana -------------------------------------------------------------------
+//
+// Was vorher in den Vasen stand, waren drei gerade Zylinder in zufälligen
+// Winkeln. Das liest sich als Antennen, und es ist das genaue Gegenteil dessen,
+// was ein Gesteck ist: Ikebana ist Anordnung, nicht Streuung.
+//
+// Die klassische Dreiheit gibt die Proportionen vor – **shin** (Himmel, der
+// längste Zweig), **soe** (Mensch, etwa drei Viertel davon) und **hikae**
+// (Erde, gut die Hälfte). Alle drei gehen aus einem Punkt aus, neigen sich in
+// dieselbe Halbebene und sind gebogen, nicht gerade. Diese drei Regeln machen
+// den Unterschied; alles Weitere ist Zierde.
+function ikebanaStems(x, z, baseY, height, seed) {
+  const r = rng(seed);
+  const stems = [];
+  const leafSpots = [];
+
+  // Grundrichtung des Gestecks: alle Zweige neigen sich in dieselbe Halbebene.
+  // Ein Gesteck, das nach allen Seiten auseinandergeht, ist ein Strauß.
+  const az = r() * Math.PI * 2;
+
+  const teile = [
+    // [Länge im Verhältnis zur Vase, Neigung, seitlicher Versatz, Krümmung]
+    [1.45, 0.13, 0.0, 0.55],
+    [1.05, 0.42, 0.55, 0.75],
+    [0.62, 0.72, -0.5, 0.85],
+  ];
+
+  for (const [lenF, tilt, seit, bend] of teile) {
+    const len = height * lenF;
+    const a = az + seit;
+    const dir = new THREE.Vector3(
+      Math.sin(a) * Math.sin(tilt),
+      Math.cos(tilt),
+      Math.cos(a) * Math.sin(tilt)
+    );
+    // Seitliche Achse für die Krümmung: Der Zweig biegt sich quer zu seiner
+    // eigenen Richtung, sonst wird aus der Biegung eine Verkürzung.
+    const quer = new THREE.Vector3(Math.cos(a), 0, -Math.sin(a));
+
+    const start = new THREE.Vector3(x, baseY + height * 0.86, z);
+    const punkte = [];
+    const N = 5;
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const p = start.clone().addScaledVector(dir, len * t);
+      // Krümmung als Sinusbogen: null am Ansatz, größte Auslenkung oben. Ein
+      // Zweig, der schon im Hals abknickt, sieht geknickt aus statt gewachsen.
+      p.addScaledVector(quer, Math.sin(t * Math.PI * 0.62) * len * bend * 0.28);
+      p.y -= t * t * len * 0.12; // Eigengewicht
+      punkte.push(p);
+    }
+    const kurve = new THREE.CatmullRomCurve3(punkte);
+    stems.push(new THREE.TubeGeometry(kurve, 8, 0.0075, 4, false));
+
+    // Laub sitzt im oberen Drittel, nicht über die ganze Länge – unten ist
+    // Zweig, oben Blatt. Der kürzeste Zweig bleibt kahl; im Ikebana trägt
+    // nicht jedes Element Laub, und der Kontrast ist beabsichtigt.
+    if (lenF > 0.8) {
+      for (const t of [0.72, 0.9]) {
+        leafSpots.push({
+          p: kurve.getPoint(t),
+          s: 0.075 + r() * 0.045,
+        });
+      }
+    }
+  }
+  return { stems, leafSpots };
 }
 
 // --- Blob-Schatten ------------------------------------------------------------
@@ -1806,22 +1957,51 @@ export function buildProps() {
 
   // Zwei Bodenvasen, die den Süd-Eingang flankieren. Weit genug auseinander,
   // dass sie den Durchgang rahmen statt ihn zu verengen.
+  const vaseZ = ROOM.maxZ - 0.62;
+  const vaseY = 0.055;
+  const blattStellen = [];
   for (const [i, x] of [-1.62, 1.62].entries()) {
     const height = i === 0 ? 0.78 : 0.68;
-    const g = vaseGeometry(height, i * 2.3);
-    g.translate(x, 0.055, ROOM.maxZ - 0.62);
+    const g = vaseGeometry(height);
+    g.translate(x, vaseY, vaseZ);
     // Seladon und Eisenglasur – zwei Vasen in derselben Farbe wären ein Paar
     // Kegel, zwei verschiedene sind zwei Vasen.
     B.lacquer.geos.push(tint(g, i === 0 ? 0x4a5f56 : 0x2b2a2e, contactAO(0.22)));
-    // Zweig darin: ein paar Striche aus Holz, mehr braucht es nicht.
-    for (let k = 0; k < 3; k++) {
-      const len = 0.5 + k * 0.16;
-      const br = new THREE.CylinderGeometry(0.006, 0.011, len, 5);
-      br.rotateZ((k - 1) * 0.28);
-      br.rotateY(k * 1.9);
-      br.translate(x + (k - 1) * 0.05, 0.055 + height + len * 0.42, ROOM.maxZ - 0.62);
-      B.wood.geos.push(tint(br, 0x5a4632));
-    }
+
+    const { stems, leafSpots } = ikebanaStems(x, vaseZ, vaseY, height, 0x51a7 + i * 977);
+    for (const st of stems) B.wood.geos.push(tint(st, 0x53412e));
+    blattStellen.push(...leafSpots);
+  }
+
+  // --- Laub im Gesteck ----------------------------------------------------
+  //
+  // Eigenes Netz, weil es das einzige Prop mit alpha-getesteter Blattkarte ist –
+  // in einen Materialeimer gesteckt bräuchte der ganze Eimer den Alphatest, und
+  // der verbietet das frühe Verwerfen von Fragmenten für Klingen, Lack und Holz
+  // gleich mit.
+  //
+  // Kein Wind: Drinnen weht keiner. Dieselbe Karte wie draußen, aber
+  // stillgestellt – ein Ahornzweig, der im geschlossenen Raum wippt, ist genau
+  // die Sorte Detail, die eine Szene entlarvt statt sie zu tragen.
+  if (blattStellen.length) {
+    const material = foliageMaterial({
+      atlas: leafAtlas('maple'),
+      translucency: 0.55,
+      windStrength: 0,
+    });
+    const geos = blattStellen.map(({ p, s }) => {
+      const g = cardCluster({ count: 20, radius: 1, seed: 0x2f1, kind: 'maple', cardScale: 0.72 });
+      g.scale(s, s, s);
+      g.translate(p.x, p.y, p.z);
+      return g;
+    });
+    const leaves = new THREE.Mesh(mergeGeometries(geos), material);
+    applyFoliageMaterial(leaves, material);
+    leaves.name = 'props-ikebana-laub';
+    leaves.castShadow = true;
+    leaves.receiveShadow = true;
+    group.add(leaves);
+    for (const g of geos) g.dispose();
   }
 
   for (const key of Object.keys(B)) {
