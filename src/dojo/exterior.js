@@ -696,9 +696,15 @@ function buildGarden(group, r) {
   // Zwei Kräuselungslagen, die gegeneinander wandern (ground.js). Eine einzelne
   // Lage mit laufendem Versatz liest man sofort als verschobene Textur; erst
   // die Interferenz zweier Lagen ergibt ein Muster, das entsteht und vergeht.
-  const waterGeo = new THREE.CircleGeometry(0.26, 20);
+  // **Die Höhe ist der ganze Punkt.** Das Becken ist ein Zylinder von y0 bis
+  // y0 + 0,30; die Scheibe lag bei y0 + 0,29, also einen Zentimeter **im**
+  // Stein und damit unsichtbar. Aufgefallen ist das nie, weil sie bis eben im
+  // selben verschmolzenen Netz steckte und dort ohnehin niemand nach ihr
+  // gesucht hat. Jetzt steht sie 2 mm über der Kante – ein Tsukubai ist bis
+  // fast zum Rand gefüllt.
+  const waterGeo = new THREE.CircleGeometry(0.285, 20);
   waterGeo.rotateX(-Math.PI / 2);
-  waterGeo.translate(basin[0], y0 + 0.29, basin[1]);
+  waterGeo.translate(basin[0], y0 + 0.302, basin[1]);
   const water = new THREE.Mesh(waterGeo, waterMaterial({ repeat: 2.5 }));
   water.name = 'dojo-garden-wasser';
   water.receiveShadow = true;
