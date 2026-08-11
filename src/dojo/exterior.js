@@ -1241,9 +1241,29 @@ function buildGarden(group, r) {
   // Die Töne sind hell, weil sie den Blattatlas **multiplizieren**: Das Grün
   // steckt in der Textur. Der frühere Satz satter Grüns war für ein Material
   // ohne Karte richtig und wäre hier schwarzes Laub.
-  // Waagerechte Reichweite eines Farnhorstes bei voller Größe, aus der
-  // Geometrie statt geschätzt.
-  const fernReach = 0.82 * 1.35;
+  // Der Farnhorst als Geometrie, damit seine Reichweite **abgelesen** und nicht
+  // geschätzt wird. Der erste Anlauf hat mit `0,82 · 1,35` gerechnet und war um
+  // sieben Prozent zu klein – gemessen ragte danach noch genau ein Horst einen
+  // Zentimeter in den Raum. Ein Zentimeter ist harmlos; die geschätzte Zahl
+  // dahinter ist es nicht, weil sie beim nächsten Verstellen von `cardScale`
+  // wieder daneben liegt.
+  const fernGeo = cardCluster({
+    count: 26,
+    radius: 1,
+    seed: 0x1f4,
+    kind: 'fern',
+    hemisphere: true,
+    squash: 0.55,
+    cardScale: 0.62,
+  });
+  fernGeo.computeBoundingBox();
+  const fernUnit = Math.max(
+    fernGeo.boundingBox.max.x,
+    -fernGeo.boundingBox.min.x,
+    fernGeo.boundingBox.max.z,
+    -fernGeo.boundingBox.min.z
+  );
+  const fernReach = 0.82 * fernUnit;
   const FERN = [0xa9bd8e, 0xc4d3a6, 0x8fa578, 0xd2dcb4];
   const fronds = [];
   const nearStone = (x, z) =>
@@ -1283,7 +1303,7 @@ function buildGarden(group, r) {
     }
     if (nearStone(x, z)) continue;
     const fs = 0.42 + r() * 0.4;
-    if (intrudesRoom(x, z, fs * 1.35)) continue;
+    if (intrudesRoom(x, z, fs * fernUnit)) continue;
     fronds.push({
       x,
       z,
@@ -1303,19 +1323,7 @@ function buildGarden(group, r) {
     // sähe hier aus wie Seegras.
     windStrength: 0.035,
   });
-  const frondMesh = new THREE.InstancedMesh(
-    cardCluster({
-      count: 26,
-      radius: 1,
-      seed: 0x1f4,
-      kind: 'fern',
-      hemisphere: true,
-      squash: 0.55,
-      cardScale: 0.62,
-    }),
-    fernCards,
-    fronds.length
-  );
+  const frondMesh = new THREE.InstancedMesh(fernGeo, fernCards, fronds.length);
   applyFoliageMaterial(frondMesh, fernCards);
   frondMesh.name = 'dojo-garden-farne';
   fronds.forEach((f, i) => {
@@ -1479,6 +1487,62 @@ function buildForest(group, r) {
     crowns.receiveShadow = false;
     crowns.userData.fullCount = list.length;
     group.add(crowns);
+  }
+
+  // --- Kartenlaub auf den nächsten Bäumen ----------------------------------
+  //
+  // Die erste Waldreihe steht dem Haus am nächsten und ist die einzige, an der
+  // man von außen ein Blatt auflösen kann. Sie bekommt dieselbe Bauform wie der
+  // Garten: dunkler Hüllkörper als Masse, Kartenbüschel darüber für Kontur und
+  // Lichtspiel.
+  //
+  // **Nicht in Gartendichte.** Eine Waldkrone hat mit Halbachsen von rund
+  // 2,3 × 5,5 × 2,1 m etwa das Elffache der Oberfläche eines Gartenpolsters;
+  // gleiche Blattdichte wären über 2 000 Karten je Baum und bei dreißig Bäumen
+  // 130 000 Dreiecke. Hier sind es 260 – gröbere Büschel, die auf zehn Metern
+  // Abstand genau richtig sind und aus zwei Metern zu grob wären. Die Bäume
+  // stehen aber nie näher als sechs Meter an der Wand.
+  // **20 m, nicht 16.** Bei 16 m fielen nur fünf Bäume in die Auswahl – die
+  // Waldlichtung hält den Bestand ohnehin auf Abstand, und `dist` misst vom
+  // Raummittelpunkt, nicht von der Wand: Ein Baum acht Meter vor der Ostwand
+  // steht bereits bei dist = 14. Zwanzig Meter fassen die ganze erste Reihe.
+  const nahBaeume = trees.filter((t) => t.dist < 20);
+  if (nahBaeume.length) {
+    const laubMaterial = foliageMaterial({
+      atlas: leafAtlas('bamboo'),
+      translucency: 0.7,
+      transColor: 0xa9c664,
+      windStrength: 0.06,
+    });
+    const laubGeo = cardCluster({
+      count: 260,
+      radius: 1,
+      seed: 0x7a1d,
+      kind: 'bamboo',
+      cardScale: 0.34,
+      squash: 0.9,
+    });
+    const laub = new THREE.InstancedMesh(laubGeo, laubMaterial, nahBaeume.length);
+    applyFoliageMaterial(laub, laubMaterial);
+    laub.name = 'dojo-wald-nahlaub';
+    nahBaeume.forEach((t, i) => {
+      q.setFromEuler(e.set(0, t.ry, 0));
+      m.compose(
+        new THREE.Vector3(t.x, y0 + t.h + t.rad * t.squash * 0.55, t.z),
+        q,
+        new THREE.Vector3(t.rad * 0.92, t.rad * t.squash, t.rad * 0.82)
+      );
+      laub.setMatrixAt(i, m);
+      // Dieselbe Farbe wie der Hüllkörper darunter, nur aufgehellt: Die Karten
+      // sind das besonnte Äußere derselben Krone, nicht eine zweite Pflanze.
+      laub.setColorAt(i, t.col.clone().lerp(new THREE.Color(0xffffff), 0.55));
+    });
+    laub.instanceMatrix.needsUpdate = true;
+    if (laub.instanceColor) laub.instanceColor.needsUpdate = true;
+    laub.castShadow = false;
+    laub.receiveShadow = false;
+    laub.userData.fullCount = nahBaeume.length;
+    group.add(laub);
   }
 
   // **Stämme nur im Nahbereich.** Ab etwa fünfundzwanzig Metern ist ein Stamm

@@ -64,6 +64,7 @@ const XR_HIDDEN = new Set([
   // würden rund 12 000 Dreiecke jedes Bild durch die Vertexstufe laufen und
   // hinterher am Tiefentest scheitern. Am Desktop bleibt er sichtbar – dort
   // gibt es die freie Kamera, und dort ist die Luft dafür da.
+  'dojo-wald-nahlaub',
   'dojo-wald-kronen',
   'dojo-wald-kronen-fern',
   'dojo-wald-staemme',
