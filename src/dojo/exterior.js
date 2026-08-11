@@ -54,6 +54,38 @@ function rng(seed) {
 // stecken nicht in der Silhouette (dafür wären sie zu klein), sondern als
 // dunkle Ringe in den Vertexfarben – gratis, weil das Material ohnehin
 // Vertexfarben liest, und sichtbar genau dann, wenn Licht seitlich einfällt.
+// --- Nichts von draußen gehört nach drinnen ----------------------------------
+//
+// Gemessen war es das hier: 66 von 699 Bambusschöpfen standen bis zu 2,6 m
+// durch die Ostwand im Raum, dazu acht Polster und zwölf Kartenbüschel, die an
+// der Südwand beginnen – die Seitenreihen der Bepflanzung setzen bei
+// z = G.z0 − 1,4 an, und das ist genau die Wandebene.
+//
+// Am Bild findet man das kaum. Ein Blatt, das durch die Wand hereinsteht, sieht
+// man nur, wenn man zufällig hinschaut, und ein Polster hinter der Südwand gar
+// nicht – bis man daran vorbeigeht und es plötzlich im Raum steht.
+//
+// **Warum eine Prüfung und keine neuen Koordinaten.** Den Hain weiter nach
+// Osten zu schieben hätte den Grund beseitigt, aus dem er dort steht: Er wirft
+// die Schatten auf das Papier der Ostfront. Und neue Zahlen halten nur bis zur
+// nächsten Änderung an einem Radius – die Schöpfe sind ja gerade erst größer
+// geworden, und *das* hat den Fehler überhaupt erzeugt. Die Prüfung greift
+// dagegen bei jeder künftigen Größenänderung von selbst.
+//
+// Der Abstand rechnet mit der **Ausdehnung** der Pflanze, nicht mit ihrem
+// Mittelpunkt. Ein Schopf von zwei Metern Radius, dessen Mitte einen Meter vor
+// der Wand sitzt, steht trotzdem im Raum.
+const ROOM_KEEPOUT = 0.25;
+
+function intrudesRoom(x, z, halfX, halfZ = halfX) {
+  return (
+    x + halfX > ROOM.minX - ROOM_KEEPOUT &&
+    x - halfX < ROOM.maxX + ROOM_KEEPOUT &&
+    z + halfZ > ROOM.minZ - ROOM_KEEPOUT &&
+    z - halfZ < ROOM.maxZ + ROOM_KEEPOUT
+  );
+}
+
 function culmGeometry() {
   const H = 1; // Einheitshöhe, die Instanz skaliert
   // Zehn statt 26 Ringe. Ein Halm ist eine gerade, leicht verjüngte Stange –
@@ -792,8 +824,60 @@ function buildGarden(group, r) {
   // gebraucht wird, ist beschattetes Laub, und das ist dunkel, aber nicht
   // farblos.
   const AZALEA = [0x1a2e14, 0x24401b, 0x141f0f, 0x2b4d1f, 0x1d3316, 0x365c26];
+  // **Wie weit reicht ein Polster wirklich?**
+  //
+  // Der erste Anlauf hat mit rad·1,3 gerechnet – der Instanzskalierung. Die
+  // Messung fand danach immer noch fünf Kartenbüschel im Raum: Die Karten
+  // sitzen auf einer Schale, deren äußerste noch einmal ein halbes Kartenmaß
+  // nach außen wächst, und die Hüllkugel ist zusätzlich um 30 % aufgeblasen,
+  // damit der Wind sie nicht aus dem Sichtkörper trägt. Der Blob selbst ist
+  // ebenfalls kein Einheitsradius, weil `blobGeometry` ihn verrauscht.
+  //
+  // Beide Zahlen stehen in den Geometrien. Sie dort abzulesen kostet zwei
+  // Zeilen und hält, wenn jemand `cardScale` verstellt – geschätzte Faktoren
+  // tun das nicht, und genau daran ist der erste Anlauf gescheitert.
+  const moundGeo = blobGeometry(1, 0x7c3, 0.62);
+  moundGeo.computeBoundingBox();
+  const cardGeo = cardCluster({
+    // **Zahl und Größe sind gemessen, nicht geschätzt.** Der erste Anlauf
+    // hatte 104 Karten zu 0,44 – im Bild ergab das Flechten auf grünen
+    // Steinen. Der Grund ist die Textur selbst: Eine Atlaszelle zeigt ein
+    // Büschel mit viel Zwischenraum, also deckt eine Karte nur etwa ein
+    // Drittel ihrer eigenen Fläche. Was rechnerisch 70 % Deckung war, waren
+    // im Bild 25 %.
+    count: 190,
+    radius: 1,
+    seed: 0x5107,
+    kind: 'azalea',
+    // 0,58 statt 0,44: Bei einem Polster von 0,8 m sind das Büschel von rund
+    // 0,38 m – ein Zweigende, kein Einzelblatt. Einzelblätter zu bauen hieße,
+    // das Zehnfache zu bezahlen für etwas, das man aus vier Metern nicht mehr
+    // trennt.
+    cardScale: 0.58,
+    squash: 0.72,
+  });
+  const farGeo = cardCluster({
+    count: 52,
+    radius: 1,
+    seed: 0x5108,
+    kind: 'azalea',
+    cardScale: 0.86,
+    squash: 0.72,
+  });
+  const unitReach = Math.max(
+    moundGeo.boundingBox.max.x,
+    -moundGeo.boundingBox.min.x,
+    moundGeo.boundingBox.max.z,
+    -moundGeo.boundingBox.min.z,
+    cardGeo.boundingSphere?.radius ?? 0,
+    farGeo.boundingSphere?.radius ?? 0
+  );
+  // mal der größeren der beiden waagerechten Instanzskalierungen (X: 1,3).
+  const MOUND_REACH = unitReach * 1.3;
+
   const mounds = [];
   const addMound = (x, z, rad, pal, squash = 1) => {
+    if (intrudesRoom(x, z, rad * MOUND_REACH)) return;
     mounds.push({
       x,
       z,
@@ -887,9 +971,12 @@ function buildGarden(group, r) {
     const haze = 0.16 + ring * 0.13;
     for (let x = -24; x <= 24; x += 2.2) {
       const rad = 2.6 + r() * 1.9;
+      const cx = x + (r() - 0.5) * 2.6;
+      const cz = z + (r() - 0.5) * 2.4;
+      if (intrudesRoom(cx, cz, rad * MOUND_REACH)) continue;
       canopy.push({
-        x: x + (r() - 0.5) * 2.6,
-        z: z + (r() - 0.5) * 2.4,
+        x: cx,
+        z: cz,
         y: y0 + rad * 0.75 + r() * 1.6,
         rad,
         squash: 1.25 + r() * 0.5,
@@ -929,7 +1016,7 @@ function buildGarden(group, r) {
     // die feinere Unterteilung gegen die Facetten – seit die Normalen stimmen,
     // ist eine Kuppel auch mit 80 Dreiecken rund. Das spart bei rund 170
     // Polstern über 40 000 Dreiecke, ohne dass man einen Unterschied sieht.
-    blobGeometry(1, 0x7c3, 0.62),
+    moundGeo,
     new THREE.MeshLambertMaterial({ color: 0xffffff }),
     mounds.length
   );
@@ -989,24 +1076,6 @@ function buildGarden(group, r) {
     windStrength: 0.055,
   });
   {
-    const cardGeo = cardCluster({
-      // **Zahl und Größe sind gemessen, nicht geschätzt.** Der erste Anlauf
-      // hatte 104 Karten zu 0,44 – im Bild ergab das Flechten auf grünen
-      // Steinen. Der Grund ist die Textur selbst: Eine Atlaszelle zeigt ein
-      // Büschel mit viel Zwischenraum, also deckt eine Karte nur etwa ein
-      // Drittel ihrer eigenen Fläche. Was rechnerisch 70 % Deckung war, waren
-      // im Bild 25 %.
-      count: 190,
-      radius: 1,
-      seed: 0x5107,
-      kind: 'azalea',
-      // 0,58 statt 0,44: Bei einem Polster von 0,8 m sind das Büschel von rund
-      // 0,38 m – ein Zweigende, kein Einzelblatt. Einzelblätter zu bauen hieße,
-      // das Zehnfache zu bezahlen für etwas, das man aus vier Metern nicht
-      // mehr trennt.
-      cardScale: 0.58,
-      squash: 0.72,
-    });
     // **Alle Polster, nicht nur die vorderen.** Die Filterung auf die vordere
     // Reihe war als Detailstufe gedacht, hat aber genau das Gegenteil
     // bewirkt: Die „grüne Wand" hinten ist die größte Fläche im Türausschnitt,
@@ -1018,14 +1087,6 @@ function buildGarden(group, r) {
     // Zuwachs dieser Runde, und der größte Teil davon in Reihen, die zehn
     // Meter entfernt hinter vier anderen stehen. Die Detailstufe ist hier
     // keine Sparmaßnahme, sondern die Stelle, an der man sie nicht sieht.
-    const farGeo = cardCluster({
-      count: 52,
-      radius: 1,
-      seed: 0x5108,
-      kind: 'azalea',
-      cardScale: 0.86,
-      squash: 0.72,
-    });
     for (const [name, geo, list] of [
       ['dojo-garden-blattkarten', cardGeo, mounds.filter((f) => f.z <= G.z1 + 2.0)],
       ['dojo-garden-blattkarten-fern', farGeo, mounds.filter((f) => f.z > G.z1 + 2.0)],
@@ -1205,10 +1266,12 @@ function buildGarden(group, r) {
       z = near[1] + Math.sin(a) * d;
     }
     if (nearStone(x, z)) continue;
+    const fs = 0.42 + r() * 0.4;
+    if (intrudesRoom(x, z, fs * 1.35)) continue;
     fronds.push({
       x,
       z,
-      s: 0.42 + r() * 0.4,
+      s: fs,
       ry: r() * Math.PI * 2,
       col: new THREE.Color(FERN[Math.floor(r() * FERN.length)]),
     });
@@ -1377,6 +1440,19 @@ export function buildExterior() {
   // aus der Nähe las sich der Hain als Scherenschnitt aus grellgrünen Sternen.
   // Ein Kartenbüschel kostet das Achtfache und braucht deshalb ein Achtel der
   // Zahl; die Fläche bleibt gleich, weil die Schöpfe entsprechend größer sind.
+  // Reichweite eines Schopfes aus der Geometrie, nicht geschätzt. Ein
+  // geschätzter Wert wäre genau die Sorte Zahl, die beim nächsten Verstellen
+  // von `cardScale` still falsch wird – und dieser Fehler ist überhaupt erst
+  // entstanden, weil die Schöpfe größer geworden sind.
+  const leafGeo = cardCluster({
+    count: 16,
+    radius: 1,
+    seed: 0xba11,
+    kind: 'bamboo',
+    cardScale: 0.52,
+  });
+  const leafReach = leafGeo.boundingSphere ? leafGeo.boundingSphere.radius : 1.3;
+
   const leaves = [];
   for (const c of culms) {
     const bunches = 5 + Math.floor(r() * 4);
@@ -1387,10 +1463,18 @@ export function buildExterior() {
       // warum der Streifen Ferne im Türausschnitt stehen blieb.
       const t = 0.34 + r() * 0.62;
       const size = 1.15 + r() * 0.95;
+      const lx = c.x + (r() - 0.5) * 0.55;
+      const lz = c.z + (r() - 0.5) * 0.55;
+      // Der Osthain steht 90 cm vor der Wand, und seine Halme neigen sich um
+      // bis zu 0,08 rad – über elf Meter Höhe sind das 88 cm zur Seite.
+      // Zusammen mit einem Schopf von zwei Metern Reichweite landet das
+      // Blattwerk mitten im Raum, ohne dass ein einziger Halm die Wand
+      // berührt. Gemessen waren es 66 von 699 Schöpfen, bis zu 2,6 m tief.
+      if (intrudesRoom(lx, lz, size * leafReach)) continue;
       leaves.push({
-        x: c.x + (r() - 0.5) * 0.55,
+        x: lx,
         y: EXTERIOR.ground.y + c.height * t,
-        z: c.z + (r() - 0.5) * 0.55,
+        z: lz,
         size,
         turn: r() * Math.PI,
       });
@@ -1408,17 +1492,7 @@ export function buildExterior() {
     // also muss das Laub die ganze Bewegung liefern.
     windStrength: 0.11,
   });
-  const leafMesh = new THREE.InstancedMesh(
-    cardCluster({
-      count: 16,
-      radius: 1,
-      seed: 0xba11,
-      kind: 'bamboo',
-      cardScale: 0.52,
-    }),
-    bambooCards,
-    leaves.length
-  );
+  const leafMesh = new THREE.InstancedMesh(leafGeo, bambooCards, leaves.length);
   applyFoliageMaterial(leafMesh, bambooCards);
   leafMesh.name = 'dojo-bamboo-laub';
   leaves.forEach((l, i) => {
