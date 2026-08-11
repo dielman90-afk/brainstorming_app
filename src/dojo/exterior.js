@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { EXTERIOR, ROOM, SUN } from './layout.js';
+import { gravelMaterial, waterMaterial, updateWater, wetStoneOverlay } from './ground.js';
 import {
   leafAtlas,
   cardCluster,
@@ -384,11 +385,7 @@ function branchInto(out, from, dir, len, rad, depth, r) {
   // Zylinder zeigt auf +Y; auf die Astrichtung drehen.
   const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   g.applyQuaternion(q);
-  g.translate(
-    (from.x + end.x) / 2,
-    (from.y + end.y) / 2,
-    (from.z + end.z) / 2
-  );
+  g.translate((from.x + end.x) / 2, (from.y + end.y) / 2, (from.z + end.z) / 2);
   out.push({ geo: g, tip: end, rad: rad * 0.62, depth });
   if (depth <= 0) return;
   const kids = depth > 1 ? 2 + Math.floor(r() * 2) : 2;
@@ -454,7 +451,10 @@ function gardenPieces(r) {
   const bx = 1.9;
   const bz = G.z0 + 0.75;
   push(new THREE.CylinderGeometry(0.32, 0.36, 0.3, 10).translate(bx, y0 + 0.15, bz), 0x565349);
-  push(new THREE.CylinderGeometry(0.26, 0.26, 0.01, 12).translate(bx, y0 + 0.29, bz), 0x223038);
+  // Die Wasserfläche steckte hier als dunkelgraue Scheibe im selben
+  // verschmolzenen Netz wie der Stein. Sie ist jetzt ein eigenes Netz mit
+  // eigenem Material (buildGarden), weil ein Spiegel nichts mit einem
+  // Vertexfarben-Lambert gemeinsam hat.
   const spout = new THREE.CylinderGeometry(0.035, 0.035, 0.55, 6);
   spout.rotateX(Math.PI / 2);
   push(spout.translate(bx, y0 + 0.62, bz - 0.34), 0x8a8148);
@@ -612,16 +612,32 @@ function buildGarden(group, r) {
   const gravelGeo = new THREE.PlaneGeometry(G.halfX * 2, G.z1 - G.z0);
   gravelGeo.rotateX(-Math.PI / 2);
   gravelGeo.translate(0, y0 + 0.045, (G.z0 + G.z1) / 2);
-  const gravel = new THREE.Mesh(
-    gravelGeo,
-    new THREE.MeshLambertMaterial({ map: gravelTexture(stones, G) })
-  );
+  // **Die Harkrillen gehören in die Normal-Map, nicht in die Farbe.**
+  //
+  // Beim Karesansui besteht die Fläche aus nichts als Licht und Schatten in
+  // parallelen Rillen. Gemalt als dunkle Linien bleiben sie aus jedem Winkel
+  // gleich, und die Fläche liest sich als Tapete – so stand sie hier. Mit
+  // einem Höhenfeld wandert der Schatten mit der Sonne und die Rille
+  // verschwindet, wenn man von der Lichtseite darauf schaut. Das ist der
+  // Unterschied zwischen einer gemusterten Ebene und einer geharkten.
+  //
+  // Der Kies ist die einzige Fläche des Gartens, die diesen Aufwand verdient:
+  // Sie liegt im Vordergrund, ist eben (eine Normal-Map hat also freies Feld)
+  // und ihre gesamte Wirkung ist Streiflicht.
+  const gravel = new THREE.Mesh(gravelGeo, gravelMaterial(stones, G));
+  // **Abgedunkelt und gewärmt.** Karesansui-Kies ist hell – aber die Textur
+  // kam mit dem Himmelslicht darüber als hellstes Ding im ganzen Bild heraus
+  // und las sich als Beton, nicht als Stein. Der Faktor liegt am Material,
+  // nicht in der Textur, damit die Karte selbst ihren Kontrastumfang behält:
+  // Die Harkrillen leben von der Spanne zwischen Kamm und Grund, und die würde
+  // ein dunkleres Grundbild mit wegdrücken.
+  gravel.material.color.setHex(0xa79f90);
   gravel.name = 'dojo-garden-kies';
   gravel.receiveShadow = true;
   group.add(gravel);
 
   // --- Feste Teile, ein Netz ------------------------------------------------
-  const { solids, crowns } = gardenPieces(r);
+  const { solids, crowns, basin } = gardenPieces(r);
   const tinted = solids.map(({ geo, color }) => {
     const g = geo.index ? geo.toNonIndexed() : geo;
     const c = new THREE.Color(color);
@@ -649,7 +665,44 @@ function buildGarden(group, r) {
   solid.name = 'dojo-garden-stein';
   solid.castShadow = true;
   solid.receiveShadow = true;
+  // **Nasser Sockel am Becken.**
+  //
+  // Nass ist nicht „dunkler eingefärbt". Ein Wasserfilm füllt die Mikrorauheit
+  // auf: Die Oberfläche wird glatt und gleichzeitig dunkel, weil was in die
+  // Poren fällt kaum wieder herauskommt. Hier wird nur der zweite Teil in die
+  // Vertexfarben gerechnet – der erste bräuchte ein eigenes Material für ein
+  // Bauteil von 30 cm, und das ist der Draw-Call nicht wert. Was zählt, ist
+  // der Übergang: ein Becken, dessen Sockel genauso trocken aussieht wie die
+  // Laterne daneben, steht nicht in Wasser, sondern daneben.
+  wetStoneOverlay(solid, {
+    center: basin,
+    radius: 0.55,
+    waterY: EXTERIOR.ground.y + 0.29,
+    rise: 0.2,
+    // 0,28 statt 0,5. Bei der halben Verdunkelung war der Sockel im Bild
+    // nahezu schwarz – nasser Stein wird dunkler, nicht unsichtbar, und der
+    // Rest des Gartens steht ohnehin schon im Schatten der Bepflanzung.
+    strength: 0.28,
+  });
   group.add(solid);
+
+  // --- Wasserspiegel im Tsukubai --------------------------------------------
+  //
+  // Eigenes Netz, eigenes Material: Was man von Wasser sieht, ist fast
+  // ausschließlich die Spiegelung, und die braucht einen sehr dunklen Grundton
+  // und eine Environment-Map. Als graue Scheibe im verschmolzenen Steinnetz
+  // war es eine Scheibe, kein Wasser.
+  //
+  // Zwei Kräuselungslagen, die gegeneinander wandern (ground.js). Eine einzelne
+  // Lage mit laufendem Versatz liest man sofort als verschobene Textur; erst
+  // die Interferenz zweier Lagen ergibt ein Muster, das entsteht und vergeht.
+  const waterGeo = new THREE.CircleGeometry(0.26, 20);
+  waterGeo.rotateX(-Math.PI / 2);
+  waterGeo.translate(basin[0], y0 + 0.29, basin[1]);
+  const water = new THREE.Mesh(waterGeo, waterMaterial({ repeat: 2.5 }));
+  water.name = 'dojo-garden-wasser';
+  water.receiveShadow = true;
+  group.add(water);
 
   // --- Trittsteine ----------------------------------------------------------
   const stoneMesh = new THREE.InstancedMesh(
@@ -1161,6 +1214,9 @@ function buildGarden(group, r) {
   frondMesh.castShadow = true;
   frondMesh.userData.fullCount = fronds.length;
   group.add(frondMesh);
+
+  // Das Wasser ist das einzige Teil des Gartens, das je Bild etwas braucht.
+  return { water };
 }
 
 export function buildExterior() {
@@ -1351,7 +1407,7 @@ export function buildExterior() {
     })
   );
   backdrop.name = 'dojo-backdrop';
-  buildGarden(group, r);
+  const garden = buildGarden(group, r);
   // **Kein `renderOrder: -1` und kein `depthWrite: false`.**
   //
   // Der übliche Himmel-Trick – zuerst zeichnen, keine Tiefe schreiben – ist
@@ -1378,6 +1434,9 @@ export function buildExterior() {
     // ein wiegender Halm es nicht wäre.
     update(time) {
       updateFoliage(time);
+      // Nur die beiden Texturversätze der Kräuselung – kein Netz, keine
+      // Matrix, keine Schattenkarte.
+      if (garden.water) updateWater(garden.water.material, time);
     },
     // Für den Sonnenstand: Wo der Hain steht, muss auch das Schattenfrustum
     // hinreichen. `SUN.shadow.halfExtent` ist darauf ausgelegt; hier wird die
