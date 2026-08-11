@@ -1537,7 +1537,7 @@ export function buildExterior() {
   // dem Papier, die im Süden den Blick durch die Front.
   const culms = [];
   const r = rng(0xba3b0);
-  for (const patch of [EXTERIOR.grove, EXTERIOR.south]) {
+  for (const patch of [...EXTERIOR.grove, EXTERIOR.south]) {
     for (let i = 0; i < patch.count; i++) {
       const x = patch.x0 + r() * (patch.x1 - patch.x0);
       const z = patch.z0 + r() * (patch.z1 - patch.z0);
@@ -1554,6 +1554,8 @@ export function buildExterior() {
         z,
         height,
         radius,
+        // Dichte des Laubs je Abschnitt – siehe `EXTERIOR.grove` in layout.js.
+        tuffs: patch.tuffs ?? 6,
         // Leichte Neigung. Ein senkrechter Hain sieht aus wie ein Zaun; die
         // Neigung ist das, was die Schatten auf dem Papier unregelmäßig macht,
         // und **darauf** kommt es an.
@@ -1636,7 +1638,7 @@ export function buildExterior() {
 
   const leaves = [];
   for (const c of culms) {
-    const bunches = 5 + Math.floor(r() * 4);
+    const bunches = Math.max(1, c.tuffs - 1 + Math.floor(r() * 3));
     for (let b = 0; b < bunches; b++) {
       // **Deutlich tiefer.** Die Schöpfe saßen bei 0,68–0,98 der Halmhöhe, also
       // nur ganz oben. Genau auf Horizonthöhe war der Hain damit ein Feld
@@ -1741,7 +1743,7 @@ export function buildExterior() {
     // hinreichen. `SUN.shadow.halfExtent` ist darauf ausgelegt; hier wird die
     // Annahme festgehalten, damit sie beim nächsten Verschieben auffällt.
     grovePeak: Math.max(
-      Math.abs(EXTERIOR.grove.x1 - SUN.target[0]),
+      ...EXTERIOR.grove.map((g) => Math.abs(g.x1 - SUN.target[0])),
       Math.abs(EXTERIOR.south.z1 - SUN.target[2])
     ),
   };
