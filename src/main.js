@@ -270,22 +270,35 @@ interactions.onInputConnected = ({ handedness, grip, hand, isHand }) => {
   // Hand-Tracking ist ohne Hinweis kaum zu erraten – einmal pro Sitzung zeigen.
   if (isHand && !handHintShown) {
     handHintShown = true;
-    setStatus('🖐 Hände erkannt: Handfläche öffnen = Menü · ins Leere pinchen und ziehen = bewegen', 8000);
+    setStatus(
+      '🖐 Hände erkannt: Handfläche öffnen = Menü · ins Leere pinchen und ziehen = bewegen',
+      8000
+    );
   }
 };
 
 // Fortbewegung: VR über den Player-Rig (Gleiten/Snap-Turn/Teleport),
 // Desktop über WASD/Pfeile (siehe Animationsschleife).
-const locomotion = new Locomotion({ renderer, player, camera, controllers: interactions.controllers });
+const locomotion = new Locomotion({
+  renderer,
+  player,
+  camera,
+  controllers: interactions.controllers,
+});
 
 const UP = new THREE.Vector3(0, 1, 0);
 const moveKeys = { forward: false, back: false, left: false, right: false, up: false, down: false };
 const MOVE_KEYMAP = {
-  KeyW: 'forward', ArrowUp: 'forward',
-  KeyS: 'back', ArrowDown: 'back',
-  KeyA: 'left', ArrowLeft: 'left',
-  KeyD: 'right', ArrowRight: 'right',
-  KeyE: 'up', KeyQ: 'down',
+  KeyW: 'forward',
+  ArrowUp: 'forward',
+  KeyS: 'back',
+  ArrowDown: 'back',
+  KeyA: 'left',
+  ArrowLeft: 'left',
+  KeyD: 'right',
+  ArrowRight: 'right',
+  KeyE: 'up',
+  KeyQ: 'down',
 };
 function isTypingTarget() {
   const tag = document.activeElement?.tagName;
@@ -451,7 +464,9 @@ function startLinking(mode = 'mindmap') {
 function aiProgress(label) {
   return {
     onProgress: ({ attempt, maxAttempts, waitMs, message }) => {
-      setBusyLabel(`${label} – Versuch ${attempt + 1}/${maxAttempts} in ${Math.ceil(waitMs / 1000)} s`);
+      setBusyLabel(
+        `${label} – Versuch ${attempt + 1}/${maxAttempts} in ${Math.ceil(waitMs / 1000)} s`
+      );
       setStatus(`⚠️ ${message} Neuer Versuch…`, 0);
     },
   };
@@ -559,7 +574,10 @@ async function handleAction(action) {
       }
       applyBoardJSON(entry.data);
       commit('Sicherungspunkt geladen');
-      const time = new Date(entry.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+      const time = new Date(entry.at).toLocaleTimeString('de-DE', {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
       setStatus(`📂 Sicherungspunkt von ${time} geladen (${cardManager.cards.length} Karten).`);
       return;
     }
@@ -576,7 +594,11 @@ async function handleAction(action) {
       const show = !whiteboard.group.visible;
       whiteboard.setVisible(show);
       if (show) whiteboard.placeInFront(camera);
-      setStatus(show ? '📋 Whiteboard eingeblendet – einfach drauf loszeichnen.' : 'Whiteboard ausgeblendet.');
+      setStatus(
+        show
+          ? '📋 Whiteboard eingeblendet – einfach drauf loszeichnen.'
+          : 'Whiteboard ausgeblendet.'
+      );
       return;
     }
     if (action === 'sketch') {
@@ -593,7 +615,10 @@ async function handleAction(action) {
         { image, ideas: cardManager.cards.map((c) => c.text) },
         aiProgress('Claude liest die Skizze…')
       );
-      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       commit('Ideen aus Skizze');
       setStatus(`✨ ${result.length} Ideen aus der Skizze erstellt.`);
       return;
@@ -609,7 +634,10 @@ async function handleAction(action) {
       return;
     }
     if (action === 'zone') {
-      const zone = zoneManager.addZone({ title: 'Neue Zone', colorIndex: zoneManager.zones.length });
+      const zone = zoneManager.addZone({
+        title: 'Neue Zone',
+        colorIndex: zoneManager.zones.length,
+      });
       zone.placeInFront(camera);
       commit('Zone erstellt');
       setStatus('🗂️ Zone erstellt – Karten davor gruppieren. ✎ zum Umbenennen.');
@@ -634,7 +662,10 @@ async function handleAction(action) {
         { selectedIdea: selected.text, ideas: cardManager.cards.map((c) => c.text) },
         aiProgress('😈 Advocatus Diaboli prüft…')
       );
-      const cards = cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      const cards = cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       for (const card of cards) card.setColor(4); // Rot = kritische Einwände
       commit('Kritische Einwände');
       setStatus(`😈 ${result.length} kritische Einwände zu „${selected.text}“`);
@@ -655,7 +686,10 @@ async function handleAction(action) {
         { topic, ideas: cardManager.cards.map((c) => c.text) },
         aiProgress(`Start-Board zu „${topic}“…`)
       );
-      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       commit(`Themen-Start „${topic}“`);
       setStatus(`Start-Board zu „${topic}“: ${result.length} Ideen.`);
       return;
@@ -708,7 +742,10 @@ async function handleAction(action) {
         { selectedIdea: selected.text, ideas },
         aiProgress('Claude sucht verwandte Ideen…')
       );
-      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       commit('Verwandte Ideen');
       setStatus(`${result.length} neue Ideen zu „${selected.text}“`);
     } else if (action === 'cluster') {
@@ -737,12 +774,17 @@ async function handleAction(action) {
       if (!clusterDefs.length) throw new Error('Keine verwertbaren Cluster erhalten.');
       cardManager.applyClusters(clusterDefs, camera);
       commit('Cluster angewendet');
-      setStatus(`${clusterDefs.length} Cluster angewendet – Karten wurden gruppiert und eingefärbt.`);
+      setStatus(
+        `${clusterDefs.length} Cluster angewendet – Karten wurden gruppiert und eingefärbt.`
+      );
     } else if (action === 'summary') {
       setStatus('Claude fasst das Board zusammen…', 0);
       setBusyLabel('Claude fasst zusammen…');
       const result = await requestIdeas('summary', { ideas }, aiProgress('Claude fasst zusammen…'));
-      const cards = cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      const cards = cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       // Eine Zusammenfassung ist deutlich länger als eine Idee. Sie bekommt
       // deshalb eine größere Karte – der Text schrumpft sonst zwar mit (siehe
       // shrinkToFit in textPanel.js), wäre auf Ideengröße aber winzig.
@@ -826,9 +868,11 @@ function toggleVoiceCommands() {
     return;
   }
   voice.start();
-  setStatus('🎙 Sprachbefehle an – z. B. „neue Karte Fahrradständer", „Cluster", „rückgängig".', 7000);
+  setStatus(
+    '🎙 Sprachbefehle an – z. B. „neue Karte Fahrradständer", „Cluster", „rückgängig".',
+    7000
+  );
 }
-
 
 // --- Prozessflussdiagramm ---
 //
@@ -998,7 +1042,10 @@ async function startTopic(topic) {
       { topic, ideas: cardManager.cards.map((c) => c.text) },
       aiProgress(`Start-Board zu „${topic}“…`)
     );
-    cardManager.spawnIdeas(result.map((i) => i.text), camera);
+    cardManager.spawnIdeas(
+      result.map((i) => i.text),
+      camera
+    );
     commit(`Themen-Start „${topic}“`);
     setStatus(`Start-Board zu „${topic}“: ${result.length} Ideen.`);
   } catch (err) {
@@ -1534,6 +1581,8 @@ addEventListener('resize', () => {
 });
 
 const _boundsHead = new THREE.Vector3();
+const _boundsBefore = new THREE.Vector3();
+const _boundsFix = new THREE.Vector3();
 const clock = new THREE.Clock();
 let elapsed = 0;
 
@@ -1573,7 +1622,7 @@ renderer.setAnimationLoop(() => {
   // und traegt in XR zusaetzlich die Kopfpose. Die Kamera zu verschieben wuerde
   // gegen das Headset-Tracking arbeiten und Uebelkeit ausloesen.
   const activeBounds = envIndex >= 0 ? environments[envIndex].bounds : null;
-  if (activeBounds) {
+  if (activeBounds && renderer.xr.isPresenting) {
     const head = camera.getWorldPosition(_boundsHead);
     // Der Versatz zwischen Rig und Kopf muss erhalten bleiben, sonst springt
     // die Welt, sobald man sich in der Spielflaeche zur Seite lehnt.
@@ -1588,6 +1637,42 @@ renderer.setAnimationLoop(() => {
       activeBounds.maxZ - dz
     );
     player.position.y = Math.min(Math.max(player.position.y, activeBounds.minY), activeBounds.maxY);
+  } else if (activeBounds) {
+    // **Am Desktop wird die Kamera geklemmt, nicht der Rig.**
+    //
+    // Der Rig-Klemmweg oben ist für XR richtig und am Desktop falsch, und zwar
+    // aus einem Grund, den man erst sieht, wenn die Sperre einmal gegriffen
+    // hat: `updateDesktopMovement` schiebt die **Kameraposition** (lokal, die
+    // Kamera hängt im Rig) und das **Orbit-Ziel** (Welt) um denselben Betrag.
+    // Solange `player.position` null ist, ist beides dasselbe Bezugssystem.
+    // Sobald die Sperre den Rig verschiebt, ist es das nicht mehr, und
+    // `controls.update()` rechnet die Kameraposition ab da aus einem Ziel, das
+    // um `player.position` daneben liegt.
+    //
+    // Gemessen, zehn Sekunden Dauerdruck gegen die Südwand:
+    //
+    //     Zeit   Rig z   Kamera lokal z   Orbit-Ziel z
+    //     30 s    0,00        6,42            4,62
+    //     45 s   −2,15        8,52            6,72   ← Sperre greift
+    //     60 s   −2,15        6,79            4,99
+    //     90 s   −2,15        5,09            3,29
+    //
+    // Ab der vierten Zeile fährt der Nutzer **rückwärts, während er vorwärts
+    // drückt**, und der Drehpunkt der Maussteuerung liegt 2,15 m neben ihm.
+    // Das ist das gemeldete „irgendwann drehe ich mich im Kreis".
+    //
+    // Die Korrektur hält beide Zustände in einem Bezugssystem: Kamera und Ziel
+    // wandern um denselben Vektor, der Rig bleibt unberührt. Weil beide um
+    // dasselbe verschoben werden, bleibt der Kugelkoordinaten-Abstand zwischen
+    // ihnen erhalten und `controls.update()` im nächsten Bild stabil.
+    //
+    // Dass der Rig am Desktop wirklich identisch ist, stellt `locomotion.reset()`
+    // sicher – es läuft bei sessionstart **und** sessionend.
+    _boundsBefore.copy(camera.position);
+    camera.position.x = Math.min(Math.max(camera.position.x, activeBounds.minX), activeBounds.maxX);
+    camera.position.z = Math.min(Math.max(camera.position.z, activeBounds.minZ), activeBounds.maxZ);
+    camera.position.y = Math.min(Math.max(camera.position.y, activeBounds.minY), activeBounds.maxY);
+    controls.target.add(_boundsFix.subVectors(camera.position, _boundsBefore));
   }
 
   renderer.render(scene, camera);
@@ -1623,7 +1708,10 @@ window.__app = {
   connectionManager,
   keyboard,
   voice,
-  flow: { layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera, scene), types: FLOW_TYPES },
+  flow: {
+    layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera, scene),
+    types: FLOW_TYPES,
+  },
   mindmap: {
     layout: (options) => runMindmapLayout(options),
     compute: computeMindmap,
