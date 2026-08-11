@@ -298,7 +298,29 @@ export const BUDGET = {
 export const EXTERIOR = {
   // Streifen östlich der Shoji-Front: nah genug für harte Schatten auf dem
   // Papier, weit genug, dass die Halme nicht in der Wand stehen.
-  grove: { x0: 6.9, x1: 11.4, z0: -9.5, z1: 10.5, count: 46 },
+  // **Der Hain geht jetzt rings um das Haus.**
+  //
+  // Bis eben stand er nur im Osten. Das hatte einen guten Grund – dort steht die
+  // Sonne, und der Schattenriss der Halme auf dem Papier ist die halbe
+  // Lichtstimmung des Raums –, aber nach Norden und Westen lag das Gebäude
+  // dadurch frei auf der Wiese.
+  //
+  // `tuffs` ist die Zahl der Blattschöpfe je Halm, und sie ist nach **Nutzen**
+  // gestaffelt, nicht gleichmäßig. Gemessen: Der Kosinus zur Sonnenrichtung
+  // beträgt im Osten +0,915 und im Süden +0,359, im Norden und Westen dagegen
+  // −0,359 und −0,915. Wo keine Sonne steht, wirft der Hain keinen Schatten aufs
+  // Papier, und durch das Papier sieht man ihn ohnehin nicht. Dort tragen die
+  // Halme allein die Silhouette von außen; das Laub wäre bezahlte Fläche ohne
+  // Betrachter.
+  grove: [
+    { name: 'ost', x0: 6.9, x1: 11.4, z0: -9.5, z1: 10.5, count: 46, tuffs: 8 },
+    { name: 'west', x0: -11.4, x1: -6.9, z0: -9.5, z1: 10.5, count: 44, tuffs: 3 },
+    { name: 'nord', x0: -11.4, x1: 11.4, z0: -11.6, z1: -7.1, count: 40, tuffs: 3 },
+    // Süden: beidseits des Kiesbeets, nicht davor. Vor der Tür steht der Garten,
+    // und ein Halm mitten im Karesansui wäre kein Zuwachs.
+    { name: 'suedwest', x0: -11.4, x1: -6.2, z0: 7.0, z1: 12.6, count: 18, tuffs: 8 },
+    { name: 'suedost', x0: 6.2, x1: 11.4, z0: 7.0, z1: 12.6, count: 18, tuffs: 8 },
+  ],
   // Zweite Gruppe vor der Südfront – dort schaut man durch offene Felder
   // hinaus, hier zählt die Sicht und nicht der Schatten. Nach hinten gerückt,
   // seit davor der Garten liegt: Bambus **im** Kiesbeet wäre kein Garten.
@@ -307,7 +329,7 @@ export const EXTERIOR = {
   // weit hinten, dass sie in der Höhe des Horizonts nichts mehr verdeckten –
   // dort ist ein Halm ohnehin kahl, das Laub sitzt oben. Ab 11,5 füllen sie
   // den Türausschnitt in genau der Höhe, in der der Horizontstreifen stand.
-  south: { x0: -14, x1: 14, z0: 11.5, z1: 17.5, count: 62 },
+  south: { name: 'suedhain', x0: -14, x1: 14, z0: 11.5, z1: 17.5, count: 62, tuffs: 6 },
   // Der Garten vor dem Eingang. Kiesfläche, Trittsteine, Laterne, Wasserbecken,
   // Ahorn – die Fläche zwischen Engawa (endet bei maxZ + 1,2) und Hain.
   garden: { z0: 8.9, z1: 12.9, halfX: 5.4 },

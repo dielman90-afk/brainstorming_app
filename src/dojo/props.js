@@ -1777,11 +1777,16 @@ function fusumaTexture() {
   }
 
   // --- Siegel ---------------------------------------------------------------
+  // **Mitten in ein Feld, nicht auf eine Fuge.** Bei u = 0,90 lag das Siegel
+  // direkt an der Feldgrenze (0,909 bei elf Feldern) und wurde von ihr
+  // zerschnitten – im Bild standen dadurch zwei rote Marken statt einer. Ein
+  // Siegel gehört ohnehin in die Fläche und nicht auf eine Kante.
+  const siegelX = w * (9.4 / 11); // Mitte des zehnten Feldes
   ctx.fillStyle = 'rgba(150,32,28,0.88)';
-  ctx.fillRect(w * 0.9, h * 0.14, 26, 26);
+  ctx.fillRect(siegelX, h * 0.14, 26, 26);
   ctx.strokeStyle = 'rgba(232,206,150,0.85)';
   ctx.lineWidth = 2;
-  ctx.strokeRect(w * 0.9 + 5, h * 0.14 + 5, 16, 16);
+  ctx.strokeRect(siegelX + 5, h * 0.14 + 5, 16, 16);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
