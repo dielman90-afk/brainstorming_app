@@ -312,4 +312,23 @@ export const EXTERIOR = {
   // Ferne Baumlinie als Zylindermantel. Radius so, dass sie hinter dem Hain
   // liegt, Höhe so, dass sie den Blick durch ein 2,85 m hohes Fenster füllt.
   backdrop: { radius: 46, height: 44 },
+
+  // --- Wald ------------------------------------------------------------------
+  //
+  // Zwischen dem Gebäude und der gemalten Kulisse in 46 m Abstand lag bisher
+  // nichts als Wiese. Von innen fällt das nicht auf, weil der Garten die
+  // Südfront füllt und der Hain die Ostfront – aber jeder Blick nach Norden
+  // oder Westen ging über eine leere Ebene bis zum Horizont.
+  //
+  // `radius` endet knapp vor der Kulisse: Bäume, die sie durchstoßen, wären der
+  // eine Fehler, den man an einer gemalten Ferne sofort sieht.
+  //
+  // `spacing` ist der Rasterabstand vor der Streuung. 4,2 m ist dichter Wald –
+  // bei 6 m sieht man zwischen den Stämmen hindurch, bei 3 m stehen sie
+  // ineinander und man bezahlt Verdeckung, die niemand sieht.
+  //
+  // `clearing` ist der Abstand, den ein Baum von der Gebäudekante hält. Ein
+  // Dojo, dem die Bäume an der Wand kleben, sieht nicht nach Waldlichtung aus,
+  // sondern nach einem Fehler in der Platzierung.
+  forest: { radius: 44, spacing: 4.2, clearing: 2.6 },
 };
