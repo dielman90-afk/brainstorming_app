@@ -70,11 +70,16 @@ const XR_THIN = new Map([
   // Fragmenten. Ausdünnen kostet hier weniger als anderswo, weil unter jeder
   // Karte der dunkle Hüllkörper weitersteht – es wird also nicht die Pflanze
   // dünner, sondern nur ihr Saum.
-  ['dojo-garden-blattkarten', 0.55],
+  ['dojo-garden-blattkarten', 0.45],
   // Die Kronen bleiben dichter: Sie stehen in der Türachse und sind das, was
   // man in der Brille überhaupt zu sehen bekommt.
   ['dojo-garden-kronenkarten', 0.8],
   ['dojo-garden-farne', 0.5],
+  // Die hinteren Reihen und die Fernkronen: Sie stehen zehn bis dreißig Meter
+  // weg und haben in der Brille genau eine Aufgabe – den Horizont zuzuhalten.
+  // Dafür zählt die Silhouette der Hüllkörper, nicht die Karte darauf.
+  ['dojo-garden-blattkarten-fern', 0.45],
+  ['dojo-garden-fernkronen', 0.6],
 ]);
 
 // Ausgangszustand je Material einmal sichern, damit das Zurückschalten den
