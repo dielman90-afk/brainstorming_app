@@ -1601,6 +1601,194 @@ function addPoleRack(B) {
   }
 }
 
+// --- Fusuma: eine bemalte Wand, kein aufgehängtes Bild -------------------------
+//
+// Format 2048 × 256 für 11,8 × 1,60 m. Das ist grob, aber die Wand wird nie aus
+// weniger als zwei Metern gesehen, und die Alternative wäre eine 4096er Textur,
+// die auf der Quest allein 32 MB Grafikspeicher kostet.
+//
+// Die Komposition folgt der Nijo-Referenz: Goldgrund mit Wolkenbändern, ferne
+// Berge in blasser Tusche, eine große Kiefer als Hauptmotiv, Bambus als
+// Gegengewicht am anderen Ende, dazwischen Ruhe. Das Hauptmotiv liegt bewusst
+// im rechten Drittel – bei z ≈ −1,15 steht der Stangenständer davor, und hinter
+// einem Ständer gehört ruhiger Grund, kein Astwerk.
+function fusumaTexture() {
+  const w = 2048;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+
+  let seed = 0x9a31 >>> 0;
+  const rnd = () => {
+    seed = (Math.imul(seed ^ (seed >>> 15), 0x2c1b3c6d) + 0x9e3779b9) | 0;
+    return ((seed >>> 8) & 0xffffff) / 0x1000000;
+  };
+
+  // --- Blattgold ------------------------------------------------------------
+  //
+  // Der Verlauf allein ergibt eine gelbe Fläche. Was Blattgold ausmacht, sind
+  // die **Kacheln**: quadratische Blätter von rund zehn Zentimetern, deren
+  // Ränder sich überlappen und dabei etwas dunkler stehen. Ohne sie fehlt der
+  // Maßstab, und die Wand könnte genauso gut zwei Meter oder zwanzig lang sein.
+  const bg = ctx.createLinearGradient(0, 0, 0, h);
+  bg.addColorStop(0, '#c08f38');
+  bg.addColorStop(0.45, '#dcb05e');
+  bg.addColorStop(1, '#ab7c2e');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  const blatt = Math.round((h / 1.6) * 0.105); // ~10,5 cm in Bildpunkten
+  for (let y = 0; y < h; y += blatt) {
+    for (let x = 0; x < w; x += blatt) {
+      // Jedes Blatt minimal anders hell – so entsteht das unruhige Flimmern
+      // einer geschlagenen Goldfläche statt einer glatten Lackierung.
+      ctx.fillStyle = `rgba(255,236,180,${(0.03 + rnd() * 0.07).toFixed(3)})`;
+      ctx.fillRect(x, y, blatt, blatt);
+    }
+  }
+  ctx.strokeStyle = 'rgba(126,90,32,0.30)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= w; x += blatt) {
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, h);
+    ctx.stroke();
+  }
+  for (let y = 0; y <= h; y += blatt) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + 0.5);
+    ctx.lineTo(w, y + 0.5);
+    ctx.stroke();
+  }
+
+  // --- Ferne Berge ----------------------------------------------------------
+  ctx.fillStyle = 'rgba(78,92,90,0.5)';
+  ctx.beginPath();
+  ctx.moveTo(0, h * 0.72);
+  let bx = 0;
+  while (bx < w) {
+    const nx = bx + 150 + rnd() * 260;
+    ctx.quadraticCurveTo((bx + nx) / 2, h * (0.36 + rnd() * 0.22), nx, h * (0.64 + rnd() * 0.12));
+    bx = nx;
+  }
+  ctx.lineTo(w, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fill();
+
+  // --- Wolkenbänder ---------------------------------------------------------
+  //
+  // Suyari-gasumi: waagerechte Goldschwaden mit weichen Enden. Sie sind das
+  // Bindeglied der ganzen Gattung – sie decken zu, was zwischen den Motiven
+  // liegt, und geben der Fläche Tiefe, ohne etwas darzustellen.
+  const wolke = (x0, y0, laenge, dicke, deckung) => {
+    const g = ctx.createLinearGradient(x0, 0, x0 + laenge, 0);
+    g.addColorStop(0, 'rgba(240,214,150,0)');
+    g.addColorStop(0.18, `rgba(240,214,150,${deckung})`);
+    g.addColorStop(0.82, `rgba(240,214,150,${deckung})`);
+    g.addColorStop(1, 'rgba(240,214,150,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x0, y0, laenge, dicke);
+  };
+  for (let i = 0; i < 14; i++) {
+    wolke(
+      rnd() * w - 200,
+      h * (0.1 + rnd() * 0.7),
+      240 + rnd() * 520,
+      10 + rnd() * 18,
+      0.42 + rnd() * 0.3
+    );
+  }
+
+  // --- Kiefer ---------------------------------------------------------------
+  const ink = (a) => `rgba(20,18,16,${a})`;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // Nadelpolster: viele kurze Striche aus einem Punkt heraus. Eine gefüllte
+  // Fläche wäre ein grüner Fleck; die Kiefer der Tuschemalerei besteht aus
+  // Strichen, und aus zwei Metern sieht man genau das.
+  const polster = (cx, cy, rad) => {
+    for (let i = 0; i < 70; i++) {
+      const a = rnd() * Math.PI * 2;
+      const d = rad * (0.25 + rnd() * 0.75);
+      ctx.strokeStyle = ink(0.34 + rnd() * 0.4);
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * d * 0.25, cy + Math.sin(a) * d * 0.25);
+      ctx.lineTo(cx + Math.cos(a) * d, cy + Math.sin(a) * d);
+      ctx.stroke();
+    }
+  };
+
+  const ast = (x0, y0, x1, y1, dicke) => {
+    ctx.strokeStyle = ink(0.9);
+    ctx.lineWidth = dicke;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo((x0 + x1) / 2, Math.min(y0, y1) - 18, x1, y1);
+    ctx.stroke();
+  };
+
+  // Stamm: aus dem Boden im rechten Drittel, nach links geneigt.
+  const sx = w * 0.72;
+  ctx.strokeStyle = ink(0.94);
+  ctx.lineWidth = 15;
+  ctx.beginPath();
+  ctx.moveTo(sx + 26, h * 1.04);
+  ctx.bezierCurveTo(sx + 12, h * 0.74, sx - 16, h * 0.6, sx - 54, h * 0.34);
+  ctx.stroke();
+  for (const [ax, ay, bx2, by, d] of [
+    [sx - 40, h * 0.42, sx - 210, h * 0.3, 8],
+    [sx - 20, h * 0.56, sx + 150, h * 0.4, 8],
+    [sx - 6, h * 0.72, sx - 165, h * 0.62, 6],
+    [sx + 6, h * 0.86, sx + 210, h * 0.74, 6],
+  ]) {
+    ast(ax, ay, bx2, by, d);
+    polster(bx2, by, 34 + rnd() * 20);
+  }
+  polster(sx - 54, h * 0.32, 42);
+
+  // --- Bambus als Gegengewicht ---------------------------------------------
+  //
+  // Am linken Ende, dünner und stiller. Ein Motiv allein auf zwölf Metern wäre
+  // eine Wand mit einem Fleck darauf; zwei ungleiche Motive machen daraus eine
+  // Komposition.
+  for (const bxx of [w * 0.13, w * 0.16, w * 0.185]) {
+    ctx.strokeStyle = ink(0.72);
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.moveTo(bxx, h * 1.02);
+    ctx.quadraticCurveTo(bxx - 8, h * 0.6, bxx - 16, h * 0.12);
+    ctx.stroke();
+    for (let k = 0; k < 5; k++) {
+      const yy = h * (0.9 - k * 0.19);
+      const xx = bxx - 16 * (1 - yy / h);
+      ctx.lineWidth = 2;
+      for (const dir of [-1, 1]) {
+        ctx.beginPath();
+        ctx.moveTo(xx, yy);
+        ctx.quadraticCurveTo(xx + dir * 26, yy - 12, xx + dir * 54, yy - 4);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // --- Siegel ---------------------------------------------------------------
+  ctx.fillStyle = 'rgba(150,32,28,0.88)';
+  ctx.fillRect(w * 0.9, h * 0.14, 26, 26);
+  ctx.strokeStyle = 'rgba(232,206,150,0.85)';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(w * 0.9 + 5, h * 0.14 + 5, 16, 16);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 8;
+  return tex;
+}
+
 // --- Wandbild an der Waffenwand ------------------------------------------------
 //
 // Hier stand `paintingTexture()`: eine gerahmte Tafel von 2,6 × 1,3 m auf der
