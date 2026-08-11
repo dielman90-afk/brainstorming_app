@@ -138,6 +138,27 @@ export function createDojoEnvironment() {
       // `envMap` bei *jedem* Standardmaterial der Dojo-Gruppe neu – am Desktop
       // auf `null`, in XR auf die Innenraumkarte. Wer den Himmel davor
       // zuweist, verliert ihn wieder, und zwar lautlos.
+      // **Die große Bodenfläche bleibt in der Brille ohne Himmelskarte.**
+      //
+      // Sie ist 110 m groß und kann durch die Südfront den halben
+      // Bildausschnitt füllen – viel Fläche mal einer zusätzlichen
+      // IBL-Abtastung je Bildpunkt. Was sie dafür bekommt, ist fast nichts:
+      // Moos hat keine nennenswerte Spiegelung, und die Aufhellung der Tiefen,
+      // wegen der das Himmelslicht überhaupt da ist, gibt es auf einer ebenen
+      // Fläche ohne Tiefen nicht. Am Desktop ist Luft, dort bleibt sie drin –
+      // dieselbe Abwägung, die exterior.js für Lambert statt PBR trifft.
+      //
+      // `skipSky` ist der dafür vorgesehene Ausstieg (skylight.js). Die Karte
+      // muss zusätzlich aktiv abgeräumt werden: `applySkyTo()` überspringt ein
+      // abgemeldetes Material, es nimmt ihm nichts weg.
+      const groundMat = exterior.group.getObjectByName('dojo-exterior-ground')?.material;
+      if (groundMat) {
+        groundMat.userData.skipSky = inXR;
+        if (inXR && groundMat.envMap) {
+          groundMat.envMap = null;
+          groundMat.needsUpdate = true;
+        }
+      }
       if (sky) applySkyTo(exterior.group, sky, SKY_INTENSITY);
       return this.environment;
     },
