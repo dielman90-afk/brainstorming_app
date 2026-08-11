@@ -1601,120 +1601,13 @@ function addPoleRack(B) {
   }
 }
 
-// --- Wandbild an der Waffenwand ----------------------------------------------
+// --- Wandbild an der Waffenwand ------------------------------------------------
 //
-// Ein Fusuma-artiges Tafelbild: Goldgrund, Kiefernast in Tusche, ferne Berge.
-//
-// **Gemalt statt modelliert.** Ein Bild ist ein Bild – es hier als Geometrie zu
-// bauen wäre die teuerste denkbare Art, eine Fläche mit Farbe zu füllen. Die
-// Tafel ist ein Brett mit einer prozeduralen Textur; was sie trägt, ist der
-// dunkle Rahmen ringsum und die Tatsache, dass sie flach an der Wand sitzt
-// statt zu schweben.
-function paintingTexture() {
-  const w = 1024;
-  const h = 512;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-
-  // Goldgrund mit Blattgold-Kacheln – die feinen Fugen sind das, was echtes
-  // Blattgold von einer gelben Fläche unterscheidet.
-  const bg = ctx.createLinearGradient(0, 0, 0, h);
-  // Kräftiger als im ersten Anlauf. Blattgold in einem hellen Raum liest sich
-  // sonst als cremefarbene Fläche – gemessen hat es dieselbe Helligkeit wie der
-  // Putz daneben, und dann ist es kein Bild mehr, sondern ein heller Fleck.
-  bg.addColorStop(0, '#b98a35');
-  bg.addColorStop(0.42, '#d9ac59');
-  bg.addColorStop(1, '#a97a2c');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = 'rgba(120,86,30,0.35)';
-  ctx.lineWidth = 1;
-  for (let x = 0; x <= w; x += 64) {
-    ctx.beginPath();
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, h);
-    ctx.stroke();
-  }
-  for (let y = 0; y <= h; y += 64) {
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-    ctx.stroke();
-  }
-
-  // Ferne Berge in blasser Tusche
-  ctx.fillStyle = 'rgba(74,88,86,0.62)';
-  ctx.beginPath();
-  ctx.moveTo(0, h * 0.62);
-  ctx.quadraticCurveTo(w * 0.16, h * 0.34, w * 0.34, h * 0.6);
-  ctx.quadraticCurveTo(w * 0.48, h * 0.42, w * 0.62, h * 0.62);
-  ctx.lineTo(w, h * 0.66);
-  ctx.lineTo(w, h);
-  ctx.lineTo(0, h);
-  ctx.closePath();
-  ctx.fill();
-
-  // Nebelband darüber, damit die Berge nicht auf dem Boden aufsitzen
-  ctx.fillStyle = 'rgba(214,172,92,0.7)';
-  ctx.fillRect(0, h * 0.6, w, h * 0.1);
-
-  // Kiefer: Stamm von rechts hereinwachsend, drei Astebenen mit Nadelpolstern.
-  const ink = (a) => `rgba(16,15,14,${a})`;
-  ctx.strokeStyle = ink(0.92);
-  ctx.lineCap = 'round';
-  ctx.lineWidth = 21;
-  ctx.beginPath();
-  ctx.moveTo(w * 0.92, h * 1.02);
-  ctx.bezierCurveTo(w * 0.86, h * 0.72, w * 0.8, h * 0.6, w * 0.66, h * 0.42);
-  ctx.stroke();
-  const branches = [
-    [0.66, 0.42, 0.36, 0.3, 0.5],
-    [0.74, 0.56, 0.5, 0.46, 0.42],
-    [0.83, 0.72, 0.62, 0.66, 0.34],
-  ];
-  const r = (() => {
-    let s = 0x51ce >>> 0;
-    return () => {
-      s = (Math.imul(s ^ (s >>> 15), 0x2c1b3c6d) + 0x9e3779b9) | 0;
-      return ((s >>> 8) & 0xffffff) / 0x1000000;
-    };
-  })();
-  for (const [x0, y0, x1, y1, size] of branches) {
-    ctx.lineWidth = 11;
-    ctx.beginPath();
-    ctx.moveTo(w * x0, h * y0);
-    ctx.quadraticCurveTo(w * ((x0 + x1) / 2), h * (y1 - 0.08), w * x1, h * y1);
-    ctx.stroke();
-    // Nadelpolster: viele kurze Striche, radial – so zeichnet man Kiefer.
-    for (let i = 0; i < 150; i++) {
-      const t = 0.25 + r() * 0.8;
-      const bx = w * (x0 + (x1 - x0) * t) + (r() - 0.5) * w * 0.09;
-      const by = h * (y0 + (y1 - y0) * t) + (r() - 0.5) * h * 0.1;
-      const a = r() * Math.PI * 2;
-      const len = h * 0.02 * size * (0.6 + r() * 0.8);
-      ctx.strokeStyle = ink(0.55 + r() * 0.42);
-      ctx.lineWidth = 2.6;
-      ctx.beginPath();
-      ctx.moveTo(bx, by);
-      ctx.lineTo(bx + Math.cos(a) * len, by + Math.sin(a) * len);
-      ctx.stroke();
-    }
-  }
-
-  // Rotes Siegel unten links – das kleine Zeichen, an dem ein Bild als Bild
-  // liest und nicht als Tapete.
-  ctx.fillStyle = 'rgba(168,42,38,0.9)';
-  ctx.fillRect(w * 0.07, h * 0.78, w * 0.035, h * 0.07);
-  ctx.clearRect(w * 0.079, h * 0.795, w * 0.006, h * 0.04);
-  ctx.clearRect(w * 0.075, h * 0.812, w * 0.02, h * 0.006);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
-}
+// Hier stand `paintingTexture()`: eine gerahmte Tafel von 2,6 × 1,3 m auf der
+// Westwand. Sie ist entfallen, weil sie das Grundproblem der Wand nicht gelöst,
+// sondern verschoben hat – ein Bild mit Rahmen ist ein Gegenstand *an* der
+// Wand, und ringsherum blieben zehn Meter leerer Putz. An ihre Stelle tritt
+// `fusumaTexture()` weiter oben: eine bemalte Wand über die volle Länge.
 
 // --- Vasen ---------------------------------------------------------------------
 //
@@ -2025,6 +1918,89 @@ export function buildProps() {
     for (const g of geos) g.dispose();
   }
 
+  // --- Fusuma-Wandmalerei an der Westwand ---------------------------------
+  //
+  // Hier hing bis eben eine gerahmte Tafel von 2,6 × 1,3 m. Sie hat das
+  // Grundproblem der Wand nicht gelöst, sondern verschoben: Ein Bild mit Rahmen
+  // ist ein *Gegenstand an* der Wand, und ringsherum blieben zehn Meter leerer
+  // Putz. Was der Raum braucht, ist eine **bemalte Wand**.
+  //
+  // Vorbild ist der Große Saal in Nijo: Goldgrund über die volle Länge, in
+  // Felder geteilt, mit einem Motiv, das über die Feldgrenzen hinweg
+  // weiterläuft. Die Stege zwischen den Feldern sind dabei kein Zierat – sie
+  // sind der Unterschied zwischen „Wand bemalt" und „Poster aufgehängt".
+  //
+  // Die Westwand, weil dort ohnehin die Waffen hängen und weil sie die
+  // Schattenseite ist: Auf einer besonnten Wand stünde das Blattgold gegen das
+  // Gegenlicht und würde zur hellen Fläche. Im Schatten leuchtet es von innen
+  // heraus, und genau dafür ist Blattgold gemacht.
+  const FUSUMA = { z0: -5.4, z1: 6.4, y0: 0.08, y1: 1.68, panels: 11 };
+  {
+    const x = WALL.west + 0.015; // knapp vor dem Putz
+    const breite = (FUSUMA.z1 - FUSUMA.z0) / FUSUMA.panels;
+    const hoehe = FUSUMA.y1 - FUSUMA.y0;
+    const felder = [];
+    for (let i = 0; i < FUSUMA.panels; i++) {
+      const g = new THREE.PlaneGeometry(breite - 0.03, hoehe);
+      g.rotateY(Math.PI / 2);
+      g.translate(x, (FUSUMA.y0 + FUSUMA.y1) / 2, FUSUMA.z0 + breite * (i + 0.5));
+      // **Ein Bild über alle Felder.** Jedes Feld bekommt seinen Ausschnitt aus
+      // derselben Textur; das Motiv läuft dadurch über die Stege hinweg weiter.
+      // Ohne das wären es elf Kopien desselben Bildes – der Fehler, an dem man
+      // gekachelte Wände sofort erkennt.
+      const uv = g.attributes.uv;
+      const u0 = i / FUSUMA.panels;
+      const u1 = (i + 1) / FUSUMA.panels;
+      for (let k = 0; k < uv.count; k++) {
+        uv.setX(k, u0 + uv.getX(k) * (u1 - u0));
+      }
+      felder.push(g);
+    }
+    const fusuma = new THREE.Mesh(
+      mergeGeometries(felder, false),
+      new THREE.MeshStandardMaterial({
+        map: fusumaTexture(),
+        // Blattgold ist metallisch, aber stumpf: Es ist geschlagen und
+        // aufgelegt, nicht poliert. Voll metallisch ohne Umgebungskarte wäre es
+        // schwarz; ein Hauch davon gibt ihm den Schimmer, ohne dass es zum
+        // Spiegel wird.
+        roughness: 0.62,
+        metalness: 0.22,
+      })
+    );
+    fusuma.name = 'dojo-fusuma';
+    fusuma.receiveShadow = true;
+    group.add(fusuma);
+
+    // Stege, Kämpfer und Sturzleiste in dunklem Holz – sie kommen in den
+    // Holzeimer und kosten damit keinen eigenen Zeichenaufruf.
+    for (let i = 0; i <= FUSUMA.panels; i++) {
+      const z = FUSUMA.z0 + breite * i;
+      B.wood.geos.push(
+        tint(
+          new THREE.BoxGeometry(0.03, hoehe + 0.09, 0.035).translate(
+            x + 0.008,
+            (FUSUMA.y0 + FUSUMA.y1) / 2,
+            z
+          ),
+          0x2f2419
+        )
+      );
+    }
+    for (const y of [FUSUMA.y0 - 0.045, FUSUMA.y1 + 0.045]) {
+      B.wood.geos.push(
+        tint(
+          new THREE.BoxGeometry(0.04, 0.05, FUSUMA.z1 - FUSUMA.z0 + 0.04).translate(
+            x + 0.01,
+            y,
+            (FUSUMA.z0 + FUSUMA.z1) / 2
+          ),
+          0x2f2419
+        )
+      );
+    }
+  }
+
   for (const key of Object.keys(B)) {
     const { material, geos } = B[key];
     if (!geos.length) continue;
@@ -2038,43 +2014,6 @@ export function buildProps() {
     group.add(mesh);
     for (const g of geos) g.dispose();
   }
-
-  // Wandbild an der Waffenwand. Eigenes Mesh, weil es als einziges Prop eine
-  // Farbtextur trägt – in einen Materialeimer gesteckt bräuchte der ganze
-  // Eimer sie.
-  const artW = 2.6;
-  const artH = 1.3;
-  const artGeo = new THREE.PlaneGeometry(artW, artH);
-  artGeo.rotateY(Math.PI / 2);
-  artGeo.translate(WALL.west + 0.135, 1.02, 1.9);
-  const painting = new THREE.Mesh(
-    artGeo,
-    new THREE.MeshStandardMaterial({ map: paintingTexture(), roughness: 0.86, metalness: 0.08 })
-  );
-  painting.name = 'dojo-wandbild';
-  painting.receiveShadow = true;
-  group.add(painting);
-
-  // Rahmen ringsum, dunkles Holz – ohne ihn klebt die Tafel als Aufkleber an
-  // der Wand statt davorzustehen.
-  const frameGeos = [];
-  for (const [w, h, dy, dz] of [
-    [artW + 0.13, 0.065, artH / 2 + 0.03, 0],
-    [artW + 0.13, 0.065, -artH / 2 - 0.03, 0],
-    [0.065, artH + 0.19, 0, artW / 2 + 0.03],
-    [0.065, artH + 0.19, 0, -artW / 2 - 0.03],
-  ]) {
-    frameGeos.push(
-      new THREE.BoxGeometry(0.055, h, w).translate(WALL.west + 0.115, 1.02 + dy, 1.9 + dz)
-    );
-  }
-  const artFrame = new THREE.Mesh(
-    mergeGeometries(frameGeos, false),
-    new THREE.MeshStandardMaterial({ color: 0x3a2c22, roughness: 0.7 })
-  );
-  artFrame.name = 'dojo-wandbild-rahmen';
-  artFrame.castShadow = true;
-  group.add(artFrame);
 
   const scroll = buildScroll();
   group.add(scroll);
