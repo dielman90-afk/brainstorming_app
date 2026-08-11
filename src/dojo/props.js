@@ -1737,11 +1737,14 @@ function vaseProfile(height) {
   const aussen = [
     [0.0, 0.0],
     // Flache Standfläche statt Spitze. Vorher lief das Profil unten auf einen
-    // Punkt zu, und die Vase stand im Bild auf einer Nadel.
-    [0.0, 0.3],
-    [0.015, 0.315],
-    [0.05, 0.4],
-    [0.13, 0.6],
+    // Punkt zu, und die Vase stand im Bild auf einer Nadel. Der Fuß ist mit
+    // 0,42 fast die Hälfte des größten Durchmessers – bei 0,30 wirkte die Vase
+    // im Bild kippelig, obwohl die Zahlen einer echten Bodenvase entsprachen.
+    // Ein Gefäß darf schlank sein, aber es muss aussehen, als stünde es.
+    [0.0, 0.42],
+    [0.012, 0.435],
+    [0.05, 0.5],
+    [0.13, 0.63],
     [0.24, 0.78],
     [0.36, 0.88], // weitester Punkt, tief angesetzt
     [0.48, 0.86],
@@ -1966,7 +1969,25 @@ export function buildProps() {
     g.translate(x, vaseY, vaseZ);
     // Seladon und Eisenglasur – zwei Vasen in derselben Farbe wären ein Paar
     // Kegel, zwei verschiedene sind zwei Vasen.
-    B.lacquer.geos.push(tint(g, i === 0 ? 0x4a5f56 : 0x2b2a2e, contactAO(0.22)));
+    // **Glasur statt Anstrich.** `contactAO` allein macht eine gleichmäßig
+    // gefärbte Fläche mit einem dunklen Saum unten – im Bild las sich das als
+    // lackiertes Plastik. Eine Keramikglasur ist nie gleichmäßig: Sie läuft
+    // beim Brand nach unten, staut sich an der Schulter und über dem Fuß und
+    // bleibt am Bauch am dünnsten, wo sie am hellsten wirkt. Das ist mit einer
+    // Höhenfunktion je Vertex zu haben und kostet keine Textur.
+    const glasur = (x, y, z) => {
+      const t = Math.min(1, Math.max(0, (y - vaseY) / height));
+      // Kontaktverdunkelung unten (wie bisher), heller Bauch, Stau am Hals.
+      const kontakt = 0.52 + 0.48 * Math.min(1, t / 0.28);
+      const bauch = 1 + 0.16 * Math.sin(Math.min(1, t / 0.55) * Math.PI);
+      const hals = 1 - 0.14 * Math.min(1, Math.max(0, (t - 0.62) / 0.3));
+      // Feine Streuung, damit die Fläche nicht wie gegossen wirkt. Über die
+      // Weltposition statt über den Vertexindex – sonst läuft das Muster mit
+      // der Segmentierung mit und man sieht die Drehachse.
+      const korn = 1 + 0.035 * Math.sin(x * 47 + z * 31 + y * 23);
+      return kontakt * bauch * hals * korn;
+    };
+    B.lacquer.geos.push(tint(g, i === 0 ? 0x4a5f56 : 0x33323a, glasur));
 
     const { stems, leafSpots } = ikebanaStems(x, vaseZ, vaseY, height, 0x51a7 + i * 977);
     for (const st of stems) B.wood.geos.push(tint(st, 0x53412e));
