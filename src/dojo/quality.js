@@ -63,7 +63,19 @@ const XR_HIDDEN = new Set(['dojo-bamboo-laub']);
 // verlängerten Raum und der Außenwelt wieder unter das Frame-Zeit-Gate zu
 // kommen. Sichtbar ist der Unterschied auf dem Papier kaum – der Schattenriss
 // wird lichter, nicht anders.
-const XR_THIN = new Map([['dojo-bamboo', 0.55]]);
+const XR_THIN = new Map([
+  ['dojo-bamboo', 0.55],
+  // Blattkarten sind das teuerste Neue im Garten: zwei Dreiecke **und** ein
+  // Alpha-Test je Blatt, und der Alpha-Test verbietet das frühe Verwerfen von
+  // Fragmenten. Ausdünnen kostet hier weniger als anderswo, weil unter jeder
+  // Karte der dunkle Hüllkörper weitersteht – es wird also nicht die Pflanze
+  // dünner, sondern nur ihr Saum.
+  ['dojo-garden-blattkarten', 0.55],
+  // Die Kronen bleiben dichter: Sie stehen in der Türachse und sind das, was
+  // man in der Brille überhaupt zu sehen bekommt.
+  ['dojo-garden-kronenkarten', 0.8],
+  ['dojo-garden-farne', 0.5],
+]);
 
 // Ausgangszustand je Material einmal sichern, damit das Zurückschalten den
 // exakten Zustand wiederherstellt statt einen nachgebauten.
