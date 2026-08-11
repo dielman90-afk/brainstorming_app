@@ -496,13 +496,28 @@ export function buildArchitecture() {
     // gemessen 0,875 % der Bildflaeche in der Magenta-Probe. Dieselbe Lehre wie
     // schon zweimal an diesem Dach: An einer Fuge ist Ueberlappen robuster als
     // Passgenauigkeit.
+    //
+    // **Sie sitzen außen, nicht innen – und das war der Fehler.**
+    //
+    // Bis eben standen beide Bretter bei `WALL.west + t/2` bzw.
+    // `WALL.east - t/2`, also **innerhalb** der Wandebene: x von 5,88 bis 6,00
+    // auf der Ostseite, y von 2,94 bis 3,56. Der Ranma-Ausschnitt liegt bei
+    // 3,05 bis 3,72 – die Bretter haben also zwei der vier oberen Fenster von
+    // innen zugemauert. Vom Ostband blieb ein Schlitz von zehn Zentimetern
+    // (gemessen mit einem senkrechten Strahlenfächer: von y = 2,95 bis 3,55
+    // traf der Strahl Putz bei x = 5,88, das Papier erst dahinter bei 6,00).
+    //
+    // Das war nie beabsichtigt: Die Fuge, die diese Bretter schließen sollen,
+    // liegt zwischen der verlängerten Dachschalung und der Wandkrone – also
+    // **draußen**. Innen aufgestellt haben sie eine Fuge geschlossen, die dort
+    // gar nicht ist, und dafür die Fenster genommen.
     board(t, 0.62, ROOM.maxZ - ROOM.minZ + 1.0, 1.1).translate(
-      WALL.west + t / 2,
+      WALL.west - t * 0.65,
       ROOM.wallTop + 0.2,
       (ROOM.minZ + ROOM.maxZ) / 2
     ),
     board(t, 0.62, ROOM.maxZ - ROOM.minZ + 1.0, 1.1).translate(
-      WALL.east - t / 2,
+      WALL.east + t * 0.65,
       ROOM.wallTop + 0.2,
       (ROOM.minZ + ROOM.maxZ) / 2
     ),
@@ -941,10 +956,30 @@ export function buildArchitecture() {
   // nicht, er streift es. Sichtbar war das Ergebnis als harte Stufe: über einer
   // leuchtenden Ostfront saß ein stumpfes Band, und diese Kante liest sich als
   // Fehler, nicht als Licht.
+  // **Das Ranma bekommt eigene Materialien ohne `shadowedEmissive`.**
+  //
+  // Gemessen war das Band vorher genau verkehrt herum: Ost 109,8 · Süd 124,6 ·
+  // Nord 163,3 · West 204,1 – das sonnigste Band war das dunkelste, dunkler
+  // sogar als die verschatteten. Ursache ist `shadowTheGlow()`: Es multipliziert
+  // das Eigenleuchten mit dem Schattentest, und der Dachüberstand beschattet das
+  // Ranma bei 10,5° Sonnenhöhe **immer**. Ost und Süd trugen das Merkmal (sie
+  // teilen sich das Material mit der Front darunter), Nord und West nicht – also
+  // verlor genau die Sonnenseite ihr Leuchten.
+  //
+  // Für die Front ist das Merkmal richtig und bleibt: Dort zeichnet der
+  // Bambushain seinen Schattenriss ins Papier, und das ist der halbe Reiz der
+  // Ostseite. Ein Band unter der Traufe hat diesen Schattenriss nie.
+  const ranmaSun = washiMaterial({ emissive: 0xffeccc, emissiveIntensity: 0.44 });
+  const ranmaGraze = washiMaterial({ emissive: 0xffe8c6, emissiveIntensity: 0.3 });
+  const ranmaShade = washiMaterial({
+    color: 0xe8e0cc,
+    emissive: 0xffe2bc,
+    emissiveIntensity: 0.28,
+  });
   for (const [key, material, name] of [
-    ['sun', washi, 'dojo-ranma-paper'],
-    ['graze', washiGraze, 'dojo-ranma-paper-streiflicht'],
-    ['shade', washiShade, 'dojo-ranma-paper-schatten'],
+    ['sun', ranmaSun, 'dojo-ranma-paper'],
+    ['graze', ranmaGraze, 'dojo-ranma-paper-streiflicht'],
+    ['shade', ranmaShade, 'dojo-ranma-paper-schatten'],
   ]) {
     if (!ranmaPapers[key].length) continue;
     const mesh = new THREE.Mesh(mergeGeometries(ranmaPapers[key], false), material);
