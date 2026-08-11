@@ -4,6 +4,33 @@ import { buildProps } from './props.js';
 import { buildAtmosphere } from './atmosphere.js';
 import { buildExterior } from './exterior.js';
 import { applyQuality } from './quality.js';
+import { buildSkyEnvironment, applySkyTo } from './skylight.js';
+
+// **Warum 4,5 und nicht 1.**
+//
+// Gemessen, nicht gewählt: mittlere Helligkeit im Türausschnitt (320×220,
+// dieselbe Pipeline, `readRenderTargetPixels`), einmal je Intensität.
+//
+//   Intensität   Luma   fast schwarze Bildpunkte
+//   0 (Innenraumsonde)  73,1   1,4 %
+//   1                   52,2   6,2 %
+//   2                   60,3   2,7 %
+//   3                   67,2   1,9 %
+//   4,5                 76,2   1,2 %
+//   6                   84,1   0,4 %
+//
+// Bei 1 wurde der Garten also **dunkler** als vorher, nicht heller – die
+// Strahldichten in skylight.js (0,22 bis 0,58) liegen unter denen der
+// Innenraum-Sonde. 4,5 stellt den vorherigen Stand wieder her und geht knapp
+// darüber hinaus, was auch richtig ist: Ein Garten unter offenem Himmel
+// bekommt mehr indirektes Licht als ein Raum unter einem Dach. Ab 6 füllt das
+// Umgebungslicht auch die Tiefen zwischen den Blättern, und der Bestand
+// verliert seine Binnenzeichnung.
+//
+// Die zweite Spalte ist der eigentliche Grund für die Höhe des Werts: Der
+// Vorwurf am Garten war nie „zu dunkel im Mittel", sondern die schwarzen Löcher
+// zwischen den Blättern. Genau die füllt das Himmelslicht.
+const SKY_INTENSITY = 4.5;
 import { ROOM } from './layout.js';
 
 // ⛩ Konstrukt-Dojo – der Trainingsraum aus dem Film.
@@ -36,6 +63,7 @@ export function createDojoEnvironment() {
 
   let atmosphere = null;
   let envMap = null;
+  let sky = null;
   // Startwert Desktop. Die XR-Sitzung meldet sich, wenn sie beginnt.
   let inXR = false;
 
@@ -79,6 +107,19 @@ export function createDojoEnvironment() {
         group.add(atmosphere.group);
         envMap = atmosphere.environment;
       }
+      // **Zwei Sonden, nicht eine.**
+      //
+      // `atmosphere.js` baut eine Innenraum-Sonde – heller Schlitz im Osten,
+      // dunkles Holz unten, Kalkputz ringsum. Für alles im Raum ist das genau
+      // richtig. Für den Garten davor war es der Grund, warum er stumpf und
+      // „wie im Zimmer fotografiert" aussah: Ein Blatt unter freiem Himmel
+      // bekommt sein indirektes Licht von einer Halbkugel Himmel, nicht von
+      // einer Holzdecke.
+      //
+      // three kennt genau **eine** `scene.environment`; der einzige Weg zu
+      // zwei Sonden ist `material.envMap` je Material. Die Begründung dafür
+      // steht ausführlich im Kopf von skylight.js.
+      if (!sky && renderer) sky = buildSkyEnvironment(renderer);
       // Stufe erneut anwenden: Beim ersten Aufruf gibt es die Effektlagen aus
       // atmosphere.js noch gar nicht, sie können also beim Umschalten davor
       // nicht erfasst worden sein.
@@ -93,6 +134,11 @@ export function createDojoEnvironment() {
       inXR = Boolean(nextInXR);
       if (!envMap) return null;
       this.environment = applyQuality(group, envMap, inXR);
+      // **Reihenfolge ist Pflicht, nicht Geschmack.** `applyQuality()` setzt
+      // `envMap` bei *jedem* Standardmaterial der Dojo-Gruppe neu – am Desktop
+      // auf `null`, in XR auf die Innenraumkarte. Wer den Himmel davor
+      // zuweist, verliert ihn wieder, und zwar lautlos.
+      if (sky) applySkyTo(exterior.group, sky, SKY_INTENSITY);
       return this.environment;
     },
 

@@ -106,7 +106,7 @@ function pfbm(u, v, period, octaves = 4, seed = 0) {
 // wickelt um die Ränder), damit die Kachel nahtlos bleibt – ohne das zeichnet
 // sich an jeder Kachelgrenze eine harte Kante ab, und bei einer
 // zwanzigfach gekachelten Dielenfläche sieht man nichts anderes mehr.
-function heightToMaps({
+export function heightToMaps({
   size = 256,
   repeat = [1, 1],
   strength = 2.2,

@@ -1,6 +1,13 @@
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { EXTERIOR, ROOM, SUN } from './layout.js';
+import {
+  leafAtlas,
+  cardCluster,
+  foliageMaterial,
+  applyFoliageMaterial,
+  updateFoliage,
+} from './foliage.js';
 
 // 🎋 Die Welt vor den Fenstern.
 //
@@ -78,87 +85,11 @@ function culmGeometry() {
 
 // --- Blattwerk ---------------------------------------------------------------
 //
-// Zwei gekreuzte Flächen mit einer Alphakarte. Der klassische Billboard-Trick,
-// und hier der richtige: Echte Blätter wären fünfstellig viele Dreiecke für
-// etwas, das man nur als bewegtes Grün hinter einem Gitter wahrnimmt.
-//
-// `alphaTest` statt `transparent`: Damit bleibt das Blattwerk im Tiefenpuffer
-// und **wirft Schatten**. Mit `transparent` würde es weder das eine noch das
-// andere zuverlässig tun, und der Schatten ist der ganze Zweck.
-function leafTexture() {
-  const size = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, size, size);
-  const r = rng(0x5eaf);
-
-  // **Büschel statt Streuung, und weiche Kante.**
-  //
-  // Der erste Anlauf verteilte 90 Blattellipsen gleichmäßig über die Kachel.
-  // Ergebnis: eine Fläche, deren Alphakante mit der Rechteckkante der Ebene
-  // zusammenfiel – man sah das Billboard als Billboard. Bambusblätter wachsen
-  // aber in **Büscheln an Zweigenden**, und ein Büschel ist in der Mitte dicht
-  // und läuft nach außen aus. Genau diese Dichteverteilung ist es, die aus
-  // zwei gekreuzten Rechtecken eine Pflanze macht.
-  const bunch = (cx, cy, n, scale, base) => {
-    for (let i = 0; i < n; i++) {
-      // Länge nach außen abnehmend, Winkel gefächert nach unten
-      const t = i / n;
-      const a = -Math.PI / 2 + (r() - 0.5) * 2.4;
-      const len = size * scale * (0.5 + r() * 0.55) * (1 - t * 0.35);
-      const wid = Math.max(1.4, len * 0.075);
-      const g = base + r() * 46;
-      ctx.save();
-      ctx.translate(cx + (r() - 0.5) * size * scale * 0.5, cy + (r() - 0.5) * size * scale * 0.5);
-      ctx.rotate(a);
-      ctx.fillStyle = `rgb(${Math.round(g * 0.52)},${Math.round(g)},${Math.round(g * 0.42)})`;
-      // Lanzettliches Blatt: zwei Bögen zur Spitze, nicht eine Ellipse.
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.quadraticCurveTo(wid, len * 0.45, 0, len);
-      ctx.quadraticCurveTo(-wid, len * 0.45, 0, 0);
-      ctx.fill();
-      ctx.restore();
-    }
-  };
-
-  bunch(size * 0.5, size * 0.72, 46, 0.3, 108);
-  bunch(size * 0.27, size * 0.55, 30, 0.24, 122);
-  bunch(size * 0.73, size * 0.58, 30, 0.24, 96);
-  bunch(size * 0.5, size * 0.36, 24, 0.2, 132);
-
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-function leafGeometry() {
-  const a = new THREE.PlaneGeometry(1, 1);
-  const b = new THREE.PlaneGeometry(1, 1).rotateY(Math.PI / 2);
-  const geo = new THREE.BufferGeometry();
-  const pos = [];
-  const uv = [];
-  const nrm = [];
-  const idx = [];
-  for (const src of [a, b]) {
-    const off = pos.length / 3;
-    const p = src.attributes.position;
-    const u = src.attributes.uv;
-    const n = src.attributes.normal;
-    for (let i = 0; i < p.count; i++) {
-      pos.push(p.getX(i), p.getY(i), p.getZ(i));
-      uv.push(u.getX(i), u.getY(i));
-      nrm.push(n.getX(i), n.getY(i), n.getZ(i));
-    }
-    for (let i = 0; i < src.index.count; i++) idx.push(src.index.getX(i) + off);
-  }
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
-  geo.setIndex(idx);
-  return geo;
-}
+// Die gemalte Blattkarte und die zwei gekreuzten Flächen, die hier standen,
+// sind ersatzlos entfallen: Bambuslaub kommt jetzt aus dem Blattatlas in
+// foliage.js und wird als Kartenbüschel gebaut. Der alte Weg war vier
+// Dreiecke je Schopf und damit sehr billig, aber aus der Nähe sah man genau
+// das – zwei Rechtecke mit einem grellgrünen Stern darauf.
 
 // --- Ferne Baumlinie ---------------------------------------------------------
 //
@@ -668,7 +599,13 @@ function buildGarden(group, r) {
     [2.5, G.z1 - 0.75, 0.9],
     [-3.4, G.z0 + 0.4, 0.75],
   ]) {
-    stones.push({ x, y: y0 + 0.07, z, ry: r() * Math.PI, scale: [s, 2.1 * s, s * 0.85] });
+    stones.push({
+      x,
+      y: y0 + 0.07,
+      z,
+      ry: r() * Math.PI,
+      scale: [s, 2.1 * s, s * 0.85],
+    });
   }
 
   // --- Kiesfläche ----------------------------------------------------------
@@ -743,7 +680,22 @@ function buildGarden(group, r) {
   // Masse ohne Binnenzeichnung – aus der Tür ein Scherenschnitt. Ein
   // Strauchbestand hat besonnte und beschattete Partien, und **dieser**
   // Unterschied ist es, der eine Wand aus Grün als Pflanzung lesbar macht.
-  const AZALEA = [0x1c3218, 0x2f5325, 0x172c16, 0x39632c, 0x203a1b, 0x456f31];
+  // **Deutlich dunkler als vorher – und das ist keine Geschmacksfrage.**
+  //
+  // Der Hüllkörper ist nach dem Umbau nicht mehr die Pflanze, sondern ihr
+  // Inneres: Was zwischen den Blattkarten durchscheint, ist die beschattete
+  // Tiefe des Strauchs. Solange er in derselben Helligkeit wie besonntes Laub
+  // stand, las sich jede Lücke als grün gestrichener Stein – genau der
+  // Eindruck, den der Nutzer „Kraut und Rüben" genannt hat.
+  //
+  // In einem Spiel ist der Blob unter dem Laub immer nahezu schwarz. Die
+  // Helligkeit kommt von den Karten davor, nicht von der Masse dahinter.
+  // Der Wert dazwischen, und beide Enden sind gemessen: Bei 0x2f5325 (dem
+  // Stand davor) las sich jede Lücke als grün gestrichener Stein, bei 0x0f1d0c
+  // als Loch – ein Garten aus schwarzen Höhlen mit Laub davor. Was hier
+  // gebraucht wird, ist beschattetes Laub, und das ist dunkel, aber nicht
+  // farblos.
+  const AZALEA = [0x1a2e14, 0x24401b, 0x141f0f, 0x2b4d1f, 0x1d3316, 0x365c26];
   const mounds = [];
   const addMound = (x, z, rad, pal, squash = 1) => {
     mounds.push({
@@ -777,13 +729,29 @@ function buildGarden(group, r) {
       addMound(x + (r() - 0.5) * 0.34, z + (r() - 0.5) * 0.6, rad(), AZALEA, squash());
     }
   };
-  back(G.z1 + 0.55, () => 0.75 + r() * 0.45, () => 0.85 + r() * 0.4);
-  back(G.z1 + 1.6, () => 1.1 + r() * 0.6, () => 0.95 + r() * 0.5);
-  back(G.z1 + 2.9, () => 1.5 + r() * 0.75, () => 1.05 + r() * 0.6);
+  back(
+    G.z1 + 0.55,
+    () => 0.75 + r() * 0.45,
+    () => 0.85 + r() * 0.4
+  );
+  back(
+    G.z1 + 1.6,
+    () => 1.1 + r() * 0.6,
+    () => 0.95 + r() * 0.5
+  );
+  back(
+    G.z1 + 2.9,
+    () => 1.5 + r() * 0.75,
+    () => 1.05 + r() * 0.6
+  );
   // Vierte Reihe. Nach drei Reihen erreichten aus der Türachse noch 6 von 364
   // Strahlen die Kulisse – eine schmale Lücke, in der Sträucher schon zu tief
   // und Bambuslaub noch zu hoch war. Gemessen, nicht geschätzt: `skyline.mjs`.
-  back(G.z1 + 4.3, () => 1.8 + r() * 0.9, () => 1.1 + r() * 0.65);
+  back(
+    G.z1 + 4.3,
+    () => 1.8 + r() * 0.9,
+    () => 1.1 + r() * 0.65
+  );
 
   // **Baumkulisse dahinter – gegen die hohen Sichtlinien.**
   //
@@ -887,6 +855,108 @@ function buildGarden(group, r) {
   moundMesh.userData.fullCount = mounds.length;
   group.add(moundMesh);
 
+  // --- Blattkarten über die vorderen Polster --------------------------------
+  //
+  // **Hüllkörper plus Karten.** Der Blob bleibt, was er kann: Masse, Verdecker,
+  // Schattenwerfer. Er ist der Grund, warum durch die Tür kein Horizont zu
+  // sehen ist, und das gibt man nicht auf. Was ihm fehlt, ist alles andere –
+  // eine Silhouette, die nicht rund ist, Licht, das durch ein Blatt fällt,
+  // Bewegung. Genau das legen die Karten darüber.
+  //
+  // Ein früherer Anlauf hatte die Karten *statt* der Blobs; das Ergebnis waren
+  // Papierschnipsel, und ich habe daraus den falschen Schluss gezogen und auf
+  // massive Körper umgestellt. Der Fehler lag nicht in der Technik – jedes
+  // aktuelle Spiel macht Laub aus alpha-getesteten Karten –, sondern darin,
+  // dass ein Blob allein oder Karten allein je die Hälfte des Problems lösen.
+  //
+  // **Nur die vorderen Polster.** Karten sind teuer (zwei Dreiecke und ein
+  // Alpha-Test je Blatt) und lohnen sich nur, solange man ein einzelnes Blatt
+  // überhaupt auflösen kann. Die hinteren Reihen und die Fernkronen bleiben
+  // Masse – das ist keine Sparmaßnahme, sondern die Detailstufe, die ein Spiel
+  // an derselben Stelle auch fährt.
+  //
+  // Der Farbton kommt als **Aufhellung** auf den Atlas, nicht als Grundfarbe:
+  // Die Blattfarbe steckt schon in der Textur, ein zweites sattes Grün darüber
+  // ergäbe schwarzes Laub. Die Spanne bleibt trotzdem erhalten, damit die
+  // Pflanzung besonnte und beschattete Partien behält.
+  // Nicht heller als nötig: Ein Satz nahezu weißer Faktoren hat den Atlas
+  // ausgebleicht – die Blätter wurden kreidig und die Binnenzeichnung der
+  // Textur verschwand. Ein Multiplikator soll aufhellen, nicht entfärben.
+  const CARD_TINT = [0xc2d3a2, 0xdae5c0, 0xa4ba8a, 0xe6ecd2, 0xb3c797, 0xcedcb2];
+  const azaleaCards = foliageMaterial({
+    atlas: leafAtlas('azalea'),
+    // Der niedrigste Wert im Garten, und zwar aus dem Aufbau heraus:
+    // Transluzenz gehört ans **Einzelblatt**. Ein Azaleenpolster zeigt keines –
+    // durch zwanzig Blätter hintereinander kommt kein Licht. Bei 0,85 sah der
+    // Strauchwall im Gegenlicht aus wie beleuchtetes Papier.
+    translucency: 0.5,
+    windStrength: 0.055,
+  });
+  {
+    const cardGeo = cardCluster({
+      // **Zahl und Größe sind gemessen, nicht geschätzt.** Der erste Anlauf
+      // hatte 104 Karten zu 0,44 – im Bild ergab das Flechten auf grünen
+      // Steinen. Der Grund ist die Textur selbst: Eine Atlaszelle zeigt ein
+      // Büschel mit viel Zwischenraum, also deckt eine Karte nur etwa ein
+      // Drittel ihrer eigenen Fläche. Was rechnerisch 70 % Deckung war, waren
+      // im Bild 25 %.
+      count: 190,
+      radius: 1,
+      seed: 0x5107,
+      kind: 'azalea',
+      // 0,58 statt 0,44: Bei einem Polster von 0,8 m sind das Büschel von rund
+      // 0,38 m – ein Zweigende, kein Einzelblatt. Einzelblätter zu bauen hieße,
+      // das Zehnfache zu bezahlen für etwas, das man aus vier Metern nicht
+      // mehr trennt.
+      cardScale: 0.58,
+      squash: 0.72,
+    });
+    // **Alle Polster, nicht nur die vorderen.** Die Filterung auf die vordere
+    // Reihe war als Detailstufe gedacht, hat aber genau das Gegenteil
+    // bewirkt: Die „grüne Wand" hinten ist die größte Fläche im Türausschnitt,
+    // und sie stand als einzige noch unbelegt da. Die Karten skalieren mit dem
+    // Polster mit – hinten werden daraus gröbere Büschel, und aus zehn Metern
+    // ist das genau die richtige Auflösung.
+    // Hintere Polster mit einem Viertel der Karten. Mit einer Belegung für
+    // alle standen 68 000 Dreiecke in **einem** Netz – mehr als der halbe
+    // Zuwachs dieser Runde, und der größte Teil davon in Reihen, die zehn
+    // Meter entfernt hinter vier anderen stehen. Die Detailstufe ist hier
+    // keine Sparmaßnahme, sondern die Stelle, an der man sie nicht sieht.
+    const farGeo = cardCluster({
+      count: 52,
+      radius: 1,
+      seed: 0x5108,
+      kind: 'azalea',
+      cardScale: 0.86,
+      squash: 0.72,
+    });
+    for (const [name, geo, list] of [
+      ['dojo-garden-blattkarten', cardGeo, mounds.filter((f) => f.z <= G.z1 + 2.0)],
+      ['dojo-garden-blattkarten-fern', farGeo, mounds.filter((f) => f.z > G.z1 + 2.0)],
+    ]) {
+      if (!list.length) continue;
+      const cards = new THREE.InstancedMesh(geo, azaleaCards, list.length);
+      applyFoliageMaterial(cards, azaleaCards);
+      cards.name = name;
+      list.forEach((f, i) => {
+        q.setFromEuler(new THREE.Euler(0, f.ry, 0));
+        m.compose(
+          new THREE.Vector3(f.x, f.y, f.z),
+          q,
+          new THREE.Vector3(f.rad * 1.3, f.rad * f.squash, f.rad * 1.15)
+        );
+        cards.setMatrixAt(i, m);
+        cards.setColorAt(i, new THREE.Color(CARD_TINT[Math.floor(r() * CARD_TINT.length)]));
+      });
+      cards.instanceMatrix.needsUpdate = true;
+      if (cards.instanceColor) cards.instanceColor.needsUpdate = true;
+      cards.castShadow = true;
+      cards.receiveShadow = true;
+      cards.userData.fullCount = list.length;
+      group.add(cards);
+    }
+  }
+
   const canopyMesh = new THREE.InstancedMesh(
     blobGeometry(1, 0x5d2, 0.7),
     new THREE.MeshLambertMaterial({ color: 0xffffff }),
@@ -960,6 +1030,50 @@ function buildGarden(group, r) {
   crownMesh.userData.fullCount = puffs.length;
   group.add(crownMesh);
 
+  // Und dieselben Schöpfe noch einmal als Karten. Die beiden Ahorne stehen
+  // **in der Türachse** – sie sind das, was man beim Blick nach draußen zuerst
+  // und am größten sieht. Wenn irgendwo im Garten ein einzelnes Blatt
+  // auflösbar ist, dann hier, und wenn irgendwo Gegenlicht durch ein Blatt
+  // fällt, dann durch diese Kronen: Die Sonne steht im Osten hinter ihnen.
+  const mapleCards = foliageMaterial({
+    atlas: leafAtlas('maple'),
+    // Ahornlaub im Herbst ist der Fall, für den der Transluzenzterm gebaut ist –
+    // ein rotes Blatt gegen die Sonne leuchtet, statt dunkel zu werden.
+    translucency: 0.8,
+    transColor: 0xd98f45,
+    windStrength: 0.075,
+  });
+  const crownCards = new THREE.InstancedMesh(
+    cardCluster({
+      count: 46,
+      radius: 1,
+      seed: 0x2f71,
+      kind: 'maple',
+      cardScale: 0.62,
+    }),
+    mapleCards,
+    puffs.length
+  );
+  applyFoliageMaterial(crownCards, mapleCards);
+  crownCards.name = 'dojo-garden-kronenkarten';
+  const MAPLE_TINT = [
+    [0xd8b49a, 0xe4c0a2, 0xc7a288],
+    [0xe0c79a, 0xead49f, 0xcbb389],
+  ];
+  puffs.forEach((c, i) => {
+    const s = c.s * 1.12;
+    q.setFromEuler(new THREE.Euler(r() * 0.6, r() * Math.PI, r() * 0.6));
+    m.compose(c.p, q, new THREE.Vector3(s * 1.25, s, s * 1.15));
+    crownCards.setMatrixAt(i, m);
+    const pal = MAPLE_TINT[c.hue];
+    crownCards.setColorAt(i, new THREE.Color(pal[Math.floor(r() * pal.length)]));
+  });
+  crownCards.instanceMatrix.needsUpdate = true;
+  if (crownCards.instanceColor) crownCards.instanceColor.needsUpdate = true;
+  crownCards.castShadow = true;
+  crownCards.userData.fullCount = puffs.length;
+  group.add(crownCards);
+
   // --- Farne und Gräser -----------------------------------------------------
   //
   // Die unterste Schicht, und die, die einen Garten *bepflanzt* aussehen lässt
@@ -967,7 +1081,10 @@ function buildGarden(group, r) {
   // der Sträucher. Ohne sie steht jeder Gegenstand auf einer sauberen Fläche –
   // und nichts verrät eine gebaute Szene zuverlässiger als ein sauberer
   // Übergang zwischen Ding und Boden.
-  const FERN = [0x2c4a24, 0x365a2a, 0x24401f, 0x40632f];
+  // Die Töne sind hell, weil sie den Blattatlas **multiplizieren**: Das Grün
+  // steckt in der Textur. Der frühere Satz satter Grüns war für ein Material
+  // ohne Karte richtig und wäre hier schwarzes Laub.
+  const FERN = [0xa9bd8e, 0xc4d3a6, 0x8fa578, 0xd2dcb4];
   const fronds = [];
   const nearStone = (x, z) =>
     stones.some((s) => Math.hypot(s.x - x, s.z - z) < Math.max(s.scale[0], s.scale[2]) * 0.75);
@@ -1000,15 +1117,42 @@ function buildGarden(group, r) {
       col: new THREE.Color(FERN[Math.floor(r() * FERN.length)]),
     });
   }
+  // Halbkugel statt Vollkugel: Ein Farnhorst wächst aus einem Punkt am Boden
+  // nach oben. Die untere Hälfte einer Kartenschale läge im Erdreich, und man
+  // bezahlte sie trotzdem – der einzige Ort im Garten, wo `hemisphere` die
+  // richtige Antwort ist.
+  const fernCards = foliageMaterial({
+    atlas: leafAtlas('fern'),
+    translucency: 0.65,
+    // Bodennaher Bewuchs steht im Windschatten der Sträucher. Volle Auslenkung
+    // sähe hier aus wie Seegras.
+    windStrength: 0.035,
+  });
   const frondMesh = new THREE.InstancedMesh(
-    frondGeometry(0x1f4),
-    new THREE.MeshLambertMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
+    cardCluster({
+      count: 26,
+      radius: 1,
+      seed: 0x1f4,
+      kind: 'fern',
+      hemisphere: true,
+      squash: 0.55,
+      cardScale: 0.62,
+    }),
+    fernCards,
     fronds.length
   );
+  applyFoliageMaterial(frondMesh, fernCards);
   frondMesh.name = 'dojo-garden-farne';
   fronds.forEach((f, i) => {
     q.setFromEuler(new THREE.Euler(0, f.ry, 0));
-    m.compose(new THREE.Vector3(f.x, y0 + 0.02, f.z), q, new THREE.Vector3(f.s, f.s, f.s));
+    // Etwas über den Boden gesetzt: Die Karten wachsen aus dem Mittelpunkt
+    // nach außen **und nach unten** (Laub hängt), ohne Anhebung stäke die
+    // Hälfte des Horstes im Erdreich.
+    m.compose(
+      new THREE.Vector3(f.x, y0 + 0.02 + f.s * 0.2, f.z),
+      q,
+      new THREE.Vector3(f.s, f.s, f.s)
+    );
     frondMesh.setMatrixAt(i, m);
     frondMesh.setColorAt(i, f.col);
   });
@@ -1039,10 +1183,7 @@ export function buildExterior() {
   // Entfernung hinter einem Gitter unterscheiden könnte. Innen bleibt alles
   // beim Standardmaterial – dort liegt der Grund, warum der Raum überhaupt
   // materiell aussieht.
-  const ground = new THREE.Mesh(
-    groundGeo,
-    new THREE.MeshLambertMaterial({ map: groundTexture() })
-  );
+  const ground = new THREE.Mesh(groundGeo, new THREE.MeshLambertMaterial({ map: groundTexture() }));
   ground.name = 'dojo-exterior-ground';
   ground.receiveShadow = true;
   group.add(ground);
@@ -1129,16 +1270,24 @@ export function buildExterior() {
   // über einem Meter Kantenlänge je Halm lasen sich als Laubbäume, nicht als
   // Bambus – die Silhouette eines Bambushains ist ein *Strichmuster* mit
   // Blattschöpfen obenauf, nicht eine geschlossene Krone.
+  //
+  // **Weniger, dafür größere Schöpfe – seit sie aus Karten bestehen.**
+  //
+  // Die alten Schöpfe waren zwei gekreuzte Vierecke mit einer gemalten
+  // Blattkarte darauf: vier Dreiecke, aber auch zwei sichtbare Rechtecke, und
+  // aus der Nähe las sich der Hain als Scherenschnitt aus grellgrünen Sternen.
+  // Ein Kartenbüschel kostet das Achtfache und braucht deshalb ein Achtel der
+  // Zahl; die Fläche bleibt gleich, weil die Schöpfe entsprechend größer sind.
   const leaves = [];
   for (const c of culms) {
-    const bunches = 12 + Math.floor(r() * 7);
+    const bunches = 5 + Math.floor(r() * 4);
     for (let b = 0; b < bunches; b++) {
       // **Deutlich tiefer.** Die Schöpfe saßen bei 0,68–0,98 der Halmhöhe, also
       // nur ganz oben. Genau auf Horizonthöhe war der Hain damit ein Feld
       // kahler Stangen, durch das man hindurchsah – das war der Hauptgrund,
       // warum der Streifen Ferne im Türausschnitt stehen blieb.
       const t = 0.34 + r() * 0.62;
-      const size = 0.72 + r() * 0.7;
+      const size = 1.15 + r() * 0.95;
       leaves.push({
         x: c.x + (r() - 0.5) * 0.55,
         y: EXTERIOR.ground.y + c.height * t,
@@ -1148,15 +1297,30 @@ export function buildExterior() {
       });
     }
   }
+  const bambooCards = foliageMaterial({
+    atlas: leafAtlas('bamboo'),
+    // Bambusblätter sind dünn und stehen fast immer im Gegenlicht, weil der
+    // Hain im Osten vor der Sonne steht. Von allen Pflanzen im Bild ist das
+    // die, bei der Transluzenz am meisten trägt.
+    translucency: 0.75,
+    transColor: 0xa9c664,
+    // Bambus bewegt sich am stärksten – das ist das Erkennungszeichen der
+    // Pflanze. Die Halme selbst stehen still (sie tragen die Schattenkarte),
+    // also muss das Laub die ganze Bewegung liefern.
+    windStrength: 0.11,
+  });
   const leafMesh = new THREE.InstancedMesh(
-    leafGeometry(),
-    new THREE.MeshLambertMaterial({
-      map: leafTexture(),
-      alphaTest: 0.5,
-      side: THREE.DoubleSide,
+    cardCluster({
+      count: 16,
+      radius: 1,
+      seed: 0xba11,
+      kind: 'bamboo',
+      cardScale: 0.52,
     }),
+    bambooCards,
     leaves.length
   );
+  applyFoliageMaterial(leafMesh, bambooCards);
   leafMesh.name = 'dojo-bamboo-laub';
   leaves.forEach((l, i) => {
     e.set(0, l.turn, 0);
@@ -1207,7 +1371,14 @@ export function buildExterior() {
     // Frame die Instanzmatrizen neu schreiben und – schlimmer – die Schattenkarte
     // jedes Frame ungültig machen. Für eine Kulisse hinter Papier ist das ein
     // schlechter Tausch.
-    update() {},
+    // Die Halme stehen still – aber das Laub nicht mehr. `updateFoliage()` setzt
+    // nur eine Uniform je Material; die Instanzmatrizen bleiben unangetastet,
+    // die Schattenkarte bleibt gültig, und die Auslenkung passiert im
+    // Vertex-Shader. Das ist der Grund, warum Bewegung hier bezahlbar ist und
+    // ein wiegender Halm es nicht wäre.
+    update(time) {
+      updateFoliage(time);
+    },
     // Für den Sonnenstand: Wo der Hain steht, muss auch das Schattenfrustum
     // hinreichen. `SUN.shadow.halfExtent` ist darauf ausgelegt; hier wird die
     // Annahme festgehalten, damit sie beim nächsten Verschieben auffällt.
