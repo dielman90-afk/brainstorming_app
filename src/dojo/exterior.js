@@ -1356,9 +1356,19 @@ function buildForest(group, r) {
   // Detailstufe 0: eine Ikosaederkugel mit 20 Dreiecken. `blobGeometry`
   // verrauscht sie und führt `mergeVertices()` aus, sonst wäre sie facettiert –
   // bei zwanzig Dreiecken sieht man jede einzelne Facette.
-  const crownGeo = blobGeometry(0, 0x9e1, 0.74);
-  crownGeo.computeBoundingBox();
-  const crownReach = Math.max(crownGeo.boundingBox.max.x, -crownGeo.boundingBox.min.x);
+  // **Zwei Detailstufen, und die grobe ist wirklich grob.** Der erste Anlauf
+  // hatte alles auf Stufe 0 – zwanzig Dreiecke, und von außen las sich der
+  // Bestand als Haufen facettierter Kugeln. `mergeVertices()` glättet die
+  // Normalen, aber es erfindet keine Silhouette: Bei zwanzig Dreiecken ist der
+  // Umriss ein Zwanzigeck, und das sieht man.
+  //
+  // Auf Stufe 1 (80 Dreiecke) verschwindet der Effekt. Bezahlt wird sie nur im
+  // Nahbereich – draußen ab 26 m ist eine Krone wenige Bildpunkte breit, dort
+  // ist der Umriss ohnehin kein Thema.
+  const crownNear = blobGeometry(1, 0x9e1, 0.74);
+  const crownFar = blobGeometry(0, 0x9e3, 0.74);
+  crownNear.computeBoundingBox();
+  const crownReach = Math.max(crownNear.boundingBox.max.x, -crownNear.boundingBox.min.x);
 
   // Offener Zylinder: Der Deckel säße unter der Krone und der Boden im Erdreich.
   const trunkGeo = new THREE.CylinderGeometry(0.5, 1, 1, 5, 1, true);
@@ -1390,15 +1400,22 @@ function buildForest(group, r) {
       // Garten, und ein Waldbaum mitten im Karesansui wäre kein Zuwachs.
       if (Math.abs(x) < G.halfX + 1.6 && z > G.z0 - 2.2 && z < G.z1 + 1.6) continue;
 
-      // Dunst nach Entfernung, aber erst ab zwölf Metern: Was nah steht, soll
-      // seine Farbe behalten, sonst wird der ganze Wald milchig.
-      const haze = Math.min(0.62, Math.max(0, (dist - 12) / 46));
+      // Dunst nach Entfernung, aber erst ab sechzehn Metern und schwächer als
+      // im ersten Anlauf: Bei 0,62 war der ganze Bestand blaugrau und die
+      // Farbunterschiede zwischen den Bäumen verschwunden. Die Bezugsgröße ist
+      // der Abstand vom Raum, nicht von der Kamera – der Spieler steht immer
+      // im Raum, für ihn fällt beides zusammen.
+      const haze = Math.min(0.44, Math.max(0, (dist - 16) / 62));
       trees.push({
         x,
         z,
         rad,
         dist,
-        squash: 1.15 + r() * 0.75,
+        // Hochformat statt Kugel. Eine Krone, die so breit wie hoch ist, liest
+        // sich aus der Ferne als Ball; ein Nadelwald hat schmale, aufrechte
+        // Silhouetten, und in einer Menge ist genau das der Unterschied
+        // zwischen Wald und Steinschlag.
+        squash: 1.7 + r() * 1.1,
         ry: r() * Math.PI,
         // Stammhöhe unter der Krone. Weiter außen höher, damit die Silhouette
         // nach hinten aufsteigt statt flach abzuschließen.
@@ -1412,28 +1429,35 @@ function buildForest(group, r) {
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
 
-  const crowns = new THREE.InstancedMesh(
-    crownGeo,
-    new THREE.MeshLambertMaterial({ color: 0xffffff }),
-    trees.length
-  );
-  crowns.name = 'dojo-wald-kronen';
-  trees.forEach((t, i) => {
-    q.setFromEuler(e.set(0, t.ry, 0));
-    m.compose(
-      new THREE.Vector3(t.x, y0 + t.h + t.rad * t.squash * 0.55, t.z),
-      q,
-      new THREE.Vector3(t.rad * 1.25, t.rad * t.squash, t.rad * 1.1)
-    );
-    crowns.setMatrixAt(i, m);
-    crowns.setColorAt(i, t.col);
-  });
-  crowns.instanceMatrix.needsUpdate = true;
-  if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
-  crowns.castShadow = false;
-  crowns.receiveShadow = false;
-  crowns.userData.fullCount = trees.length;
-  group.add(crowns);
+  const kronenMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  for (const [name, geo, list] of [
+    ['dojo-wald-kronen', crownNear, trees.filter((t) => t.dist < 26)],
+    ['dojo-wald-kronen-fern', crownFar, trees.filter((t) => t.dist >= 26)],
+  ]) {
+    if (!list.length) continue;
+    const crowns = new THREE.InstancedMesh(geo, kronenMaterial, list.length);
+    crowns.name = name;
+    list.forEach((t, i) => {
+      q.setFromEuler(e.set(0, t.ry, 0));
+      m.compose(
+        new THREE.Vector3(t.x, y0 + t.h + t.rad * t.squash * 0.55, t.z),
+        q,
+        new THREE.Vector3(t.rad * 0.92, t.rad * t.squash, t.rad * 0.82)
+      );
+      crowns.setMatrixAt(i, m);
+      crowns.setColorAt(i, t.col);
+    });
+    crowns.instanceMatrix.needsUpdate = true;
+    if (crowns.instanceColor) crowns.instanceColor.needsUpdate = true;
+    // Kein Schattenwurf: Das Schattenfrustum reicht 12 m um die Sonnenachse,
+    // und die Sonne steht im Osten – die Schatten des Waldes fielen von der
+    // Ostseite her ohnehin auf den Hain und von Norden und Westen vom Gebäude
+    // weg. Ein Durchgang, der bezahlt wird und nichts liefert.
+    crowns.castShadow = false;
+    crowns.receiveShadow = false;
+    crowns.userData.fullCount = list.length;
+    group.add(crowns);
+  }
 
   // **Stämme nur im Nahbereich.** Ab etwa fünfundzwanzig Metern ist ein Stamm
   // von 20 cm Durchmesser schmaler als ein Bildpunkt; man bezahlt ihn und sieht
