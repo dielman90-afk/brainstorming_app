@@ -683,6 +683,12 @@ function buildGarden(group, r) {
   // Bauteil denselben sauberen Gradienten und man sieht die Formel.
   mossPatina(merged, { floor: y0, height: 0.4, strength: 0.85, scale: 0.5 });
   const solid = new THREE.Mesh(merged, graniteMaterial({ vertexColors: true }));
+  // **Korn kräftiger stellen.** Mit dem Standardwert 1 war das Korn im Bild
+  // vorhanden, aber nur als Ahnung – auf einer glatten Zylinderflanke wie dem
+  // Laternenschaft braucht die Struktur mehr Ausschlag als auf einer bereits
+  // unruhigen Fläche. Das Material ist je Ton eine geteilte Instanz; hier wird
+  // die des Gartensteins verstellt, die Trittsteine haben ihre eigene.
+  solid.material.normalScale.set(2.2, 2.2);
   solid.name = 'dojo-garden-stein';
   solid.castShadow = true;
   solid.receiveShadow = true;
