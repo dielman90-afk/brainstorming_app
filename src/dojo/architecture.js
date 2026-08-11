@@ -1,6 +1,12 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { hinokiMaterial, plasterMaterial, tatamiMaterial, washiMaterial, scaleUV } from './materials.js';
+import {
+  hinokiMaterial,
+  plasterMaterial,
+  tatamiMaterial,
+  washiMaterial,
+  scaleUV,
+} from './materials.js';
 import {
   ROOM,
   SHOJI,
@@ -39,7 +45,12 @@ function board(width, height, depth, metersPerTile = 0.55) {
 }
 
 // Instanzen aus einer Liste von Matrizen – spart überall dieselben sechs Zeilen.
-function instanced(geometry, material, transforms, { cast = true, receive = true, name = '' } = {}) {
+function instanced(
+  geometry,
+  material,
+  transforms,
+  { cast = true, receive = true, name = '' } = {}
+) {
   const mesh = new THREE.InstancedMesh(geometry, material, transforms.length);
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
@@ -78,8 +89,8 @@ function instanced(geometry, material, transforms, { cast = true, receive = true
 function buildOpening(spec) {
   const { axis, inward, panels, sillY, headY, koshi, lattice } = spec;
   const fixedVal = axis === 'x' ? spec.x : spec.z;
-  const from = axis === 'x' ? spec.fromZ ?? spec.from : spec.from;
-  const to = axis === 'x' ? spec.toZ ?? spec.to : spec.to;
+  const from = axis === 'x' ? (spec.fromZ ?? spec.from) : spec.from;
+  const to = axis === 'x' ? (spec.toZ ?? spec.to) : spec.to;
 
   const span = to - from;
   const panelW = span / panels;
@@ -217,7 +228,7 @@ export function buildArchitecture() {
   // ohne das wirft der Hain zwar Schatten, aber nicht dorthin, wo man sie sieht.
   const washi = washiMaterial({
     emissive: 0xffeccc,
-    emissiveIntensity: 0.62,
+    emissiveIntensity: 0.44,
     shadowedEmissive: true,
   });
   // Papier auf den drei Schattenseiten. Süd, West und Nord liegen im Schatten
@@ -232,7 +243,46 @@ export function buildArchitecture() {
   // Raum, während darunter alles warmes Holz und warmes Papier war – der
   // auffälligste Fremdkörper im Bild. Reflektiertes Licht in einem Holzhaus ist
   // von diesem Holz gefärbt. Also warm und nur *dunkler* als die Sonnenseite.
-  const washiShade = washiMaterial({ emissive: 0xffe2bc, emissiveIntensity: 0.2 });
+  // **0,24 statt 0,13 – gemessen, nicht geschätzt.** Bei 0,13 stand das Papier der
+  // Nordwand bei Luminanz 129 gegen 125,9 des Putzes daneben: ein Verhältnis von
+  // 1,02, also praktisch gleich hell. Ein Fenster, das sich nicht vom Putz
+  // abhebt, ist kein Fenster. Ursache ist nicht nur die Grundfarbe, sondern die
+  // Fasertextur darüber: Sie senkt die wirksame Albedo des Papiers unter die des
+  // glatten Putzes. Das Eigenleuchten muss diesen Rückstand mit aufholen.
+  const washiShade = washiMaterial({
+    // Eigene, hellere Grundfarbe nur für die Schattenseiten. Aus zwei Messpunkten
+    // zerlegt (0,13 → 129, 0,24 → 137,7 an der Nordwand) trägt das Eigenleuchten
+    // dort rund 79 Luminanzeinheiten je Einheit Intensität; der Albedoanteil des
+    // Papiers liegt bei 118,7 gegen 125,9 des Putzes daneben. Das Papier ist also
+    // **von sich aus dunkler** als der Putz, obwohl seine Farbe heller ist – die
+    // Fasertextur senkt die wirksame Albedo.
+    //
+    // Den Rückstand über das Eigenleuchten aufzuholen bräuchte 0,57 und ließe die
+    // Wand glimmen. Ihn global über die Grundfarbe aufzuholen würde die Westwand
+    // ausbrennen: Sie ist mit Abstand die hellste Fläche im Raum, weil die
+    // Ostsonne quer durch die Shoji-Front auf sie fällt. Also nur hier.
+    color: 0xe8e0cc,
+    emissive: 0xffe2bc,
+    emissiveIntensity: 0.28,
+  });
+
+  // **Drei Stufen statt zwei.** Die Südfront lag bisher in der Schattengruppe,
+  // obwohl sie besonnt ist (Kosinus +0,359 gegen +0,915 im Osten, siehe
+  // layout.js). Sie gehört zwischen die beiden – ein Streiflicht, das die Front
+  // sichtbar wärmer macht als Nord und West, ohne der Ostseite ihren Rang
+  // streitig zu machen. Die Intensität folgt dem gemessenen Verhältnis der
+  // Kosinuswerte (0,359/0,915 = 0,39) plus einem Anteil Himmelslicht, denn nach
+  // Süden steht der offene Garten und keine Wand.
+  //
+  // Alle drei Werte sind gegenüber vorher **gesenkt**: Die Grundfarbe des
+  // Papiers ist von 0x7d776a auf 0xd8d0be gestiegen, das Eigenleuchten muss
+  // also weniger tragen. Es unterscheidet jetzt die Himmelsrichtungen, statt
+  // die Grundhelligkeit zu liefern.
+  const washiGraze = washiMaterial({
+    emissive: 0xffe8c6,
+    emissiveIntensity: 0.3,
+    shadowedEmissive: true,
+  });
 
   // --- Dielenboden ----------------------------------------------------------
   const PLANK = 0.19;
@@ -320,10 +370,15 @@ export function buildArchitecture() {
   }
   group.add(instanced(matGeo, tatami, mats, { cast: false, name: 'dojo-tatami' }));
   group.add(
-    instanced(borderGeo, new THREE.MeshStandardMaterial({ color: 0x2f2b26, roughness: 0.88 }), borders, {
-      cast: false,
-      name: 'dojo-tatami-heri',
-    })
+    instanced(
+      borderGeo,
+      new THREE.MeshStandardMaterial({ color: 0x2f2b26, roughness: 0.88 }),
+      borders,
+      {
+        cast: false,
+        name: 'dojo-tatami-heri',
+      }
+    )
   );
 
   // --- Wände ----------------------------------------------------------------
@@ -343,8 +398,8 @@ export function buildArchitecture() {
   const wallAround = (spec, lo, hi) => {
     const axis = spec.axis;
     const fixedVal = axis === 'x' ? spec.x : spec.z;
-    const from = axis === 'x' ? spec.fromZ ?? spec.from : spec.from;
-    const to = axis === 'x' ? spec.toZ ?? spec.to : spec.to;
+    const from = axis === 'x' ? (spec.fromZ ?? spec.from) : spec.from;
+    const to = axis === 'x' ? (spec.toZ ?? spec.to) : spec.to;
     const d = fixedVal - spec.inward * (t / 2); // Wandmitte, von der Ebene weg
     const put = (tCenter, y, alongLen, upLen) =>
       axis === 'x'
@@ -412,16 +467,24 @@ export function buildArchitecture() {
     // genau der Spalt offen, der beim alten Dach vier Runden gekostet hat –
     // diesmal ist er von vornherein zu.
     board(t, ROOM.ceilingY - ROOM.ranmaTop + 0.02, ROOM.maxZ - ROOM.minZ + 0.4, 1.1).translate(
-      WALL.west + t / 2, (ROOM.ranmaTop + ROOM.ceilingY) / 2, (ROOM.minZ + ROOM.maxZ) / 2
+      WALL.west + t / 2,
+      (ROOM.ranmaTop + ROOM.ceilingY) / 2,
+      (ROOM.minZ + ROOM.maxZ) / 2
     ),
     board(t, ROOM.ceilingY - ROOM.ranmaTop + 0.02, ROOM.maxZ - ROOM.minZ + 0.4, 1.1).translate(
-      WALL.east - t / 2, (ROOM.ranmaTop + ROOM.ceilingY) / 2, (ROOM.minZ + ROOM.maxZ) / 2
+      WALL.east - t / 2,
+      (ROOM.ranmaTop + ROOM.ceilingY) / 2,
+      (ROOM.minZ + ROOM.maxZ) / 2
     ),
     board(ROOM.maxX - ROOM.minX + 0.4, ROOM.ceilingY - ROOM.ranmaTop + 0.02, t, 1.1).translate(
-      0, (ROOM.ranmaTop + ROOM.ceilingY) / 2, WALL.north - t / 2
+      0,
+      (ROOM.ranmaTop + ROOM.ceilingY) / 2,
+      WALL.north - t / 2
     ),
     board(ROOM.maxX - ROOM.minX + 0.4, ROOM.ceilingY - ROOM.ranmaTop + 0.02, t, 1.1).translate(
-      0, (ROOM.ranmaTop + ROOM.ceilingY) / 2, WALL.south + t / 2
+      0,
+      (ROOM.ranmaTop + ROOM.ceilingY) / 2,
+      WALL.south + t / 2
     ),
     // Traufabschluss auf beiden Längsseiten. Die verlängerte Schalung kommt der
     // Wandkrone bis auf wenige Zentimeter nahe – und wenige Zentimeter Schlitz
@@ -434,15 +497,21 @@ export function buildArchitecture() {
     // schon zweimal an diesem Dach: An einer Fuge ist Ueberlappen robuster als
     // Passgenauigkeit.
     board(t, 0.62, ROOM.maxZ - ROOM.minZ + 1.0, 1.1).translate(
-      WALL.west + t / 2, ROOM.wallTop + 0.2, (ROOM.minZ + ROOM.maxZ) / 2
+      WALL.west + t / 2,
+      ROOM.wallTop + 0.2,
+      (ROOM.minZ + ROOM.maxZ) / 2
     ),
     board(t, 0.62, ROOM.maxZ - ROOM.minZ + 1.0, 1.1).translate(
-      WALL.east - t / 2, ROOM.wallTop + 0.2, (ROOM.minZ + ROOM.maxZ) / 2
+      WALL.east - t / 2,
+      ROOM.wallTop + 0.2,
+      (ROOM.minZ + ROOM.maxZ) / 2
     ),
     // Über dem Tokonoma-Sturz bis zur Traufe – sonst sieht man über der Nische
     // in den schwarzen Hintergrund.
     board(TOKONOMA.width + 0.3, h - TOKONOMA.headY - 0.22, t, 1.1).translate(
-      TOKONOMA.centerX, (TOKONOMA.headY + 0.22 + h) / 2, WALL.north - t / 2
+      TOKONOMA.centerX,
+      (TOKONOMA.headY + 0.22 + h) / 2,
+      WALL.north - t / 2
     ),
   ];
   // (Die frueheren Giebeldreiecke sind entfallen. Mit einer flachen Decke gibt
@@ -502,7 +571,10 @@ export function buildArchitecture() {
   tok.add(tokJambs);
 
   // Erhöhter Nischenboden aus einem einzigen dicken Brett
-  const tokFloor = new THREE.Mesh(board(TOKONOMA.width, TOKONOMA.floorY, TOKONOMA.depth, 0.5), hinokiDark);
+  const tokFloor = new THREE.Mesh(
+    board(TOKONOMA.width, TOKONOMA.floorY, TOKONOMA.depth, 0.5),
+    hinokiDark
+  );
   tokFloor.position.set(TOKONOMA.centerX, TOKONOMA.floorY / 2, WALL.north - TOKONOMA.depth / 2);
   tokFloor.castShadow = true;
   tokFloor.receiveShadow = true;
@@ -522,13 +594,20 @@ export function buildArchitecture() {
   }
   postGeo.computeVertexNormals();
   const post = new THREE.Mesh(postGeo, hinokiDark);
-  post.position.set(TOKONOMA.centerX + TOKONOMA.width / 2, TOKONOMA.headY / 2, WALL.north - TOKONOMA.depth);
+  post.position.set(
+    TOKONOMA.centerX + TOKONOMA.width / 2,
+    TOKONOMA.headY / 2,
+    WALL.north - TOKONOMA.depth
+  );
   post.castShadow = true;
   post.receiveShadow = true;
   tok.add(post);
 
   // Sturz über der Nische
-  const lintel = new THREE.Mesh(board(TOKONOMA.width + 0.24, 0.22, TOKONOMA.depth + 0.06, 0.6), hinokiDark);
+  const lintel = new THREE.Mesh(
+    board(TOKONOMA.width + 0.24, 0.22, TOKONOMA.depth + 0.06, 0.6),
+    hinokiDark
+  );
   lintel.position.set(TOKONOMA.centerX, TOKONOMA.headY + 0.11, WALL.north - TOKONOMA.depth / 2);
   lintel.castShadow = true;
   tok.add(lintel);
@@ -550,17 +629,20 @@ export function buildArchitecture() {
   shoji.name = 'dojo-shoji';
 
   const sunny = [SHOJI];
-  const shaded = [SHOJI_SOUTH, BAND_WEST, ...BAND_NORTH];
+  const grazing = [SHOJI_SOUTH];
+  const shaded = [BAND_WEST, ...BAND_NORTH];
   const frameGeos = [];
   const latticeT = [];
   const sunPapers = [];
+  const grazePapers = [];
   const shadePapers = [];
 
-  for (const spec of [...sunny, ...shaded]) {
+  for (const spec of [...sunny, ...grazing, ...shaded]) {
     const part = buildOpening(spec);
     frameGeos.push(...part.frames);
     latticeT.push(...part.bars);
-    (spec.shaded ? shadePapers : sunPapers).push(...part.papers);
+    const ziel = spec.shaded ? shadePapers : spec.grazing ? grazePapers : sunPapers;
+    ziel.push(...part.papers);
   }
 
   const frames = new THREE.Mesh(mergeGeometries(frameGeos, false), hinokiDark);
@@ -586,6 +668,12 @@ export function buildArchitecture() {
   paper.castShadow = true;
   paper.receiveShadow = true;
   shoji.add(paper);
+
+  const grazePaper = new THREE.Mesh(mergeGeometries(grazePapers, false), washiGraze);
+  grazePaper.name = 'dojo-washi-streiflicht';
+  grazePaper.castShadow = true;
+  grazePaper.receiveShadow = true;
+  shoji.add(grazePaper);
 
   const shadePaper = new THREE.Mesh(mergeGeometries(shadePapers, false), washiShade);
   shadePaper.name = 'dojo-washi-schatten';
@@ -663,14 +751,62 @@ export function buildArchitecture() {
   const ry1 = ry0 + RIDGE_UP;
   const roofPos = [
     // Westseite (Traufe West → First)
-    ex0, ry0, ez0, ex0, ry0, ez1, 0, ry1, ez1 - HIP,
-    ex0, ry0, ez0, 0, ry1, ez1 - HIP, 0, ry1, ez0 + HIP,
+    ex0,
+    ry0,
+    ez0,
+    ex0,
+    ry0,
+    ez1,
+    0,
+    ry1,
+    ez1 - HIP,
+    ex0,
+    ry0,
+    ez0,
+    0,
+    ry1,
+    ez1 - HIP,
+    0,
+    ry1,
+    ez0 + HIP,
     // Ostseite
-    ex1, ry0, ez1, ex1, ry0, ez0, 0, ry1, ez0 + HIP,
-    ex1, ry0, ez1, 0, ry1, ez0 + HIP, 0, ry1, ez1 - HIP,
+    ex1,
+    ry0,
+    ez1,
+    ex1,
+    ry0,
+    ez0,
+    0,
+    ry1,
+    ez0 + HIP,
+    ex1,
+    ry0,
+    ez1,
+    0,
+    ry1,
+    ez0 + HIP,
+    0,
+    ry1,
+    ez1 - HIP,
     // Walm Nord und Süd
-    ex0, ry0, ez0, 0, ry1, ez0 + HIP, ex1, ry0, ez0,
-    ex1, ry0, ez1, 0, ry1, ez1 - HIP, ex0, ry0, ez1,
+    ex0,
+    ry0,
+    ez0,
+    0,
+    ry1,
+    ez0 + HIP,
+    ex1,
+    ry0,
+    ez0,
+    ex1,
+    ry0,
+    ez1,
+    0,
+    ry1,
+    ez1 - HIP,
+    ex0,
+    ry0,
+    ez1,
   ];
   const roofGeo = new THREE.BufferGeometry();
   roofGeo.setAttribute('position', new THREE.Float32BufferAttribute(roofPos, 3));
@@ -738,19 +874,58 @@ export function buildArchitecture() {
     lattice: { cols: 4, rows: 3, barWidth: 0.018, barDepth: 0.018 },
   });
 
+  // **Die Bänder enden vor der Ecke, nicht in ihr.**
+  //
+  // Bis eben spannte jedes Band über die volle Wandlänge (`ROOM.minZ..maxZ`
+  // bzw. `minX..maxX`) an der Wandmitte. An jeder Raumecke steckten damit zwei
+  // rechtwinklige Bänder ineinander: doppelte Pfosten, Z-Fighting und ein
+  // Wandansatz, der aus jedem Blickwinkel anders falsch aussah. Genau das war
+  // gemeldet.
+  //
+  // Die Wand darunter macht es umgekehrt: `wallAround()` verlängert sie
+  // absichtlich **über** die Ecke hinaus (`lo2`/`hi2`), damit an der Kante kein
+  // Sichtschlitz bleibt. Beides zusammen – Wand zu lang, Band zu lang – ergab
+  // den Versatz.
+  //
+  // Jetzt endet jedes Band eine halbe Wandstärke vor der Fluchtlinie der
+  // Nachbarwand, und in die Lücke kommt ein Eckpfosten. Das ist auch
+  // konstruktiv das Richtige: An einer Raumecke steht in einem Holzbau ein
+  // Pfosten, und die Füllungen stoßen an ihn.
+  const rIn = t * 0.5;
   const ranmaGeos = [];
   const ranmaBars = [];
-  const ranmaPapers = [];
-  for (const spec of [
-    ranmaSpec('x', WALL.east, -1, ROOM.minZ, ROOM.maxZ),
-    ranmaSpec('x', WALL.west, 1, ROOM.minZ, ROOM.maxZ),
-    ranmaSpec('z', WALL.north, 1, ROOM.minX, ROOM.maxX),
-    ranmaSpec('z', WALL.south, -1, ROOM.minX, ROOM.maxX),
+  const ranmaPapers = { sun: [], graze: [], shade: [] };
+  for (const [spec, ziel] of [
+    [ranmaSpec('x', WALL.east, -1, ROOM.minZ + rIn, ROOM.maxZ - rIn), 'sun'],
+    [ranmaSpec('x', WALL.west, 1, ROOM.minZ + rIn, ROOM.maxZ - rIn), 'shade'],
+    [ranmaSpec('z', WALL.north, 1, ROOM.minX + rIn, ROOM.maxX - rIn), 'shade'],
+    [ranmaSpec('z', WALL.south, -1, ROOM.minX + rIn, ROOM.maxX - rIn), 'graze'],
   ]) {
     const part = buildOpening(spec);
     ranmaGeos.push(...part.frames);
     ranmaBars.push(...part.bars);
-    ranmaPapers.push(...part.papers);
+    ranmaPapers[ziel].push(...part.papers);
+  }
+
+  // Eckpfosten. Er füllt die Lücke, die das Zurücknehmen hinterlässt, und
+  // bindet die vier Bänder zu einem umlaufenden Fries zusammen, statt sie an
+  // vier Stellen kollidieren zu lassen.
+  const eckHoehe = ROOM.ranmaTop - ROOM.wallTop;
+  for (const [ex, ez] of [
+    [WALL.west, WALL.north],
+    [WALL.east, WALL.north],
+    [WALL.west, WALL.south],
+    [WALL.east, WALL.south],
+  ]) {
+    const inX = ex < 0 ? 1 : -1;
+    const inZ = ez < 0 ? 1 : -1;
+    ranmaGeos.push(
+      board(t * 1.5, eckHoehe, t * 1.5, 0.9).translate(
+        ex + inX * t * 0.55,
+        ROOM.wallTop + eckHoehe / 2,
+        ez + inZ * t * 0.55
+      )
+    );
   }
 
   const ranmaFrame = new THREE.Mesh(mergeGeometries(ranmaGeos, false), hinokiDark);
@@ -758,12 +933,25 @@ export function buildArchitecture() {
   ranmaFrame.castShadow = true;
   ranma.add(ranmaFrame);
   ranma.add(instanced(barGeo, hinokiDark, ranmaBars, { receive: false, name: 'dojo-ranma-bars' }));
-  // Das Ranma liegt unter der Traufe und sieht keine direkte Sonne – es bekommt
-  // dasselbe gedämpfte Papier wie die drei Schattenwände.
-  const ranmaPaper = new THREE.Mesh(mergeGeometries(ranmaPapers, false), washiShade);
-  ranmaPaper.name = 'dojo-ranma-paper';
-  ranmaPaper.castShadow = true;
-  ranma.add(ranmaPaper);
+  // **Das Ranma bekommt dieselbe Einteilung wie die Front darunter.**
+  //
+  // Vorher lag auf allen vier Seiten das gedämpfte Papier, mit der Begründung,
+  // das Band liege unter der Traufe. Der Dachüberstand ist aber 0,9 m breit und
+  // die Sonne steht 10,5° hoch – bei diesem Winkel beschattet er das Band
+  // nicht, er streift es. Sichtbar war das Ergebnis als harte Stufe: über einer
+  // leuchtenden Ostfront saß ein stumpfes Band, und diese Kante liest sich als
+  // Fehler, nicht als Licht.
+  for (const [key, material, name] of [
+    ['sun', washi, 'dojo-ranma-paper'],
+    ['graze', washiGraze, 'dojo-ranma-paper-streiflicht'],
+    ['shade', washiShade, 'dojo-ranma-paper-schatten'],
+  ]) {
+    if (!ranmaPapers[key].length) continue;
+    const mesh = new THREE.Mesh(mergeGeometries(ranmaPapers[key], false), material);
+    mesh.name = name;
+    mesh.castShadow = true;
+    ranma.add(mesh);
+  }
   group.add(ranma);
 
   // --- Engawa (Veranda) im Süden -------------------------------------------
@@ -777,7 +965,7 @@ export function buildArchitecture() {
   // Silhouette war es ein losgelöstes Brett neben dem Gebäude.
   const pierGeo = board(0.11, 0.42, 0.11, 0.3);
   const piers = [];
-  for (const x of [-4.6, -2.3, 0, 2.3, 4.6]) piers.push({ x, y: -0.30, z: ROOM.maxZ + 0.72 });
+  for (const x of [-4.6, -2.3, 0, 2.3, 4.6]) piers.push({ x, y: -0.3, z: ROOM.maxZ + 0.72 });
   engawa.add(instanced(pierGeo, hinokiDark, piers, { name: 'dojo-engawa-piers' }));
 
   const stepBoard = new THREE.Mesh(board(2.6, 0.11, 0.34, 0.5), hinokiDark);
@@ -795,9 +983,14 @@ export function buildArchitecture() {
       if (!o.isMesh || o.name === 'dojo-floor' || o.name.startsWith('dojo-tatami')) return;
       box.setFromObject(o);
       if (box.min.y > 0.2 || box.max.y < 0.2) return;
-      const nearest = Math.hypot(Math.max(box.min.x, 0, -box.max.x), Math.max(box.min.z, 0, -box.max.z));
+      const nearest = Math.hypot(
+        Math.max(box.min.x, 0, -box.max.x),
+        Math.max(box.min.z, 0, -box.max.z)
+      );
       if (nearest < FREE_RADIUS) {
-        console.warn(`[dojo] "${o.name || o.type}" ragt in die Kartenzone (${nearest.toFixed(2)} m)`);
+        console.warn(
+          `[dojo] "${o.name || o.type}" ragt in die Kartenzone (${nearest.toFixed(2)} m)`
+        );
       }
     });
   }

@@ -1241,6 +1241,9 @@ function buildGarden(group, r) {
   // Die Töne sind hell, weil sie den Blattatlas **multiplizieren**: Das Grün
   // steckt in der Textur. Der frühere Satz satter Grüns war für ein Material
   // ohne Karte richtig und wäre hier schwarzes Laub.
+  // Waagerechte Reichweite eines Farnhorstes bei voller Größe, aus der
+  // Geometrie statt geschätzt.
+  const fernReach = 0.82 * 1.35;
   const FERN = [0xa9bd8e, 0xc4d3a6, 0x8fa578, 0xd2dcb4];
   const fronds = [];
   const nearStone = (x, z) =>
@@ -1259,9 +1262,22 @@ function buildGarden(group, r) {
       z = G.z1 + (r() - 0.2) * 0.7;
     } else {
       // um Laterne und Becken herum
-      const near = r() < 0.5 ? [-1.85, G.z0 + 1.25] : [1.9, G.z0 + 0.75];
+      // **Der Mindestabstand kommt aus der Reichweite des Horstes.**
+      //
+      // Hier stand `0,45 + r()·0,5`, und das war richtig, solange ein Farn ein
+      // paar Wedel waren. Seit er ein Kartenbüschel ist, reicht er waagerecht
+      // rund `f.s · 1,35`, also bis 1,11 m – bei 45 cm Abstand schließt er über
+      // dem Becken (Radius 0,36 m) zusammen, und der Tsukubai verschwindet
+      // vollständig unter Grün. Genau so war es gemeldet.
+      //
+      // Der Abstand wird deshalb aus der tatsächlichen Ausdehnung abgeleitet
+      // statt gesetzt – dieselbe Lehre wie bei der Raumprüfung: Geschätzte
+      // Faktoren werden bei der nächsten Größenänderung still falsch.
+      const istBecken = r() < 0.5;
+      const near = istBecken ? [1.9, G.z0 + 0.75] : [-1.85, G.z0 + 1.25];
+      const objektRadius = istBecken ? 0.4 : 0.46; // Becken bzw. Laternenfuß
       const a = r() * Math.PI * 2;
-      const d = 0.45 + r() * 0.5;
+      const d = objektRadius + fernReach + 0.15 + r() * 0.45;
       x = near[0] + Math.cos(a) * d;
       z = near[1] + Math.sin(a) * d;
     }
