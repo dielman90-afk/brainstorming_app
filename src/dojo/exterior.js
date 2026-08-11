@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { EXTERIOR, ROOM, SUN } from './layout.js';
 import { gravelMaterial, waterMaterial, updateWater, wetStoneOverlay } from './ground.js';
+import { graniteMaterial, boxProjectUV, mossPatina } from './stonework.js';
 import {
   leafAtlas,
   cardCluster,
@@ -658,10 +659,30 @@ function buildGarden(group, r) {
     g.deleteAttribute('uv');
     return g;
   });
-  const solid = new THREE.Mesh(
-    mergeGeometries(tinted, false),
-    new THREE.MeshLambertMaterial({ vertexColors: true })
-  );
+  // **Granit statt Vertexfarben-Lambert.**
+  //
+  // Laterne, Becken, Bambusrohr und die Einfassungssteine waren facettierte
+  // Flächen in einem Grauton – aus zwei Metern liest sich das als Karton. Was
+  // einen Stein zum Stein macht, ist das Korn: eine Normal-Map, deren Licht bei
+  // jeder Kopfdrehung anders steht.
+  //
+  // Die Textur braucht UVs, und die Bauteile haben keine (`deleteAttribute`
+  // oben). `boxProjectUV` erzeugt sie über die dominante Normalenachse statt
+  // über eine Zylinderabwicklung – bei einem Trittstein liefe U einmal um den
+  // Umfang (3,1 m) und V über die Höhe (0,12 m), das Korn stünde also als
+  // Streifen auf der Flanke. Die Achswechsel erzeugen Nähte, aber bei einem
+  // richtungslosen Rauschmuster sieht man sie nicht; genau deshalb benutzt man
+  // den Trick bei Fels und nicht bei Holz.
+  const merged = mergeGeometries(tinted, false);
+  // 0,18 m je Kachel, nicht 0,42. Bei der groben Einstellung lag über einer
+  // Laterne von 40 cm nicht einmal eine ganze Kachel – das Korn war da, aber
+  // als eine einzige weiche Beule statt als Korn.
+  boxProjectUV(merged, 0.18);
+  // Moos wächst am Fuß und in den Fugen, nicht als Verlauf über den ganzen
+  // Stein. Es läuft deshalb durch ein Rauschfeld – ohne das bekommt jedes
+  // Bauteil denselben sauberen Gradienten und man sieht die Formel.
+  mossPatina(merged, { floor: y0, height: 0.4, strength: 0.85, scale: 0.5 });
+  const solid = new THREE.Mesh(merged, graniteMaterial({ vertexColors: true }));
   solid.name = 'dojo-garden-stein';
   solid.castShadow = true;
   solid.receiveShadow = true;
@@ -711,9 +732,19 @@ function buildGarden(group, r) {
   group.add(water);
 
   // --- Trittsteine ----------------------------------------------------------
+  // Trittsteine: dieselbe Behandlung. `y0` muss mit, weil die Geometrie einer
+  // Instanz lokal um Null liegt – ohne die Angabe hielte `mossPatina` jeden
+  // Vertex für bodennah und moost den ganzen Stein ein.
+  boxProjectUV(stoneGeo, 0.16);
+  mossPatina(stoneGeo, { y0: y0 + 0.06, floor: y0, height: 0.1, strength: 0.7, scale: 0.35 });
   const stoneMesh = new THREE.InstancedMesh(
     stoneGeo,
-    new THREE.MeshLambertMaterial({ color: 0x4f4c45 }),
+    // **0x4f4c45, nicht 0x9c968c.** `mossPatina` legt über `ensureVertexColors`
+    // weiße Vertexfarben an, wo vorher keine waren – der Ton muss also
+    // vollständig aus dem Material kommen. Mit dem hellen Wert kamen die
+    // Trittsteine schneeweiß heraus, heller als der Kies, auf dem sie liegen.
+    // Der Wert ist derselbe, den das Lambert-Material vorher hatte.
+    graniteMaterial({ tone: 0x4f4c45, vertexColors: true }),
     stones.length
   );
   stoneMesh.name = 'dojo-garden-trittsteine';
