@@ -1581,8 +1581,54 @@ addEventListener('resize', () => {
 });
 
 const _boundsHead = new THREE.Vector3();
-const _boundsBefore = new THREE.Vector3();
-const _boundsFix = new THREE.Vector3();
+
+// --- Begehbarer Bereich aus mehreren Zonen -----------------------------------
+//
+// Eine einzige Box reicht nicht mehr, seit der Garten betretbar sein soll: Raum,
+// Türdurchgang, Veranda, Stufe und Kiesbeet sind zusammen ein L, kein Rechteck.
+// Eine Box um beides ließe den Nutzer **neben** der Tür durch die Südwand
+// laufen.
+//
+// **Warum nicht „die Zone mit der kleinsten Korrektur".** Das war der erste
+// Entwurf und er ist falsch: Steht man im Raum bei x = 1,5 vor der geschlossenen
+// Wand und drückt nach Süden, dann liegt der nächste Punkt der Verandazone
+// näher als der Raumrand – man würde durch die Wand geschoben. Die Sperre ist
+// eine Projektion, kein Kollisionssystem; sie kennt keinen Weg.
+//
+// **Kette statt Nähe.** Man wechselt nur in eine Zone, in der man bereits
+// **steht**. Sonst wird auf die aktuelle Zone geklemmt. Benachbarte Zonen
+// überlappen sich deshalb großzügig – ohne Überlappung käme man nie hinüber,
+// und bei zu knapper Überlappung springt man bei hoher Geschwindigkeit darüber
+// hinweg (3,4 m/s mal 0,1 s Bildabstand sind 34 cm pro Bild).
+//
+// Damit entsteht ein Korridor ohne Wegfindung: Aus dem Raum erreicht man die
+// Veranda nur durch den Türdurchgang, weil nur dessen Zone den Streifen
+// dazwischen abdeckt.
+let _zoneIndex = 0;
+let _zoneEnv = -1;
+let _floorY = 0;
+
+function resolveBounds(bounds, px, pz) {
+  const zones = bounds.zones;
+  if (!zones) {
+    return {
+      x: Math.min(Math.max(px, bounds.minX), bounds.maxX),
+      z: Math.min(Math.max(pz, bounds.minZ), bounds.maxZ),
+      floorY: 0,
+    };
+  }
+  const inside = (z) => px >= z.minX && px <= z.maxX && pz >= z.minZ && pz <= z.maxZ;
+  if (!inside(zones[_zoneIndex])) {
+    const k = zones.findIndex(inside);
+    if (k >= 0) _zoneIndex = k;
+  }
+  const z = zones[_zoneIndex];
+  return {
+    x: Math.min(Math.max(px, z.minX), z.maxX),
+    z: Math.min(Math.max(pz, z.minZ), z.maxZ),
+    floorY: z.floorY ?? 0,
+  };
+}
 const clock = new THREE.Clock();
 let elapsed = 0;
 
@@ -1622,57 +1668,61 @@ renderer.setAnimationLoop(() => {
   // und traegt in XR zusaetzlich die Kopfpose. Die Kamera zu verschieben wuerde
   // gegen das Headset-Tracking arbeiten und Uebelkeit ausloesen.
   const activeBounds = envIndex >= 0 ? environments[envIndex].bounds : null;
-  if (activeBounds && renderer.xr.isPresenting) {
+  if (activeBounds) {
+    if (_zoneEnv !== envIndex) {
+      _zoneEnv = envIndex;
+      _zoneIndex = 0;
+      _floorY = activeBounds.zones?.[0]?.floorY ?? 0;
+    }
     const head = camera.getWorldPosition(_boundsHead);
-    // Der Versatz zwischen Rig und Kopf muss erhalten bleiben, sonst springt
-    // die Welt, sobald man sich in der Spielflaeche zur Seite lehnt.
-    const dx = head.x - player.position.x;
-    const dz = head.z - player.position.z;
-    player.position.x = Math.min(
-      Math.max(player.position.x, activeBounds.minX - dx),
-      activeBounds.maxX - dx
-    );
-    player.position.z = Math.min(
-      Math.max(player.position.z, activeBounds.minZ - dz),
-      activeBounds.maxZ - dz
-    );
-    player.position.y = Math.min(Math.max(player.position.y, activeBounds.minY), activeBounds.maxY);
-  } else if (activeBounds) {
-    // **Am Desktop wird die Kamera geklemmt, nicht der Rig.**
-    //
-    // Der Rig-Klemmweg oben ist für XR richtig und am Desktop falsch, und zwar
-    // aus einem Grund, den man erst sieht, wenn die Sperre einmal gegriffen
-    // hat: `updateDesktopMovement` schiebt die **Kameraposition** (lokal, die
-    // Kamera hängt im Rig) und das **Orbit-Ziel** (Welt) um denselben Betrag.
-    // Solange `player.position` null ist, ist beides dasselbe Bezugssystem.
-    // Sobald die Sperre den Rig verschiebt, ist es das nicht mehr, und
-    // `controls.update()` rechnet die Kameraposition ab da aus einem Ziel, das
-    // um `player.position` daneben liegt.
-    //
-    // Gemessen, zehn Sekunden Dauerdruck gegen die Südwand:
-    //
-    //     Zeit   Rig z   Kamera lokal z   Orbit-Ziel z
-    //     30 s    0,00        6,42            4,62
-    //     45 s   −2,15        8,52            6,72   ← Sperre greift
-    //     60 s   −2,15        6,79            4,99
-    //     90 s   −2,15        5,09            3,29
-    //
-    // Ab der vierten Zeile fährt der Nutzer **rückwärts, während er vorwärts
-    // drückt**, und der Drehpunkt der Maussteuerung liegt 2,15 m neben ihm.
-    // Das ist das gemeldete „irgendwann drehe ich mich im Kreis".
-    //
-    // Die Korrektur hält beide Zustände in einem Bezugssystem: Kamera und Ziel
-    // wandern um denselben Vektor, der Rig bleibt unberührt. Weil beide um
-    // dasselbe verschoben werden, bleibt der Kugelkoordinaten-Abstand zwischen
-    // ihnen erhalten und `controls.update()` im nächsten Bild stabil.
-    //
-    // Dass der Rig am Desktop wirklich identisch ist, stellt `locomotion.reset()`
-    // sicher – es läuft bei sessionstart **und** sessionend.
-    _boundsBefore.copy(camera.position);
-    camera.position.x = Math.min(Math.max(camera.position.x, activeBounds.minX), activeBounds.maxX);
-    camera.position.z = Math.min(Math.max(camera.position.z, activeBounds.minZ), activeBounds.maxZ);
-    camera.position.y = Math.min(Math.max(camera.position.y, activeBounds.minY), activeBounds.maxY);
-    controls.target.add(_boundsFix.subVectors(camera.position, _boundsBefore));
+    const ziel = resolveBounds(activeBounds, head.x, head.z);
+    const dx = ziel.x - head.x;
+    const dz = ziel.z - head.z;
+
+    // Bodenhöhe weich nachführen. Der Kies liegt 42 cm unter dem Raumboden;
+    // als Sprung ist das in der Brille unangenehm, über ein paar Bilder
+    // verteilt liest es sich als Stufe.
+    const dy = (ziel.floorY - _floorY) * Math.min(1, dt * 7);
+    _floorY += dy;
+
+    if (renderer.xr.isPresenting) {
+      // In XR wird das **Rig** verschoben, nie die Kamera: Die Kamera ist Kind
+      // des Rigs und trägt zusätzlich die Kopfpose. Sie zu verschieben würde
+      // gegen das Headset-Tracking arbeiten und Übelkeit auslösen. Der Versatz
+      // zwischen Rig und Kopf bleibt dabei erhalten, weil die Korrektur aus der
+      // **Kopf**position stammt und auf das Rig angewendet wird.
+      player.position.x += dx;
+      player.position.z += dz;
+      // Der Rig steht auf dem Boden; die Augenhöhe kommt aus der Brille.
+      player.position.y = _floorY;
+    } else {
+      // **Am Desktop wird die Kamera geklemmt, nicht der Rig.**
+      //
+      // `updateDesktopMovement` schiebt die Kameraposition (lokal – die Kamera
+      // hängt im Player-Rig) und das Orbit-Ziel (Welt) um denselben Betrag.
+      // Solange `player.position` null ist, ist das dasselbe Bezugssystem.
+      // Verschiebt die Sperre den Rig, ist es das nicht mehr, und
+      // `controls.update()` rechnet die Kameraposition ab da aus einem Ziel,
+      // das um `player.position` daneben liegt. Gemessen (sperre.mjs): Nach dem
+      // ersten Eingriff fuhr der Nutzer rückwärts, während er vorwärts drückte,
+      // und der Drehpunkt der Maussteuerung lag 2,15 m neben ihm – das
+      // gemeldete „irgendwann drehe ich mich im Kreis".
+      //
+      // Kamera und Ziel wandern deshalb um denselben Vektor; ihr
+      // Kugelkoordinaten-Abstand bleibt erhalten und `controls.update()` im
+      // nächsten Bild stabil. Dass der Rig am Desktop wirklich identisch ist,
+      // stellt `locomotion.reset()` sicher – es läuft bei sessionstart **und**
+      // sessionend.
+      camera.position.x += dx;
+      camera.position.z += dz;
+      camera.position.y = Math.min(
+        Math.max(camera.position.y + dy, _floorY + 0.25),
+        activeBounds.maxY
+      );
+      controls.target.x += dx;
+      controls.target.z += dz;
+      controls.target.y += dy;
+    }
   }
 
   renderer.render(scene, camera);

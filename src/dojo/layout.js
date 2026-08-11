@@ -43,9 +43,9 @@ export const ROOM = {
   // Die geschlossene Decke ist zugleich billiger, dichter und leichter richtig
   // hinzubekommen. Höhe bleibt großzügig – unter drei Metern wirkt der Raum
   // wie ein Keller.
-  wallTop: 3.05,   // Oberkante der geschlossenen Wand
-  ranmaTop: 3.72,  // Oberkante des Fensterbands darüber
-  ceilingY: 3.95,  // Unterseite der Deckenschalung
+  wallTop: 3.05, // Oberkante der geschlossenen Wand
+  ranmaTop: 3.72, // Oberkante des Fensterbands darüber
+  ceilingY: 3.95, // Unterseite der Deckenschalung
 };
 
 export const ROOM_WIDTH = ROOM.maxX - ROOM.minX; // 12
@@ -135,7 +135,13 @@ export const SHOJI_SOUTH = {
   sillY: 0.42,
   headY: 2.85,
   koshi: true,
-  shaded: true,
+  // **Streiflicht, nicht Schatten.** Die Südfront stand hier als Schattenseite,
+  // und das war schlicht falsch. Die Sonne steht bei [15,3 | 3,9 | 6,5] und
+  // zielt auf [0 | 0,85 | 0,5]; die Lichtrichtung ist damit
+  // (−0,915 | −0,182 | −0,359), der Kosinus zur Südnormalen (0 | 0 | 1) also
+  // **+0,359**. Die Front ist besonnt, mit 39 % der Bestrahlung der Ostseite.
+  // Genau daher kam der Eindruck, nur eine Fensterfront sei lebendig.
+  grazing: true,
   // Die beiden mittleren Felder stehen offen: der Eingang zum Garten.
   //
   // Kein eigenes Bauteil, sondern zwei Feldnummern – dadurch sitzt der

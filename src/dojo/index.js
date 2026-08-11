@@ -5,6 +5,7 @@ import { buildAtmosphere } from './atmosphere.js';
 import { buildExterior } from './exterior.js';
 import { applyQuality } from './quality.js';
 import { buildSkyEnvironment, applySkyTo } from './skylight.js';
+import { ROOM, EXTERIOR } from './layout.js';
 
 // **Warum 4,5 und nicht 1.**
 //
@@ -43,7 +44,6 @@ const SKY_ONLY_ON_DESKTOP = [
   'dojo-garden-trittsteine',
   'dojo-bamboo',
 ];
-import { ROOM } from './layout.js';
 
 // ⛩ Konstrukt-Dojo – der Trainingsraum aus dem Film.
 //
@@ -97,15 +97,51 @@ export function createDojoEnvironment() {
     fog: new THREE.Fog(0xa8b6b0, ROOM.maxZ - ROOM.minZ + 4, 62),
     group,
 
-    // Begehbarer Bereich. Der Raum ist geschlossen; ohne Begrenzung laeuft man
-    // durch die Wand und steht im Nichts. Die Renderschleife klemmt den Spieler
-    // jeden Frame hier hinein (main.js).
+    // --- Begehbarer Bereich ---------------------------------------------
+    //
+    // **Eine Box reicht nicht mehr.** Raum, Türdurchgang, Engawa, Stufe und
+    // Kiesbeet sind zusammen ein L; eine Box um alles ließe den Nutzer neben
+    // der Tür durch die Südwand laufen. Die Sperre in main.js arbeitet deshalb
+    // als **Kette**: Man wechselt nur in eine Zone, in der man bereits steht,
+    // sonst wird auf die aktuelle geklemmt. Damit entsteht ein Korridor ohne
+    // Wegfindung – aus dem Raum erreicht man die Veranda nur durch den
+    // Türdurchgang, weil nur dessen Zone den Streifen dazwischen abdeckt.
+    //
+    // **Die Überlappungen sind Pflicht, nicht Toleranz.** Ohne sie käme man nie
+    // von einer Zone in die nächste; bei zu knapper Überlappung springt man bei
+    // hoher Geschwindigkeit darüber hinweg (3,4 m/s mal 0,1 s Bildabstand sind
+    // 34 cm je Bild). Alle Nachbarzonen überlappen deshalb um mindestens 0,5 m.
+    //
+    // `floorY` ist die Standfläche. Ohne sie schwebte man im Garten 42 cm über
+    // dem Kies; main.js führt sie über wenige Bilder weich nach, damit die
+    // Stufe keine Sprungschaltung wird.
+    //
+    // Die Maße stammen aus der Architektur, nicht aus dem Augenmaß:
+    // Deck bei y −0,06 plus 0,06 Dicke (architecture.js), Stufe bei y −0,17 plus
+    // 0,11, Gartenboden bei EXTERIOR.ground.y + 0,045 Kies. Die lichte
+    // Türöffnung folgt aus `SHOJI_SOUTH.openPanels` = [3, 4] bei acht Feldern
+    // zwischen −5 und 5, also x ∈ [−1,25, 1,25].
+    //
+    // **Was hier nicht drinsteht:** Kollision mit Laterne und Becken. Es gibt
+    // kein Kollisionssystem; man kann durch beide hindurchgehen. Das ist eine
+    // bekannte Lücke und keine übersehene.
     bounds: {
-      minX: ROOM.minX + 0.45,
-      maxX: ROOM.maxX - 0.45,
-      minZ: ROOM.minZ + 0.45,
-      maxZ: ROOM.maxZ - 0.45,
-      minY: 0,
+      zones: [
+        { minX: -5.55, maxX: 5.55, minZ: -6.05, maxZ: 7.05, floorY: 0 },
+        // Türdurchgang: schmaler als die lichte Öffnung, damit man nicht am
+        // Pfosten schrammt, und weit genug nach innen und außen gezogen, dass
+        // beide Nachbarzonen sicher erreicht werden.
+        { minX: -1.15, maxX: 1.15, minZ: 6.4, maxZ: 8.0, floorY: 0 },
+        // Engawa: nur der Streifen vor der Tür. Über die ganze Wandbreite
+        // gelegt wäre er von jedem Punkt der Südwand aus erreichbar – und
+        // damit wäre die Kette wieder gerissen.
+        { minX: -2.6, maxX: 2.6, minZ: 7.2, maxZ: 8.5, floorY: -0.03 },
+        { minX: -1.3, maxX: 1.3, minZ: 8.1, maxZ: 9.0, floorY: -0.115 },
+        // Kiesbeet, aber mit Abstand zum Rand: Die Pflanzung dahinter ist auf
+        // Blickdistanz gebaut, nicht zum Hindurchlaufen.
+        { minX: -4.6, maxX: 4.6, minZ: 8.6, maxZ: 12.4, floorY: EXTERIOR.ground.y + 0.045 },
+      ],
+      minY: EXTERIOR.ground.y,
       maxY: ROOM.ranmaTop - 0.4,
     },
 

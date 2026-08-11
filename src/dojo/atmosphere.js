@@ -13,7 +13,7 @@ import { FILL, ROOM, SHOJI, SUN, sunDirection, WALL } from './layout.js';
 //    funktioniert.
 // 2. **Eine** gerichtete Sonne mit **einer** Schattenkarte. Alles andere ist
 //    Füll- und Streulicht ohne Schatten.
-// 3. Lichtschächte, Staub, Coderegen – Stimmung, kein Licht im technischen Sinn.
+// 3. Lichtschächte und Staub – Stimmung, kein Licht im technischen Sinn.
 //
 // Alle Maße kommen aus layout.js. Wenn hier eine Zahl steht, die dort auch
 // stehen könnte, ist das ein Fehler.
@@ -24,7 +24,6 @@ import { FILL, ROOM, SHOJI, SUN, sunDirection, WALL } from './layout.js';
 //   1 Lichtschächte (6 Blenden, zu **einer** Geometrie verschmolzen)  48 Tri
 //   1 Lichtpfützen auf dem Boden (6 Flächen, ebenfalls verschmolzen)  12 Tri
 //   1 Blendenglühen an der Shoji-Front (6 Flächen)                    12 Tri
-//   1 Coderegen-Fläche an der Westwand                                 2 Tri
 //   1 Staub (Points, keine Dreiecke)                                   0 Tri
 // Dazu genau **eine** Schattenkarte mit 1024².
 //
@@ -367,45 +366,13 @@ const POOL_FRAGMENT = /* glsl */ `
   }
 `;
 
-// --- Coderegen ---------------------------------------------------------------
+// --- Ganzzahl-Hash ------------------------------------------------------------
 //
-// Wandfläche: die **Westwand**, gegenüber der Sonne. Zwei Gründe, und beide
-// hätten die naheliegendere Shoji-Front ausgeschlossen:
+// Hier stand bis zuletzt der Coderegen: eine Wand aus fallenden Katakana auf der
+// verschatteten Westseite, additiv aufgetragen. Er ist ersatzlos entfernt – die
+// Fläche gehört jetzt der Fusuma-Wandmalerei, und zwei konkurrierende Motive auf
+// derselben Wand wären eines zu viel.
 //
-// 1. Sichtbarkeit. Additiv aufgetragenes Grün auf der grellsten Fläche des
-//    Raums (der durchleuchteten Papierfront) ist schlicht nicht zu sehen. Auf
-//    der verschatteten Gegenwand steht es klar – und zwar genau dort, wo die
-//    Sonne **nicht** hinkommt.
-// 2. Erzählung. Das Konstrukt zeigt seinen Code dort, wo die Illusion dünn
-//    wird: im Schatten, nicht im Licht.
-//
-// Bewusst zurückhaltend: eine Handvoll Spalten, gedämpftes Grün, keine
-// geschlossene Wand aus Zeichen. Ein Hinweis auf die Maschinerie, kein
-// Bildschirmschoner.
-const RAIN = {
-  x: WALL.west + WALL.thickness + 0.02,
-  fromZ: -6.2,
-  toZ: -1.6,
-  fromY: 0.35,
-  toY: 3.3,
-  cols: 23,
-  rows: 14,
-  trail: 7,
-  // Höchstens ~12 Neuzeichnungen je Sekunde. environments.js:2417 hält den
-  // Grund fest: Ein Canvas-Upload pro Frame kostet auf der Quest mehr als das
-  // ganze Objekt, an dem er hängt.
-  interval: 0.085,
-};
-
-const GLYPHS = (() => {
-  const list = [];
-  // Katakana (die Filmvorlage) plus Ziffern – Letztere sind auf jedem Gerät
-  // vorhanden und tragen das Muster, falls die japanische Schrift fehlt.
-  for (let c = 0x30a1; c <= 0x30f6; c++) list.push(String.fromCharCode(c));
-  for (let d = 0; d < 10; d++) list.push(String(d));
-  return list;
-})();
-
 // Ganzzahl-Hash. Muss deterministisch sein: Der Regen ist eine reine Funktion
 // der absoluten Zeit, also darf zwischen zwei Zeichnungen nichts vom letzten
 // Zustand abhängen (kein `Math.random`, kein Nachziehen mit Alpha-Rechteck).
@@ -415,88 +382,6 @@ function hashInt(a, b, c) {
   h = Math.imul(h ^ (c + 0x27d4eb2f), 0x27d4eb2f);
   h ^= h >>> 15;
   return (h >>> 0) / 4294967296;
-}
-
-function buildRain() {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 160;
-  const ctx = canvas.getContext('2d');
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  // Keine Mipmaps: Sie müssten bei jedem Upload neu erzeugt werden, und die
-  // Fläche wird nie so schräg gesehen, dass es sich lohnt.
-  texture.generateMipmaps = false;
-  texture.minFilter = THREE.LinearFilter;
-
-  const cw = canvas.width;
-  const ch = canvas.height;
-  const colStep = cw / RAIN.cols;
-  const rowStep = ch / RAIN.rows;
-  const font = `${Math.round(rowStep * 0.86)}px "Hiragino Kaku Gothic ProN", "Noto Sans JP", IPAGothic, monospace`;
-
-  const draw = (time) => {
-    ctx.clearRect(0, 0, cw, ch);
-    ctx.font = font;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    for (let c = 0; c < RAIN.cols; c++) {
-      // Jede Spalte hat ihr eigenes Tempo und ihren eigenen Versatz; ein Drittel
-      // der Spalten bleibt leer, damit die Wand nicht zugedeckt wird.
-      if (hashInt(c, 7, 3) < 0.34) continue;
-      const speed = 1.6 + hashInt(c, 11, 5) * 3.4; // Zeilen je Sekunde
-      const span = RAIN.rows + RAIN.trail + 4;
-      const head = ((time * speed + hashInt(c, 2, 9) * span) % span) - RAIN.trail;
-      const x = (c + 0.5) * colStep;
-
-      for (let k = 0; k < RAIN.trail; k++) {
-        const row = Math.floor(head) - k;
-        if (row < 0 || row >= RAIN.rows) continue;
-        const y = (row + 0.5) * rowStep;
-        // Zeichen wechseln zellenweise mit eigener Frequenz – das Flackern ist
-        // das, was den Regen lebendig macht, nicht die Fallgeschwindigkeit.
-        const tick = Math.floor(time * (2.5 + hashInt(c, row, 1) * 4));
-        const glyph = GLYPHS[Math.floor(hashInt(c, row, tick) * GLYPHS.length)];
-        if (k === 0) {
-          ctx.fillStyle = 'rgba(186,255,206,0.98)';
-        } else {
-          const fade = (1 - k / RAIN.trail) ** 1.6;
-          ctx.fillStyle = `rgba(86,232,132,${(fade * 0.78).toFixed(3)})`;
-        }
-        ctx.fillText(glyph, x, y);
-      }
-    }
-    texture.needsUpdate = true;
-  };
-
-  draw(0);
-
-  const width = RAIN.toZ - RAIN.fromZ;
-  const height = RAIN.toY - RAIN.fromY;
-  const geometry = new THREE.PlaneGeometry(width, height);
-  // Nach +X gedreht: Die Fläche schaut in den Raum, Canvas-x läuft nach −Z, also
-  // von links nach rechts aus Sicht eines Betrachters, der die Wand ansieht.
-  geometry.rotateY(Math.PI / 2);
-  const mesh = new THREE.Mesh(
-    geometry,
-    new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      // Additiv, damit die Zeichen **leuchten** statt auf dem Putz zu kleben.
-      // Mit Normal-Blending wären es grüne Aufkleber auf einer Wand.
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false,
-      opacity: 0.42,
-      fog: false,
-    })
-  );
-  mesh.name = 'dojo-code-rain';
-  mesh.position.set(RAIN.x, (RAIN.fromY + RAIN.toY) / 2, (RAIN.fromZ + RAIN.toZ) / 2);
-  mesh.renderOrder = 2;
-
-  return { mesh, draw };
 }
 
 // --- Staub -------------------------------------------------------------------
@@ -538,7 +423,7 @@ function buildDust() {
       color: 0xffe7c2,
       size: 0.028,
       transparent: true,
-      opacity: 0.30,
+      opacity: 0.3,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
@@ -557,10 +442,10 @@ function buildDust() {
     for (let i = 0; i < DUST_COUNT; i++) {
       const m = motes[i];
       // fract() statt Modulo-Zähler: reine Funktion der absoluten Zeit.
-      const bb = ((m.b - time * m.fall) % 1 + 1) % 1;
+      const bb = (((m.b - time * m.fall) % 1) + 1) % 1;
       const b = bb * 2 - 1;
       const a = Math.max(-1, Math.min(1, m.a + 0.22 * Math.sin(time * 0.19 + m.sway)));
-      const v = ((m.v + time * m.drift) % 0.92 + 0.92) % 0.92 + 0.03;
+      const v = ((((m.v + time * m.drift) % 0.92) + 0.92) % 0.92) + 0.03;
       const o = i * 3;
       array[o] = APERTURE_X + DIR.x * v * BEAM_LENGTH;
       array[o + 1] = MID_Y + b * HALF_H + DIR.y * v * BEAM_LENGTH;
@@ -717,7 +602,7 @@ export function buildAtmosphere(renderer) {
     uniforms: {
       uTime: { value: 0 },
       uColor: { value: new THREE.Color(SUN.color) },
-      uIntensity: { value: 0.020 },
+      uIntensity: { value: 0.02 },
     },
     vertexShader: BEAM_VERTEX,
     fragmentShader: SHAFT_FRAGMENT,
@@ -738,7 +623,7 @@ export function buildAtmosphere(renderer) {
 
   const poolMaterial = shaftMaterial.clone();
   poolMaterial.fragmentShader = POOL_FRAGMENT;
-  poolMaterial.uniforms.uIntensity.value = 0.030;
+  poolMaterial.uniforms.uIntensity.value = 0.03;
   const pools = new THREE.Mesh(buildPoolGeometry(), poolMaterial);
   pools.name = 'dojo-light-pools';
   pools.renderOrder = 2;
@@ -750,11 +635,6 @@ export function buildAtmosphere(renderer) {
   const dust = buildDust();
   group.add(dust.points);
 
-  const rain = buildRain();
-  group.add(rain.mesh);
-
-  let lastRain = -1e9;
-
   return {
     group,
     environment,
@@ -765,10 +645,6 @@ export function buildAtmosphere(renderer) {
       // Sehr langsames Atmen der Blende – die Luft vor einem Fenster steht nie
       // ganz still. Größer als ein paar Prozent wird daraus ein Flackern.
       bloom.material.opacity = 0.14 + 0.012 * Math.sin(time * 0.27);
-      if (time - lastRain >= RAIN.interval) {
-        lastRain = time;
-        rain.draw(time);
-      }
     },
   };
 }

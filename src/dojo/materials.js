@@ -123,7 +123,7 @@ export function heightToMaps({
   // Nebenbei erzwingt das, dass Farbe und Relief deckungsgleich liegen – sonst
   // sieht man die Maserung zweimal, leicht gegeneinander versetzt.
 
-  const wrap = (v) => (((v % size) + size) % size);
+  const wrap = (v) => ((v % size) + size) % size;
   const at = (x, y) => field[wrap(y) * size + wrap(x)];
 
   const normalCanvas = document.createElement('canvas');
@@ -413,10 +413,22 @@ export function washiMaterial({
   emissive = 0x000000,
   emissiveIntensity = 0,
   shadowedEmissive = false,
+  color = 0xd8d0be,
 } = {}) {
   const material = new THREE.MeshStandardMaterial({
     map: washiTexture(),
-    color: 0x7d776a,
+    // **0xd8d0be statt 0x7d776a – die eigentliche Ursache der „toten" Fenster.**
+    //
+    // Der Putz im Raum hat 0xbdb6a6, das Papier hatte 0x7d776a: einen um ein
+    // Drittel dunkleren Grundton. Auf den Schattenseiten, wo das Eigenleuchten
+    // schwach ist, kam das Papier damit **dunkler** heraus als die Wand daneben
+    // – und ein Fenster, das dunkler ist als der Putz ringsum, liest sich als
+    // Brett, nicht als durchscheinende Membran.
+    //
+    // Echtes Washi hat eine Albedo um 0,75 bis 0,8 und ist heller als
+    // Kalkputz. Das Eigenleuchten trägt jetzt nur noch den *Unterschied*
+    // zwischen den Himmelsrichtungen, nicht mehr die Grundhelligkeit.
+    color,
     emissive: new THREE.Color(emissive),
     emissiveIntensity,
     roughness: 0.88,
@@ -536,26 +548,30 @@ export function steelMaps() {
 
 export function steelMaterial(color = 0xd7dde2) {
   const maps = steelMaps();
-  return needsEnvironment(new THREE.MeshStandardMaterial({
-    color,
-    normalMap: maps.normalMap,
-    roughnessMap: maps.roughnessMap,
-    roughness: 1, // wird von der Karte moduliert
-    metalness: 1,
-    normalScale: new THREE.Vector2(0.35, 0.35),
-  }));
+  return needsEnvironment(
+    new THREE.MeshStandardMaterial({
+      color,
+      normalMap: maps.normalMap,
+      roughnessMap: maps.roughnessMap,
+      roughness: 1, // wird von der Karte moduliert
+      metalness: 1,
+      normalScale: new THREE.Vector2(0.35, 0.35),
+    })
+  );
 }
 
 // Eisenbeschläge (Tsuba, Nägel, Beschläge): dieselbe Struktur, aber dunkel,
 // stumpf und weniger spiegelnd. Spart eine komplette Textur.
 export function ironMaterial(color = 0x3a3d42) {
-  return needsEnvironment(new THREE.MeshStandardMaterial({
-    color,
-    normalMap: steelMaps().normalMap,
-    roughness: 0.62,
-    metalness: 0.9,
-    normalScale: new THREE.Vector2(0.8, 0.8),
-  }));
+  return needsEnvironment(
+    new THREE.MeshStandardMaterial({
+      color,
+      normalMap: steelMaps().normalMap,
+      roughness: 0.62,
+      metalness: 0.9,
+      normalScale: new THREE.Vector2(0.8, 0.8),
+    })
+  );
 }
 
 // --- Urushi-Lack: Saya, Waffenständer, Bordüren ------------------------------
@@ -566,11 +582,13 @@ export function ironMaterial(color = 0x3a3d42) {
 // Raumreflexion, die es glaubwürdig macht. Keine eigene Textur: Lack ist
 // spiegelglatt, jede Struktur darin wäre falsch.
 export function lacquerMaterial(color = 0x140f0e) {
-  return needsEnvironment(new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.12,
-    metalness: 0.1,
-  }));
+  return needsEnvironment(
+    new THREE.MeshStandardMaterial({
+      color,
+      roughness: 0.12,
+      metalness: 0.1,
+    })
+  );
 }
 
 // --- Reisstroh-Seil: Makiwara-Wicklung, Shimenawa ---------------------------
