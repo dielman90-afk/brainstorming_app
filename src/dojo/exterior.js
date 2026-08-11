@@ -1431,8 +1431,14 @@ function buildForest(group, r) {
 
   const kronenMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
   for (const [name, geo, list] of [
-    ['dojo-wald-kronen', crownNear, trees.filter((t) => t.dist < 26)],
-    ['dojo-wald-kronen-fern', crownFar, trees.filter((t) => t.dist >= 26)],
+    // **Die Grenze liegt bei 34 m, nicht bei 26.** Sie bezieht sich auf den
+    // Abstand vom *Raum*, weil der Spieler dort immer steht – aus der Luft
+    // gesehen bekommt deshalb auch ein Baum dicht vor der Kamera die grobe
+    // Stufe, und im Bild sind das die kantigen Formen im Vordergrund. Für den
+    // Blick aus dem Raum ist die Bezugsgröße richtig; die 8 m mehr kosten rund
+    // 3 000 Dreiecke und nehmen den Facetten den größten Teil ihrer Bühne.
+    ['dojo-wald-kronen', crownNear, trees.filter((t) => t.dist < 34)],
+    ['dojo-wald-kronen-fern', crownFar, trees.filter((t) => t.dist >= 34)],
   ]) {
     if (!list.length) continue;
     const crowns = new THREE.InstancedMesh(geo, kronenMaterial, list.length);
