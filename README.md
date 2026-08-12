@@ -19,6 +19,23 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 
 - **Mixed Reality / VR:** Startet bevorzugt als `immersive-ar` (Passthrough auf der
   Quest 3), Fallback auf `immersive-vr`.
+- **Alle Umgebungen mit PBR-Materialien.** Bis August 2026 war das Dojo die
+  einzige Umgebung mit Normal- und Rauheitskarten; die übrigen drei hatten
+  zusammen **240 Materialien und keine einzige Karte**. Genau das – nicht die
+  Polygonzahl – ließ sie daneben wie Spielzeug aussehen. Seither teilen sie
+  sich die Werkzeuge des Dojos (`src/dojo/materials.js`, `ground.js`,
+  `stonework.js`, `foliage.js`): geharkter Sand mit echtem Rillenrelief, Granit
+  mit Würfelprojektion und Moospatina, Wasser mit zwei gegeneinander wandernden
+  Kräuselungslagen, Blattkarten mit Wind und Transluzenz, Marsregolith mit
+  Korn. Der Ordnername `dojo/` ist damit ein leichter Fehlname – verschoben
+  wird trotzdem nichts, siehe den Kommentar im Kopf von `materials.js`.
+
+  **Gemessen kostet das bei p50 nichts.** Der Zen-Garten als Bezugsgröße:
+  114,5 ms vorher, 114,9 ms nachher – bei 31 % mehr gezeichneten Dreiecken,
+  14 zusätzlichen Draw-Calls und der doppelten Texturzahl. (p95 stieg um 16 %,
+  ist aber das unzuverlässigere Signal: Die Streuung p95/p50 stieg mit, und das
+  ist die Signatur von Fremdlast auf der CPU, nicht der Szene.)
+
 - **Fünf virtuelle Umgebungen** (`src/environments.js` und `src/dojo/`, komplett
   prozedural, ohne externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
   Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Büschen,
@@ -124,9 +141,9 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     Hell-Dunkel-Wechseln. Die Außenwelt ist reine Kulisse: Die Begrenzung in
     `index.js` hält den Spieler im Raum.
   - **Bekannte Schwäche:** Der Raum ist pro Pixel deutlich teurer als die
-    übrigen Umgebungen. Gemessen (p95, headless): Desktop-Stufe rund das
-    **7,9-fache** des Zen-Gartens, XR-Stufe das **3,6-fache** – bei 67 gegen 50
-    Draw-Calls. Die Last liegt nicht in der Geometrie, sondern im Fragment:
+    übrigen Umgebungen. Gemessen (p50, headless, Stand 2026-08-12): XR-Stufe
+    das **4,6-fache** des Zen-Gartens (527 ms gegen 114,9 ms), Desktop-Stufe
+    das 17-fache – bei 101 gegen 62 Draw-Calls. Die Last liegt nicht in der Geometrie, sondern im Fragment:
     Schattendurchgang, PBR mit Normal- und Rauheitskarte, IBL-Abtastung und
     additive Lagen. Die XR-Stufe lag nach Runde 5 noch beim 1,16-fachen; seither
     ist der Raum um 55 % größer geworden und hat eine Außenwelt bekommen.
