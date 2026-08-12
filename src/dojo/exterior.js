@@ -8,6 +8,7 @@ import {
   cardCluster,
   foliageMaterial,
   applyFoliageMaterial,
+  blobGeometry,
   updateFoliage,
 } from './foliage.js';
 
@@ -337,56 +338,6 @@ function groundTexture() {
   return tex;
 }
 
-// --- Pflanzenkörper statt Papierschnipsel ------------------------------------
-//
-// Der erste Garten bestand aus gekreuzten Flächen mit einer Blatt-Alphakarte.
-// Für den Bambus **hinter** einem Papierfenster ist das richtig – dort zählt
-// nur die Silhouette. Für einen Garten, in den man aus vier Metern durch eine
-// offene Tür sieht, ist es falsch, und zwar sichtbar: Man sah die rechteckigen
-// Kanten der Ebenen, die harte Alphakante und dass sich beim Kopfdrehen nichts
-// ändert. Der Nutzer hat es „Kraut und Rüben" genannt und hatte recht.
-//
-// Ein Formschnitt-Polster (Karikomi) ist ohnehin **keine** Wolke aus Blättern,
-// sondern ein geschlossener Körper – das ist der Kern eines japanischen
-// Gartens: geschnittene, ruhige Formen. Genau das lässt sich als Geometrie
-// billiger und besser bauen als als Alphakarte: keine Überzeichnung, keine
-// Alphakante, korrekt beleuchtet, aus jeder Richtung dieselbe Masse.
-function blobGeometry(detail, seed, squash) {
-  const g = new THREE.IcosahedronGeometry(1, detail);
-  const pos = g.attributes.position;
-  const r = rng(seed);
-  // Rauschen pro Vertex, aber **einmal je Richtung** – sonst reißen benachbarte
-  // Dreiecke auf, weil Icosahedron-Geometrie doppelte Vertices an den Nähten
-  // hat. Der Hash über die gerundete Richtung liefert beiden denselben Wert.
-  const cache = new Map();
-  const v = new THREE.Vector3();
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i);
-    const key = `${v.x.toFixed(3)}|${v.y.toFixed(3)}|${v.z.toFixed(3)}`;
-    let n = cache.get(key);
-    if (n === undefined) {
-      // Wenig Rauschen, feine Unterteilung. Der erste Anlauf hatte 0,82–1,12
-      // bei Detailstufe 1 – aus vier Metern waren das erkennbar facettierte
-      // Klumpen. Ein geschnittenes Polster ist aber gerade **nicht** knubbelig;
-      // es ist eine ruhige Kuppel mit leichter Unregelmäßigkeit.
-      n = 0.93 + r() * 0.13;
-      cache.set(key, n);
-    }
-    v.multiplyScalar(n);
-    pos.setXYZ(i, v.x, v.y, v.z);
-  }
-  g.scale(1, squash, 1);
-  // **Erst zusammenführen, dann Normalen rechnen.**
-  //
-  // `IcosahedronGeometry` ist **nicht indiziert** – jedes Dreieck hat eigene
-  // Vertices. `computeVertexNormals()` liefert darauf zwangsläufig
-  // Flächennormalen, also Flat-Shading, und genau deshalb sahen Ahornkrone und
-  // Azaleenpolster wie geschliffene Edelsteine aus. Drei Runden Farbkorrektur
-  // haben daran nichts geändert, weil es keine Farbfrage war.
-  const merged = mergeVertices(g, 1e-4);
-  merged.computeVertexNormals();
-  return merged;
-}
 
 // --- Der Garten vor dem Eingang ---------------------------------------------
 //
