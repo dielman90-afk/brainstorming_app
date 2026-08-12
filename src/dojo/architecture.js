@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import {
   hinokiMaterial,
+  kawaraMaterial,
   plasterMaterial,
   tatamiMaterial,
   washiMaterial,
@@ -184,6 +185,33 @@ function buildOpening(spec) {
       const [x, y, z] = at(ct, sillY + (panelH * r) / rows, barD);
       const [sx, sz] = acrossWall(barDepth, panelW);
       bars.push({ x, y, z, scale: [sx, barWidth, sz] });
+    }
+
+    // Renji: senkrechte Stäbe **außen** vor dem Papier.
+    //
+    // Ohne sie ist die Fassade von außen eine glatte Papierfläche. Das ist
+    // sogar richtig gebaut – bei einer echten Shoji liegt das Kumiko innen und
+    // das Papier außen –, aber es sieht aus wie ein Bretterzaun: Aus dem Garten
+    // zeigt die Südfront zweieinhalb Meter hohe, leere cremefarbene Felder mit
+    // einer schwachen senkrechten Naht, und kein einziges Bauteil fängt Licht.
+    //
+    // Ein Renji-Gitter ist die Antwort, die ein Zimmermann geben würde: schmale
+    // senkrechte Latten vor dem Papier, wie sie in Japan überall dort sitzen,
+    // wo eine Shoji nach draußen zeigt. Es kostet **keinen** zusätzlichen
+    // Draw-Call – die Stäbe wandern in dieselbe Instanzenliste wie das innere
+    // Kumiko – und es bringt der Fläche das, was ihr fehlt: einen Rhythmus und
+    // einen Schlagschatten.
+    //
+    // `d` ist hier negativ, weil `at()` den Abstand mit `inward` multipliziert:
+    // ein Minus schiebt nach draußen.
+    const renji = spec.renji ?? 0;
+    if (renji > 0) {
+      const renjiD = -(paperD + barDepth / 2 + 0.002);
+      for (let c = 1; c < renji; c++) {
+        const [x, y, z] = at(ct - panelW / 2 + (panelW * c) / renji, (sillY + headY) / 2, renjiD);
+        const [sx, sz] = acrossWall(barDepth * 1.15, barWidth * 0.85);
+        bars.push({ x, y, z, scale: [sx, panelH - fw * 2, sz] });
+      }
     }
 
     // Papierfeld, außen. `rotateY(inward · π/2)` dreht die Vorderseite in den
@@ -526,16 +554,18 @@ export function buildArchitecture() {
     // liegt zwischen der verlängerten Dachschalung und der Wandkrone – also
     // **draußen**. Innen aufgestellt haben sie eine Fuge geschlossen, die dort
     // gar nicht ist, und dafür die Fenster genommen.
-    board(t, 0.62, ROOM.maxZ - ROOM.minZ + 1.0, 1.1).translate(
-      WALL.west - t * 0.65,
-      ROOM.wallTop + 0.2,
-      (ROOM.minZ + ROOM.maxZ) / 2
-    ),
-    board(t, 0.62, ROOM.maxZ - ROOM.minZ + 1.0, 1.1).translate(
-      WALL.east + t * 0.65,
-      ROOM.wallTop + 0.2,
-      (ROOM.minZ + ROOM.maxZ) / 2
-    ),
+    // (Hier standen bis zuletzt zwei Traufbretter auf Ost und West, zuerst
+    // innerhalb der Wandebene – dort haben sie zwei Ranma-Bänder von innen
+    // zugemauert –, dann außerhalb bei `WALL.east + t·0,65`. Draußen schlossen
+    // sie die Fuge, aber sie standen 7,8 cm vor der Wandflucht und liefen über
+    // die ganze Länge: aus dem Garten ein Sims quer über die Fassade, an der
+    // Südostecke ein weißer Klotz. Beides mit einem Strahl nachgewiesen.
+    //
+    // Sie sind **ersatzlos entfallen**, weil das Dach jetzt eine Untersicht hat
+    // (`dojo-roof-untersicht`): Die Fuge zwischen verlängerter Schalung und
+    // Wandkrone liegt hinter ihr. Nachgemessen mit holes.mjs aus allen acht
+    // Richtungen – 0,007 % Magenta, derselbe Wert wie mit den Brettern.)
+
     // Über dem Tokonoma-Sturz bis zur Traufe – sonst sieht man über der Nische
     // in den schwarzen Hintergrund.
     board(TOKONOMA.width + 0.3, h - TOKONOMA.headY - 0.22, t, 1.1).translate(
@@ -848,11 +878,106 @@ export function buildArchitecture() {
   }
   roofGeo.setAttribute('uv', new THREE.Float32BufferAttribute(roofUv, 2));
   roofGeo.computeVertexNormals();
-  const roofShell = new THREE.Mesh(roofGeo, hinokiMaterial({ color: 0x4b4f52, uvScale: 1 }));
+  // Ziegel statt graublau eingefärbtem Holz. Von innen ist davon nichts zu
+  // sehen; von außen ist das Dach die größte zusammenhängende Fläche des
+  // Gebäudes und war als glatte dunkle Ebene das Auffälligste an der Fassade.
+  const roofShell = new THREE.Mesh(roofGeo, kawaraMaterial());
   roofShell.name = 'dojo-roof';
   roofShell.castShadow = true;
   roofShell.receiveShadow = true;
   roof.add(roofShell);
+
+  // Untersicht (Noki-ura). Die Dachschale ist eine Fläche ohne Dicke und wird
+  // von unten weggeschnitten – aus dem Garten sah man deshalb zwischen den
+  // Sparren hindurch **den Himmel**, obwohl das Dach darüber steht. Dieselbe
+  // Geometrie ein zweites Mal, nach innen gerichtet und in dunklem Holz: die
+  // gehobelten Bretter, die bei einem echten Vordach über den Sparren liegen.
+  // Sechs Dreiecke, und von innen ist davon nichts zu sehen, weil die Decke bei
+  // 3,95 m geschlossen ist.
+  const soffit = new THREE.Mesh(
+    roofGeo,
+    hinokiMaterial({ color: 0x6b5238, uvScale: 0.7, side: THREE.BackSide })
+  );
+  soffit.name = 'dojo-roof-untersicht';
+  roof.add(soffit);
+
+  // --- First, Grate, Traufblende, Sparrenköpfe -------------------------------
+  //
+  // Ein Dach aus sechs Dreiecken hat drei Eigenschaften, die es von außen sofort
+  // als Behelf verraten: Die Grate sind reine Knicke, die Traufe ist eine Kante
+  // ohne Dicke, und der Überstand hat keine Unterseite. Alle drei sind mit
+  // wenigen Quadern zu beheben – zusammen unter 900 Dreiecke.
+  const firstMat = hinokiMaterial({ color: 0x53585c, uvScale: 1.6 });
+
+  // Firstziegel und die vier Grate als flach liegende Balken. Jeder Grat läuft
+  // von einer Traufecke zum jeweiligen Firstende; Länge und Neigung kommen aus
+  // den Endpunkten, nicht aus geschätzten Winkeln.
+  const gratGeo = board(1, 0.17, 0.34, 0.5);
+  const grate = [];
+  const legeBalken = (ax, ay, az, bx, by, bz) => {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const dz = bz - az;
+    const len = Math.hypot(dx, dy, dz);
+    grate.push({
+      x: (ax + bx) / 2,
+      y: (ay + by) / 2 + 0.06,
+      z: (az + bz) / 2,
+      // Erst um Y in die Grundrissrichtung, dann um Z in die Steigung kippen.
+      ry: Math.atan2(-dz, dx),
+      rz: Math.asin(dy / len),
+      scale: [len, 1, 1],
+    });
+  };
+  legeBalken(0, ry1, ez0 + HIP, 0, ry1, ez1 - HIP); // First
+  legeBalken(ex0, ry0, ez0, 0, ry1, ez0 + HIP);
+  legeBalken(ex1, ry0, ez0, 0, ry1, ez0 + HIP);
+  legeBalken(ex0, ry0, ez1, 0, ry1, ez1 - HIP);
+  legeBalken(ex1, ry0, ez1, 0, ry1, ez1 - HIP);
+  roof.add(instanced(gratGeo, firstMat, grate, { name: 'dojo-roof-grate' }));
+
+  // Traufblende: ein umlaufendes Brett unter der Dachkante. Ohne das ist der
+  // Rand des Dachs eine Fläche der Dicke null – aus dem Garten von unten
+  // gesehen verschwindet das Dach dort einfach.
+  const FASCIA_H = 0.16;
+  const fascia = new THREE.Group();
+  fascia.name = 'dojo-roof-traufe';
+  for (const [w, h, d, x, z] of [
+    [ex1 - ex0 + 0.16, FASCIA_H, 0.08, 0, ez0 - 0.04],
+    [ex1 - ex0 + 0.16, FASCIA_H, 0.08, 0, ez1 + 0.04],
+    [0.08, FASCIA_H, ez1 - ez0 + 0.16, ex0 - 0.04, 0],
+    [0.08, FASCIA_H, ez1 - ez0 + 0.16, ex1 + 0.04, 0],
+  ]) {
+    const brett = new THREE.Mesh(board(w, h, d, 0.6), hinokiDark);
+    brett.position.set(x, ry0 - FASCIA_H / 2 + 0.02, z);
+    brett.castShadow = true;
+    fascia.add(brett);
+  }
+  roof.add(fascia);
+
+  // Sparrenköpfe (Taruki): die Untersicht des Überstands. Sie stehen quer zur
+  // jeweiligen Traufe und enden an der Blende.
+  // Die Länge ist der Überstand plus 10 cm Einbindung hinter die Wandflucht;
+  // die Mitte liegt deshalb eine halbe Länge **innerhalb** der Traufkante. Beim
+  // ersten Versuch stand hier zusätzlich ein `- EAVE`, wodurch die Sparren
+  // 95 cm über die Dachkante hinaus in den Himmel ragten – aus dem Garten ein
+  // freischwebender Rechen vor blauem Himmel.
+  const SPARREN_LEN = EAVE + 0.1;
+  const sparrenGeo = board(0.07, 0.09, SPARREN_LEN, 0.5);
+  const sparren = [];
+  const SPARREN_ABSTAND = 0.42;
+  for (let x = ex0 + 0.3; x <= ex1 - 0.3; x += SPARREN_ABSTAND) {
+    sparren.push({ x, y: ry0 - 0.05, z: ez0 + SPARREN_LEN / 2 });
+    sparren.push({ x, y: ry0 - 0.05, z: ez1 - SPARREN_LEN / 2 });
+  }
+  for (let z = ez0 + EAVE + 0.3; z <= ez1 - EAVE - 0.3; z += SPARREN_ABSTAND) {
+    sparren.push({ x: ex0 + SPARREN_LEN / 2, y: ry0 - 0.05, z, ry: Math.PI / 2 });
+    sparren.push({ x: ex1 - SPARREN_LEN / 2, y: ry0 - 0.05, z, ry: Math.PI / 2 });
+  }
+  roof.add(
+    instanced(sparrenGeo, hinokiDark, sparren, { receive: false, name: 'dojo-roof-sparren' })
+  );
+
   group.add(roof);
 
   // --- Ranma: Fensterband zwischen Wandkrone und Decke -----------------------
@@ -901,6 +1026,10 @@ export function buildArchitecture() {
     headY: ROOM.ranmaTop,
     koshi: false,
     panels: Math.max(2, Math.round((to - from) / RANMA_PANEL)),
+    // Auch das Ranma bekommt Latten nach außen. Ohne sie stand über der Front
+    // ein leerer heller Streifen quer durch die ganze Fassade – aus dem Garten
+    // das Auffälligste am Gebäude, gleich nach dem Dach.
+    renji: 4,
     lattice: { cols: 4, rows: 3, barWidth: 0.018, barDepth: 0.018 },
   });
 
