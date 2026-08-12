@@ -67,8 +67,24 @@ const PROBE_FRAGMENT = /* glsl */ `
 
     // Der Schlitz: waagerechtes Band im Osten, deutlich über 1.0, damit ein
     // Metall überhaupt ein Glanzlicht bekommt statt nur einer Aufhellung.
-    float slotBand = 1.0 - smoothstep(0.09, 0.44, abs(h - 0.04));
-    float slotSide = smoothstep(0.12, 0.70, east);
+    //
+    // **Schmaler als zuvor, gleich hell.** Er war 0,09 bis 0,44 hoch und 0,12
+    // bis 0,70 breit – ein sehr großer Teil der Kugel bei Strahldichte 3,30.
+    // Diffuses Licht ist der **Fluss** über die ganze Fläche, ein Glanzlicht
+    // dagegen braucht nur Helligkeit an einer schmalen Stelle. Die weite
+    // Ausdehnung hat deshalb vor allem den Raum geflutet: Gemessen war die
+    // Sonde auf jeder Papierfläche der größte Posten, auf der Westfront
+    // 93,3 von 238,6 Luminanzeinheiten – mehr als das Fünffache des
+    // Eigenleuchtens, an dem ich zwei Runden lang gedreht habe.
+    //
+    // Die Innenseite der Westwand zeigt mit ihrer Normalen genau in diesen
+    // Schlitz; sie war deshalb die hellste Fläche im Raum, ohne selbst zu
+    // leuchten (Anteil Eigenleuchten dort: 0,5 %).
+    //
+    // Schmal und hell statt breit und hell: Das Glanzlicht auf einer Klinge
+    // wird dadurch eher schärfer, der diffuse Fluss sinkt deutlich.
+    float slotBand = 1.0 - smoothstep(0.04, 0.20, abs(h - 0.04));
+    float slotSide = smoothstep(0.30, 0.78, east);
     col += vec3(3.30, 2.72, 1.90) * slotBand * slotSide;
 
     // Die Lichtpfütze auf dem Boden wirft warm zurück – der Grund, warum die
@@ -181,6 +197,27 @@ const APERTURE_X = SHOJI.x - 0.02;
 // wird vom Tiefentest ohnehin verworfen – **das** ist auch der Grund, warum der
 // Schacht am Boden sauber abgeschnitten aussieht, ohne dass hier geklippt wird.
 const BEAM_LENGTH = ((SHOJI.headY - ROOM.floorY) / -DIR.y) * 1.06;
+
+// Deckkraft der Lichtschächte. Siehe die ausführliche Begründung bei
+// `shaftMaterial` in buildAtmosphere() – kurz: der einzige Regler, der linear
+// in die additive Mischung eingeht, und damit der einzige, mit dem sich das
+// Ausbrennen überhaupt steuern lässt.
+//
+// Gemessen mit weiss.mjs/dichte.mjs, geklemmte Bildpunkte im schlimmsten von
+// vier Blicken und mittlere Helligkeit über alle vier:
+//
+//   1,00 → 10,54 %  (138,8)      0,40 → 1,53 %  (117,5)
+//   0,70 →  6,61 %  (129,6)      0,38 → 0,73 %  (116,6)
+//   0,55 →  4,90 %  (123,9)      0,36 → 0,52 %  (115,6)
+//   0,45 →  3,61 %  (119,7)      0,34 → 0,46 %  (114,7)
+//   0,35 →  0,50 %  (115,1)      0,30 → 0,16 %  (112,8)
+//
+// Der Knick liegt scharf zwischen 0,45 und 0,35: Dort fällt eine große
+// zusammenhängende Fläche unter die Klemmgrenze. 0,34 ist der **größte** Wert,
+// der noch unter 0,5 % bleibt – gesucht war nicht der dunkelste, sondern der
+// hellste, der nicht mehr ausbrennt. Die mittlere Helligkeit sinkt dabei nur
+// von 138,8 auf 114,7; der Raum bleibt warm, er wird nur nicht mehr weiß.
+const SHAFT_DICHTE = 0.34;
 
 function panelCenterZ(i) {
   return SHOJI.fromZ + (i + 0.5) * PANEL_PITCH;
@@ -313,6 +350,7 @@ const BEAM_COMMON = /* glsl */ `
   uniform float uTime;
   uniform vec3 uColor;
   uniform float uIntensity;
+  uniform float uDichte;
   varying vec2 vCross;
   varying float vProf;
   varying float vLen;
@@ -345,7 +383,7 @@ const SHAFT_FRAGMENT = /* glsl */ `
     float tail = 1.0 - smoothstep(0.22, 1.0, vLen);
     float blur = 0.10 + vLen * 0.6;
     float a = prof * head * tail * lattice(vCross, blur) * haze(vCross, vLen, uTime);
-    gl_FragColor = vec4(uColor * uIntensity, a);
+    gl_FragColor = vec4(uColor * uIntensity, a * uDichte);
     #include <colorspace_fragment>
   }
 `;
@@ -361,7 +399,7 @@ const POOL_FRAGMENT = /* glsl */ `
     float blur = 0.10 + vLen * 0.6;
     float fade = mix(1.0, 0.22, smoothstep(0.05, 0.95, vLen));
     float a = edgeA * edgeB * fade * lattice(vCross, blur) * haze(vCross, vLen, uTime);
-    gl_FragColor = vec4(uColor * uIntensity, a);
+    gl_FragColor = vec4(uColor * uIntensity, a * uDichte);
     #include <colorspace_fragment>
   }
 `;
@@ -598,11 +636,31 @@ export function buildAtmosphere(renderer) {
   group.add(fill);
 
   // --- Schächte, Pfützen, Staub, Regen, Glühen ------------------------------
+  //
+  // **Warum es hier zwei Regler gibt und nur einer linear wirkt.**
+  //
+  // Der Fragment-Shader hängt `<colorspace_fragment>` an: Was er schreibt, ist
+  // schon sRGB-kodiert, und *darauf* mischt der additive Modus. Aus 0,02 linear
+  // werden dabei 0,152 – die Kodierung hebt kleine Werte um das Siebenfache.
+  // Ein Strahlprisma hat vier Mantelflächen bei `DoubleSide`, benachbarte
+  // Paneele überlagern sich zusätzlich; sieben Lagen ergeben 1,07 und damit
+  // reines Weiß. Gemessen war der Diagonalblick nach Südost zu **10,5 %
+  // geklemmt** – das ist das „zu helle durchscheinende Licht".
+  //
+  // `uIntensity` ist als Regler dagegen fast wirkungslos: Halbieren senkt den
+  // kodierten Wert nur um den Faktor 2^(1/2,4) ≈ 1,33. Man müsste durch fünf
+  // teilen, um die Hälfte zu bekommen – dann wäre die Farbe tot.
+  //
+  // `uDichte` multipliziert stattdessen die **Deckkraft**, und die geht linear
+  // in die additive Mischung ein: halbe Dichte, halber Beitrag, gleiche Farbe.
+  // Der Wert ist nicht geschätzt, sondern aus einer Messreihe ausgewählt – sie
+  // steht oben bei `SHAFT_DICHTE`.
   const shaftMaterial = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uColor: { value: new THREE.Color(SUN.color) },
       uIntensity: { value: 0.02 },
+      uDichte: { value: SHAFT_DICHTE },
     },
     vertexShader: BEAM_VERTEX,
     fragmentShader: SHAFT_FRAGMENT,
@@ -624,6 +682,12 @@ export function buildAtmosphere(renderer) {
   const poolMaterial = shaftMaterial.clone();
   poolMaterial.fragmentShader = POOL_FRAGMENT;
   poolMaterial.uniforms.uIntensity.value = 0.03;
+  // Die Pfütze bleibt bei voller Dichte. Sie liegt flach auf dem Boden, ein
+  // Blick trifft sie genau einmal – sie kann sich nicht mit sich selbst
+  // stapeln. Gemessen trug sie zum Ausbrennen des Nordblicks 0,0 Punkte bei
+  // (Schächte allein: 10,0 von 106). Sie mitzudämpfen würde nur den Beweis
+  // schwächen, dass die Schächte dort ankommen, wo das Licht hinfällt.
+  poolMaterial.uniforms.uDichte.value = 1.0;
   const pools = new THREE.Mesh(buildPoolGeometry(), poolMaterial);
   pools.name = 'dojo-light-pools';
   pools.renderOrder = 2;
