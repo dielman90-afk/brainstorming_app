@@ -107,6 +107,12 @@ const SHAPES = {
       (1 + 0.22 * Math.cos(u * Math.PI * 5) - 0.1 * Math.cos(u * Math.PI * 10)),
     max: 0.36,
   },
+  // Koniferennadel: sehr schmal, über fast die ganze Länge gleich breit, vorn
+  // zugespitzt. Das ist der Unterschied zu jedem anderen Eintrag hier – ein
+  // Laubblatt ist eine Fläche, eine Nadel ist ein Strich mit Dicke. Genau
+  // deshalb sah der Nadelbaum mit dem Azaleen-Atlas falsch aus: breite,
+  // rundliche Blätter auf einer Kegelsilhouette.
+  nadel: { w: (u) => Math.pow(Math.sin(Math.PI * Math.pow(u, 0.32)), 0.42) * 0.035, max: 0.04 },
   // Stiel / Rhachis: praktisch konstante Breite. Trägt keine Wölbung, aber sie
   // ist es, die aus fünf Lappen ein Ahornblatt macht statt fünf Streifen.
   stem: { w: (u) => 0.022 * (1 - 0.35 * u), max: 0.025 },
@@ -129,6 +135,13 @@ const PALETTE = {
     base: [242, 196, 214],
     vary: [[248, 214, 226], [236, 178, 202], [252, 230, 236], [230, 166, 194]],
   },
+  // Kiefernnadeln: dunkel, blaustichig, geringe Streuung. Eine Konifere ist
+  // einfarbiger als jeder Laubbaum – ihre Tiefe kommt aus der Verschattung
+  // zwischen den Zweigen, nicht aus der Blattfarbe.
+  nadel: {
+    base: [44, 78, 54],
+    vary: [[38, 70, 48], [52, 88, 60], [32, 62, 44], [60, 96, 66]],
+  },
 };
 
 // Aderverlauf. Bei Bambus und Farn laufen die Adern **parallel** zur Blattachse
@@ -146,6 +159,9 @@ const VEINS = {
   // fiedrig ist die nächstliegende der vorhandenen Betriebsarten, und bei
   // dieser Blattgröße ist der Unterschied nicht auflösbar.
   sakura: { mode: 'pinnate', freq: 5 },
+  // Eine Nadel hat genau einen Mittelnerv. Bei dieser Breite ist mehr weder
+  // sichtbar noch vorhanden.
+  nadel: { mode: 'long', freq: 1 },
   stem: { mode: 'none', freq: 0 },
 };
 
@@ -481,6 +497,71 @@ function cellBlades(kind, cx, cy, R, r) {
           tint: [96, 66, 62],
         },
       ]);
+    }
+  } else if (kind === 'nadel') {
+    // **Nadelzweige, nicht Einzelnadeln.** Eine Konifere setzt ihre Nadeln
+    // dicht an kurzen Trieben; einzeln über die Zelle gestreut ergäben sie
+    // Fussel. Die Bauart ist die des Farns – ein Trieb mit Anhängseln zu beiden
+    // Seiten –, aber die Nadeln stehen **spitz nach vorn** statt quer, und es
+    // sind viel mehr davon. Der Winkel ist das, woran man Konifere von Farn
+    // unterscheidet, auch wenn man beides nicht einzeln auflöst.
+    // Gemessen: Mit 20 Trieben deckte die Zelle 22,5 % gegen 33,2 % beim Ahorn –
+    // eine Koniferenkrone daraus wäre drahtig statt dicht. Siehe atlas.mjs.
+    const TRIEBE = 32;
+    for (let k = 0; k < TRIEBE; k++) {
+      const rr = R * 0.5 * Math.sqrt(r());
+      const aa = r() * TAU;
+      const bx = cx + Math.cos(aa) * rr;
+      const by = cy + Math.sin(aa) * rr;
+      const dir = r() * TAU;
+      let tlen = R * (0.4 + r() * 0.26);
+      tlen = fitLength(bx, by, dir, tlen, cx, cy, rmax);
+      const curve = (r() - 0.5) * 0.3;
+      const tint = pick();
+      const blades = [
+        {
+          x: bx,
+          y: by,
+          ang: dir,
+          len: tlen,
+          curve,
+          shape: 'stem',
+          vein: 'stem',
+          thick: 0.3,
+          base: r() * 0.1,
+          tint: [tint[0] * 0.7, tint[1] * 0.68, tint[2] * 0.6],
+        },
+      ];
+      const N = 22;
+      const ca = Math.cos(dir);
+      const sa = Math.sin(dir);
+      for (let j = 1; j <= N; j++) {
+        const t = j / (N + 1);
+        const lxc = curve * tlen * t * t;
+        const lyc = t * tlen;
+        const px = bx + lxc * ca - lyc * sa;
+        const py = by + lxc * sa + lyc * ca;
+        // Spitzer Anstellwinkel, zur Triebspitze hin noch spitzer: Die Nadeln
+        // legen sich nach vorn an, statt rechtwinklig abzustehen.
+        const offen = 0.72 - t * 0.3;
+        const nlen = tlen * 0.34 * (1 - 0.35 * t) * Math.min(1, t * 6);
+        for (const seite of [-1, 1]) {
+          const ang = dir + seite * offen;
+          blades.push({
+            x: px,
+            y: py,
+            ang,
+            len: fitLength(px, py, ang, nlen * (0.85 + r() * 0.3), cx, cy, rmax),
+            curve: seite * 0.12,
+            shape: 'nadel',
+            vein: 'nadel',
+            thick: 0.5 + r() * 0.14,
+            base: r() * 0.1,
+            tint: pick(),
+          });
+        }
+      }
+      leaf(blades);
     }
   } else {
     // Farn: Rhachis mit Fiederblättchen zu beiden Seiten, nach außen kürzer.
@@ -969,13 +1050,17 @@ export function cardCluster({
   // nicht und man sieht durch die Krone auf den Blob; zu groß = man erkennt
   // einzelne Rechtecke. Azalee liegt tiefer, weil ihr Atlas selbst schon sehr
   // viele kleine Blätter zeigt.
-  const SIZE = { bamboo: 0.95, maple: 0.86, azalea: 0.66, fern: 0.95, sakura: 0.72 }[kind] ?? 0.85;
+  const SIZE =
+    { bamboo: 0.95, maple: 0.86, azalea: 0.66, fern: 0.95, sakura: 0.72, nadel: 0.98 }[kind] ??
+    0.85;
   // Neigung gegen die Schalennormale. Ohne sie stehen alle Karten tangential
   // zur Kugel und die Silhouette wird an ihrem Rand papierdünn.
   // Sakura steht bewusst hoch: Blütenbüschel sitzen an kurzen Trieben und
   // stehen von der Krone ab, statt ihr anzuliegen. Mit 0,6 lagen die Karten
   // tangential auf der Schale und ließen den Hüllkörper durchscheinen.
-  const TILT = { bamboo: 1.05, maple: 0.85, azalea: 0.55, fern: 1.0, sakura: 0.95 }[kind] ?? 0.8;
+  const TILT =
+    { bamboo: 1.05, maple: 0.85, azalea: 0.55, fern: 1.0, sakura: 0.95, nadel: 1.15 }[kind] ??
+    0.8;
 
   const quads = count * (cross ? 2 : 1);
   const pos = new Float32Array(quads * 4 * 3);
