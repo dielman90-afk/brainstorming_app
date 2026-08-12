@@ -3,7 +3,7 @@ import { createTextPanel } from './textPanel.js';
 
 // Verbindungen zwischen Karten. Zwei Arten teilen sich denselben Manager:
 //
-//   ungerichtet (`directed: false`) – die gewohnte Mindmap-Linie, eine dünne
+//   ungerichtet (`directed: false`) – die gewohnte lose Verbindung, eine dünne
 //     Strebe ohne Anfang und Ende.
 //   gerichtet (`directed: true`)    – der Pfeil eines Prozessflussdiagramms,
 //     mit Spitze am Ziel und optionaler Zweigbeschriftung („ja"/„nein").
@@ -84,7 +84,7 @@ export class ConnectionManager {
     }
   }
 
-  // Ungerichtete Mindmap-Verbindung anlegen bzw. entfernen (Toggle).
+  // Ungerichtete Verbindung anlegen bzw. entfernen (Toggle).
   toggle(cardA, cardB) {
     if (!cardA || !cardB || cardA === cardB) return null;
     const existing = this._indexOf(cardA, cardB, false);
@@ -107,7 +107,7 @@ export class ConnectionManager {
       this.connections.splice(existing, 1);
       return 'removed';
     }
-    // Eine lose Mindmap-Linie zwischen denselben Karten weicht dem Pfeil: Beide
+    // Eine lose Linie zwischen denselben Karten weicht dem Pfeil: Beide
     // liefen sonst deckungsgleich übereinander – eine graue Strebe im
     // amberfarbenen Pfeil –, und die Aussage des Pfeils ist die stärkere.
     const loose = this._indexOf(cardA, cardB, false);
@@ -230,7 +230,7 @@ export class ConnectionManager {
       this._dir.divideScalar(span);
 
       if (!conn.directed) {
-        // Mindmap: unverändert von Mitte zu Mitte
+        // Lose Linie: unverändert von Mitte zu Mitte
         conn.mesh.position.copy(this._va).addScaledVector(this._dir, span / 2);
         conn.mesh.scale.set(1, span, 1);
         conn.mesh.quaternion.setFromUnitVectors(this._up, this._dir);

@@ -161,46 +161,6 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Tracking-Aussetzer keinen Sprung auslöst.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
-- **🕸 Mindmap ordnen** (`src/mindmapLayout.js`, Reiter „🗂 Board"): Ein Knopf,
-  der die Karten **nach ihren Verbindungen** radial anordnet – Mitte, Äste,
-  Blätter. Neue Karten landen sonst im Halbkreis in Entstehungsreihenfolge; nach
-  zwanzig Minuten steht Zusammengehöriges weit auseinander und die Linien kreuzen
-  quer durch den Raum. *Die Struktur steckt im Verbindungsgraphen, nur nicht im
-  Raum.* Der Knopf dreht das um.
-  - **Mitte** ist die ausgewählte Karte, sonst die mit den meisten Verbindungen.
-    Dadurch lässt sich dasselbe Board von verschiedenen Themen aus betrachten,
-    ohne etwas zu verschieben: Karte auswählen, Knopf drücken, alles ordnet sich
-    um diese Mitte neu.
-  - **Sektor nach Teilbaumgröße** – der eigentliche Kniff. Jedem Ast denselben
-    Winkel zu geben sieht falsch aus: Ein Zweig mit sechs Nachfahren würde in
-    dasselbe Viertel gequetscht wie ein einzelnes Blatt. Stattdessen bekommt
-    jeder Ast Winkel *proportional zur Größe seines Teilbaums* (3/2/1/6 Knoten →
-    90°/60°/30°/180°), und innerhalb eines Zweigs wiederholt sich das rekursiv –
-    die radiale Fassung des Reingold-Tilford-Verfahrens.
-  - **Radial, nicht kräftebasiert.** Ein Federmodell könnte beliebige Graphen,
-    würfelt aber bei jedem Lauf ein anderes Bild. Zweimal denselben Knopf
-    drücken und zweimal etwas anderes bekommen zerstört das Vertrauen in die
-    Funktion. Das radiale Verfahren ist deterministisch und braucht keine
-    Iteration.
-  - **Gekrümmte Wand statt Scheibe:** Das flache Radiallayout wird auf eine
-    Kugelfläche um den Nutzer projiziert, also bleibt jede Karte gleich weit weg
-    und gleich gut lesbar. Die Senkrechte ist dabei gestaucht (±20° gegen ±38°
-    seitlich) – dieselbe Begründung wie beim Prozess-Layout: Zur Seite ist Platz,
-    nach oben und unten nicht.
-  - **Kreise, Inseln, lose Karten:** Ein Spannbaum per Breitensuche macht aus
-    jedem Graphen einen Baum – Querverbindungen bleiben gezeichnet, zählen nur
-    fürs Layout nicht. Mehrere Zusammenhangskomponenten werden einzeln gerechnet
-    und nebeneinandergelegt; Karten **ohne jede Verbindung** kommen in eine Reihe
-    darunter statt mitten hinein.
-  - **Ringradien werden gerechnet, nicht geschätzt:** Auf einem Ring wachsen alle
-    Abstände linear mit dem Radius, also wird der kleinste Abstand einmal auf dem
-    Einheitsring gemessen und der Ring so weit rausgerückt, dass daraus 34 cm
-    werden. Zwölf Geschwister überlappen dadurch nicht, ein harmloser Baum wird
-    aber auch nicht unnötig aufgebläht.
-  - Die Karten **fahren** über eine knappe halbe Sekunde an ihren Platz
-    (`src/tween.js`), statt zu springen: Ein schlagartiger Umbau ist in VR
-    unangenehm, und man verliert die Zuordnung, welche Karte wohin gewandert ist.
-    Greifen bricht die Fahrt ab, „↶ Rückgängig" holt die alte Anordnung zurück.
 - **⚙️ Prozessflussdiagramm** (`src/flowLayout.js`, Reiter „⚙️ Prozess" im
   Hand-Menü): Abläufe als richtiges Flussdiagramm bauen – mit **Formen**,
   **gerichteten Pfeilen** und **beschrifteten Zweigen**.
@@ -245,7 +205,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   - **💡 Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
     *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Schrift*,
     *Karte löschen*
-  - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Mindmap ordnen*, *Zone*, *Timer*, *Whiteboard*,
+  - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
     *Umgebung*, *Sichern*, *Laden*, *Als Datei*,
     *Alles löschen* (mit Zweifach-Bestätigung)
   - **⚙️ Prozess:** *Aus Text bauen*, *Schritt*, *Form wechseln*, *Pfeil ziehen*,
@@ -311,7 +271,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   **Mausrad über der Karte** oder **+/−** (bei ausgewählter Karte), in VR per
   **Daumenstick hoch/runter, während die Karte gegriffen ist**. Die Größe wird
   gespeichert und exportiert.
-- **Verbindungslinien (Mindmap):** Karte auswählen → „🔗 Verbinden“ (Menü bzw.
+- **Verbindungslinien:** Karte auswählen → „🔗 Verbinden“ (Menü bzw.
   Rechtsklick → „Verbinden mit…“) → Ziel-Karte anklicken. Nochmal verbinden
   entfernt die Linie; Esc bricht ab. Linien folgen den Karten beim Verschieben.
 - **Texteingabe in XR – die virtuelle Tastatur** (`src/keyboard.js`):
@@ -420,9 +380,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── main.js             Szene, XR-Session (AR→VR-Fallback), Verdrahtung
 │   ├── cards.js            IdeaCard + CardManager (Halbkreis-Anordnung, Serialisierung,
 │   │                       Knotenarten für Prozessdiagramme)
-│   ├── connections.js      Mindmap-Linien + gerichtete Prozesspfeile mit Beschriftung
+│   ├── connections.js      Lose Verbindungslinien + gerichtete Prozesspfeile mit Beschriftung
 │   ├── flowLayout.js       Geschichtetes Layout fürs Prozessflussdiagramm
-│   ├── mindmapLayout.js    Radiales Layout: Karten nach ihren Verbindungen ordnen
 │   ├── tween.js            Sanftes Umsetzen von Objekten (Layout-Animation)
 │   ├── interactions.js     Controller-/Hand-Raycasting, Grab + Maus-Fallback
 │   ├── locomotion.js       Fortbewegung (Player-Rig): VR-Gleiten + Snap-Turn
@@ -475,7 +434,6 @@ Einfach `https://localhost:5173` öffnen:
 | **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
-| **🕸 Mindmap ordnen** | **„Mindmap ordnen"** im Overlay – ordnet die Karten nach ihren Verbindungen radial an. Eine **ausgewählte Karte wird die Mitte**, sonst die bestverbundene |
 | **Prozessdiagramm** | Eigener Block **„⚙️ Prozessdiagramm"** im Overlay: Formleiste (*Start · Schritt · Entscheidung · Ende · Karte*) setzt die Form der **ausgewählten** Karte direkt, dazu *Pfeil ziehen*, *Zweig*, *Anordnen*, *Aus Text*, *Mermaid*. Per **Rechtsklick auf eine Karte** gibt es dieselbe Formleiste und „➜ Pfeil ziehen zu…" |
 | **Diktieren** | **„🎤 Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen). Chrome/Edge, nicht in XR |
 | **Sprachbefehle** | **„🎙 Sprachbefehle"** im Overlay ein-/ausschalten. Chrome/Edge, nicht in XR |
@@ -556,7 +514,6 @@ Deployment.
 | **Kartenschrift** | Menü → „💡 Ideen“ → **„🔠 Schrift“** (Normal → Groß → Sehr groß) |
 | Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
 | Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
-| **Mindmap ordnen** | Menü → „🗂 Board“ → **„🕸 Mindmap ordnen“** – die Karten fahren nach ihren Verbindungen an ihren Platz. Vorher eine Karte auswählen, dann wird **sie** die Mitte |
 | **Prozess bauen** | Menü → „⚙️ Prozess“ → **„✨ Aus Text bauen“** (Ablauf beschreiben) oder von Hand: „＋ Schritt“ → „◇ Form wechseln“ → „➜ Pfeil ziehen“ → „🏷 Zweig benennen“ → „⤓ Anordnen“. In VR wird die Form **durchgeschaltet**; am Desktop direkt gewählt |
 | **Prozess mitnehmen** | Menü → „⚙️ Prozess“ → **„⬇️ Als Mermaid“** – die `.mmd`-Datei rendert GitHub, Notion und Confluence direkt |
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |

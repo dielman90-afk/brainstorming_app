@@ -44,19 +44,21 @@ gegen den tatsächlichen Code geprüft.
       Offen als Fortsetzung: rechtwinklige Kantenführung wie bei Miro,
       `flowId` für mehrere Diagramme nebeneinander mit einer Zone als Rahmen,
       Schwimmbahnen für Rollen über `src/zones.js`, Mermaid-**Import**.
-- [x] **Automatisches Mindmap-Layout** – ein Knopf ordnet die Karten radial nach
-      ihren Verbindungen an: Wurzel in der Mitte (die ausgewählte Karte, sonst die
-      bestverbundene), Spannbaum per Breitensuche, **Sektor proportional zur
-      Größe des Teilbaums** statt gleicher Winkel für jeden Ast. Das flache
-      Radiallayout wird auf eine gekrümmte Wand um den Nutzer projiziert, damit
-      alles gleich weit weg und gleich lesbar bleibt; mehrere Inseln liegen
-      nebeneinander, verbindungslose Karten in einer Reihe darunter. Die Karten
-      **fahren** über eine knappe halbe Sekunde an ihren Platz (`src/tween.js`)
-      statt zu springen. Bewusst deterministisch statt kräftebasiert: Zweimal
-      denselben Knopf drücken muss zweimal dasselbe Bild ergeben.
-      (`src/mindmapLayout.js`, Aktion `mindmap`). *(erledigt am 2026-08-09)*
-      Offen als Fortsetzung: Kanten als Kurven statt Geraden, und ein zweiter
-      Knopf, der nur den Teilbaum unter der ausgewählten Karte neu ordnet.
+- [-] **Automatisches Mindmap-Layout** – gebaut am 2026-08-09, **auf Wunsch
+      wieder entfernt am 2026-08-12**. Ein Knopf ordnete die Karten radial nach
+      ihren Verbindungen an: Wurzel in der Mitte, Spannbaum per Breitensuche,
+      Sektor proportional zur Größe des Teilbaums, projiziert auf eine gekrümmte
+      Wand um den Nutzer.
+
+      Der Eintrag bleibt stehen, statt gelöscht zu werden: Eine Roadmap, die
+      verschweigt, dass etwas wieder herausgeflogen ist, lädt dazu ein, es ein
+      zweites Mal zu bauen. Entfernt wurden `src/mindmapLayout.js`, die Aktion
+      `mindmap`, der Knopf im Overlay und der Eintrag im Handgelenk-Menü.
+
+      **Die losen Verbindungslinien sind davon nicht betroffen** und
+      funktionieren unverändert („🔗 Verbinden", `directed: false` in
+      `src/connections.js`) – entfernt wurde das automatische Anordnen, nicht
+      das Verbinden.
 - [~] **Konstrukt-Dojo als fünfte Umgebung** – Samurai-Trainingsraum im Stil des
       Films, in eigenen Dateien unter `src/dojo/`. Erste Umgebung der App mit
       echten Schatten, PBR-Materialien und prozeduraler Environment-Map.
