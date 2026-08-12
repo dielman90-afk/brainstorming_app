@@ -50,6 +50,43 @@ const LARGE_SURFACES = new Set([
 // und genau deswegen steht der Hain überhaupt da. Die Kulisse bleibt ebenfalls:
 // ein einziger unbeleuchteter Zylinder ist billiger als das Loch, das ihr
 // Fehlen hinterlassen würde.
+// --- Drei Stufen statt zwei ---------------------------------------------------
+//
+// Bis eben gab es `inXR: boolean`: Desktop voll, Brille sparsam. Der Nutzer
+// meldet, dass ihm der Garten auf dem Desktop gefällt und in der Quest nicht –
+// und das ist kein Rätsel, sondern steht in diesen Listen: In der sparsamen
+// Fassung ist das Bambuslaub ganz aus, die Blattkarten laufen auf 45 %, die
+// Farne auf 50 %.
+//
+// **Warum eine Mittelstufe und kein neuer Messwert.** Ob die Brille mehr
+// verträgt, kann ich von hier aus nicht messen: Headless läuft SwiftShader,
+// ein Software-Rasterizer ohne Textur-Abtasteinheiten, und der bestraft genau
+// die alpha-getesteten Blattkarten überproportional. Aus einer übertragbaren
+// Rangfolge einen nicht übertragbaren Faktor zu machen hat in Runde 5 die
+// Lichtschächte gekostet. Statt zu raten gibt es eine Stufe dazwischen und
+// einen Schalter im Handgelenk-Menü – die Entscheidung fällt auf dem Gerät.
+export const STUFEN = ['sparsam', 'mittel', 'voll'];
+
+// Wie weit die Mittelstufe von „sparsam" in Richtung „voll" geht. 0 wäre
+// sparsam, 1 wäre voll.
+const MITTEL_ANTEIL = 0.55;
+
+function normStufe(stufe) {
+  // Rückwärtsverträglich: Die Aufrufer haben früher einen Boolean übergeben.
+  if (stufe === true) return 'sparsam';
+  if (stufe === false || stufe == null) return 'voll';
+  return STUFEN.includes(stufe) ? stufe : 'voll';
+}
+
+// **Der Wald bleibt in jeder Brillenstufe aus, und das ist keine Qualitätsfrage.**
+//
+// Gemessen erreichen 0 von 1176 Strahlen durch die Südtür irgendetwas hinter
+// dem Garten (skyline.mjs), und Nord-, West- und Ostfront sind Papier. Es gibt
+// keinen Standpunkt im Raum, von dem aus ein Waldbaum in einem Bild landet.
+// Ihn einzuschalten kostet rund 17 000 Dreiecke für nichts. Am Desktop bleibt
+// er sichtbar – dort gibt es die freie Kamera.
+const NUR_DESKTOP = new Set(['dojo-wald-kronen', 'dojo-wald-kronen-fern', 'dojo-wald-staemme']);
+
 const XR_HIDDEN = new Set([
   'dojo-bamboo-laub',
   // **Der Wald entfällt in der Brille vollständig – gemessen, nicht vermutet.**
@@ -65,9 +102,6 @@ const XR_HIDDEN = new Set([
   // hinterher am Tiefentest scheitern. Am Desktop bleibt er sichtbar – dort
   // gibt es die freie Kamera, und dort ist die Luft dafür da.
   'dojo-wald-nahlaub',
-  'dojo-wald-kronen',
-  'dojo-wald-kronen-fern',
-  'dojo-wald-staemme',
 ]);
 
 // Instanzen, die in der Brille ausgedünnt werden: Name → Anteil.
@@ -83,6 +117,9 @@ const XR_HIDDEN = new Set([
 // wird lichter, nicht anders.
 const XR_THIN = new Map([
   ['dojo-bamboo', 0.55],
+  // Das Laub ist in der sparsamen Fassung ganz aus (XR_HIDDEN); dieser Wert
+  // greift erst ab der Mittelstufe, wo es zurückkommt.
+  ['dojo-bamboo-laub', 0.4],
   // Blattkarten sind das teuerste Neue im Garten: zwei Dreiecke **und** ein
   // Alpha-Test je Blatt, und der Alpha-Test verbietet das frühe Verwerfen von
   // Fragmenten. Ausdünnen kostet hier weniger als anderswo, weil unter jeder
@@ -130,7 +167,13 @@ function eachMaterial(root, fn) {
  * @returns {THREE.Texture|null}   Was als `scene.environment` gesetzt werden
  *                                 soll – in XR bewusst `null`.
  */
-export function applyQuality(group, envMap, inXR) {
+export function applyQuality(group, envMap, stufe) {
+  const s = normStufe(stufe);
+  // `inXR` heißt jetzt: nicht die volle Fassung. Die Unterscheidung zwischen
+  // sparsam und mittel steckt in den Anteilen weiter unten.
+  const inXR = s !== 'voll';
+  const sparsam = s === 'sparsam';
+  const anteil = (f) => (sparsam ? f : f + (1 - f) * MITTEL_ANTEIL);
   // --- Schattenkarte ---------------------------------------------------------
   //
   // **Revidiert gegenüber Runde 5.** Damals stand hier: 512 statt 1024 spart
@@ -147,7 +190,10 @@ export function applyQuality(group, envMap, inXR) {
   // In der Brille zählt die Bildrate mehr als die Schärfe eines Halmschattens.
   group.traverse((o) => {
     if (!o.isDirectionalLight || !o.castShadow) return;
-    const want = inXR ? 1024 : 2048;
+    // Nur die sparsame Fassung halbiert die Schattenkarte. In der Mittelstufe
+    // bleibt sie bei 2048: Der Schattenriss des Hains auf dem Papier ist genau
+    // das, was den Raum trägt, und er ist das Erste, was bei 1024 weich wird.
+    const want = sparsam ? 1024 : 2048;
     if (o.shadow.mapSize.x === want) return;
     o.shadow.mapSize.set(want, want);
     // Ohne das Verwerfen behält three die alte Textur und die neue Größe
@@ -229,14 +275,21 @@ export function applyQuality(group, envMap, inXR) {
     if (!o.isMesh && !o.isPoints) return;
     const thin = XR_THIN.get(o.name);
     if (thin !== undefined && o.isInstancedMesh && o.userData.fullCount) {
-      o.count = inXR ? Math.max(1, Math.round(o.userData.fullCount * thin)) : o.userData.fullCount;
+      o.count = inXR
+        ? Math.max(1, Math.round(o.userData.fullCount * anteil(thin)))
+        : o.userData.fullCount;
     }
     const m = Array.isArray(o.material) ? o.material[0] : o.material;
     const additive = m?.blending === THREE.AdditiveBlending;
-    if (!additive && !XR_HIDDEN.has(o.name)) return;
+    const nurDesktop = NUR_DESKTOP.has(o.name);
+    // Das Bambuslaub ist der größte sichtbare Unterschied zwischen den Stufen –
+    // in der Mittelstufe kommt es zurück, ausgedünnt über XR_THIN.
+    const nurSparsamAus = sparsam && XR_HIDDEN.has(o.name);
+    if (!additive && !nurDesktop && !nurSparsamAus) return;
     if (o.userData._qVis === undefined) o.userData._qVis = o.visible;
     const keep = additive && XR_KEEP_ADDITIVE.test(o.name || '');
-    o.visible = inXR && !keep ? false : o.userData._qVis;
+    const ausblenden = inXR && ((additive && !keep) || nurDesktop || nurSparsamAus);
+    o.visible = ausblenden ? false : o.userData._qVis;
   });
 
   // Desktop bekommt die Karte weiterhin über die Szene – dort ist Luft, und der

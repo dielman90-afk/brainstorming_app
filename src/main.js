@@ -316,6 +316,44 @@ window.addEventListener('keyup', (e) => {
   if (k) moveKeys[k] = false;
 });
 
+// --- Bildqualität ------------------------------------------------------------
+//
+// Drei Stufen (siehe src/dojo/quality.js). Die Vorgabe hängt am Gerät: am
+// Desktop die volle Fassung, in der Brille die mittlere. Der Nutzer kann sie
+// überstimmen – im Handgelenk-Menü, weil die Frage nur auf dem Gerät zu
+// beantworten ist, und über `?q=` für den Test am Rechner.
+//
+// `null` heißt „automatisch"; sobald einmal umgeschaltet wurde, gilt die Wahl
+// für beide Betriebsarten.
+const QUALITAETSSTUFEN = ['sparsam', 'mittel', 'voll'];
+const QUALITAET_NAMEN = { sparsam: 'sparsam', mittel: 'mittel', voll: 'voll' };
+let qualitaetsWahl = (() => {
+  const q = new URLSearchParams(location.search).get('q');
+  return QUALITAETSSTUFEN.includes(q) ? q : null;
+})();
+
+function aktuelleQualitaet() {
+  if (qualitaetsWahl) return qualitaetsWahl;
+  return renderer.xr.isPresenting ? 'mittel' : 'voll';
+}
+
+function applyQualityTier() {
+  const stufe = aktuelleQualitaet();
+  for (const env of environments) env.setQuality?.(stufe);
+  return stufe;
+}
+
+function cycleQuality() {
+  const jetzt = aktuelleQualitaet();
+  const i = QUALITAETSSTUFEN.indexOf(jetzt);
+  qualitaetsWahl = QUALITAETSSTUFEN[(i + 1) % QUALITAETSSTUFEN.length];
+  const stufe = applyQualityTier();
+  // Die Umgebung muss die Änderung sehen: `setQuality` liefert die neue
+  // Environment-Map zurück, und die hängt an der Szene, nicht an der Gruppe.
+  applyEnvironment();
+  setStatus(`🎚 Bildqualität: ${QUALITAET_NAMEN[stufe]}`);
+}
+
 // Desktop: Standpunkt (Kamera + Orbit-Ziel) gemeinsam durch die Welt schieben,
 // sodass die gewohnte Orbit-Ansicht und Karten-Bedienung erhalten bleiben.
 const _moveFwd = new THREE.Vector3();
@@ -484,6 +522,10 @@ async function handleAction(action) {
     }
     if (action === 'environment') {
       cycleEnvironment();
+      return;
+    }
+    if (action === 'quality') {
+      cycleQuality();
       return;
     }
     if (action === 'fontsize') {
@@ -1505,7 +1547,7 @@ renderer.xr.addEventListener('sessionstart', () => {
   // Sparsame Fassung in der Brille. Gemessen kostet allein die IBL-Abtastung
   // ein Viertel der Frame-Zeit; welche Umgebung das betrifft, entscheidet sie
   // selbst (siehe src/dojo/quality.js).
-  for (const env of environments) env.setQuality?.(true);
+  applyQualityTier();
   locomotion.reset(); // Fortbewegungs-Rig zentriert starten
   if (xrMode === 'immersive-ar') {
     // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
@@ -1524,7 +1566,7 @@ renderer.xr.addEventListener('sessionstart', () => {
 renderer.xr.addEventListener('sessionend', () => {
   setXRPresenting(false);
   controls.enabled = true;
-  for (const env of environments) env.setQuality?.(false);
+  applyQualityTier();
   // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
   locomotion.reset();
   camera.position.set(0, 1.6, 1.2);
