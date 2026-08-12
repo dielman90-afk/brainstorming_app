@@ -2168,11 +2168,15 @@ function ikebanaStems(x, z, baseY, height, seed) {
   // Ein Gesteck, das nach allen Seiten auseinandergeht, ist ein Strauß.
   const az = r() * Math.PI * 2;
 
+  // [Länge im Verhältnis zur Vase, Neigung, seitlicher Versatz, Krümmung]
+  //
+  // **1,15 statt 1,45 für den Hauptzweig.** Über einer Vase von 0,78 m ragte er
+  // 1,13 m hinaus – zusammen mit der Vase 1,9 m, also höher als ein Mensch. Im
+  // Bild las sich das nicht als Gesteck, sondern als Stange.
   const teile = [
-    // [Länge im Verhältnis zur Vase, Neigung, seitlicher Versatz, Krümmung]
-    [1.45, 0.13, 0.0, 0.55],
-    [1.05, 0.42, 0.55, 0.75],
-    [0.62, 0.72, -0.5, 0.85],
+    [1.15, 0.13, 0.0, 0.55],
+    [0.85, 0.42, 0.55, 0.75],
+    [0.52, 0.72, -0.5, 0.85],
   ];
 
   for (const [lenF, tilt, seit, bend] of teile) {
@@ -2200,18 +2204,50 @@ function ikebanaStems(x, z, baseY, height, seed) {
       punkte.push(p);
     }
     const kurve = new THREE.CatmullRomCurve3(punkte);
-    stems.push(new THREE.TubeGeometry(kurve, 8, 0.0075, 4, false));
+
+    // **Der Zweig verjüngt sich.** `TubeGeometry` kann nur einen festen Radius,
+    // und 7,5 mm über die ganze Länge lasen sich als Draht, nicht als Zweig –
+    // ein Ast ist am Ansatz doppelt so dick wie an der Spitze.
+    //
+    // Statt drei aneinandergesetzter Röhren wird die eine Röhre nachträglich
+    // eingeschnürt: Die Vertices von `TubeGeometry` liegen ringweise
+    // (`i * (radial + 1) + j`), jeder Ring lässt sich also um seinen
+    // Kurvenpunkt zusammenziehen. Eine Geometrie, keine Nahtstellen.
+    const RINGE = 8;
+    const RADIAL = 4;
+    const rohr = new THREE.TubeGeometry(kurve, RINGE, 0.012, RADIAL, false);
+    const pos = rohr.attributes.position;
+    const mitte = new THREE.Vector3();
+    for (let i = 0; i <= RINGE; i++) {
+      const f = 1 - 0.72 * (i / RINGE); // Spitze auf 28 % des Ansatzes
+      kurve.getPointAt(i / RINGE, mitte);
+      for (let j = 0; j <= RADIAL; j++) {
+        const k = i * (RADIAL + 1) + j;
+        pos.setXYZ(
+          k,
+          mitte.x + (pos.getX(k) - mitte.x) * f,
+          mitte.y + (pos.getY(k) - mitte.y) * f,
+          mitte.z + (pos.getZ(k) - mitte.z) * f
+        );
+      }
+    }
+    rohr.computeVertexNormals();
+    stems.push(rohr);
 
     // Laub sitzt im oberen Drittel, nicht über die ganze Länge – unten ist
-    // Zweig, oben Blatt. Der kürzeste Zweig bleibt kahl; im Ikebana trägt
-    // nicht jedes Element Laub, und der Kontrast ist beabsichtigt.
-    if (lenF > 0.8) {
-      for (const t of [0.72, 0.9]) {
-        leafSpots.push({
-          p: kurve.getPoint(t),
-          s: 0.075 + r() * 0.045,
-        });
-      }
+    // Zweig, oben Blatt.
+    //
+    // **Auch der kurze Zweig trägt jetzt Laub.** Er blieb bewusst kahl, weil im
+    // Ikebana nicht jedes Element Laub trägt und der Kontrast beabsichtigt war.
+    // Die Begründung stimmt und das Ergebnis war trotzdem falsch: Im Bild las
+    // sich der nackte Zweig als Stock, der aus der Vase ragt – genau so wurde
+    // es auch gemeldet. Ein Büschel statt zwei hält den Kontrast, ohne ihn zum
+    // Fremdkörper zu machen.
+    for (const t of lenF > 0.8 ? [0.72, 0.9] : [0.86]) {
+      leafSpots.push({
+        p: kurve.getPoint(t),
+        s: (lenF > 0.8 ? 0.075 : 0.055) + r() * 0.045,
+      });
     }
   }
   return { stems, leafSpots };

@@ -168,9 +168,38 @@ function backdropTexture() {
   // gefüllt. Mehrere Wellen unterschiedlicher Länge ergeben eine Linie, die
   // weder wie ein Sinus noch wie ein Zickzack aussieht – das ist der ganze
   // Trick an einer glaubwürdigen Bergsilhouette.
-  const ridge = (baseY, amp, colour, blur, seed) => {
+  // **Scharfe Gipfel, runde Täler – Sinuswellen haben es genau andersherum.**
+  //
+  // Der erste Anlauf legte vier Sinuswellen übereinander. Das ergibt eine
+  // glaubwürdige *Hügel*linie, und genau das war das Problem: weiche Kuppen und
+  // spitze Einschnitte, also englische Downs. Ein japanischer Bergzug macht es
+  // umgekehrt – steile Gipfel, breite bewaldete Flanken, V-Täler, die im Dunst
+  // absaufen.
+  //
+  // Der übliche Weg dahin ist eine *ridged*-Funktion: `1 − |sin|` statt `sin`.
+  // `|sin|` hat spitze Minima, die Umkehrung also spitze Maxima. Über fünf
+  // Oktaven mit halbierter Amplitude wird daraus eine Kammlinie, die weder
+  // periodisch noch zufällig aussieht. Der Rechenaufwand ist derselbe.
+  //
+  // Die Frequenzen bleiben **ganzzahlig** – die Textur läuft einmal um den
+  // Zylinder, und eine gebrochene Frequenz springt bei u = 0 sichtbar. Das hat
+  // in einer früheren Runde eine Tapetennaht mitten in der Ferne gekostet.
+  const OKTAVEN = [1, 2, 3, 5, 9];
+  const kamm = (u, ph) => {
+    let v = 0;
+    let amp = 1;
+    let summe = 0;
+    for (let o = 0; o < OKTAVEN.length; o++) {
+      v += amp * (1 - Math.abs(Math.sin(u * OKTAVEN[o] + ph[o])));
+      summe += amp;
+      amp *= 0.52;
+    }
+    return v / summe;
+  };
+
+  const ridge = (baseY, amp, colour, blur, seed, zacken = 0, gipfelU = null) => {
     const r = rng(seed);
-    const ph = [r() * 9, r() * 9, r() * 9, r() * 9];
+    const ph = [r() * 9, r() * 9, r() * 9, r() * 9, r() * 9];
     ctx.save();
     ctx.filter = `blur(${blur}px)`;
     ctx.fillStyle = colour;
@@ -197,10 +226,15 @@ function backdropTexture() {
       const y =
         baseY -
         amp *
-          (0.52 * Math.sin(u * 1 + ph[0]) +
-            0.3 * Math.sin(u * 2 + ph[1]) +
-            0.14 * Math.sin(u * 5 + ph[2]) +
-            0.08 * Math.sin(u * 9 + ph[3]));
+          (kamm(u, ph) +
+            // Ein beherrschender Gipfel je Kette. Ohne ihn ist die Linie
+            // gleichmäßig unruhig, und gleichmäßige Unruhe liest sich als
+            // Rauschen. Ein Bergzug hat einen höchsten Punkt.
+            (gipfelU === null ? 0 : 0.85 * Math.exp(-(((u - gipfelU) / 0.42) ** 2))) +
+            // Bewaldete Kante: Japanische Berge sind bis zum Grat bewaldet, die
+            // Silhouette ist deshalb feinzackig und nicht glatt. Nur auf den
+            // vorderen Ketten – hinten frisst der Dunst es ohnehin.
+            zacken * (1 - Math.abs(Math.sin(u * 61 + ph[4]))));
       ctx.lineTo(x, y);
     }
     ctx.lineTo(w + OVER, h);
@@ -214,23 +248,38 @@ function backdropTexture() {
   // Kräftiger als im ersten Anlauf: Mit 0,78 Dunst auf einem ohnehin hellen
   // Grün war die hinterste Kette praktisch unsichtbar und die Ferne ein
   // gleichmäßiger heller Nebel ohne Staffelung.
+  // Sechs Ketten statt vier. Die Staffelung trägt die Tiefe – das „Meer aus
+  // Graten" ist die Gattung, nicht die einzelne Linie.
   const base = [34, 52, 41];
+  // [Grundhöhe, Amplitude, Dunstanteil, Weichzeichnung, Zackenanteil, Gipfel]
   const layers = [
-    [h * 0.42, h * 0.15, 0.66, 7],
-    [h * 0.56, h * 0.13, 0.46, 5],
-    [h * 0.7, h * 0.11, 0.26, 3.5],
-    [h * 0.84, h * 0.09, 0.07, 2],
+    [h * 0.34, h * 0.17, 0.72, 8, 0, 1.1],
+    [h * 0.45, h * 0.15, 0.6, 6.5, 0, null],
+    [h * 0.56, h * 0.13, 0.46, 5, 0, 4.3],
+    [h * 0.66, h * 0.12, 0.32, 4, 0.05, null],
+    [h * 0.76, h * 0.1, 0.19, 3, 0.07, 2.6],
+    [h * 0.85, h * 0.085, 0.07, 2, 0.09, null],
   ];
-  layers.forEach(([y, amp, haze, blur], i) => {
+  layers.forEach(([y, amp, haze, blur, zacken, gipfel], i) => {
     const c = base.map((v, k) => Math.round(v * (1 - haze) + SKY_LOW[k] * haze));
-    ridge(y, amp, `rgb(${c.join(',')})`, blur, 0x1234 + i * 977);
-    // Dunstband am Fuß jeder Kette – dadurch sitzen die Ketten nicht
-    // aufeinander, sondern stehen hintereinander.
-    const g = ctx.createLinearGradient(0, y - amp * 0.2, 0, y + h * 0.1);
+    ridge(y, amp, `rgb(${c.join(',')})`, blur, 0x1234 + i * 977, zacken, gipfel);
+    // **Dunst in den Tälern, nicht am Fuß.**
+    //
+    // Vorher lag unter jeder Kette ein gleichmäßiges Band; die Ketten standen
+    // damit hintereinander, aber jede blieb eine geschlossene Silhouette. Was
+    // eine japanische Bergferne ausmacht, ist der Nebel, der die Einschnitte
+    // füllt und die Grate stehen lässt.
+    //
+    // Erreicht wird das über die **Lage**: Das Band sitzt jetzt auf der
+    // mittleren Kammhöhe statt darunter. Alles unterhalb – also die Täler –
+    // verschwindet darin, die Gipfel ragen heraus.
+    const bandMitte = y - amp * 0.35;
+    const g = ctx.createLinearGradient(0, bandMitte - amp * 0.55, 0, bandMitte + amp * 1.5);
     g.addColorStop(0, `rgba(${SKY_LOW.join(',')},0)`);
-    g.addColorStop(1, `rgba(${SKY_LOW.join(',')},${0.34 - i * 0.07})`);
+    g.addColorStop(0.45, `rgba(${SKY_LOW.join(',')},${(0.44 - i * 0.055).toFixed(3)})`);
+    g.addColorStop(1, `rgba(${SKY_LOW.join(',')},0)`);
     ctx.fillStyle = g;
-    ctx.fillRect(0, y - amp * 0.2, w, h * 0.1 + amp);
+    ctx.fillRect(0, bandMitte - amp * 0.55, w, amp * 2.05);
   });
 
   // Bewaldeter Vordergrundsaum: dunkel, feingezackt, ohne Dunst. Er schließt

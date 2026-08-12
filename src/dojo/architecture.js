@@ -228,7 +228,7 @@ export function buildArchitecture() {
   // ohne das wirft der Hain zwar Schatten, aber nicht dorthin, wo man sie sieht.
   const washi = washiMaterial({
     emissive: 0xffeccc,
-    emissiveIntensity: 0.44,
+    emissiveIntensity: 0.38,
     shadowedEmissive: true,
   });
   // Papier auf den drei Schattenseiten. Süd, West und Nord liegen im Schatten
@@ -261,6 +261,21 @@ export function buildArchitecture() {
     // Wand glimmen. Ihn global über die Grundfarbe aufzuholen würde die Westwand
     // ausbrennen: Sie ist mit Abstand die hellste Fläche im Raum, weil die
     // Ostsonne quer durch die Shoji-Front auf sie fällt. Also nur hier.
+    // **Unverändert bei 0xe8e0cc und 0,28 – ein Rücknahmeversuch ist gemessen
+    // gescheitert.**
+    //
+    // Der Auftrag war, das durchscheinende Licht zu dämpfen, und der erste
+    // Griff ging hierhin: Grundfarbe auf 0xdfd6c0, Intensität auf 0,22. Das
+    // Ergebnis war das Gegenteil von beabsichtigt – die Nordwand fiel von
+    // Verhältnis 1,16 auf 1,10 und damit unter das Gate (Papier muss heller
+    // sein als der Putz daneben), während der Spitzenwert der Westwand von 251
+    // auf 252 ging, also nirgendwohin.
+    //
+    // Die Rechnung dahinter: 21 % weniger Eigenleuchten haben die Westwand um
+    // **einen** Luminanzpunkt gesenkt. Ihre Helligkeit stammt praktisch
+    // vollständig aus einfallendem Licht – die Ostsonne fällt quer durch die
+    // Shoji-Front auf sie. Am Papier ist dort nichts zu holen; gedämpft wird
+    // deshalb dort, wo das Leuchten wirklich sitzt: auf den besonnten Seiten.
     color: 0xe8e0cc,
     emissive: 0xffe2bc,
     emissiveIntensity: 0.28,
@@ -280,7 +295,7 @@ export function buildArchitecture() {
   // die Grundhelligkeit zu liefern.
   const washiGraze = washiMaterial({
     emissive: 0xffe8c6,
-    emissiveIntensity: 0.3,
+    emissiveIntensity: 0.25,
     shadowedEmissive: true,
   });
 
@@ -969,9 +984,24 @@ export function buildArchitecture() {
   // Für die Front ist das Merkmal richtig und bleibt: Dort zeichnet der
   // Bambushain seinen Schattenriss ins Papier, und das ist der halbe Reiz der
   // Ostseite. Ein Band unter der Traufe hat diesen Schattenriss nie.
-  const ranmaSun = washiMaterial({ emissive: 0xffeccc, emissiveIntensity: 0.44 });
-  const ranmaGraze = washiMaterial({ emissive: 0xffe8c6, emissiveIntensity: 0.3 });
+  const ranmaSun = washiMaterial({ emissive: 0xffeccc, emissiveIntensity: 0.38 });
+  const ranmaGraze = washiMaterial({ emissive: 0xffe8c6, emissiveIntensity: 0.25 });
   const ranmaShade = washiMaterial({
+    // **Unverändert bei 0xe8e0cc und 0,28 – ein Rücknahmeversuch ist gemessen
+    // gescheitert.**
+    //
+    // Der Auftrag war, das durchscheinende Licht zu dämpfen, und der erste
+    // Griff ging hierhin: Grundfarbe auf 0xdfd6c0, Intensität auf 0,22. Das
+    // Ergebnis war das Gegenteil von beabsichtigt – die Nordwand fiel von
+    // Verhältnis 1,16 auf 1,10 und damit unter das Gate (Papier muss heller
+    // sein als der Putz daneben), während der Spitzenwert der Westwand von 251
+    // auf 252 ging, also nirgendwohin.
+    //
+    // Die Rechnung dahinter: 21 % weniger Eigenleuchten haben die Westwand um
+    // **einen** Luminanzpunkt gesenkt. Ihre Helligkeit stammt praktisch
+    // vollständig aus einfallendem Licht – die Ostsonne fällt quer durch die
+    // Shoji-Front auf sie. Am Papier ist dort nichts zu holen; gedämpft wird
+    // deshalb dort, wo das Leuchten wirklich sitzt: auf den besonnten Seiten.
     color: 0xe8e0cc,
     emissive: 0xffe2bc,
     emissiveIntensity: 0.28,

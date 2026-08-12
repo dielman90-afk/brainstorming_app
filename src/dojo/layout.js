@@ -320,6 +320,17 @@ export const EXTERIOR = {
     // und ein Halm mitten im Karesansui wäre kein Zuwachs.
     { name: 'suedwest', x0: -11.4, x1: -6.2, z0: 7.0, z1: 12.6, count: 18, tuffs: 8 },
     { name: 'suedost', x0: 6.2, x1: 11.4, z0: 7.0, z1: 12.6, count: 18, tuffs: 8 },
+    // **Die Flanken des Kiesbeets.** Der seitliche Hain begann bei |x| = 6,2,
+    // das Beet endet bei 5,4 – dazwischen standen nur Azaleenpolster, und aus
+    // der Tür las sich die Flanke dadurch als Buschwall statt als Hain. Diese
+    // beiden Streifen schließen die Lücke.
+    //
+    // Schmal und dicht: 0,9 m Breite auf 4,8 m Länge mit 26 Halmen ergibt rund
+    // einen Halm je 0,17 m² – deutlich dichter als der übrige Ring. Genau das
+    // will man an einer Beetkante; ein aufgelockerter Hain ist ein Hain, eine
+    // Beeteinfassung ist eine Wand.
+    { name: 'flanke-west', x0: -6.4, x1: -5.5, z0: 8.4, z1: 13.2, count: 26, tuffs: 8 },
+    { name: 'flanke-ost', x0: 5.5, x1: 6.4, z0: 8.4, z1: 13.2, count: 26, tuffs: 8 },
   ],
   // Zweite Gruppe vor der Südfront – dort schaut man durch offene Felder
   // hinaus, hier zählt die Sicht und nicht der Schatten. Nach hinten gerückt,
