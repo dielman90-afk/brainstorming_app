@@ -199,9 +199,17 @@ const SKY_FRAGMENT = /* glsl */ `
 // ein Rendertarget. Der Schlüssel ist der Renderer – ein Kontextverlust oder
 // ein zweiter Renderer bekommt zwangsläufig eine neue Karte, weil Texturen
 // nicht zwischen Kontexten wandern.
+// **Der Zwischenspeicher ist nach Himmel geschlüsselt, nicht nur nach Renderer.**
+//
+// Seit der Zen-Garten dieselbe Funktion benutzt, gibt es mehr als einen Himmel:
+// Die Dojo-Sonne steht bei [15,3 | 3,9 | 6,5], die des Zen-Gartens bei
+// [−12 | 9 | −6], und die Zenit- und Dunstfarben unterscheiden sich ebenfalls.
+// Mit dem alten Schlüssel „Renderer" hätte die zweite Umgebung stillschweigend
+// die Karte der ersten bekommen – die Sonnenscheibe säße auf der falschen
+// Seite, und zwar ohne jede Fehlermeldung. Genau die Sorte Fehler, die man erst
+// an einem Glanzlicht bemerkt, das nach hinten zeigt.
+const _skyCache = new Map();
 let _sky = null;
-let _skyTarget = null;
-let _skyRenderer = null;
 let _buildMs = 0;
 
 /**
@@ -213,19 +221,48 @@ let _buildMs = 0;
  * Sonde ist also egal; was zählt, ist allein die Verteilung der Strahldichte.
  *
  * @param {THREE.WebGLRenderer} renderer
+ * @param {object} [himmel] Abweichender Himmel. Ohne Angabe der des Dojos –
+ *   jede vorhandene Aufrufstelle bleibt damit buchstabengleich.
+ * @param {string} [himmel.name]  Schlüssel für den Zwischenspeicher. **Pflicht,
+ *   sobald irgendein anderer Wert gesetzt wird**, sonst teilen sich zwei
+ *   verschiedene Himmel eine Karte.
+ * @param {number[]} [himmel.sun]      Sonnen*position*, nicht Richtung.
+ * @param {number[]} [himmel.target]   Wohin die Sonne zielt.
+ * @param {number} [himmel.sunColor]   Farbe der Sonnenscheibe als Hex.
+ * @param {object} [himmel.sky]        Ersatz für SKY (zenith/horizon/haze/ground).
  * @returns {THREE.Texture} CubeUV-Karte, direkt als `material.envMap` nutzbar.
  */
-export function buildSkyEnvironment(renderer) {
-  if (_sky && _skyRenderer === renderer) return _sky;
+export function buildSkyEnvironment(renderer, himmel = null) {
+  const schluessel = `${himmel?.name ?? 'dojo'}`;
+  const gemerkt = _skyCache.get(schluessel);
+  if (gemerkt && gemerkt.renderer === renderer) {
+    _sky = gemerkt.texture;
+    return _sky;
+  }
 
   const t0 = performance.now();
 
   // Richtung **zur** Sonne. `sunDirection()` liefert die Richtung, in die das
-  // Licht läuft; die Sonne steht auf der Gegenseite. Das ist die eine Stelle,
-  // an der die Karte an layout.js hängt – und der Grund, warum ein Verschieben
-  // der Sonne die Scheibe automatisch mitnimmt.
-  const [dx, dy, dz] = sunDirection();
+  // Licht läuft; die Sonne steht auf der Gegenseite. Ohne `himmel` ist das die
+  // eine Stelle, an der die Karte an layout.js hängt – und der Grund, warum ein
+  // Verschieben der Dojo-Sonne die Scheibe automatisch mitnimmt.
+  const [dx, dy, dz] =
+    himmel?.sun && himmel?.target
+      ? (() => {
+          const d = [
+            himmel.target[0] - himmel.sun[0],
+            himmel.target[1] - himmel.sun[1],
+            himmel.target[2] - himmel.sun[2],
+          ];
+          const len = Math.hypot(...d) || 1;
+          return d.map((v) => v / len);
+        })()
+      : sunDirection();
   const sunDir = new THREE.Vector3(-dx, -dy, -dz).normalize();
+  const himmelFarben = himmel?.sky ?? SKY;
+  const sonnenScheibe = himmel?.sunColor
+    ? { hex: himmel.sunColor, level: SUN_DISC.level }
+    : SUN_DISC;
 
   const probe = new THREE.Scene();
   const material = new THREE.ShaderMaterial({
@@ -234,11 +271,11 @@ export function buildSkyEnvironment(renderer) {
     fog: false,
     // Kein Tone-Mapping, keine Farbraumwandlung – der PMREM rendert linear.
     uniforms: {
-      uZenith: { value: radiance(SKY.zenith) },
-      uHorizon: { value: radiance(SKY.horizon) },
-      uHaze: { value: radiance(SKY.haze) },
-      uGround: { value: radiance(SKY.ground) },
-      uSunColor: { value: radiance(SUN_DISC) },
+      uZenith: { value: radiance(himmelFarben.zenith) },
+      uHorizon: { value: radiance(himmelFarben.horizon) },
+      uHaze: { value: radiance(himmelFarben.haze) },
+      uGround: { value: radiance(himmelFarben.ground) },
+      uSunColor: { value: radiance(sonnenScheibe) },
       uSunDir: { value: sunDir },
       uSunInner: { value: SUN_INNER },
       uSunOuter: { value: SUN_OUTER },
@@ -265,9 +302,8 @@ export function buildSkyEnvironment(renderer) {
   shell.geometry.dispose();
   material.dispose();
 
-  _skyTarget = target;
+  _skyCache.set(schluessel, { target, texture: target.texture, renderer });
   _sky = target.texture;
-  _skyRenderer = renderer;
   _buildMs = performance.now() - t0;
   return _sky;
 }
@@ -277,12 +313,11 @@ export function skyBuildMs() {
   return _buildMs;
 }
 
-/** Gibt Karte und Rendertarget frei; der nächste Aufruf baut neu. */
+/** Gibt Karten und Rendertargets frei; der nächste Aufruf baut neu. */
 export function disposeSkyEnvironment() {
-  _skyTarget?.dispose();
-  _skyTarget = null;
+  for (const eintrag of _skyCache.values()) eintrag.target?.dispose();
+  _skyCache.clear();
   _sky = null;
-  _skyRenderer = null;
 }
 
 // --- Zuweisung ---------------------------------------------------------------

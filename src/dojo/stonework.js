@@ -494,6 +494,12 @@ export function ensureVertexColors(geometry) {
  *   Argumente liegen im linearen Arbeitsraum und werden zu hell).
  * @param {number} [options.scale]     Fleckengröße in Metern.
  * @param {number} [options.seed]
+ * @param {number[]} [options.sun]     Richtung, in die das Licht **läuft**, als
+ *   Einheitsvektor. Ohne Angabe die Sonne des Dojos aus `layout.js`. Der
+ *   Zen-Garten hat eine andere (sie steht bei [−12 | 9 | −6]); ohne diesen
+ *   Parameter bekämen seine Steine ihre Wetterseite von einer Sonne, die dort
+ *   gar nicht scheint – falsch, aber unauffällig genug, um jahrelang zu
+ *   überleben.
  * @returns {THREE.BufferGeometry} dieselbe Geometrie
  */
 export function mossPatina(geometry, options = {}) {
@@ -505,6 +511,7 @@ export function mossPatina(geometry, options = {}) {
     color = 0x4e5c2e,
     scale = 0.55,
     seed = 3,
+    sun = null,
   } = options;
 
   ensureVertexColors(geometry);
@@ -520,7 +527,7 @@ export function mossPatina(geometry, options = {}) {
   const radMax = Math.max(1e-4, Math.hypot(bb.max.x - cx, bb.max.z - cz));
 
   // Richtung, in die das Licht **läuft**; besonnt ist, was ihr entgegensteht.
-  const [sx, sy, sz] = sunDirection();
+  const [sx, sy, sz] = sun ?? sunDirection();
 
   // Moosfaktor je Kanal. Auf den größten Kanal normiert und dann abgedunkelt:
   // multiplikativ angewandt verschiebt das den Ton ins Grüne **und** dunkelt
