@@ -1607,48 +1607,76 @@ function addPoleRack(B) {
 // weniger als zwei Metern gesehen, und die Alternative wäre eine 4096er Textur,
 // die auf der Quest allein 32 MB Grafikspeicher kostet.
 //
-// Die Komposition folgt der Nijo-Referenz: Goldgrund mit Wolkenbändern, ferne
-// Berge in blasser Tusche, eine große Kiefer als Hauptmotiv, Bambus als
-// Gegengewicht am anderen Ende, dazwischen Ruhe. Das Hauptmotiv liegt bewusst
-// im rechten Drittel – bei z ≈ −1,15 steht der Stangenständer davor, und hinter
-// einem Ständer gehört ruhiger Grund, kein Astwerk.
-function fusumaTexture() {
-  const w = 2048;
-  const h = 256;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
+// **In Schichten zerlegt, damit es Entwürfe geben kann.** Der erste Anlauf war
+// eine Funktion von 170 Zeilen mit genau einem Ergebnis. Innerlich war sie
+// schon sauber getrennt – Grund, Berge, Wolken, Kiefer, Bambus, Siegel –, also
+// kostet die Zerlegung nichts und bringt sechs Motive statt einem.
+//
+// Das Format bestimmt mit, was funktioniert: 7,4 : 1 ist ein langes flaches
+// Band. Landschaft, Pflanzen und Zuglinien tragen es; eine einzelne zentrale
+// Figur nicht. Deshalb gibt es hier keine Samurai-Darstellung, sondern die
+// Gattungen, die für dieses Format erfunden wurden.
 
-  let seed = 0x9a31 >>> 0;
-  const rnd = () => {
-    seed = (Math.imul(seed ^ (seed >>> 15), 0x2c1b3c6d) + 0x9e3779b9) | 0;
-    return ((seed >>> 8) & 0xffffff) / 0x1000000;
-  };
+const FUSUMA_PALETTEN = {
+  // Blattgold. Der Verlauf allein ergibt eine gelbe Fläche – was Blattgold
+  // ausmacht, sind die **Kacheln**: quadratische Blätter von rund zehn
+  // Zentimetern, deren Ränder sich überlappen und dabei etwas dunkler stehen.
+  // Ohne sie fehlt der Maßstab, und die Wand könnte zwei Meter lang sein oder
+  // zwanzig.
+  gold: {
+    verlauf: ['#c08f38', '#dcb05e', '#ab7c2e'],
+    blattgold: true,
+    fuge: 'rgba(126,90,32,0.30)',
+    glanz: 'rgba(255,236,180,',
+    wolke: '240,214,150',
+    berg: 'rgba(78,92,90,0.5)',
+    tusche: (a) => `rgba(20,18,16,${a})`,
+    siegelRand: 'rgba(232,206,150,0.85)',
+  },
+  // Heller Papiergrund für die reinen Tuschemotive. Kein Blattgold: Tusche auf
+  // Gold ist Dekoration, Tusche auf Papier ist Malerei, und die beiden Gattungen
+  // zu mischen sähe nach Unentschlossenheit aus.
+  papier: {
+    verlauf: ['#e3dccb', '#f1ebdd', '#d8d0bd'],
+    blattgold: false,
+    fuge: null,
+    glanz: 'rgba(255,255,255,',
+    wolke: '255,252,244',
+    berg: 'rgba(96,108,108,0.42)',
+    tusche: (a) => `rgba(28,26,24,${a})`,
+    siegelRand: 'rgba(250,246,236,0.9)',
+  },
+};
 
-  // --- Blattgold ------------------------------------------------------------
-  //
-  // Der Verlauf allein ergibt eine gelbe Fläche. Was Blattgold ausmacht, sind
-  // die **Kacheln**: quadratische Blätter von rund zehn Zentimetern, deren
-  // Ränder sich überlappen und dabei etwas dunkler stehen. Ohne sie fehlt der
-  // Maßstab, und die Wand könnte genauso gut zwei Meter oder zwanzig lang sein.
+function fsGrund(ctx, w, h, rnd, pal) {
   const bg = ctx.createLinearGradient(0, 0, 0, h);
-  bg.addColorStop(0, '#c08f38');
-  bg.addColorStop(0.45, '#dcb05e');
-  bg.addColorStop(1, '#ab7c2e');
+  bg.addColorStop(0, pal.verlauf[0]);
+  bg.addColorStop(0.45, pal.verlauf[1]);
+  bg.addColorStop(1, pal.verlauf[2]);
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, w, h);
-
+  if (!pal.blattgold) {
+    // Papier bekommt statt der Kacheln eine feine Faserung – sonst ist es eine
+    // gleichmäßige Fläche, und daran erkennt man eine gerechnete Textur sofort.
+    for (let i = 0; i < 2600; i++) {
+      const y = rnd() * h;
+      ctx.strokeStyle = `rgba(150,142,126,${(0.03 + rnd() * 0.06).toFixed(3)})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(rnd() * w, y);
+      ctx.lineTo(rnd() * w, y + (rnd() - 0.5) * 2);
+      ctx.stroke();
+    }
+    return;
+  }
   const blatt = Math.round((h / 1.6) * 0.105); // ~10,5 cm in Bildpunkten
   for (let y = 0; y < h; y += blatt) {
     for (let x = 0; x < w; x += blatt) {
-      // Jedes Blatt minimal anders hell – so entsteht das unruhige Flimmern
-      // einer geschlagenen Goldfläche statt einer glatten Lackierung.
-      ctx.fillStyle = `rgba(255,236,180,${(0.03 + rnd() * 0.07).toFixed(3)})`;
+      ctx.fillStyle = `${pal.glanz}${(0.03 + rnd() * 0.07).toFixed(3)})`;
       ctx.fillRect(x, y, blatt, blatt);
     }
   }
-  ctx.strokeStyle = 'rgba(126,90,32,0.30)';
+  ctx.strokeStyle = pal.fuge;
   ctx.lineWidth = 1;
   for (let x = 0; x <= w; x += blatt) {
     ctx.beginPath();
@@ -1662,79 +1690,84 @@ function fusumaTexture() {
     ctx.lineTo(w, y + 0.5);
     ctx.stroke();
   }
+}
 
-  // --- Ferne Berge ----------------------------------------------------------
-  ctx.fillStyle = 'rgba(78,92,90,0.5)';
-  ctx.beginPath();
-  ctx.moveTo(0, h * 0.72);
-  let bx = 0;
-  while (bx < w) {
-    const nx = bx + 150 + rnd() * 260;
-    ctx.quadraticCurveTo((bx + nx) / 2, h * (0.36 + rnd() * 0.22), nx, h * (0.64 + rnd() * 0.12));
-    bx = nx;
+function fsBerge(ctx, w, h, rnd, pal, lagen = 1) {
+  for (let l = 0; l < lagen; l++) {
+    const tiefe = l / Math.max(1, lagen);
+    ctx.fillStyle = pal.berg.replace(/[\d.]+\)$/, `${(0.5 - tiefe * 0.28).toFixed(2)})`);
+    ctx.beginPath();
+    const basis = h * (0.72 - tiefe * 0.06);
+    ctx.moveTo(0, basis);
+    let bx = 0;
+    while (bx < w) {
+      const nx = bx + 150 + rnd() * 260;
+      ctx.quadraticCurveTo(
+        (bx + nx) / 2,
+        h * (0.36 - tiefe * 0.16 + rnd() * 0.22),
+        nx,
+        h * (0.64 - tiefe * 0.05 + rnd() * 0.12)
+      );
+      bx = nx;
+    }
+    ctx.lineTo(w, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    ctx.fill();
   }
-  ctx.lineTo(w, h);
-  ctx.lineTo(0, h);
-  ctx.closePath();
-  ctx.fill();
+}
 
-  // --- Wolkenbänder ---------------------------------------------------------
-  //
-  // Suyari-gasumi: waagerechte Goldschwaden mit weichen Enden. Sie sind das
-  // Bindeglied der ganzen Gattung – sie decken zu, was zwischen den Motiven
-  // liegt, und geben der Fläche Tiefe, ohne etwas darzustellen.
-  const wolke = (x0, y0, laenge, dicke, deckung) => {
+// Suyari-gasumi: waagerechte Schwaden mit weich auslaufenden Enden. Sie sind das
+// Bindeglied der ganzen Gattung – sie decken zu, was zwischen den Motiven liegt,
+// und geben der Fläche Tiefe, ohne etwas darzustellen.
+function fsWolken(ctx, w, h, rnd, pal, anzahl = 14) {
+  for (let i = 0; i < anzahl; i++) {
+    const x0 = rnd() * w - 200;
+    const laenge = 240 + rnd() * 520;
+    const y0 = h * (0.1 + rnd() * 0.7);
+    const dicke = 10 + rnd() * 18;
+    const deckung = 0.42 + rnd() * 0.3;
     const g = ctx.createLinearGradient(x0, 0, x0 + laenge, 0);
-    g.addColorStop(0, 'rgba(240,214,150,0)');
-    g.addColorStop(0.18, `rgba(240,214,150,${deckung})`);
-    g.addColorStop(0.82, `rgba(240,214,150,${deckung})`);
-    g.addColorStop(1, 'rgba(240,214,150,0)');
+    g.addColorStop(0, `rgba(${pal.wolke},0)`);
+    g.addColorStop(0.18, `rgba(${pal.wolke},${deckung})`);
+    g.addColorStop(0.82, `rgba(${pal.wolke},${deckung})`);
+    g.addColorStop(1, `rgba(${pal.wolke},0)`);
     ctx.fillStyle = g;
     ctx.fillRect(x0, y0, laenge, dicke);
-  };
-  for (let i = 0; i < 14; i++) {
-    wolke(
-      rnd() * w - 200,
-      h * (0.1 + rnd() * 0.7),
-      240 + rnd() * 520,
-      10 + rnd() * 18,
-      0.42 + rnd() * 0.3
-    );
   }
+}
 
-  // --- Kiefer ---------------------------------------------------------------
-  const ink = (a) => `rgba(20,18,16,${a})`;
+// Nadelpolster: viele kurze Striche aus einem Punkt heraus. Eine gefüllte Fläche
+// wäre ein Fleck; die Kiefer der Tuschemalerei besteht aus Strichen, und aus
+// zwei Metern sieht man genau das.
+function fsPolster(ctx, rnd, pal, cx, cy, rad) {
+  for (let i = 0; i < 70; i++) {
+    const a = rnd() * Math.PI * 2;
+    const d = rad * (0.25 + rnd() * 0.75);
+    ctx.strokeStyle = pal.tusche(0.34 + rnd() * 0.4);
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a) * d * 0.25, cy + Math.sin(a) * d * 0.25);
+    ctx.lineTo(cx + Math.cos(a) * d, cy + Math.sin(a) * d);
+    ctx.stroke();
+  }
+}
+
+function fsAst(ctx, pal, x0, y0, x1, y1, dicke) {
+  ctx.strokeStyle = pal.tusche(0.9);
+  ctx.lineWidth = dicke;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.quadraticCurveTo((x0 + x1) / 2, Math.min(y0, y1) - 18, x1, y1);
+  ctx.stroke();
+}
+
+// Kiefer: Stamm aus dem Boden, vier Astebenen, Nadelpolster an den Enden.
+// `silhouette` füllt statt zu zeichnen – dafür, dass sie vor der Sonne steht.
+function fsKiefer(ctx, w, h, rnd, pal, { sx = w * 0.72, laub = true } = {}) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-
-  // Nadelpolster: viele kurze Striche aus einem Punkt heraus. Eine gefüllte
-  // Fläche wäre ein grüner Fleck; die Kiefer der Tuschemalerei besteht aus
-  // Strichen, und aus zwei Metern sieht man genau das.
-  const polster = (cx, cy, rad) => {
-    for (let i = 0; i < 70; i++) {
-      const a = rnd() * Math.PI * 2;
-      const d = rad * (0.25 + rnd() * 0.75);
-      ctx.strokeStyle = ink(0.34 + rnd() * 0.4);
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(cx + Math.cos(a) * d * 0.25, cy + Math.sin(a) * d * 0.25);
-      ctx.lineTo(cx + Math.cos(a) * d, cy + Math.sin(a) * d);
-      ctx.stroke();
-    }
-  };
-
-  const ast = (x0, y0, x1, y1, dicke) => {
-    ctx.strokeStyle = ink(0.9);
-    ctx.lineWidth = dicke;
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.quadraticCurveTo((x0 + x1) / 2, Math.min(y0, y1) - 18, x1, y1);
-    ctx.stroke();
-  };
-
-  // Stamm: aus dem Boden im rechten Drittel, nach links geneigt.
-  const sx = w * 0.72;
-  ctx.strokeStyle = ink(0.94);
+  ctx.strokeStyle = pal.tusche(0.94);
   ctx.lineWidth = 15;
   ctx.beginPath();
   ctx.moveTo(sx + 26, h * 1.04);
@@ -1746,47 +1779,275 @@ function fusumaTexture() {
     [sx - 6, h * 0.72, sx - 165, h * 0.62, 6],
     [sx + 6, h * 0.86, sx + 210, h * 0.74, 6],
   ]) {
-    ast(ax, ay, bx2, by, d);
-    polster(bx2, by, 34 + rnd() * 20);
+    fsAst(ctx, pal, ax, ay, bx2, by, d);
+    if (laub) fsPolster(ctx, rnd, pal, bx2, by, 34 + rnd() * 20);
   }
-  polster(sx - 54, h * 0.32, 42);
+  if (laub) fsPolster(ctx, rnd, pal, sx - 54, h * 0.32, 42);
+}
 
-  // --- Bambus als Gegengewicht ---------------------------------------------
-  //
-  // Am linken Ende, dünner und stiller. Ein Motiv allein auf zwölf Metern wäre
-  // eine Wand mit einem Fleck darauf; zwei ungleiche Motive machen daraus eine
-  // Komposition.
-  for (const bxx of [w * 0.13, w * 0.16, w * 0.185]) {
-    ctx.strokeStyle = ink(0.72);
-    ctx.lineWidth = 4;
+// **Ein Bambusblatt ist eine Klinge, keine Sprosse.**
+//
+// Der erste Anlauf hat jedes Blatt als kurzen waagerechten Strich gezeichnet.
+// Bei sechs Knoten je Halm und zwei Blättern je Knoten ergab das ein
+// regelmäßiges Gitter – im Bild ein Maschendrahtzaun, kein Hain. Der Fehler war
+// nicht die Zahl, sondern die Form: gleiche Länge, gleiche Richtung, gleiche
+// Strichstärke.
+//
+// Ein echtes Blatt ist lang, schmal, spitz zulaufend und hängt nach unten. Als
+// gefüllte Linsenform mit zufälliger Länge und einem Winkel zwischen 15° und
+// 70° unter der Waagerechten wird daraus Laub.
+function fsBambusBlatt(ctx, x, y, laenge, winkel, dicke) {
+  const ex = x + Math.cos(winkel) * laenge;
+  const ey = y + Math.sin(winkel) * laenge;
+  const mx = x + (ex - x) * 0.45;
+  const my = y + (ey - y) * 0.45;
+  const nx = -Math.sin(winkel) * dicke;
+  const ny = Math.cos(winkel) * dicke;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.quadraticCurveTo(mx + nx, my + ny, ex, ey);
+  ctx.quadraticCurveTo(mx - nx * 0.35, my - ny * 0.35, x, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function fsBambus(ctx, w, h, rnd, pal, xs, staerke = 4) {
+  ctx.lineCap = 'round';
+  for (const bxx of xs) {
+    // Halme in verschiedenen Tonwerten: Das ist die einzige Tiefe, die eine
+    // Tuschezeichnung hat. Gleich dunkle Halme stehen alle in derselben Ebene.
+    const tiefe = 0.35 + rnd() * 0.6;
+    ctx.strokeStyle = pal.tusche(0.3 + tiefe * 0.6);
+    ctx.lineWidth = staerke * (0.6 + tiefe * 0.6);
+    const neigung = 10 + rnd() * 16;
     ctx.beginPath();
     ctx.moveTo(bxx, h * 1.02);
-    ctx.quadraticCurveTo(bxx - 8, h * 0.6, bxx - 16, h * 0.12);
+    ctx.quadraticCurveTo(bxx - neigung * 0.5, h * 0.6, bxx - neigung, h * 0.06);
     ctx.stroke();
-    for (let k = 0; k < 5; k++) {
-      const yy = h * (0.9 - k * 0.19);
-      const xx = bxx - 16 * (1 - yy / h);
-      ctx.lineWidth = 2;
-      for (const dir of [-1, 1]) {
-        ctx.beginPath();
-        ctx.moveTo(xx, yy);
-        ctx.quadraticCurveTo(xx + dir * 26, yy - 12, xx + dir * 54, yy - 4);
-        ctx.stroke();
+
+    // Knoten als kurze Querstriche – daran erkennt man Bambus, noch bevor man
+    // das Laub sieht.
+    for (let k = 1; k < 6; k++) {
+      const yy = h * (1.0 - k * 0.19);
+      const xx = bxx - neigung * (1 - yy / h);
+      ctx.lineWidth = staerke * (0.6 + tiefe * 0.6);
+      ctx.beginPath();
+      ctx.moveTo(xx - 3, yy);
+      ctx.lineTo(xx + 3, yy);
+      ctx.stroke();
+    }
+
+    // Laub nur im oberen Drittel. Bambus verzweigt oben; unten ist Halm, und
+    // genau dieser leere Schaft macht die Silhouette.
+    ctx.fillStyle = pal.tusche(0.28 + tiefe * 0.5);
+    for (let k = 0; k < 3; k++) {
+      const yy = h * (0.34 - k * 0.11) + (rnd() - 0.5) * 16;
+      const xx = bxx - neigung * (1 - yy / h);
+      for (let n = 0; n < 4 + Math.floor(rnd() * 4); n++) {
+        const dir = rnd() < 0.5 ? -1 : 1;
+        // 15° bis 70° unter der Waagerechten, nach außen.
+        const winkel = dir < 0 ? Math.PI - (0.26 + rnd() * 0.96) : 0.26 + rnd() * 0.96;
+        fsBambusBlatt(ctx, xx, yy, 26 + rnd() * 34, winkel, 2.6 + rnd() * 2.2);
       }
     }
   }
+}
 
-  // --- Siegel ---------------------------------------------------------------
+// Kirschblüte: dunkle Äste, darauf Dolden aus kleinen weißen Blüten. Der
+// Unterschied zwischen „Blüte" und „weißer Fleck" ist der rosa Kern und die
+// Streuung – gleichmäßig verteilte gleich große Punkte lesen sich als Muster.
+function fsKirsche(ctx, w, h, rnd, pal) {
+  ctx.lineCap = 'round';
+  for (const sx of [w * 0.18, w * 0.55, w * 0.86]) {
+    ctx.strokeStyle = pal.tusche(0.88);
+    ctx.lineWidth = 11;
+    ctx.beginPath();
+    ctx.moveTo(sx + 30, h * 1.05);
+    ctx.bezierCurveTo(sx + 14, h * 0.72, sx - 22, h * 0.52, sx - 70, h * 0.26);
+    ctx.stroke();
+    const dolden = [];
+    for (const [ax, ay, bx2, by] of [
+      [sx - 30, h * 0.44, sx - 190, h * 0.22],
+      [sx - 10, h * 0.6, sx + 140, h * 0.3],
+      [sx + 4, h * 0.8, sx - 130, h * 0.6],
+      [sx + 12, h * 0.9, sx + 175, h * 0.66],
+    ]) {
+      fsAst(ctx, pal, ax, ay, bx2, by, 5);
+      dolden.push([bx2, by]);
+      // Feine Zweige an den Astenden – ohne sie schweben die Blüten.
+      for (let k = 0; k < 3; k++) {
+        const zx = bx2 + (rnd() - 0.5) * 90;
+        const zy = by + (rnd() - 0.5) * 50;
+        ctx.strokeStyle = pal.tusche(0.6);
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(bx2, by);
+        ctx.lineTo(zx, zy);
+        ctx.stroke();
+        dolden.push([zx, zy]);
+      }
+    }
+    for (const [cx, cy] of dolden) {
+      for (let i = 0; i < 26; i++) {
+        const a = rnd() * Math.PI * 2;
+        const d = (14 + rnd() * 34) * (0.4 + rnd() * 0.6);
+        const px = cx + Math.cos(a) * d;
+        const py = cy + Math.sin(a) * d * 0.75;
+        const rad = 2.2 + rnd() * 2.6;
+        ctx.fillStyle = `rgba(255,250,248,${(0.72 + rnd() * 0.28).toFixed(2)})`;
+        ctx.beginPath();
+        ctx.arc(px, py, rad, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(214,150,158,0.7)';
+        ctx.beginPath();
+        ctx.arc(px, py, rad * 0.32, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+}
+
+// Sonnenscheibe. Mattes Zinnoberrot, kein Verlauf: Der Sonnenball dieser
+// Bildsprache ist eine flache Scheibe, kein Leuchten – der Verlauf würde ihn zu
+// einer Lichtquelle machen und den Goldgrund entwerten.
+function fsSonne(ctx, w, h, pal, cx = w * 0.6, rad = h * 0.4) {
+  ctx.fillStyle = 'rgba(178,44,34,0.92)';
+  ctx.beginPath();
+  ctx.arc(cx, h * 0.42, rad, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// Kranichzug. Jeder Kranich ist ein Strich für den Hals, zwei Bögen für die
+// Flügel und ein Punkt für den Körper – mehr trägt die Auflösung nicht, und
+// mehr braucht die Silhouette auch nicht.
+function fsKraniche(ctx, w, h, rnd, pal) {
+  for (let i = 0; i < 9; i++) {
+    const cx = w * (0.06 + i * 0.105) + (rnd() - 0.5) * 40;
+    const cy = h * (0.2 + Math.sin(i * 0.9) * 0.13 + rnd() * 0.08);
+    const s = (0.75 + rnd() * 0.5) * (h / 256);
+    ctx.strokeStyle = pal.tusche(0.85);
+    ctx.lineCap = 'round';
+    ctx.lineWidth = 3 * s;
+    // Hals nach vorn, Beine nach hinten – die Waagerechte macht den Flug.
+    ctx.beginPath();
+    ctx.moveTo(cx - 26 * s, cy - 3 * s);
+    ctx.lineTo(cx + 24 * s, cy + 2 * s);
+    ctx.stroke();
+    ctx.lineWidth = 5 * s;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 5 * s, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 3 * s;
+    for (const dir of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(cx - 2 * s, cy);
+      ctx.quadraticCurveTo(cx + 6 * s, cy + dir * 20 * s, cx + 26 * s, cy + dir * 26 * s);
+      ctx.stroke();
+    }
+  }
+}
+
+function fsSiegel(ctx, w, h, pal, felder = 11) {
   // **Mitten in ein Feld, nicht auf eine Fuge.** Bei u = 0,90 lag das Siegel
   // direkt an der Feldgrenze (0,909 bei elf Feldern) und wurde von ihr
-  // zerschnitten – im Bild standen dadurch zwei rote Marken statt einer. Ein
-  // Siegel gehört ohnehin in die Fläche und nicht auf eine Kante.
-  const siegelX = w * (9.4 / 11); // Mitte des zehnten Feldes
+  // zerschnitten – im Bild standen dadurch zwei rote Marken statt einer.
+  const x = w * ((felder - 1.6) / felder);
   ctx.fillStyle = 'rgba(150,32,28,0.88)';
-  ctx.fillRect(siegelX, h * 0.14, 26, 26);
-  ctx.strokeStyle = 'rgba(232,206,150,0.85)';
+  ctx.fillRect(x, h * 0.14, 26, 26);
+  ctx.strokeStyle = pal.siegelRand;
   ctx.lineWidth = 2;
-  ctx.strokeRect(siegelX + 5, h * 0.14 + 5, 16, 16);
+  ctx.strokeRect(x + 5, h * 0.14 + 5, 16, 16);
+}
+
+// Die Entwürfe. Jeder nennt seinen Grund und die Schichten darauf; die
+// Reihenfolge im Array ist die Malreihenfolge.
+const FUSUMA_ENTWUERFE = {
+  'kiefer-gold': {
+    grund: 'gold',
+    mal: (c, w, h, r, p) => {
+      fsBerge(c, w, h, r, p, 1);
+      fsWolken(c, w, h, r, p, 14);
+      fsKiefer(c, w, h, r, p);
+      fsBambus(c, w, h, r, p, [w * 0.13, w * 0.16, w * 0.185]);
+    },
+  },
+  'kirsche-gold': {
+    grund: 'gold',
+    mal: (c, w, h, r, p) => {
+      fsWolken(c, w, h, r, p, 16);
+      fsKirsche(c, w, h, r, p);
+    },
+  },
+  'bambus-tusche': {
+    grund: 'papier',
+    // 20 Halme statt 34, und ungleichmäßig gesetzt. Bei 34 auf gleichem Abstand
+    // stand ein Zaun; ein Hain hat Lücken und Gruppen.
+    mal: (c, w, h, r, p) => {
+      fsWolken(c, w, h, r, p, 8);
+      const xs = [];
+      let x = w * 0.02;
+      while (x < w * 0.98) {
+        xs.push(x);
+        x += w * (0.022 + r() * 0.05);
+      }
+      fsBambus(c, w, h, r, p, xs, 5);
+    },
+  },
+  'berge-nebel': {
+    grund: 'papier',
+    // Acht Bänder statt zwanzig. Bei zwanzig war die ganze Fläche zugedeckt und
+    // von den vier Bergrücken blieb ein grauer Streifen – der Nebel soll die
+    // Rücken trennen, nicht ersetzen.
+    mal: (c, w, h, r, p) => {
+      fsBerge(c, w, h, r, p, 4);
+      fsWolken(c, w, h, r, p, 8);
+    },
+  },
+  'sonne-kiefer': {
+    grund: 'gold',
+    // Reihenfolge: erst die Wolken, **dann** die Sonne. Andersherum lagen die
+    // hellen Bänder quer über der Scheibe, und ein Sonnenball mit weißen
+    // Streifen darauf liest sich als Fehler, nicht als Dunst.
+    mal: (c, w, h, r, p) => {
+      fsWolken(c, w, h, r, p, 10);
+      fsSonne(c, w, h, p);
+      fsKiefer(c, w, h, r, p, { sx: w * 0.68 });
+      fsKiefer(c, w, h, r, p, { sx: w * 0.22 });
+    },
+  },
+  'kraniche-gold': {
+    grund: 'gold',
+    mal: (c, w, h, r, p) => {
+      fsBerge(c, w, h, r, p, 2);
+      fsWolken(c, w, h, r, p, 18);
+      fsKraniche(c, w, h, r, p);
+    },
+  },
+};
+
+export const FUSUMA_VARIANTEN = Object.keys(FUSUMA_ENTWUERFE);
+
+export function fusumaTexture(variante = 'kiefer-gold') {
+  const entwurf = FUSUMA_ENTWUERFE[variante] ?? FUSUMA_ENTWUERFE['kiefer-gold'];
+  const pal = FUSUMA_PALETTEN[entwurf.grund];
+  const w = 2048;
+  const h = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d');
+
+  // Fester Startwert je Entwurf: Eine Wand, die sich bei jedem Laden anders
+  // sprenkelt, ist keine Wand.
+  let seed = 0x9a31 >>> 0;
+  const rnd = () => {
+    seed = (Math.imul(seed ^ (seed >>> 15), 0x2c1b3c6d) + 0x9e3779b9) | 0;
+    return ((seed >>> 8) & 0xffffff) / 0x1000000;
+  };
+
+  fsGrund(ctx, w, h, rnd, pal);
+  entwurf.mal(ctx, w, h, rnd, pal);
+  fsSiegel(ctx, w, h, pal);
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
