@@ -34,6 +34,12 @@ export const PAGES = [
       { id: 'timer', label: '⏱️ Timer' },
       { id: 'whiteboard', label: '📋 Whiteboard' },
       { id: 'environment', label: '🌐 Umgebung' },
+      // Der Regler für die Bildqualität gehört in die Brille und nicht nur ins
+      // Desktop-Overlay: Ob die Quest die volle Fassung trägt, entscheidet sich
+      // dort und nirgends sonst. Headless lässt sich die Füllrate einer Adreno
+      // nicht messen (SwiftShader hat keine Textur-Abtasteinheiten), also
+      // bekommt der Nutzer den Schalter statt einer geratenen Zahl.
+      { id: 'quality', label: '🎚 Bildqualität' },
       // Kein Eintrag für Sprachbefehle: In der Brille gibt es keine
       // Spracherkennung (siehe speech.js) – der Knopf konnte dort nur
       // scheitern. Am Desktop steht er weiterhin im Overlay.
@@ -91,7 +97,6 @@ const PALM_FORWARD = 0.03; // leicht Richtung Finger, damit das Handgelenk frei 
 // und die untere Reihe ist am schlechtesten zu treffen. Aufgestellt wie ein
 // Laptop-Deckel steht die Fläche dem Blick zugewandt.
 const PALM_TILT = 0.62; // rad, gut 35°
-
 
 // Ein-/Ausblenden mit Hysterese, sonst flackert das Menü an der Schwelle.
 // Die Schwellen sind bewusst großzügig: Handtracking rauscht, und ein Menü,
@@ -200,8 +205,7 @@ export class WristMenu {
     const rows = Math.max(...PAGES.map((page) => Math.ceil(page.actions.length / 2)));
 
     const panelW = 2 * BTN_W + GAP_X + PAD * 2;
-    const panelH =
-      PAD + HEADER_H + 0.006 + TAB_H + 0.012 + rows * BTN_H + (rows - 1) * GAP_Y + PAD;
+    const panelH = PAD + HEADER_H + 0.006 + TAB_H + 0.012 + rows * BTN_H + (rows - 1) * GAP_Y + PAD;
     // Die Handflächen-Platzierung braucht die Höhe, um den Aufstellwinkel
     // auszugleichen (siehe PALM_TILT).
     this.panelHeight = panelH;
@@ -367,7 +371,9 @@ export class WristMenu {
   // Alle passenden Quellen, linke Hand zuerst (sie ist die gewohnte Menühand).
   _tracked(test) {
     const all = [...this.sources.values()].filter(test);
-    return all.sort((a, b) => (a.handedness === 'left' ? -1 : 0) - (b.handedness === 'left' ? -1 : 0));
+    return all.sort(
+      (a, b) => (a.handedness === 'left' ? -1 : 0) - (b.handedness === 'left' ? -1 : 0)
+    );
   }
 
   _attachTo(parent, mode) {

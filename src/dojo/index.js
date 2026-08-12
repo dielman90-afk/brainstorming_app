@@ -78,6 +78,7 @@ export function createDojoEnvironment() {
   let sky = null;
   // Startwert Desktop. Die XR-Sitzung meldet sich, wenn sie beginnt.
   let inXR = false;
+  let quality = 'voll';
 
   return {
     id: 'dojo',
@@ -171,17 +172,21 @@ export function createDojoEnvironment() {
       // Stufe erneut anwenden: Beim ersten Aufruf gibt es die Effektlagen aus
       // atmosphere.js noch gar nicht, sie können also beim Umschalten davor
       // nicht erfasst worden sein.
-      this.setQuality(inXR);
+      this.setQuality(quality);
       return this.environment;
     },
 
     // Desktop bekommt alles, die Brille die sparsame Fassung. Aufgerufen aus
     // `applyEnvironment` und an den XR-Hooks in main.js – gemessene Grundlage
     // steht in quality.js.
-    setQuality(nextInXR) {
-      inXR = Boolean(nextInXR);
+    // Nimmt eine Stufe ('sparsam' | 'mittel' | 'voll') oder – wie früher – einen
+    // Boolean. `inXR` heißt hier weiterhin „nicht die volle Fassung"; die
+    // Feinheit steckt in quality.js.
+    setQuality(stufe) {
+      quality = stufe;
+      inXR = stufe === true || (typeof stufe === 'string' && stufe !== 'voll');
       if (!envMap) return null;
-      this.environment = applyQuality(group, envMap, inXR);
+      this.environment = applyQuality(group, envMap, quality);
       // **Reihenfolge ist Pflicht, nicht Geschmack.** `applyQuality()` setzt
       // `envMap` bei *jedem* Standardmaterial der Dojo-Gruppe neu – am Desktop
       // auf `null`, in XR auf die Innenraumkarte. Wer den Himmel davor
