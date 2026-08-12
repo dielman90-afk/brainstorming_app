@@ -59,6 +59,27 @@ gegen den tatsächlichen Code geprüft.
       funktionieren unverändert („🔗 Verbinden", `directed: false` in
       `src/connections.js`) – entfernt wurde das automatische Anordnen, nicht
       das Verbinden.
+- [x] **Materialaufwertung der übrigen drei Umgebungen** – Zen-Garten,
+      Himmelsinsel und Nachthimmel bekommen die Werkzeuge, die bis dahin nur das
+      Dojo benutzte. Ausgangslage gemessen: 240 Materialien, **null** Normal-
+      und null Rauheitskarten. Danach 128 Materialien mit 25 Normal- und 23
+      Rauheitskarten – dass es *weniger* Materialien sind, liegt daran, dass
+      vorher jeder Stein und jeder Kronen-Blob ein eigenes anlegte, nur um eine
+      andere Farbe zu bekommen; die steckt jetzt in Scheitelfarben.
+
+      Dazu die Qualitätsstufen: `applyQuality()` war generisch bis auf vier fest
+      verdrahtete Namenslisten, die jetzt in einer Konfiguration je Umgebung
+      stehen. Alle vier Umgebungen haben `setQuality` – der Nachthimmel mit
+      leerer Konfiguration, weil er nichts auszudünnen hat und die Prüfung
+      aktenkundig sein soll.
+
+      Kosten bei p50 praktisch null: Zen 114,5 → 114,9 ms bei 31 % mehr
+      Dreiecken. (`src/environments.js`, `src/dojo/quality.js`)
+      *(erledigt am 2026-08-12)*
+      Offen als Fortsetzung: der Wasserfall der Insel (seine gescrollte Textur
+      ist für einen Sturz richtig, aber ohne Normal-Map), und die Seerosen im
+      Zen-Teich.
+
 - [~] **Konstrukt-Dojo als fünfte Umgebung** – Samurai-Trainingsraum im Stil des
       Films, in eigenen Dateien unter `src/dojo/`. Erste Umgebung der App mit
       echten Schatten, PBR-Materialien und prozeduraler Environment-Map.
