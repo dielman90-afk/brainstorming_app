@@ -2,6 +2,18 @@ import * as THREE from 'three';
 
 // Materialsatz für das Konstrukt-Dojo.
 //
+// **Der Ordnername `dojo/` ist seit dieser Runde ein leichter Fehlname.** Diese
+// Datei und ihre Nachbarn `foliage.js`, `ground.js`, `stonework.js` und
+// `skylight.js` sind generisch; der Zen-Garten, die Himmelsinsel und der
+// Nachthimmel in `environments.js` importieren sie inzwischen ebenfalls. Nur
+// `layout.js`, `architecture.js`, `props.js`, `exterior.js`, `atmosphere.js`
+// und `index.js` gehören wirklich dem Dojo.
+//
+// Verschoben wird trotzdem nichts: Ein neuer Ordner bedeutet vierzig geänderte
+// Importpfade in Dateien, an denen sonst niemand etwas zu tun hätte, und jede
+// davon ist eine Gelegenheit für einen Tippfehler, den erst die laufende Seite
+// zeigt. Ein Kommentar kostet nichts und sagt dasselbe.
+//
 // Der Rest der App ist bewusst flach schattiertes Low-Poly: keine Normal-Maps,
 // keine Rauheitskarten, überall die Standardrauheit. Genau das ist der Grund,
 // warum die vorhandenen Umgebungen wie Spielzeug aussehen und nicht wie ein
