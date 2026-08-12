@@ -94,6 +94,18 @@ const SHAPES = {
   azalea: { w: (u) => Math.pow(Math.sin(Math.PI * Math.pow(u, 1.05)), 0.6) * 0.31, max: 0.33 },
   // Fiederblättchen: schmal-oval, an der Basis breit angesetzt.
   fern: { w: (u) => Math.pow(Math.sin(Math.PI * Math.pow(u, 0.85)), 0.62) * 0.195, max: 0.21 },
+  // **Kirschblüte, kein Blatt.** Fünf Kronblätter, jedes vorne eingekerbt – die
+  // Kerbe ist das Erkennungsmerkmal von Prunus und der Grund, warum eine
+  // Sakura-Krone selbst aus zehn Metern nicht wie ein rosa Ball aussieht. Der
+  // Kosinusterm mit Periode 5 legt die fünf Lappen an, der zweite mit doppelter
+  // Frequenz kerbt jede Spitze ein.
+  sakura: {
+    w: (u) =>
+      Math.pow(Math.sin(Math.PI * Math.pow(u, 0.9)), 0.55) *
+      0.3 *
+      (1 + 0.22 * Math.cos(u * Math.PI * 5) - 0.1 * Math.cos(u * Math.PI * 10)),
+    max: 0.36,
+  },
   // Stiel / Rhachis: praktisch konstante Breite. Trägt keine Wölbung, aber sie
   // ist es, die aus fünf Lappen ein Ahornblatt macht statt fünf Streifen.
   stem: { w: (u) => 0.022 * (1 - 0.35 * u), max: 0.025 },
@@ -108,6 +120,14 @@ const PALETTE = {
   maple: { base: [150, 66, 36], vary: [[168, 74, 38], [186, 112, 44], [126, 52, 32], [198, 140, 56]] },
   azalea: { base: [56, 92, 48], vary: [[48, 84, 44], [68, 104, 52], [40, 72, 38], [84, 116, 60]] },
   fern: { base: [52, 84, 44], vary: [[44, 74, 38], [62, 96, 48], [36, 62, 32], [78, 106, 54]] },
+  // Kirschblüte: sehr helles Rosa mit warmem Kern. Die Streuung ist bewusst
+  // klein – eine Sakura blüht auf einmal, nicht in vier Tönen. Was sie lebendig
+  // macht, ist der Verlauf **innerhalb** eines Blütenblatts (außen fast weiß,
+  // zum Ansatz hin rosa), und der steckt in der Aderfunktion, nicht hier.
+  sakura: {
+    base: [242, 196, 214],
+    vary: [[248, 214, 226], [236, 178, 202], [252, 230, 236], [230, 166, 194]],
+  },
 };
 
 // Aderverlauf. Bei Bambus und Farn laufen die Adern **parallel** zur Blattachse
@@ -121,6 +141,10 @@ const VEINS = {
   maple: { mode: 'pinnate', freq: 7 },
   azalea: { mode: 'pinnate', freq: 6 },
   fern: { mode: 'long', freq: 2 },
+  // Kronblätter haben feine, fächerförmige Adern vom Ansatz zur Kerbe –
+  // fiedrig ist die nächstliegende der vorhandenen Betriebsarten, und bei
+  // dieser Blattgröße ist der Unterschied nicht auflösbar.
+  sakura: { mode: 'pinnate', freq: 5 },
   stem: { mode: 'none', freq: 0 },
 };
 
@@ -391,6 +415,69 @@ function cellBlades(kind, cx, cy, R, r) {
           thick: 0.44 + r() * 0.16,
           base: r() * 0.22,
           tint: pick(),
+        },
+      ]);
+    }
+  } else if (kind === 'sakura') {
+    // **Blüten in Dolden, nicht einzeln verteilt.** Eine Kirsche blüht in
+    // Büscheln von drei bis fünf Blüten an einem kurzen Stiel; gleichmäßig über
+    // die Zelle gestreute Einzelblüten sehen aus wie Konfetti. Jede Blüte sind
+    // fünf Kronblätter aus einem Punkt, dazu ein kurzer Stiel nach hinten.
+    const DOLDEN = 24;
+    for (let k = 0; k < DOLDEN; k++) {
+      const rr = R * 0.6 * Math.sqrt(r());
+      const aa = r() * TAU;
+      const dx = cx + Math.cos(aa) * rr;
+      const dy = cy + Math.sin(aa) * rr;
+      const bluetenJeDolde = 3 + Math.floor(r() * 3);
+      for (let m = 0; m < bluetenJeDolde; m++) {
+        const off = R * 0.11 * Math.sqrt(r());
+        const oa = r() * TAU;
+        const bx = dx + Math.cos(oa) * off;
+        const by = dy + Math.sin(oa) * off;
+        const dir = r() * TAU;
+        // Größe nachgemessen, nicht geschätzt: Mit 0,11…0,16 deckte die
+        // Sakura-Zelle 23,7 % gegen 33,2 % beim Ahorn – die Karte war zu leer,
+        // und übrig blieb der rosa Hüllkörper. Siehe atlas.mjs.
+        const size = R * (0.145 + 0.06 * r()) * (1 - 0.25 * (rr / R));
+        const tint = pick();
+        const thick = 0.34 + r() * 0.12;
+        const base = r() * 0.16;
+        const blades = [];
+        // Fünf Kronblätter, gleichmäßig im Kreis – bei einer Blüte ist die
+        // Symmetrie das Motiv, anders als beim Ahornblatt, wo die Lappen
+        // ungleich lang sind.
+        for (let l = 0; l < 5; l++) {
+          const ang = dir + (l / 5) * TAU + (r() - 0.5) * 0.1;
+          blades.push({
+            x: bx,
+            y: by,
+            ang,
+            len: fitLength(bx, by, ang, size * (0.92 + r() * 0.16), cx, cy, rmax),
+            curve: (r() - 0.5) * 0.16,
+            shape: 'sakura',
+            vein: 'sakura',
+            thick,
+            base,
+            tint,
+          });
+        }
+        leaf(blades);
+      }
+      // Ein kurzer Zweig unter jeder Dolde. Ohne ihn schweben die Büschel.
+      const zweigWinkel = r() * TAU;
+      leaf([
+        {
+          x: dx,
+          y: dy,
+          ang: zweigWinkel,
+          len: fitLength(dx, dy, zweigWinkel, R * 0.16, cx, cy, rmax),
+          curve: (r() - 0.5) * 0.2,
+          shape: 'stem',
+          vein: 'stem',
+          thick: 0.3,
+          base: 0.1,
+          tint: [96, 66, 62],
         },
       ]);
     }
@@ -830,10 +917,10 @@ export function cardCluster({
   // nicht und man sieht durch die Krone auf den Blob; zu groß = man erkennt
   // einzelne Rechtecke. Azalee liegt tiefer, weil ihr Atlas selbst schon sehr
   // viele kleine Blätter zeigt.
-  const SIZE = { bamboo: 0.95, maple: 0.86, azalea: 0.66, fern: 0.95 }[kind] ?? 0.85;
+  const SIZE = { bamboo: 0.95, maple: 0.86, azalea: 0.66, fern: 0.95, sakura: 0.72 }[kind] ?? 0.85;
   // Neigung gegen die Schalennormale. Ohne sie stehen alle Karten tangential
   // zur Kugel und die Silhouette wird an ihrem Rand papierdünn.
-  const TILT = { bamboo: 1.05, maple: 0.85, azalea: 0.55, fern: 1.0 }[kind] ?? 0.8;
+  const TILT = { bamboo: 1.05, maple: 0.85, azalea: 0.55, fern: 1.0, sakura: 0.6 }[kind] ?? 0.8;
 
   const quads = count * (cross ? 2 : 1);
   const pos = new Float32Array(quads * 4 * 3);
