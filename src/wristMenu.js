@@ -29,7 +29,6 @@ export const PAGES = [
     actions: [
       { id: 'undo', label: '↶ Rückgängig' },
       { id: 'redo', label: '↷ Wiederholen' },
-      { id: 'mindmap', label: '🕸 Mindmap ordnen' },
       { id: 'zone', label: '🗂️ Zone' },
       { id: 'timer', label: '⏱️ Timer' },
       { id: 'whiteboard', label: '📋 Whiteboard' },

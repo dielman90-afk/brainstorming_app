@@ -4,7 +4,6 @@ import './fonts.js'; // lokal gebündelte Schriften (kein CDN nötig)
 import { CardManager, CARD_COLORS, CARD_FONT_STEPS, FLOW_TYPES, flowTypeById } from './cards.js';
 import { ConnectionManager } from './connections.js';
 import { layoutFlow } from './flowLayout.js';
-import { computeMindmap, layoutMindmap } from './mindmapLayout.js';
 import { Tweener } from './tween.js';
 import { InteractionManager } from './interactions.js';
 import { WristMenu } from './wristMenu.js';
@@ -220,8 +219,8 @@ function boardToJSON() {
 }
 
 function applyBoardJSON(data) {
-  // Erst die laufenden Bewegungen abbrechen: Ein Undo mitten in der
-  // Mindmap-Animation würde die geladenen Positionen sonst gleich wieder
+  // Erst die laufenden Bewegungen abbrechen: Ein Undo mitten in einer
+  // laufenden Kartenfahrt würde die geladenen Positionen sonst gleich wieder
   // überschrieben bekommen.
   tweener.clear();
   cardManager.loadJSON(data);
@@ -475,13 +474,19 @@ let busy = false;
 
 let clearArmedAt = 0;
 let linkSource = null;
-// 'mindmap' = ungerichtete Linie, 'flow' = gerichteter Prozesspfeil. Beide
-// laufen über dieselbe Auswahl-Mechanik (Quelle merken, Ziel antippen).
-let linkMode = 'mindmap';
+// 'lose' = ungerichtete Linie, 'flow' = gerichteter Prozesspfeil. Beide laufen
+// über dieselbe Auswahl-Mechanik (Quelle merken, Ziel antippen).
+//
+// Der Wert hieß bis zur Entfernung des Mindmap-Layouts `'mindmap'`. Das war
+// schon vorher missverständlich – gemeint ist die Linie, nicht das Layout –,
+// und ohne das Layout wäre es ein Name ohne Gegenstück gewesen. Er steht in
+// keiner gespeicherten Datei: `connections.js` legt `directed: false` ab, nicht
+// diesen Bezeichner.
+let linkMode = 'lose';
 // Zuletzt gezogener Pfeil – „Zweig benennen" beschriftet ihn.
 let lastFlowEdge = null;
 
-function startLinking(mode = 'mindmap') {
+function startLinking(mode = 'lose') {
   const selected = cardManager.selected;
   if (!selected) {
     setStatus('Bitte zuerst eine Karte auswählen.');
@@ -560,20 +565,6 @@ async function handleAction(action) {
       }
       commit('Prozess angeordnet');
       setStatus(`⤓ ${count} Schritte angeordnet.`);
-      return;
-    }
-    if (action === 'mindmap') {
-      const count = runMindmapLayout();
-      if (!count) {
-        setStatus('Noch keine Karten da, die sich ordnen ließen.');
-        return;
-      }
-      // Erst nach der Fahrt sichern: `commit` liest die Kartenpositionen, und
-      // die stehen mitten in der Animation noch am alten Platz. Ein sofortiges
-      // commit würde den Verlaufsschritt mit dem Zustand *vorher* füllen.
-      commitSoon('Mindmap geordnet', 600);
-      const root = cardManager.selected ? ' – ausgewählte Karte als Mitte' : '';
-      setStatus(`🕸 ${count} Karten nach ihren Verbindungen geordnet${root}.`);
       return;
     }
     if (action === 'flow-generate') {
@@ -922,15 +913,6 @@ function toggleVoiceCommands() {
 // FLOW_TYPES in cards.js). Dadurch erben sie Greifen, Auswahl, Undo/Redo,
 // Autosave und Export, ohne dass davon etwas nachgebaut werden müsste.
 
-// Mindmap ordnen: Karten nach ihren Verbindungen radial anordnen. Die
-// ausgewählte Karte wird die Mitte – so kann man dasselbe Board von
-// verschiedenen Themen aus betrachten, ohne etwas zu verschieben.
-function runMindmapLayout(options = {}) {
-  return layoutMindmap(cardManager.cards, connectionManager.connections, camera, scene, tweener, {
-    preferredRoot: options.preferredRoot ?? cardManager.selected?.id ?? null,
-  });
-}
-
 // Reihenfolge beim Durchschalten: erst die häufigen Arten, dann zurück zur
 // gewöhnlichen Ideenkarte. Nur für VR – am Desktop wird die Form direkt
 // gewählt (Formleiste im Overlay und im Kontextmenü).
@@ -1145,7 +1127,6 @@ const DESKTOP_BUTTONS = {
   'btn-critic': 'critic',
   'btn-cluster': 'cluster',
   'btn-summary': 'summary',
-  'btn-mindmap': 'mindmap',
   'btn-zone': 'zone',
   'btn-timer': 'timer',
   'btn-topic': 'topic',
@@ -1803,10 +1784,6 @@ window.__app = {
   flow: {
     layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera, scene),
     types: FLOW_TYPES,
-  },
-  mindmap: {
-    layout: (options) => runMindmapLayout(options),
-    compute: computeMindmap,
   },
   tweener,
   wristMenu,
