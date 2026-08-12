@@ -265,7 +265,12 @@ export function hinokiMaps() {
   return _hinoki;
 }
 
-export function hinokiMaterial({ color = 0xffffff, roughness = 1, uvScale = 1 } = {}) {
+export function hinokiMaterial({
+  color = 0xffffff,
+  roughness = 1,
+  uvScale = 1,
+  side = THREE.FrontSide,
+} = {}) {
   const maps = hinokiMaps();
   return new THREE.MeshStandardMaterial({
     color,
@@ -274,6 +279,7 @@ export function hinokiMaterial({ color = 0xffffff, roughness = 1, uvScale = 1 } 
     roughnessMap: maps.roughnessMap,
     roughness,
     metalness: 0,
+    side,
     normalScale: new THREE.Vector2(uvScale, uvScale),
   });
 }
@@ -370,6 +376,89 @@ export function plasterMaterial(color = 0xb9b3a4) {
     color,
     normalMap: plasterMaps().normalMap,
     roughness: 0.95,
+    metalness: 0,
+  });
+}
+
+// --- Kawara: die Dachziegel ---------------------------------------------------
+//
+// Das Dach war bis hierher eine einzige graublau eingefärbte Holzfläche. Von
+// innen sieht man es nie, von außen ist es die **größte** Fläche des Gebäudes –
+// aus dem Garten und erst recht von schräg oben ein schwarzes Stück Pappe.
+//
+// **Warum das Muster in beide Richtungen gleich aussieht.** Die UVs des Dachs
+// kommen aus der Grundfläche (x/0,9 und z/0,9). Auf den beiden Längsflächen
+// laufen die Ziegelreihen damit in V, auf den beiden Walmen in U – die Traufe
+// zeigt dort in die andere Weltachse. Ein Muster mit nur einer Vorzugsrichtung
+// stünde auf zwei der vier Flächen quer. Deshalb ein Raster: Deckziegelwülste
+// **und** Reihenstufen in beiden Achsen. Das ist nicht die Bauweise eines
+// echten Hongawara-Dachs, aber es ist die einzige Variante, die aus jeder
+// Richtung als Ziegeldach liest, ohne für jede Fläche eigene UVs zu brauchen.
+let _kawara = null;
+export function kawaraMaps() {
+  if (_kawara) return _kawara;
+  const size = 256;
+  const N = 3; // Ziegel je Kachel und Achse – 0,9 m / 3 = 30 cm, echtes Maß
+
+  // Ein Ziegel: flache Pfanne mit einer Mulde, dazwischen der runde Wulst des
+  // Deckziegels. `Math.sin(π·t)` gibt die Mulde, der Wulst sitzt auf der Fuge.
+  const kachel = (x, y) => {
+    const u = ((x / size) * N) % 1;
+    const v = ((y / size) * N) % 1;
+    // Wulst über der Fuge: schmal, hoch, in beiden Achsen.
+    const wulstU = Math.exp(-Math.pow((u < 0.5 ? u : u - 1) / 0.11, 2));
+    const wulstV = Math.exp(-Math.pow((v < 0.5 ? v : v - 1) / 0.11, 2));
+    const wulst = Math.max(wulstU, wulstV) * 0.75;
+    // Mulde der Pfanne dazwischen.
+    const mulde = Math.sin(u * Math.PI) * Math.sin(v * Math.PI) * 0.28;
+    // Jeder Ziegel liegt eine Spur anders – gebrannter Ton ist nie eben.
+    const ix = Math.floor((x / size) * N);
+    const iy = Math.floor((y / size) * N);
+    const kipp = (hash2(ix, iy, 77) - 0.5) * 0.09;
+    return wulst + mulde + kipp + grainAt(x, y, 41) * 0.05;
+  };
+
+  const { normalMap, roughnessMap, field } = heightToMaps({
+    size,
+    strength: 2.6,
+    height: kachel,
+    // Der First und die Wülste sind vom Regen blank gewaschen, die Mulden
+    // halten Staub und Flechten – also glänzt oben, was unten stumpf ist.
+    roughness: (h) => Math.max(0, Math.min(255, (0.86 - h * 0.26) * 255)),
+  });
+
+  const map = colorTexture(size, (ctx, s) => {
+    const image = ctx.createImageData(s, s);
+    for (let y = 0; y < s; y++) {
+      for (let x = 0; x < s; x++) {
+        const h = field[y * s + x];
+        // Ibushi-gawara: geräucherter Ton, silbriggrau mit einem Blaustich, in
+        // den Fugen fast schwarz.
+        const fleck = pfbm((x / s) * 5, (y / s) * 5, 5, 3, 517);
+        const hell = 0.52 + h * 0.55 + (fleck - 0.5) * 0.16;
+        const i = (y * s + x) * 4;
+        image.data[i] = Math.min(255, 96 * hell);
+        image.data[i + 1] = Math.min(255, 102 * hell);
+        image.data[i + 2] = Math.min(255, 110 * hell);
+        image.data[i + 3] = 255;
+      }
+    }
+    ctx.putImageData(image, 0, 0);
+  });
+
+  _kawara = { map, normalMap, roughnessMap };
+  return _kawara;
+}
+
+export function kawaraMaterial() {
+  const maps = kawaraMaps();
+  return new THREE.MeshStandardMaterial({
+    map: maps.map,
+    normalMap: maps.normalMap,
+    roughnessMap: maps.roughnessMap,
+    // Gebrannter Ton, nicht glasiert: stumpf, aber nicht kreidig. Der Skalar
+    // multipliziert die Karte, deshalb steht er auf 1.
+    roughness: 1,
     metalness: 0,
   });
 }

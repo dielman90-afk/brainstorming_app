@@ -106,6 +106,15 @@ export const WALL = {
 //
 // Vorzeichenregel: `inward` zeigt von der Wandebene in den Raum.
 
+// `renji`: Zahl der senkrechten Latten **außen** vor dem Papier.
+//
+// Von innen ist eine Shoji ein Kumiko-Gitter mit Papier dahinter; von außen war
+// sie hier eine leere Papierfläche – bauartlich richtig, aus dem Garten aber
+// ein Bretterzaun. Die Latten geben der Fassade den Rhythmus zurück, den sie
+// von innen längst hat, und kosten keinen zusätzlichen Draw-Call (sie liegen in
+// derselben Instanzenliste wie das innere Gitter). Die Zahl ist so gewählt, dass
+// der Lattenabstand überall bei rund 20 cm liegt.
+
 // Ostfront: die Sonnenseite. Behält Namen und Bedeutung, weil atmosphere.js an
 // neun Stellen daraus rechnet (Lichtschächte, Blendenglühen, Bodenpfützen).
 export const SHOJI = {
@@ -120,6 +129,7 @@ export const SHOJI = {
   sillY: 0.42, // Brüstungshöhe (Koshi)
   headY: 2.85, // Sturz
   koshi: true,
+  renji: 6,
   lattice: { cols: 4, rows: 7, barWidth: 0.022, barDepth: 0.016 },
 };
 
@@ -150,6 +160,7 @@ export const SHOJI_SOUTH = {
   // zwei Menschen nebeneinander hindurchgehen, und schmal genug, dass die
   // Front eine Front bleibt.
   openPanels: [3, 4],
+  renji: 6,
   lattice: { cols: 4, rows: 7, barWidth: 0.022, barDepth: 0.016 },
 };
 
@@ -167,6 +178,7 @@ export const BAND_WEST = {
   panels: 8,
   from: -5.4,
   to: 6.4,
+  renji: 7,
   lattice: { cols: 3, rows: 3, barWidth: 0.022, barDepth: 0.016 },
 };
 
@@ -180,6 +192,7 @@ export const BAND_NORTH = [
     panels: 2,
     from: -5.4,
     to: -1.65,
+    renji: 9,
     lattice: { cols: 3, rows: 3, barWidth: 0.022, barDepth: 0.016 },
   },
   {
@@ -190,6 +203,7 @@ export const BAND_NORTH = [
     panels: 2,
     from: 1.65,
     to: 5.4,
+    renji: 9,
     lattice: { cols: 3, rows: 3, barWidth: 0.022, barDepth: 0.016 },
   },
 ];
