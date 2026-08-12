@@ -294,7 +294,12 @@ function baueKrone({
   };
 
   const blobs = new THREE.InstancedMesh(
-    blobGeometry(1, seed ^ 0x51, 0.72),
+    // **Detailstufe 0, nicht 1.** Ein Hüllkörper ist Verdecker hinter dichten
+    // Karten; seine Facetten sieht niemand, seine Dreiecke zahlt man trotzdem.
+    // Stufe 1 sind 80 Dreiecke je Schopf, Stufe 0 sind 20 – bei rund 220
+    // Schöpfen auf der Insel ein Unterschied von 13.000 Dreiecken für nichts.
+    // Gemessen mit inselkosten.mjs.
+    blobGeometry(0, seed ^ 0x51, 0.72),
     // Lambert statt Standard: Der Hüllkörper soll dunkle Masse sein, kein
     // Material mit Glanzlicht. Er spart damit auch den PBR-Pfad im Shader.
     new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }),
@@ -325,6 +330,7 @@ function baueKrone({
 let _inselHolz = null;
 let _inselLaub = null;
 let _inselKarten = null;
+let _inselNadeln = null;
 function inselBaumMaterialien() {
   if (!_inselHolz) {
     _inselHolz = weatheredWoodMaterial({ tone: 0x8f6a48, vertexColors: false });
@@ -333,6 +339,17 @@ function inselBaumMaterialien() {
       roughness: 0.9,
       metalness: 0,
       vertexColors: true,
+    });
+    _inselNadeln = foliageMaterial({
+      atlas: leafAtlas('nadel'),
+      // Nadeln sind steif und wachsig: wenig Wind, wenig Transluzenz. Eine
+      // Konifere im Gegenlicht leuchtet **nicht** – das ist der halbe
+      // Unterschied zu einem Laubbaum.
+      translucency: 0.35,
+      transColor: 0x9cc47a,
+      windStrength: 0.03,
+      roughness: 0.7,
+      color: 0xbfe3a8,
     });
     _inselKarten = foliageMaterial({
       atlas: leafAtlas('azalea'),
@@ -349,13 +366,13 @@ function inselBaumMaterialien() {
       windStrength: 0.06,
     });
   }
-  return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten };
+  return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten, nadeln: _inselNadeln };
 }
 
 function makeTree(rand) {
   const tree = new THREE.Group();
   const trunkHeight = 0.5 + rand() * 0.5;
-  const { holz, laub: laubMat, karten } = inselBaumMaterialien();
+  const { holz, laub: laubMat, karten, nadeln } = inselBaumMaterialien();
   const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8), holz);
   trunk.position.y = trunkHeight / 2;
   tree.add(trunk);
@@ -366,48 +383,58 @@ function makeTree(rand) {
   // Metern ein grüner Luftballon mit Aufklebern.
   const hell = rand() > 0.5;
   const ansaetze = [];
-  if (rand() > 0.45) {
-    // Nadelbaum: gestapelte Kegel, von unten nach oben schmaler. Sie bleiben
-    // als Kegel stehen – ihre Silhouette *ist* die Art –, bekommen aber
-    // Kartenschöpfe an den Etagenrändern.
-    const layers = 2 + Math.floor(rand() * 2);
-    const nadelTon = new THREE.Color(hell ? 0x2f7a44 : 0x3d8f52);
-    for (let i = 0; i < layers; i++) {
-      const radius = 0.45 - i * 0.12;
-      const geo = new THREE.ConeGeometry(radius, 0.6, 14);
-      // **Farbe und Abdunkelung in einem Attribut.** `bakeVertexShade()`
-      // schreibt Graustufen; das Material steht auf Weiß mit `vertexColors`.
-      // Ohne die Multiplikation mit dem Grünton wurden die Kegel schlicht
-      // hellgrau – im Bild ein weißer Nadelbaum.
-      const pos = geo.attributes.position;
-      const cols = new Float32Array(pos.count * 3);
-      for (let v = 0; v < pos.count; v++) {
-        const f = 0.52 + 0.44 * (pos.getY(v) / 0.6 + 0.5);
-        cols[v * 3] = nadelTon.r * f;
-        cols[v * 3 + 1] = nadelTon.g * f;
-        cols[v * 3 + 2] = nadelTon.b * f;
-      }
-      geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-      const cone = new THREE.Mesh(geo, laubMat);
-      cone.position.y = trunkHeight + 0.15 + i * 0.32;
-      tree.add(cone);
-      ansaetze.push([0, cone.position.y + 0.1, 0, radius * 0.78]);
+  const nadelbaum = rand() > 0.45;
+
+  if (nadelbaum) {
+    // **Die gestapelten Kegel sind entfallen.**
+    //
+    // Sie waren die Silhouette *und* die Oberfläche zugleich: drei glatte
+    // Trichter übereinander, an denen jede Karte als Aufkleber saß. Eine
+    // Konifere hat keine glatte Mantelfläche, sie hat Etagen aus Zweigen mit
+    // Lücken dazwischen, durch die man den Stamm sieht.
+    //
+    // Jetzt ist der Baum eine **Reihe von Ansätzen mit abnehmendem Radius** –
+    // dieselbe Bauweise wie beim Laubbaum, nur als Kegel angeordnet statt als
+    // Kugel. Die Silhouette entsteht aus den Schöpfen, nicht aus einem Trichter.
+    const etagen = 4 + Math.floor(rand() * 2);
+    for (let i = 0; i < etagen; i++) {
+      const t = i / (etagen - 1);
+      // Radius nach oben linear abnehmend, unten am breitesten – der Umriss,
+      // an dem man eine Fichte auf zweihundert Meter erkennt.
+      const radius = 0.46 * (1 - t * 0.72);
+      // Die Etagen rücken oben enger zusammen, sonst franst die Spitze aus.
+      ansaetze.push([
+        (rand() - 0.5) * 0.05,
+        trunkHeight + 0.1 + t * 1.15,
+        (rand() - 0.5) * 0.05,
+        radius,
+      ]);
     }
   } else {
     ansaetze.push([0, trunkHeight + 0.3, 0, 0.34]);
     ansaetze.push([0.2 * (rand() > 0.5 ? 1 : -1), trunkHeight + 0.44, 0.12, 0.24]);
   }
 
-  const grundton = hell ? [0x3e8e4f, 0x479a58, 0x35803f] : [0x57ab68, 0x62b874, 0x4d9d5e];
+  const grundton = nadelbaum
+    // Sehr dunkel und entsättigt: Der Hüllkörper einer Konifere ist der
+      // Schatten **zwischen** den Zweigen, nicht eine zweite Grünfläche. Mit
+      // 0x24503a blitzte er als flacher türkiser Fleck durch die Nadeln.
+      ? [0x16281c, 0x1c3324, 0x101f16]
+    : hell
+      ? [0x3e8e4f, 0x479a58, 0x35803f]
+      : [0x57ab68, 0x62b874, 0x4d9d5e];
   const krone = baueKrone({
     ansaetze,
     seed: 0x1de4 + Math.floor(rand() * 512),
-    kartenMaterial: karten,
-    kind: 'azalea',
-    cardScale: 0.85,
+    kartenMaterial: nadelbaum ? nadeln : karten,
+    kind: nadelbaum ? 'nadel' : 'azalea',
+    // Nadelschöpfe stehen dichter und kleiner als Laubschöpfe.
+    cardScale: nadelbaum ? 0.95 : 0.85,
+    dichte: nadelbaum ? 110 : 96,
     farben: grundton,
-    // Aufgehellt gegen den Azaleen-Atlas, der für Schatten gezeichnet ist.
-    kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8],
+    kartenFarben: nadelbaum
+      ? [0xd8f0c0, 0xc6e4ae, 0xe4ffd0]
+      : [0xdcf5b8, 0xcbeaa4, 0xe6ffc8],
   });
   krone.blobs.name = 'island-krone';
   krone.karten.name = 'island-laub';
@@ -817,26 +844,122 @@ function makeCloud(rand, size = 1) {
 
 // Hängende Ranken/Wurzeln unter dem Inselrand, zu EINEM Mesh verschmolzen.
 function makeVines(rand, radius, count) {
-  const geos = [];
+  // **Vorher waren das gerade Spieße.**
+  //
+  // Ein Kegelstumpf, senkrecht nach unten, mit einem Ikosaeder-Knubbel am Ende.
+  // Von unter der Insel sah man ein Dutzend grüner Antennen radial aus dem Fels
+  // stehen – der auffälligste Fehler der ganzen Umgebung, weil die Unterseite
+  // der Insel das ist, was man beim Anflug zuerst sieht.
+  //
+  // Eine hängende Ranke hat drei Eigenschaften, die alle drei gefehlt haben:
+  // Sie **hängt** (also krümmt sie sich unter ihrem Gewicht), sie **schwingt**
+  // nach außen weg statt lotrecht zu fallen, und sie trägt Blätter über ihre
+  // **ganze Länge**, nicht eines am Ende.
+  const strangGeos = [];
+  const laubPunkte = [];
+  const mitte = new THREE.Vector3();
+
   for (let i = 0; i < count; i++) {
     const a = (i / count) * Math.PI * 2 + (rand() - 0.5) * 0.4;
     const rr = radius * (0.72 + rand() * 0.22);
-    const len = 0.7 + rand() * 1.8;
-    const g = new THREE.CylinderGeometry(0.012, 0.05, len, 5, 1);
-    g.translate(0, -len / 2, 0); // oben am Rand, hängt nach unten
-    g.applyMatrix4(new THREE.Matrix4().makeRotationZ((rand() - 0.5) * 0.4));
-    g.translate(Math.cos(a) * rr, -0.34, Math.sin(a) * rr);
-    geos.push(g);
-    // kleiner Blattknubbel am Ende
-    if (rand() > 0.4) {
-      const leaf = new THREE.IcosahedronGeometry(0.06 + rand() * 0.05, 0);
-      leaf.translate(Math.cos(a) * rr, -0.34 - len, Math.sin(a) * rr);
-      geos.push(leaf);
+    const len = 0.9 + rand() * 2.2;
+    const ax = Math.cos(a) * rr;
+    const az = Math.sin(a) * rr;
+
+    // Kettenlinie: Der Strang verlässt den Rand fast waagerecht nach außen und
+    // richtet sich nach unten auf. Vier Stützpunkte reichen – CatmullRom macht
+    // daraus eine Kurve ohne Knick, und mehr Punkte kosten nur Dreiecke.
+    const drift = 0.18 + rand() * 0.3; // wie weit sie nach außen ausholt
+    const seite = (rand() - 0.5) * 0.5; // seitlicher Versatz, damit keine zwei gleich hängen
+    const kurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(ax, -0.3, az),
+      new THREE.Vector3(
+        ax * (1 + drift * 0.35),
+        -0.3 - len * 0.22,
+        az * (1 + drift * 0.35) + seite * 0.3
+      ),
+      new THREE.Vector3(
+        ax * (1 + drift * 0.5),
+        -0.3 - len * 0.62,
+        az * (1 + drift * 0.5) + seite * 0.6
+      ),
+      new THREE.Vector3(ax * (1 + drift * 0.52), -0.3 - len, az * (1 + drift * 0.52) + seite * 0.72),
+    ]);
+
+    // Zum Ende hin dünner. `TubeGeometry` kann das nicht von sich aus; die
+    // Ringe werden deshalb einzeln auf ihren Kurvenpunkt zusammengezogen –
+    // derselbe Kniff wie bei den Ikebana-Zweigen in props.js. Der Vertexindex
+    // ist ringweise: i · (radial + 1) + j.
+    const RINGE = 10;
+    const RADIAL = 4;
+    const rohr = new THREE.TubeGeometry(kurve, RINGE, 0.028, RADIAL, false);
+    const pos = rohr.attributes.position;
+    for (let ring = 0; ring <= RINGE; ring++) {
+      const f = 1 - 0.75 * (ring / RINGE);
+      kurve.getPointAt(ring / RINGE, mitte);
+      for (let jj = 0; jj <= RADIAL; jj++) {
+        const k = ring * (RADIAL + 1) + jj;
+        pos.setXYZ(
+          k,
+          mitte.x + (pos.getX(k) - mitte.x) * f,
+          mitte.y + (pos.getY(k) - mitte.y) * f,
+          mitte.z + (pos.getZ(k) - mitte.z) * f
+        );
+      }
+    }
+    rohr.computeVertexNormals();
+    strangGeos.push(rohr);
+
+    // Blattbüschel entlang des Strangs, nach unten hin kleiner. Der oberste
+    // sitzt bei 18 % – ganz am Ansatz wäre er im Fels.
+    const bueschel = 6 + Math.floor(rand() * 4);
+    for (let b = 0; b < bueschel; b++) {
+      const t = 0.14 + (b / bueschel) * 0.82 + rand() * 0.05;
+      kurve.getPointAt(Math.min(0.99, t), mitte);
+      laubPunkte.push({
+        p: mitte.clone(),
+        s: (0.17 + rand() * 0.11) * (1 - t * 0.35),
+        dreh: rand() * Math.PI * 2,
+      });
     }
   }
-  // Cylinder ist indiziert, Icosaeder nicht → vor dem Merge vereinheitlichen
-  const merged = mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)));
-  return new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ color: 0x4e6b3a, roughness: 1, metalness: 0 }));
+
+  const gruppe = new THREE.Group();
+  gruppe.name = 'island-ranken';
+
+  const stiele = new THREE.Mesh(
+    mergeGeometries(strangGeos),
+    // Dunkel und holzig. Mit 0x5c7a42 stand der Strang als hellgrüner Stab vor
+    // dem Himmel und war heller als das Laub, das an ihm hängt – im Bild das
+    // Erste, was auffiel.
+    new THREE.MeshStandardMaterial({ color: 0x46512f, roughness: 0.96, metalness: 0 })
+  );
+  stiele.name = 'island-ranken-stiele';
+  gruppe.add(stiele);
+
+  const { karten } = inselBaumMaterialien();
+  const laub = new THREE.InstancedMesh(
+    cardCluster({ count: 26, radius: 1, seed: 0x9a12, kind: 'azalea', cardScale: 0.9 }),
+    karten,
+    laubPunkte.length
+  );
+  applyFoliageMaterial(laub, karten);
+  laub.name = 'island-ranken-laub';
+  laub.userData.fullCount = laubPunkte.length;
+  {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    laubPunkte.forEach((c, i) => {
+      q.setFromEuler(new THREE.Euler(0, c.dreh, 0));
+      // Nach unten gestreckt: Ein Rankenbüschel hängt, es sitzt nicht als Kugel
+      // auf dem Strang.
+      m.compose(c.p, q, new THREE.Vector3(c.s, c.s * 1.5, c.s));
+      laub.setMatrixAt(i, m);
+    });
+    laub.instanceMatrix.needsUpdate = true;
+  }
+  gruppe.add(laub);
+  return gruppe;
 }
 
 // Schwebende Insel: Grasplatte mit Erdrand + felsige, zerklüftete Unterseite
@@ -1133,7 +1256,12 @@ function createIslandEnvironment() {
   // Wasserfall und die Insel selbst bleiben; sie sind die Silhouette.
   const ISLAND_QUALITAET = {
     ausduennen: new Map([
-      ['island-laub', 0.6],
+      // Die beiden großen Posten. Gemessen (inselkosten.mjs, volle Stufe):
+      // Kronenlaub 46.060 Dreiecke, Rankenlaub 28.764, Hüllkörper 17.360 –
+      // zusammen zwei Drittel der Insel.
+      ['island-laub', 0.5],
+      ['island-ranken-laub', 0.45],
+      ['island-krone', 0.6],
       ['flowers', 0.45],
       ['tufts', 0.45],
       ['bushes', 0.7],
