@@ -158,16 +158,46 @@ function eachMaterial(root, fn) {
   });
 }
 
+// **Die vier Namenslisten oben sind die des Dojos, nicht die der Funktion.**
+//
+// `applyQuality()` war bis hierher generisch bis auf genau diese vier Mengen –
+// und die stehen als Modulkonstanten fest verdrahtet. Seit der Zen-Garten, die
+// Himmelsinsel und der Nachthimmel PBR-Materialien und Blattkarten bekommen
+// haben, brauchen auch sie die Stufen: Wer aufgewertet wird, kostet in der
+// Brille genau dort, wo gerade Luft geschaffen wurde.
+//
+// Also wandern die Listen in ein Konfigurationsobjekt je Umgebung. Der Eintrag
+// des Dojos enthält **exakt** die bisherigen Werte; an seinem Verhalten ändert
+// sich nichts, und das ist Absicht – die Zahlen darin sind gemessen, nicht
+// gewählt, und eine Verallgemeinerung ist kein Anlass, sie neu zu erfinden.
+export const DOJO_QUALITAET = {
+  grosseFlaechen: LARGE_SURFACES,
+  nurDesktop: NUR_DESKTOP,
+  inXrAus: XR_HIDDEN,
+  ausduennen: XR_THIN,
+  additivBehalten: /shaft|pool|schacht|bloom/i,
+};
+
 /**
- * Setzt die Qualitätsstufe der Dojo-Gruppe.
+ * Setzt die Qualitätsstufe einer Umgebungsgruppe.
  *
  * @param {THREE.Object3D} group   Wurzel der Umgebung
  * @param {THREE.Texture}  envMap  Prozedurale Environment-Map (PMREM)
- * @param {boolean}        inXR    true = Brille (sparsam), false = Desktop
+ * @param {string|boolean} stufe   'sparsam' | 'mittel' | 'voll'
+ * @param {object} [config]        Namenslisten dieser Umgebung. Ohne Angabe
+ *                                 die des Dojos – damit bleibt jede vorhandene
+ *                                 Aufrufstelle buchstabengleich.
  * @returns {THREE.Texture|null}   Was als `scene.environment` gesetzt werden
  *                                 soll – in XR bewusst `null`.
  */
-export function applyQuality(group, envMap, stufe) {
+export function applyQuality(group, envMap, stufe, config = DOJO_QUALITAET) {
+  const {
+    grosseFlaechen = new Set(),
+    nurDesktop = new Set(),
+    inXrAus = new Set(),
+    ausduennen = new Map(),
+    additivBehalten = /$^/,
+  } = config ?? {};
   const s = normStufe(stufe);
   // `inXR` heißt jetzt: nicht die volle Fassung. Die Unterscheidung zwischen
   // sparsam und mittel steckt in den Anteilen weiter unten.
@@ -226,7 +256,7 @@ export function applyQuality(group, envMap, stufe) {
     // Ersetzt durch einen Mittelwert. Auf einer gewachsten Diele ist die
     // Streuung der Rauheit ohnehin klein; was den Boden trägt, ist die
     // Normal-Map, und die bleibt.
-    const large = LARGE_SURFACES.has(object.name);
+    const large = grosseFlaechen.has(object.name);
     if (large && base.roughnessMap) {
       const wantMap = inXR ? null : base.roughnessMap;
       if (material.roughnessMap !== wantMap) {
@@ -270,10 +300,9 @@ export function applyQuality(group, envMap, stufe) {
   // sind der sichtbarste Teil der einen Sonne, an der hier alles hängt. Sie
   // bleiben. Was geht, ist das, was man in Bewegung ohnehin kaum sieht: Staub
   // und Coderegen – viele kleine Flächen, hohe Überzeichnung, wenig Bild.
-  const XR_KEEP_ADDITIVE = /shaft|pool|schacht|bloom/i;
   group.traverse((o) => {
     if (!o.isMesh && !o.isPoints) return;
-    const thin = XR_THIN.get(o.name);
+    const thin = ausduennen.get(o.name);
     if (thin !== undefined && o.isInstancedMesh && o.userData.fullCount) {
       o.count = inXR
         ? Math.max(1, Math.round(o.userData.fullCount * anteil(thin)))
@@ -281,14 +310,14 @@ export function applyQuality(group, envMap, stufe) {
     }
     const m = Array.isArray(o.material) ? o.material[0] : o.material;
     const additive = m?.blending === THREE.AdditiveBlending;
-    const nurDesktop = NUR_DESKTOP.has(o.name);
+    const istNurDesktop = nurDesktop.has(o.name);
     // Das Bambuslaub ist der größte sichtbare Unterschied zwischen den Stufen –
     // in der Mittelstufe kommt es zurück, ausgedünnt über XR_THIN.
-    const nurSparsamAus = sparsam && XR_HIDDEN.has(o.name);
-    if (!additive && !nurDesktop && !nurSparsamAus) return;
+    const nurSparsamAus = sparsam && inXrAus.has(o.name);
+    if (!additive && !istNurDesktop && !nurSparsamAus) return;
     if (o.userData._qVis === undefined) o.userData._qVis = o.visible;
-    const keep = additive && XR_KEEP_ADDITIVE.test(o.name || '');
-    const ausblenden = inXR && ((additive && !keep) || nurDesktop || nurSparsamAus);
+    const keep = additive && additivBehalten.test(o.name || '');
+    const ausblenden = inXR && ((additive && !keep) || istNurDesktop || nurSparsamAus);
     o.visible = ausblenden ? false : o.userData._qVis;
   });
 

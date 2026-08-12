@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createDojoEnvironment } from './dojo/index.js';
-import { heightToMaps } from './dojo/materials.js';
+import { heightToMaps, scaleUV } from './dojo/materials.js';
 import { mossMaterial, waterMaterial, updateWater } from './dojo/ground.js';
 import { graniteMaterial, mossPatina, boxProjectUV, weatheredWoodMaterial } from './dojo/stonework.js';
 import {
@@ -12,6 +12,7 @@ import {
   updateFoliage,
 } from './dojo/foliage.js';
 import { buildSkyEnvironment } from './dojo/skylight.js';
+import { applyQuality } from './dojo/quality.js';
 
 // Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
@@ -300,6 +301,7 @@ function makeTree(rand) {
   );
   applyFoliageMaterial(karteninstanz, karten);
   karteninstanz.name = 'island-laub';
+  karteninstanz.userData.fullCount = schoepfe.length;
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   schoepfe.forEach(([x, y, z, r], i) => {
@@ -321,6 +323,7 @@ function addGrassDecoration(group, rand, radius) {
     54
   );
   flowers.name = 'flowers';
+  flowers.userData.fullCount = flowers.count;
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   for (let i = 0; i < flowers.count; i++) {
@@ -342,6 +345,7 @@ function addGrassDecoration(group, rand, radius) {
     70
   );
   tufts.name = 'tufts';
+  tufts.userData.fullCount = tufts.count;
   for (let i = 0; i < tufts.count; i++) {
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.15 + rand() * 0.78);
@@ -841,6 +845,7 @@ function addUndergrowth(group, rand, radius) {
     10
   );
   bushes.name = 'bushes';
+  bushes.userData.fullCount = bushes.count;
   for (let i = 0; i < bushes.count; i++) {
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.25 + rand() * 0.72);
@@ -870,6 +875,7 @@ function addUndergrowth(group, rand, radius) {
     6
   );
   mushrooms.name = 'mushrooms';
+  mushrooms.userData.fullCount = mushrooms.count;
   for (let i = 0; i < mushrooms.count; i++) {
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.2 + rand() * 0.75);
@@ -998,12 +1004,30 @@ function createIslandEnvironment() {
   // und müssen den Maßstab mitgehen, sonst versinkt die Insel im Nebel.
   const fog = new THREE.Fog(0xcfe4f2, 18 * WORLD_SCALE, 46 * WORLD_SCALE);
 
+  // Was in der Brille dünner wird. Das Laub zuerst – Alpha-Test und
+  // Überzeichnung –, dann die Streudekoration: Blumen, Grasbüschel, Pilze und
+  // Büsche sind zu Hunderten da und einzeln nicht zu vermissen. Die Wolken, der
+  // Wasserfall und die Insel selbst bleiben; sie sind die Silhouette.
+  const ISLAND_QUALITAET = {
+    ausduennen: new Map([
+      ['island-laub', 0.6],
+      ['flowers', 0.45],
+      ['tufts', 0.45],
+      ['bushes', 0.7],
+      ['mushrooms', 0.6],
+    ]),
+  };
+
   return {
     id: 'island',
     name: '🏝 Himmelsinsel',
     background: new THREE.Color(0x9cc9e8),
     fog,
     group,
+    setQuality(stufe) {
+      applyQuality(group, null, stufe, ISLAND_QUALITAET);
+      return null;
+    },
     update(time) {
       for (const mini of minis) {
         mini.position.y = mini.userData.baseY + Math.sin(time * 0.4 + mini.userData.phase) * 0.5;
@@ -1059,6 +1083,85 @@ function craterProfile(t) {
 // Natürlicher, rötlicher Mars-Untergrund: sanft gewelltes Gelände mit
 // Einschlagkratern, verstreuten Felsen und weichen Hügeln am Horizont.
 // Keine kastenförmigen Strukturen, kein Raster.
+// --- Regolith: Marsboden und Marsfels ---------------------------------------
+//
+// **Warum der Nachthimmel überhaupt Karten bekommt, obwohl er von Eigenleuchten
+// lebt.** Sterne, Mond und Glühen sind unbeleuchtete Flächen und ändern sich
+// hier nicht. Der Boden aber ist die eine große beleuchtete Fläche der Szene,
+// und er hatte gar nichts: eine Farbe, Rauheit 1, fertig. Bei einem
+// Mondlicht, das flach von der Seite kommt, ist genau das der Fall, in dem eine
+// Normal-Map am meisten trägt – streifendes Licht auf feiner Körnung ist der
+// ganze Unterschied zwischen Sand und Pappe.
+//
+// Kein Himmelslicht dazu: Eine PMREM-Karte für eine Nachtszene bringt nichts,
+// was das Hemisphärenlicht nicht schon tut, und kostet eine Abtastung je
+// Fragment.
+let _marsMaps = null;
+function marsMaps() {
+  if (_marsMaps) return _marsMaps;
+  const size = 256;
+  // Regolith: feiner Staub mit eingestreuten Steinchen. Zwei Frequenzen, weil
+  // eine allein entweder Grieß (nur hoch) oder Dünen (nur tief) ergibt.
+  const rausch = (x, y, k) => {
+    const s = Math.sin(x * 12.9898 + y * 78.233 + k * 3.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  const { normalMap, roughnessMap, field } = heightToMaps({
+    size,
+    strength: 1.9,
+    height: (x, y) => {
+      const grob = rausch(x >> 4, y >> 4, 1) * 0.5;
+      const mittel = rausch(x >> 2, y >> 2, 2) * 0.34;
+      const fein = rausch(x, y, 3) * 0.16;
+      return grob + mittel + fein;
+    },
+    // Staub ist stumpf, die freigewehten Steinchen etwas weniger. Die Streuung
+    // ist klein, aber sie ist es, die eine Fläche vor dem Plastikeindruck
+    // bewahrt.
+    roughness: (h) => Math.max(0, Math.min(255, (0.97 - h * 0.14) * 255)),
+    anisotropy: 8,
+  });
+  for (const t of [normalMap, roughnessMap]) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, 1);
+  }
+  _marsMaps = { normalMap, roughnessMap, field };
+  return _marsMaps;
+}
+
+let _marsGround = null;
+function marsGroundMaterial() {
+  if (!_marsGround) {
+    const m = marsMaps();
+    _marsGround = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      normalMap: m.normalMap,
+      roughnessMap: m.roughnessMap,
+      roughness: 1, // wird von der Karte moduliert
+      metalness: 0,
+      normalScale: new THREE.Vector2(0.9, 0.9),
+    });
+  }
+  return _marsGround;
+}
+
+let _marsRock = null;
+function marsRockMaterial() {
+  if (!_marsRock) {
+    const m = marsMaps();
+    _marsRock = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      normalMap: m.normalMap,
+      roughnessMap: m.roughnessMap,
+      roughness: 1,
+      metalness: 0,
+      // Kräftiger als am Boden: Ein Brocken ist rauer als der Staub um ihn.
+      normalScale: new THREE.Vector2(1.4, 1.4),
+    });
+  }
+  return _marsRock;
+}
+
 function makeMarsGround(rand) {
   const group = new THREE.Group();
 
@@ -1105,10 +1208,12 @@ function makeMarsGround(rand) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
-  const ground = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 })
-  );
+  // **UVs in Weltmaßstab.** Eine PlaneGeometry legt ihre UVs einmal über die
+  // ganze Fläche – hier über 96 Meter. Ohne diese Skalierung wäre die
+  // Regolithkarte auf 96 m gestreckt und damit unsichtbar; derselbe Fehler wie
+  // bei der Grasnarbe der Insel, dort erst im Bild aufgefallen.
+  scaleUV(geo, SIZE / 1.6);
+  const ground = new THREE.Mesh(geo, marsGroundMaterial());
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.03;
   group.add(ground);
@@ -1129,15 +1234,13 @@ function makeMarsGround(rand) {
       rp.setXYZ(v, rp.getX(v) * f, rp.getY(v) * f, rp.getZ(v) * f);
     }
     geoR.computeVertexNormals();
-    const rock = new THREE.Mesh(
-      geoR,
-      new THREE.MeshStandardMaterial({
-        color: rockColors[Math.floor(rand() * rockColors.length)],
-        roughness: 1,
-        metalness: 0,
-        flatShading: true,
-      })
-    );
+    // Ein Material für alle dreißig Brocken; die vier Rottöne stecken in den
+    // Scheitelfarben. Kein Moos – auf dem Mars wächst nichts, und `mossPatina()`
+    // wäre hier genau die Sorte gedankenloser Wiederverwendung, die man den
+    // Werkzeugen später ansieht.
+    boxProjectUV(geoR, 0.22);
+    paintVertices(geoR, rockColors[Math.floor(rand() * rockColors.length)]);
+    const rock = new THREE.Mesh(geoR, marsRockMaterial());
     rock.position.set(bx, heightAt(bx, bz) - 0.03 + s * 0.25, bz);
     rock.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
     rock.scale.set(1 + rand() * 0.5, 0.45 + rand() * 0.4, 1 + rand() * 0.5);
@@ -1249,6 +1352,22 @@ function createNightEnvironment() {
     background: new THREE.Color(0x0a0605),
     fog: new THREE.Fog(0x1c0d09, 22, 48),
     group,
+
+    // **Hier gibt es bewusst nichts auszudünnen.** Der Nachthimmel hat keine
+    // Blattkarten, keine additiven Lagen über Bildschirmgröße und keine
+    // Instanzenwolke, deren Hälfte man nicht vermisst: Er besteht aus einer
+    // Bodenfläche, dreißig Brocken und zwei Punktwolken. Die Sterne zu halbieren
+    // spart ein paar tausend Punkte und nimmt der Szene ihr einziges Motiv.
+    //
+    // Der Aufruf steht trotzdem hier, und zwar mit leerer Konfiguration: Damit
+    // greift der materialseitige Teil von applyQuality() – doppelseitige
+    // Materialien werden in der Brille einseitig – und es ist an dieser Stelle
+    // aktenkundig, dass die Prüfung stattgefunden hat und negativ ausfiel.
+    setQuality(stufe) {
+      applyQuality(group, null, stufe, {});
+      return null;
+    },
+
     update(time) {
       starsGroup.rotation.y = time * 0.004;
     },
@@ -1581,6 +1700,7 @@ function makeBambooGrove(rand, cx, cz) {
   );
   applyFoliageMaterial(schopf, laubMat);
   schopf.name = 'zen-bambus-laub';
+  schopf.userData.fullCount = stalks.length;
   {
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -1683,6 +1803,7 @@ function makeMaple(rand) {
   );
   applyFoliageMaterial(crown, cards);
   crown.name = 'zen-ahorn-karten';
+  crown.userData.fullCount = canopy.length;
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   canopy.forEach(([x, y, z, r], i) => {
@@ -2147,6 +2268,9 @@ function createZenEnvironment() {
   );
   applyFoliageMaterial(sakuraCrown, sakuraCards);
   sakuraCrown.name = 'zen-sakura-karten';
+  // Ohne `fullCount` rührt applyQuality() die Instanzzahl nicht an – die Stufe
+  // wäre wirkungslos und der Fehlschlag lautlos.
+  sakuraCrown.userData.fullCount = blossomPositions.length;
   {
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -2290,6 +2414,17 @@ function createZenEnvironment() {
   };
   let zenSky = null;
 
+  // Die Kronen bleiben dichter als das Bodenlaub: Sie stehen auf Augenhöhe und
+  // sind das, was man zuerst sieht. Der Bambusschopf verträgt am meisten – er
+  // steht am weitesten weg und ist ohnehin ein Büschel.
+  const ZEN_QUALITAET = {
+    ausduennen: new Map([
+      ['zen-sakura-karten', 0.65],
+      ['zen-ahorn-karten', 0.65],
+      ['zen-bambus-laub', 0.45],
+    ]),
+  };
+
   return {
     id: 'zen',
     name: '🪷 Zen-Garten',
@@ -2316,6 +2451,16 @@ function createZenEnvironment() {
         pondMat.needsUpdate = true;
       }
       return this.environment;
+    },
+
+    // Qualitätsstufen. Die Blattkarten sind hier das teuerste Neue: zwei
+    // Dreiecke **und** ein Alpha-Test je Blatt, und der Alpha-Test verbietet
+    // das frühe Verwerfen von Fragmenten. Ausgedünnt wird deshalb nur das Laub;
+    // Sand, Steine und Wasser bleiben in jeder Stufe vollständig, weil sie den
+    // Garten ausmachen und keine Überzeichnung erzeugen.
+    setQuality(stufe) {
+      applyQuality(group, null, stufe, ZEN_QUALITAET);
+      return null;
     },
 
     update(time) {
