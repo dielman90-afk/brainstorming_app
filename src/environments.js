@@ -200,41 +200,115 @@ function displaceRadial(geometry, amount, yAmount = 0, smooth = false) {
   return nonIndexed;
 }
 
+// Materialien der Inselbäume, einmal für alle.
+//
+// Vorher legte **jeder Baum** zwei eigene an (Stamm und Laub), obwohl sie sich
+// nur in einem von zwei Grüntönen unterschieden. Bei dreißig Bäumen über
+// Haupt- und Mini-Inseln sind das sechzig Materialien für zwei Farben.
+//
+// `laubMat` heißt bewusst nicht mehr `foliageMaterial`: So hieß hier eine
+// lokale Variable, und seit dieser Datei die gleichnamige Funktion aus
+// `dojo/foliage.js` importiert, hätte der eine den anderen verdeckt.
+let _inselHolz = null;
+let _inselLaub = null;
+let _inselKarten = null;
+function inselBaumMaterialien() {
+  if (!_inselHolz) {
+    _inselHolz = weatheredWoodMaterial({ tone: 0x8f6a48, vertexColors: false });
+    _inselLaub = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.9,
+      metalness: 0,
+      vertexColors: true,
+    });
+    _inselKarten = foliageMaterial({
+      atlas: leafAtlas('azalea'),
+      // Aufgehellt auf das Inselgrün. Der Azaleen-Atlas ist für den schattigen
+      // Dojo-Garten gezeichnet; unverändert standen seine Blätter als dunkle
+      // Flecken vor den hellen Kronen, statt sie aufzulösen.
+      // Kräftig aufgehellt. Der Azaleen-Atlas ist mit Grundton [56 | 92 | 48]
+      // für den schattigen Dojo-Garten gezeichnet; die Insel ist eine helle
+      // Cartoon-Landschaft, und unverändert standen die Karten als dunkle
+      // Flecken auf den Kronen statt sie aufzulösen.
+      color: 0xe8ffd0,
+      translucency: 0.95,
+      transColor: 0xdcf7b0,
+      windStrength: 0.06,
+    });
+  }
+  return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten };
+}
+
 function makeTree(rand) {
   const tree = new THREE.Group();
   const trunkHeight = 0.5 + rand() * 0.5;
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8),
-    new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.9, metalness: 0 })
-  );
+  const { holz, laub: laubMat, karten } = inselBaumMaterialien();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8), holz);
   trunk.position.y = trunkHeight / 2;
   tree.add(trunk);
 
   const foliageColor = rand() > 0.5 ? 0x3e8e4f : 0x57ab68;
-  const foliageMaterial = new THREE.MeshStandardMaterial({
-    color: foliageColor,
-    roughness: 0.85,
-    metalness: 0,
-  });
+  // Farbe und Abdunkelung nach unten in einem Attribut – dieselbe Bauart wie
+  // beim Ahorn im Zen-Garten. Der Hüllkörper ist die Tiefe zwischen den Karten.
+  const faerben = (geo, r) => {
+    const c = new THREE.Color(foliageColor);
+    const pos = geo.attributes.position;
+    const cols = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      // Deutlich abgedunkelt: Der Hüllkörper ist die **Tiefe** zwischen den
+      // Karten. Ist er so hell wie sie, gewinnt er, und die Karten werden zu
+      // Flecken darauf – genau der Fehler aus dem ersten Versuch.
+      const f = 0.42 + 0.34 * ((pos.getY(i) / r) * 0.5 + 0.5);
+      cols[i * 3] = c.r * f;
+      cols[i * 3 + 1] = c.g * f;
+      cols[i * 3 + 2] = c.b * f;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    return geo;
+  };
+  // Wohin die Blattkarten kommen: Mittelpunkt und Radius je Hüllkörper.
+  const schoepfe = [];
   if (rand() > 0.45) {
     // Nadelbaum: gestapelte, glatt schattierte Kegel
     const layers = 2 + Math.floor(rand() * 2);
     for (let i = 0; i < layers; i++) {
       const radius = 0.45 - i * 0.12;
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, 0.6, 14), foliageMaterial);
+      const cone = new THREE.Mesh(faerben(new THREE.ConeGeometry(radius, 0.6, 14), 0.3), laubMat);
       cone.position.y = trunkHeight + 0.15 + i * 0.32;
       tree.add(cone);
+      schoepfe.push([0, cone.position.y + 0.08, 0, radius * 0.92]);
     }
   } else {
     // Laubbaum: weiche, runde Krone aus zwei Icosaeder-Blobs (detail 1 = glatter)
-    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(0.36, 1), foliageMaterial);
+    const crown = new THREE.Mesh(faerben(new THREE.IcosahedronGeometry(0.36, 1), 0.36), laubMat);
     crown.position.y = trunkHeight + 0.26;
     crown.scale.y = 0.88;
     tree.add(crown);
-    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 1), foliageMaterial);
-    blob.position.set(0.2 * (rand() > 0.5 ? 1 : -1), trunkHeight + 0.4, 0.12);
+    schoepfe.push([0, crown.position.y, 0, 0.36]);
+    const bx = 0.2 * (rand() > 0.5 ? 1 : -1);
+    const blob = new THREE.Mesh(faerben(new THREE.IcosahedronGeometry(0.22, 1), 0.22), laubMat);
+    blob.position.set(bx, trunkHeight + 0.4, 0.12);
     tree.add(blob);
+    schoepfe.push([bx, blob.position.y, 0.12, 0.22]);
   }
+
+  // Blattkarten über den Hüllkörpern. Eine Instanz je Baum, ein Draw-Call.
+  const karteninstanz = new THREE.InstancedMesh(
+    cardCluster({ count: 44, radius: 1, seed: 0x1de4, kind: 'azalea', cardScale: 0.6 }),
+    karten,
+    schoepfe.length
+  );
+  applyFoliageMaterial(karteninstanz, karten);
+  karteninstanz.name = 'island-laub';
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  schoepfe.forEach(([x, y, z, r], i) => {
+    q.setFromEuler(new THREE.Euler(0, i * 1.9 + rand() * 2, 0));
+    m.compose(new THREE.Vector3(x, y, z), q, new THREE.Vector3(r * 1.2, r * 1.1, r * 1.2));
+    karteninstanz.setMatrixAt(i, m);
+  });
+  karteninstanz.instanceMatrix.needsUpdate = true;
+  tree.add(karteninstanz);
   return tree;
 }
 
@@ -674,13 +748,31 @@ function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4, vines 
       return Math.min(1.05, (1 - edge * 0.12) * low * mott);
     }
   );
-  const capMat = (color, rough = 1) =>
-    new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0, vertexColors: true });
-  const cap = new THREE.Mesh(capGeometry, [
-    capMat(0x8a6844), // Erdrand
-    capMat(0x6cbb5c, 0.95), // Gras
-    capMat(0x6b4f34), // Unterseite
-  ]);
+  // **Die Grasfläche bekommt das Moosmaterial, der Erdrand die Granitkarten.**
+  // Beide behalten ihre Farbe: Die Karten liefern Relief und Rauheit, der
+  // `color`-Wert multipliziert sie. Aus dem hellen Inselgrün wird damit kein
+  // Dojo-Moos, es bekommt nur endlich eine Oberfläche.
+  // **Ohne eigene UVs bleibt jede Karte hier wirkungslos.** Die UVs eines
+  // Zylinders spannen einmal über die ganze Fläche – bei 5 m Radius liegt eine
+  // Mooskachel über zehn Metern, und man sieht sie schlicht nicht. Erst im Bild
+  // aufgefallen: Relief vorhanden, Wirkung null. `boxProjectUV()` projiziert
+  // je Vertex aus der dominanten Normalenachse und gibt jeder Fläche dieselbe
+  // Korngröße – Deckel wie Flanke.
+  boxProjectUV(capGeometry, 0.5);
+  const erdMat = graniteMaterial({ tone: 0x8a6844, vertexColors: true });
+  const grasMat = mossMaterial();
+  grasMat.vertexColors = true;
+  // **Die Farbkarte des Mooses fliegt raus, Relief und Rauheit bleiben.**
+  // `mossMaterial()` ist für den dunklen, feuchten Dojo-Garten gebaut; ihre
+  // Farbe multipliziert mit dem Inselgrün ergab einen fast schwarzen,
+  // fleckigen Rasen – im Bild gesehen. Was die Insel braucht, ist die
+  // Halmstruktur, nicht der Farbton: Normal- und Rauheitskarte machen aus der
+  // Fläche eine Wiese, die Farbe kommt weiter aus `color` und den
+  // Scheitelfarben.
+  grasMat.map = null;
+  grasMat.color.setHex(0x6cbb5c);
+  const untenMat = graniteMaterial({ tone: 0x6b4f34, vertexColors: true });
+  const cap = new THREE.Mesh(capGeometry, [erdMat, grasMat, untenMat]);
   cap.position.y = -0.18; // Grasfläche liegt bei y ≈ -0.02
   island.add(cap);
 
@@ -689,10 +781,12 @@ function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4, vines 
     displaceRadial(new THREE.ConeGeometry(radius * 0.92, depth, 32, 6), 0.3, 0.25),
     (x, y) => 0.7 + ((y + depth / 2) / depth) * 0.4 // Basis heller, Spitze dunkler
   );
-  const rock = new THREE.Mesh(
-    rockGeometry,
-    new THREE.MeshStandardMaterial({ color: 0x7d6f5c, roughness: 1, metalness: 0, flatShading: true, vertexColors: true })
-  );
+  // Die Felsspitze ist die größte zusammenhängende Fläche der Insel und war
+  // eine einzige Farbe. `boxProjectUV()` legt die Granitkörnung in gleicher
+  // Größe über alle Facetten – ohne UVs bliebe die Normal-Map wirkungslos, und
+  // eine Kegelabwicklung liefe an der Spitze zusammen.
+  boxProjectUV(rockGeometry, 0.55);
+  const rock = new THREE.Mesh(rockGeometry, graniteMaterial({ tone: 0x9d8a72 }));
   rock.rotation.x = Math.PI; // Spitze nach unten
   rock.position.y = -0.3 - depth / 2;
   island.add(rock);
@@ -715,10 +809,10 @@ function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4, vines 
 
   for (let i = 0; i < rocks; i++) {
     const s = 0.12 + rand() * 0.2;
-    const stone = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(s, 0),
-      new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 1, metalness: 0, flatShading: true })
-    );
+    const steinGeo = new THREE.IcosahedronGeometry(s, 0);
+    boxProjectUV(steinGeo, 0.2);
+    paintVertices(steinGeo, 0x9aa0a8);
+    const stone = new THREE.Mesh(steinGeo, graniteMaterial({ tone: 0xffffff }));
     const angle = rand() * Math.PI * 2;
     const r = radius * (0.5 + rand() * 0.4);
     const sx = Math.sin(angle) * r;
