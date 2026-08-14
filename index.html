@@ -199,28 +199,28 @@
     .chip-row .ic-lead { margin-right: 5px; color: #8b8593; }
 
     /* Prozessdiagramm als abgegrenzte Gruppenbox: dünner Rahmen, leicht
-       getönte Fläche, Titel halb in die Oberkante gesetzt. */
-    .group-box {
-      position: relative;
+       getönte Fläche, Titel in der Oberkante. Bewusst ein echtes
+       <fieldset>/<legend>: Der Browser unterbricht den Rahmen unter dem Titel
+       selbst. Der frühere Trick – Titel absolut positioniert und mit
+       deckendem --panel-solid über den Rahmen gelegt – malte einen dunklen
+       Fleck auf das durchsichtige Milchglas-Panel. */
+    fieldset.group-box {
       border: 1px solid rgba(255, 255, 255, 0.12);
       border-radius: 14px;
-      padding: 16px 12px 2px;
+      padding: 10px 12px 2px;
       margin: 22px 0 16px;
       background: rgba(255, 255, 255, 0.025);
+      /* Fieldset-Eigenheit: min-width ist min-content – die Box würde sonst
+         breiter als das Overlay, statt ihren Inhalt umbrechen zu lassen. */
+      min-width: 0;
     }
     .group-box > .group-title {
-      position: absolute;
-      top: -8px;
-      left: 12px;
       padding: 0 7px;
-      background: var(--panel-solid, #1c1a21);
+      margin-left: 5px;
       font: 600 11px/1.4 var(--body);
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: #9b95a4;
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
     }
     .group-box .mini-row:last-child { margin-bottom: 14px; }
 
@@ -440,8 +440,8 @@
     <!-- Prozessflussdiagramm. Am Desktop bewusst als eigener Block statt
          verstreut in der Aktionsliste: Die Formen brauchen eine direkte
          Auswahl, kein Durchschalten wie in VR – hier ist Platz dafür. -->
-    <div class="group-box">
-      <div class="group-title"><span class="ic-lead" data-icon="branch"></span>Prozessdiagramm</div>
+    <fieldset class="group-box">
+      <legend class="group-title"><span class="ic-lead" data-icon="branch"></span>Prozessdiagramm</legend>
       <div class="chip-row" id="flow-shapes" title="Form der ausgewählten Karte">
         <button data-flow-type="start" data-icon="flow-start">Start</button>
         <button data-flow-type="task" data-icon="flow-task">Schritt</button>
@@ -453,12 +453,17 @@
         <button id="btn-flow-arrow" data-icon="arrow" title="Ausgewählte Karte als Start, dann Ziel anklicken">Pfeil ziehen</button>
         <button id="btn-flow-label" data-icon="label" title="Zuletzt gezogenen Pfeil beschriften (Text aus dem Eingabefeld)">Zweig</button>
       </div>
+      <!-- Zwei Reihen à zwei Knöpfe: Zu dritt nebeneinander („Anordnen · Aus
+           Text · Mermaid") liefen die Knöpfe über den Boxrand hinaus – der
+           Mermaid-Knopf wurde rechts abgeschnitten. -->
       <div class="mini-row">
         <button id="btn-flow-layout" data-icon="layout" title="Prozess waagerecht anordnen">Anordnen</button>
         <button id="btn-flow" data-icon="spark" title="Ablauf im Eingabefeld beschreiben – Claude baut das Diagramm">Aus Text</button>
-        <button id="btn-mermaid" data-icon="export" title="Prozessdiagramm als Mermaid-Datei herunterladen">Mermaid</button>
       </div>
-    </div>
+      <div class="mini-row">
+        <button id="btn-mermaid" data-icon="export" title="Prozessdiagramm als Mermaid-Datei herunterladen">Mermaid-Export</button>
+      </div>
+    </fieldset>
 
     <div class="mini-row">
       <button id="btn-undo" data-icon="undo" title="Letzte Änderung rückgängig (Strg+Z)" disabled>Rückgängig</button>
