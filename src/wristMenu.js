@@ -6,57 +6,61 @@ import { createTextPanel } from './textPanel.js';
 // kompakt und sind auch verkleinert auf der Handfläche noch lesbar.
 // Exportiert, damit Tests die Seiten prüfen können, ohne die Knopf-Meshes
 // auseinanderzunehmen.
+// Die Icon-Namen zeigen in icons.js – dieselben Pfade, die das
+// Desktop-Overlay als Inline-SVG rendert, hier über Path2D auf die
+// Canvas-Texturen gezeichnet. Keine Emojis mehr: Sie rendern je Plattform
+// anders, lassen sich nicht einfärben und wirkten nach Chat statt Werkzeug.
 export const PAGES = [
   {
     id: 'ideas',
-    label: '💡 Ideen',
+    label: 'Ideen',
     actions: [
-      { id: 'new', label: '＋ Neue Karte' },
-      { id: 'topic', label: '🚀 Themen-Start' },
-      { id: 'related', label: '✨ Verwandte Ideen' },
-      { id: 'critic', label: '😈 Kritiker' },
-      { id: 'cluster', label: '📂 Cluster' },
-      { id: 'summary', label: '📝 Zusammenfassen' },
-      { id: 'color', label: '🎨 Farbe' },
-      { id: 'connect', label: '🔗 Verbinden' },
-      { id: 'fontsize', label: '🔠 Schrift' },
-      { id: 'delete', label: '🗑️ Karte löschen', danger: true },
+      { id: 'new', label: 'Neue Karte', icon: 'plus' },
+      { id: 'topic', label: 'Themen-Start', icon: 'topic' },
+      { id: 'related', label: 'Verwandte Ideen', icon: 'spark' },
+      { id: 'critic', label: 'Kritiker', icon: 'critic' },
+      { id: 'cluster', label: 'Cluster', icon: 'cluster' },
+      { id: 'summary', label: 'Zusammenfassen', icon: 'summary' },
+      { id: 'color', label: 'Farbe', icon: 'color' },
+      { id: 'connect', label: 'Verbinden', icon: 'connect' },
+      { id: 'fontsize', label: 'Schrift', icon: 'fontsize' },
+      { id: 'delete', label: 'Karte löschen', icon: 'trash', danger: true },
     ],
   },
   {
     id: 'board',
-    label: '🗂 Board',
+    label: 'Board',
     actions: [
-      { id: 'undo', label: '↶ Rückgängig' },
-      { id: 'redo', label: '↷ Wiederholen' },
-      { id: 'zone', label: '🗂️ Zone' },
-      { id: 'timer', label: '⏱️ Timer' },
-      { id: 'whiteboard', label: '📋 Whiteboard' },
-      { id: 'environment', label: '🌐 Umgebung' },
+      { id: 'undo', label: 'Rückgängig', icon: 'undo' },
+      { id: 'redo', label: 'Wiederholen', icon: 'redo' },
+      { id: 'zone', label: 'Zone', icon: 'zone' },
+      { id: 'timer', label: 'Timer', icon: 'timer' },
+      { id: 'whiteboard', label: 'Whiteboard', icon: 'whiteboard' },
+      { id: 'environment', label: 'Umgebung', icon: 'environment' },
       // Der Regler für die Bildqualität gehört in die Brille und nicht nur ins
       // Desktop-Overlay: Ob die Quest die volle Fassung trägt, entscheidet sich
       // dort und nirgends sonst. Headless lässt sich die Füllrate einer Adreno
       // nicht messen (SwiftShader hat keine Textur-Abtasteinheiten), also
       // bekommt der Nutzer den Schalter statt einer geratenen Zahl.
-      { id: 'quality', label: '🎚 Bildqualität' },
+      { id: 'quality', label: 'Bildqualität', icon: 'quality' },
       // Kein Eintrag für Sprachbefehle: In der Brille gibt es keine
       // Spracherkennung (siehe speech.js) – der Knopf konnte dort nur
       // scheitern. Am Desktop steht er weiterhin im Overlay.
-      { id: 'export', label: '⬇️ Als Datei' },
-      { id: 'clear', label: '🧹 Alles löschen', danger: true },
+      { id: 'export', label: 'Als Datei', icon: 'export' },
+      { id: 'clear', label: 'Alles löschen', icon: 'clear', danger: true },
     ],
   },
   {
     id: 'flow',
-    label: '⚙️ Prozess',
+    label: 'Prozess',
     actions: [
-      { id: 'flow-generate', label: '✨ Aus Text bauen' },
-      { id: 'flow-node', label: '＋ Schritt' },
-      { id: 'flow-type', label: '◇ Form wechseln' },
-      { id: 'flow-arrow', label: '➜ Pfeil ziehen' },
-      { id: 'flow-label', label: '🏷 Zweig benennen' },
-      { id: 'flow-layout', label: '⤓ Anordnen' },
-      { id: 'flow-export', label: '⬇️ Als Mermaid' },
+      { id: 'flow-generate', label: 'Aus Text bauen', icon: 'spark' },
+      { id: 'flow-node', label: 'Schritt', icon: 'flow-task' },
+      { id: 'flow-type', label: 'Form wechseln', icon: 'flow-decision' },
+      { id: 'flow-arrow', label: 'Pfeil ziehen', icon: 'arrow' },
+      { id: 'flow-label', label: 'Zweig benennen', icon: 'label' },
+      { id: 'flow-layout', label: 'Anordnen', icon: 'layout' },
+      { id: 'flow-export', label: 'Als Mermaid', icon: 'branch' },
     ],
   },
 ];
@@ -221,7 +225,7 @@ export class WristMenu {
     const title = createTextPanel({
       width: panelW - PAD * 2,
       height: HEADER_H,
-      text: '🧠 Brainstorming',
+      text: 'Brainstorming',
       background: 'transparent',
       color: COLORS.accent,
       weight: 700,
@@ -288,6 +292,7 @@ export class WristMenu {
           width: BTN_W,
           height: BTN_H,
           text: action.label,
+          icon: action.icon ?? null,
           background: base,
           color: COLORS.text,
           weight: 600,

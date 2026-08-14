@@ -4,6 +4,7 @@ import './fonts.js'; // lokal gebündelte Schriften (kein CDN nötig)
 import { CardManager, CARD_COLORS, CARD_FONT_STEPS, FLOW_TYPES, flowTypeById } from './cards.js';
 import { ConnectionManager } from './connections.js';
 import { layoutFlow } from './flowLayout.js';
+import { decorateIcons } from './icons.js';
 import { Tweener } from './tween.js';
 import { InteractionManager } from './interactions.js';
 import { WristMenu } from './wristMenu.js';
@@ -829,7 +830,10 @@ function cycleCardFont() {
 
 function updateFontButton() {
   const button = document.getElementById('btn-fontsize');
-  if (button) button.textContent = `Schrift: ${cardManager.fontStep.label}`;
+  // In den Label-Span schreiben, nicht in den Knopf: textContent auf dem
+  // Knopf würde das Icon gleich mit auslöschen.
+  const lbl = button?.querySelector('.lbl');
+  if (lbl) lbl.textContent = `Schrift: ${cardManager.fontStep.label}`;
 }
 
 // --- Sprachbefehle ---
@@ -858,7 +862,8 @@ const voice = new VoiceCommands({
   onStateChange: (active) => {
     const button = document.getElementById('btn-voice');
     if (button) {
-      button.textContent = active ? '🎙 Sprachbefehle: an' : '🎙 Sprachbefehle: aus';
+      const lbl = button.querySelector('.lbl');
+      if (lbl) lbl.textContent = active ? 'Sprachbefehle: an' : 'Sprachbefehle: aus';
       button.classList.toggle('active', active);
     }
   },
@@ -1099,6 +1104,12 @@ async function newCardFlow() {
 
 // --- Desktop-UI ---
 
+// Alle data-icon-Halterungen im Overlay und Kontextmenü mit ihren SVGs
+// bestücken – einmal beim Start, die Elemente sind statisches Markup. Wirft
+// bei unbekanntem Icon-Namen, damit ein Tippfehler nicht als leere Halterung
+// überlebt.
+decorateIcons();
+
 const DESKTOP_BUTTONS = {
   'btn-new': 'new',
   'btn-related': 'related',
@@ -1157,7 +1168,8 @@ async function toggleDesktopDictation() {
   voice.pause(); // nicht gleichzeitig auf Befehle horchen
   const before = input.value.trim();
   if (dictateButton) {
-    dictateButton.textContent = '🎙 Hört zu…';
+    const lbl = dictateButton.querySelector('.lbl');
+    if (lbl) lbl.textContent = 'Hört zu…';
     dictateButton.classList.add('active');
   }
   setStatus('🎤 Sprich jetzt…', 0);
@@ -1178,7 +1190,8 @@ async function toggleDesktopDictation() {
     dictateAbort = null;
     voice.resume();
     if (dictateButton) {
-      dictateButton.textContent = '🎤 Diktieren';
+      const lbl = dictateButton.querySelector('.lbl');
+      if (lbl) lbl.textContent = 'Diktieren';
       dictateButton.classList.remove('active');
     }
   }
@@ -1478,7 +1491,7 @@ async function setupXRButton() {
     return;
   }
   xrMode = arOk ? 'immersive-ar' : 'immersive-vr';
-  button.textContent = arOk ? '🥽 Mixed Reality starten (Passthrough)' : '🥽 VR starten';
+  button.textContent = arOk ? 'Mixed Reality starten (Passthrough)' : 'VR starten';
   button.disabled = false;
   button.addEventListener('click', async () => {
     try {

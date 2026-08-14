@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PANEL_FONT_FAMILY, onFontsReady, forgetFontListener } from './fonts.js';
+import { drawIcon } from './icons.js';
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -94,6 +95,10 @@ export function createTextPanel({
 
   accent = null, // Farbstreifen am linken Rand (z. B. Kategorie-Farbe)
   border = null, // feiner Rahmen um das Panel
+  // Linien-Icon links vom Text (nur einzeilig). Name aus icons.js; gezeichnet
+  // wird derselbe SVG-Pfad wie im Desktop-Overlay – eine Formquelle für beide
+  // Oberflächen.
+  icon = null,
   doubleSided = true, // Rückseiten-Ebene (für rundum lesbare Karten); für
   // UI-Panels am Handgelenk unnötig und vermeidet Transparenz-Sortierprobleme
 } = {}) {
@@ -184,14 +189,29 @@ export function createTextPanel({
     const textX = align === 'left' ? padding / 2 : canvas.width / 2;
 
     if (singleLine) {
+      // Icon-Platz vorab abziehen, damit die Schrumpfschleife gegen die
+      // tatsächlich verfügbare Breite prüft.
+      const iconSize = icon ? Math.round(state.fontSize * 1.2) : 0;
+      const iconGap = icon ? Math.round(iconSize * 0.42) : 0;
       // Schriftgröße so weit reduzieren, bis der Text in eine Zeile passt
       let fs = state.fontSize;
       ctx.font = font(fs);
-      while (fs > 10 && ctx.measureText(state.text).width > maxWidth) {
+      while (fs > 10 && ctx.measureText(state.text).width + iconSize + iconGap > maxWidth) {
         fs -= 1;
         ctx.font = font(fs);
       }
-      ctx.fillText(state.text, textX, canvas.height / 2 + 1);
+      if (icon) {
+        // Icon + Text als ein Block zentriert; bei linksbündigen Panels
+        // beginnt der Block am Innenrand.
+        const textW = ctx.measureText(state.text).width;
+        const blockW = iconSize + iconGap + textW;
+        const x0 = align === 'left' ? padding / 2 : (canvas.width - blockW) / 2;
+        drawIcon(ctx, icon, x0, canvas.height / 2 - iconSize / 2, iconSize, state.color, 2.4);
+        ctx.textAlign = 'left';
+        ctx.fillText(state.text, x0 + iconSize + iconGap, canvas.height / 2 + 1);
+      } else {
+        ctx.fillText(state.text, textX, canvas.height / 2 + 1);
+      }
       state.renderedFontSize = fs;
       state.truncated = false; // einzeilig wird nur verkleinert, nie gekürzt
       texture.needsUpdate = true;

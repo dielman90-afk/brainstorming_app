@@ -37,7 +37,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   ist die Signatur von Fremdlast auf der CPU, nicht der Szene.)
 
 - **Fünf virtuelle Umgebungen** (`src/environments.js` und `src/dojo/`, komplett
-  prozedural, ohne externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
+  prozedural, ohne externe Assets): Der Button **„Umgebung“** schaltet zyklisch durch
   Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Büschen,
   Pilzen, Blumen, Fluss samt Wasserfall mit Schaum & Regenbogen, hängenden Ranken
   unter den Inseln, kreisenden Vögeln, Schmetterlingen, 3D-Wolken – auch unter den
@@ -178,7 +178,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Tracking-Aussetzer keinen Sprung auslöst.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
-- **⚙️ Prozessflussdiagramm** (`src/flowLayout.js`, Reiter „⚙️ Prozess" im
+- **Prozessflussdiagramm** (`src/flowLayout.js`, Reiter „Prozess" im
   Hand-Menü): Abläufe als richtiges Flussdiagramm bauen – mit **Formen**,
   **gerichteten Pfeilen** und **beschrifteten Zweigen**.
   - **Knotenarten** (`FLOW_TYPES` in `src/cards.js`): Start und Ende als Stadion,
@@ -191,7 +191,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     verschwände die Spitze hinter der Karte und man sähe nur eine Linie, die im
     Knoten endet. Bei der Raute wird dafür ihr echter Umriss gerechnet
     (`|x|/hw + |y|/hh = 1`), nicht das umschließende Rechteck.
-  - **⤓ Anordnen** legt den Prozess automatisch auf eine flache Tafel vor dem
+  - **Anordnen** legt den Prozess automatisch auf eine flache Tafel vor dem
     Nutzer, Fluss **von links nach rechts** (geschichtetes Layout, rein lokal
     gerechnet). Waagerecht, weil der Platz nach unten ausgeht: Zwischen Boden
     und bequemer Blickhöhe liegen keine anderthalb Meter, das reicht für vier
@@ -204,28 +204,30 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     werden vorher per Tiefensuche erkannt und beim Rangieren übersprungen;
     gezeichnet werden sie trotzdem und zeigen dann nach oben. Ohne das würde der
     Rang eines Knotens im Kreis immer weiterwachsen.
-  - **✨ Aus Text bauen:** Ablauf in Worten beschreiben, Claude liefert Knoten und
+  - **Aus Text bauen:** Ablauf in Worten beschreiben, Claude liefert Knoten und
     Kanten als strukturiertes JSON (`FLOW_SCHEMA` in `server/ai-core.js`, dieselbe
     Strecke wie *Cluster*), die App baut und ordnet das Diagramm. Ein **vorhandenes
     Prozessdiagramm wird dabei ersetzt** – zwei Prozesse gleichzeitig würden sich
     beim Anordnen dieselben Spalten teilen und ineinander stehen. Ideenkarten
-    bleiben unberührt, und „↶ Rückgängig" holt den alten Prozess zurück.
-  - **⬇️ Als Mermaid:** Export als `flowchart LR` (waagerecht wie in der App) –
+    bleiben unberührt, und „Rückgängig" holt den alten Prozess zurück.
+  - **Als Mermaid:** Export als `flowchart LR` (waagerecht wie in der App) –
     Stadion `([…])`, Rechteck
     `[…]`, Raute `{…}`, beschriftete Kanten `-->|ja|`. GitHub, Notion, Obsidian
     und Confluence rendern das direkt, der in VR gebaute Prozess ist also ohne
     Zwischenschritt im Dokument und dort weiter bearbeitbar. Ein Bild wäre eine
     Sackgasse.
-- **Hand-Menü** (`src/wristMenu.js`) auf drei Reitern à sechs Reihen, damit das
-  Panel trotz 28 Aktionen kompakt bleibt. Die kürzere Seite wird im Panel
-  vertikal zentriert, damit unten keine leere Reihe klafft:
-  - **💡 Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
+- **Hand-Menü** (`src/wristMenu.js`) auf drei Reitern, damit das Panel trotz
+  26 Aktionen kompakt bleibt. Jede Aktion trägt dasselbe Linien-Icon wie ihr
+  Desktop-Knopf (eine Pfad-Definition in `src/icons.js`, auf die
+  Canvas-Textur gezeichnet). Die kürzere Seite wird im Panel vertikal
+  zentriert, damit unten keine leere Reihe klafft:
+  - **Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
     *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Schrift*,
     *Karte löschen*
-  - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
-    *Umgebung*, *Als Datei*,
+  - **Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
+    *Umgebung*, *Bildqualität*, *Als Datei*,
     *Alles löschen* (mit Zweifach-Bestätigung)
-  - **⚙️ Prozess:** *Aus Text bauen*, *Schritt*, *Form wechseln*, *Pfeil ziehen*,
+  - **Prozess:** *Aus Text bauen*, *Schritt*, *Form wechseln*, *Pfeil ziehen*,
     *Zweig benennen*, *Anordnen*, *Als Mermaid*
 
   Das Menü sitzt **mit Controllern** über dem Handrücken der linken Hand und
@@ -241,10 +243,9 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   angevisiert und per Trigger bzw. Pinch geklickt. Die Hände werden bei
   Hand-Tracking als Gelenk-Kugeln dargestellt (prozedural, ohne externe Assets).
 - **Undo/Redo:** Vollständiger Verlauf über *Anlegen, Löschen, „Alles löschen",
-  Verschieben, Größe, Farbe, Text, Cluster, Verbindungen, Zonen, Import und
-  Laden* –
+  Verschieben, Größe, Farbe, Text, Cluster, Verbindungen, Zonen und Import* –
   am Desktop per **Strg+Z / Strg+Umschalt+Z** (oder Strg+Y) und über die Buttons
-  im Overlay, in VR über *„↶ Rückgängig"* / *„↷ Wiederholen"* im Menü. Intern
+  im Overlay, in VR über *„Rückgängig"* / *„Wiederholen"* im Menü. Intern
   sichert `src/history.js` pro Schritt einen Board-Snapshot (bis zu 60 Schritte);
   beim Zurücksetzen werden bestehende Karten anhand ihrer ID aktualisiert statt
   neu aufgebaut, damit Auswahl und Objekt-Identität erhalten bleiben. Die
@@ -283,12 +284,12 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   `fetch`.
 - **Kartenfarben:** 7 Farben pro Karte (mit leuchtendem Akzentstreifen am linken
   Rand) – am Desktop über die Farbpunkte im Rechtsklick-Menü, in VR über
-  „🎨 Farbe“ (wechselt zyklisch). Cluster färben automatisch.
+  „Farbe“ (wechselt zyklisch). Cluster färben automatisch.
 - **Kartengröße:** Jede Karte ist von 0,45× bis 2,2× skalierbar – am Desktop per
   **Mausrad über der Karte** oder **+/−** (bei ausgewählter Karte), in VR per
   **Daumenstick hoch/runter, während die Karte gegriffen ist**. Die Größe wird
   gespeichert und exportiert.
-- **Verbindungslinien:** Karte auswählen → „🔗 Verbinden“ (Menü bzw.
+- **Verbindungslinien:** Karte auswählen → „Verbinden“ (Menü bzw.
   Rechtsklick → „Verbinden mit…“) → Ziel-Karte anklicken. Nochmal verbinden
   entfernt die Linie; Esc bricht ab. Linien folgen den Karten beim Verschieben.
 - **Texteingabe in XR – die virtuelle Tastatur** (`src/keyboard.js`):
@@ -318,8 +319,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   *Der Umweg über die Systemtastatur der Brille – deren Mikrofon-Taste kann
   diktieren – war ein Versuch, dort doch noch Diktat anzubieten. Auf echter
   Hardware hat er nicht getragen und ist wieder raus.*
-- **🎤 Diktieren – nur am Desktop** (`src/speech.js`): Der Knopf **„🎤
-  Diktieren"** im Overlay füllt das Ideen-Feld mit dem Gesprochenen,
+- **Diktieren – nur am Desktop** (`src/speech.js`): Der Knopf **„Diktieren"**
+  im Overlay füllt das Ideen-Feld mit dem Gesprochenen,
   Zwischenergebnisse laufen live mit, ein zweiter Druck bricht ab. Von dort geht
   es mit Enter oder jedem KI-Knopf normal weiter. Braucht Chrome oder Edge und
   eine Mikrofon-Freigabe.
@@ -336,7 +337,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Während eines Diktats pausiert die Befehlserkennung – zwei Erkenner streiten
   sich sonst um das Mikrofon. Der Start einer XR-Sitzung beendet sie ganz.
 - **🔠 Kartenschrift** (Barrierefreiheit): drei Stufen (*Normal · Groß · Sehr
-  groß*) über „🔠 Schrift" im Menü bzw. den Knopf im Overlay. Angepasst wird nur
+  groß*) über „Schrift" im Menü bzw. den Knopf im Overlay. Angepasst wird nur
   die Textgröße, die Kartenfläche bleibt gleich; die Stufe gilt auch für neue
   Karten und überdauert einen Reload.
 - **Haptik in VR** (`src/haptics.js`): kurzes Controller-Rumble beim Greifen und
@@ -366,7 +367,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   (localStorage) und beim nächsten Öffnen wiederhergestellt – auch nach einem
   Browser-Neustart. Gilt pro Gerät/Browser.
 - **Board-Export/-Import** als JSON – am Desktop über „Export“/„Import“ im
-  Overlay, in VR über *„⬇️ Als Datei"* im Menü (die Datei landet im
+  Overlay, in VR über *„Als Datei"* im Menü (die Datei landet im
   Download-Ordner des Quest-Browsers und ist nach der Sitzung dort zu finden).
   Importiertes JSON wird vor dem Anwenden geprüft; ein defektes Board erzeugt
   eine klare Meldung statt eines halb geladenen Zustands.
@@ -446,9 +447,9 @@ Einfach `https://localhost:5173` öffnen:
 | **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
-| **Prozessdiagramm** | Eigener Block **„⚙️ Prozessdiagramm"** im Overlay: Formleiste (*Start · Schritt · Entscheidung · Ende · Karte*) setzt die Form der **ausgewählten** Karte direkt, dazu *Pfeil ziehen*, *Zweig*, *Anordnen*, *Aus Text*, *Mermaid*. Per **Rechtsklick auf eine Karte** gibt es dieselbe Formleiste und „➜ Pfeil ziehen zu…" |
-| **Diktieren** | **„🎤 Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen). Chrome/Edge, nicht in XR |
-| **Sprachbefehle** | **„🎙 Sprachbefehle"** im Overlay ein-/ausschalten. Chrome/Edge, nicht in XR |
+| **Prozessdiagramm** | Eigene **umrandete Gruppenbox „Prozessdiagramm"** im Overlay: Formleiste (*Start · Schritt · Entscheidung · Ende · Karte*, jede mit ihrer Miniaturform als Icon) setzt die Form der **ausgewählten** Karte direkt, dazu *Pfeil ziehen*, *Zweig*, *Anordnen*, *Aus Text*, *Mermaid*. Per **Rechtsklick auf eine Karte** gibt es dieselbe Formleiste und „Pfeil ziehen zu…" |
+| **Diktieren** | **„Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen). Chrome/Edge, nicht in XR |
+| **Sprachbefehle** | **„Sprachbefehle"** im Overlay ein-/ausschalten. Chrome/Edge, nicht in XR |
 | **Kartenschrift** | **„Schrift: …"** im Overlay – Normal → Groß → Sehr groß |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |
@@ -457,7 +458,7 @@ Einfach `https://localhost:5173` öffnen:
 | Karte einfärben | Rechtsklick → Farbpunkt anklicken |
 | Karten verbinden | Rechtsklick → „Verbinden mit…“ → Ziel-Karte anklicken (nochmal = Linie entfernen, Esc = abbrechen) |
 | Neue Karte | Text ins Eingabefeld, „Neue Karte“ oder Enter |
-| Themen-Start | Thema ins Eingabefeld → „🚀 Themen-Start“ |
+| Themen-Start | Thema ins Eingabefeld → „Themen-Start“ |
 | KI-Funktionen | Buttons „Verwandte Ideen“ / „Kritiker“ / „Cluster anwenden“ / „Zusammenfassen“ |
 | **Rückgängig / Wiederholen** | **Strg+Z** / **Strg+Umschalt+Z** (auch Strg+Y) oder die Buttons im Overlay |
 | Export/Import | Buttons im Overlay |
@@ -476,7 +477,7 @@ WebXR funktioniert nur über **HTTPS** – dafür sorgt `vite-plugin-mkcert`.
 3. Diese URL im **Quest-Browser** öffnen. Beim ersten Mal erscheint eine
    Zertifikatswarnung (das mkcert-Zertifikat ist auf der Quest nicht als
    vertrauenswürdig installiert): **„Erweitert“ → „Trotzdem fortfahren“**.
-4. Auf **„🥽 Mixed Reality starten (Passthrough)“** tippen. Unterstützt der
+4. Auf **„Mixed Reality starten (Passthrough)“** tippen. Unterstützt der
    Browser kein `immersive-ar`, bietet der Button automatisch VR an.
 
 > Firewall-Hinweis: Port 5173 muss aus dem WLAN erreichbar sein. Der API-Proxy
@@ -519,21 +520,21 @@ Deployment.
 | Menü **mit Controllern** | Über dem Handrücken der **linken Hand** – mit dem rechten Ray anvisieren und Trigger drücken |
 | Menü **ohne Controller** | **Handfläche öffnen und zum Gesicht drehen** – das Menü erscheint darüber (linke Hand bevorzugt, die rechte geht genauso). Klicken per **Pinch** (Daumen + Zeigefinger) der anderen Hand |
 | Bewegen **ohne Controller** | **Ins Leere pinchen und die Hand bewegen** = sich an der Welt entlangziehen · **beide Hände** = zusätzlich drehen |
-| Menüseite wechseln | Reiter **„💡 Ideen“** bzw. **„🗂 Board“** oben im Panel antippen |
-| Neue Karte | Menü → „＋ Neue Karte“ → virtuelle Tastatur öffnet sich (Spracheingabe gibt es in XR nicht) |
-| Themen-Start | Menü → „🚀 Themen-Start“ → Thema sprechen/tippen |
-| **Kartenschrift** | Menü → „💡 Ideen“ → **„🔠 Schrift“** (Normal → Groß → Sehr groß) |
-| Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
-| Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
-| **Prozess bauen** | Menü → „⚙️ Prozess“ → **„✨ Aus Text bauen“** (Ablauf beschreiben) oder von Hand: „＋ Schritt“ → „◇ Form wechseln“ → „➜ Pfeil ziehen“ → „🏷 Zweig benennen“ → „⤓ Anordnen“. In VR wird die Form **durchgeschaltet**; am Desktop direkt gewählt |
-| **Prozess mitnehmen** | Menü → „⚙️ Prozess“ → **„⬇️ Als Mermaid“** – die `.mmd`-Datei rendert GitHub, Notion und Confluence direkt |
-| Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
-| Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |
-| **Rückgängig / Wiederholen** | Menü → „🗂 Board“ → **„↶ Rückgängig“** / **„↷ Wiederholen“** |
-| Board als Datei | Menü → „🗂 Board“ → „⬇️ Als Datei“ (liegt nach der Sitzung in den Downloads) |
+| Menüseite wechseln | Reiter **„Ideen“**, **„Board“** bzw. **„Prozess“** oben im Panel antippen |
+| Neue Karte | Menü → „Neue Karte“ → virtuelle Tastatur öffnet sich (Spracheingabe gibt es in XR nicht) |
+| Themen-Start | Menü → „Themen-Start“ → Thema sprechen/tippen |
+| **Kartenschrift** | Menü → „Ideen“ → **„Schrift“** (Normal → Groß → Sehr groß) |
+| Karte einfärben | Karte auswählen → Menü → „Farbe“ (wechselt zyklisch) |
+| Karten verbinden | Karte auswählen → Menü → „Verbinden“ → Ziel-Karte antippen |
+| **Prozess bauen** | Menü → „Prozess“ → **„Aus Text bauen“** (Ablauf beschreiben) oder von Hand: „Schritt“ → „Form wechseln“ → „Pfeil ziehen“ → „Zweig benennen“ → „Anordnen“. In VR wird die Form **durchgeschaltet**; am Desktop direkt gewählt |
+| **Prozess mitnehmen** | Menü → „Prozess“ → **„Als Mermaid“** – die `.mmd`-Datei rendert GitHub, Notion und Confluence direkt |
+| Karte löschen | Karte auswählen → Menü → „Karte löschen“ |
+| Alle Karten löschen | Menü → „Alles löschen“ → zur Bestätigung nochmal drücken |
+| **Rückgängig / Wiederholen** | Menü → „Board“ → **„Rückgängig“** / **„Wiederholen“** |
+| Board als Datei | Menü → „Board“ → „Als Datei“ (liegt nach der Sitzung in den Downloads) |
 | Fehlerkarte schließen | Die rote Karte im Blickfeld antippen (verschwindet sonst nach 10 s) |
-| Zone / Timer | Menü → „🗂 Board“ → „🗂️ Zone“ bzw. „⏱️ Timer“ |
-| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Konstrukt) |
+| Zone / Timer | Menü → „Board“ → „Zone“ bzw. „Timer“ |
+| Umgebung wechseln | Menü → „Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Konstrukt) |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
 Die Platzierung des Menüs lässt sich in `src/wristMenu.js` über die Konstanten
@@ -580,7 +581,7 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   eintragen, oder mit `MOCK_AI=1` ohne Key testen. Zeitüberschreitungen und
   Rate-Limits werden automatisch bis zu dreimal wiederholt, bevor die Fehlerkarte
   erscheint.
-- **Aus Versehen alles gelöscht:** **Strg+Z** bzw. „↶ Rückgängig" im Menü holt
+- **Aus Versehen alles gelöscht:** **Strg+Z** bzw. „Rückgängig" im Menü holt
   auch ein komplett geleertes Board zurück. Der Verlauf gilt pro Sitzung – über
   einen Reload hinweg trägt das Autosave (das Board wird bei jeder Änderung
   automatisch gespeichert), für bewusste Stände der JSON-Export.
