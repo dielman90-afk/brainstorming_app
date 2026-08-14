@@ -685,6 +685,32 @@ export function blobGeometry(detail, seed, squash) {
   return merged;
 }
 
+// Ast mit Verzweigung. Rekursiv, drei Ebenen – das ist der Unterschied
+// zwischen einem Baum und einem Lutscher: Man sieht die Krone nicht als Masse,
+// sondern durch sie hindurch, und die Silhouette wird von Zweigen aufgelöst
+// statt von einer Kugelkontur begrenzt.
+export function branchInto(out, from, dir, len, rad, depth, r) {
+  const end = from.clone().addScaledVector(dir, len);
+  const g = new THREE.CylinderGeometry(rad * 0.62, rad, len, depth > 1 ? 6 : 4);
+  // Zylinder zeigt auf +Y; auf die Astrichtung drehen.
+  const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+  g.applyQuaternion(q);
+  g.translate((from.x + end.x) / 2, (from.y + end.y) / 2, (from.z + end.z) / 2);
+  out.push({ geo: g, tip: end, rad: rad * 0.62, depth });
+  if (depth <= 0) return;
+  const kids = depth > 1 ? 2 + Math.floor(r() * 2) : 2;
+  for (let k = 0; k < kids; k++) {
+    const spread = 0.55 + r() * 0.5;
+    const az = (k / kids) * Math.PI * 2 + r() * 1.2;
+    const nd = dir
+      .clone()
+      .multiplyScalar(1 - spread * 0.42)
+      .add(new THREE.Vector3(Math.cos(az) * spread, r() * 0.25, Math.sin(az) * spread))
+      .normalize();
+    branchInto(out, end, nd, len * (0.58 + r() * 0.16), rad * 0.6, depth - 1, r);
+  }
+}
+
 export function leafAtlas(kind = 'maple') {
   if (!PALETTE[kind]) kind = 'maple';
   const cached = _atlases.get(kind);
