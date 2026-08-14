@@ -42,8 +42,6 @@ export const PAGES = [
       // Kein Eintrag für Sprachbefehle: In der Brille gibt es keine
       // Spracherkennung (siehe speech.js) – der Knopf konnte dort nur
       // scheitern. Am Desktop steht er weiterhin im Overlay.
-      { id: 'save', label: '💾 Sichern' },
-      { id: 'load', label: '📂 Laden' },
       { id: 'export', label: '⬇️ Als Datei' },
       { id: 'clear', label: '🧹 Alles löschen', danger: true },
     ],

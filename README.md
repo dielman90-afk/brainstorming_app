@@ -223,7 +223,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Schrift*,
     *Karte löschen*
   - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
-    *Umgebung*, *Sichern*, *Laden*, *Als Datei*,
+    *Umgebung*, *Als Datei*,
     *Alles löschen* (mit Zweifach-Bestätigung)
   - **⚙️ Prozess:** *Aus Text bauen*, *Schritt*, *Form wechseln*, *Pfeil ziehen*,
     *Zweig benennen*, *Anordnen*, *Als Mermaid*
@@ -370,11 +370,6 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Download-Ordner des Quest-Browsers und ist nach der Sitzung dort zu finden).
   Importiertes JSON wird vor dem Anwenden geprüft; ein defektes Board erzeugt
   eine klare Meldung statt eines halb geladenen Zustands.
-- **Sicherungspunkte** (*„💾 Sichern"* / *„📂 Laden"*): manuelle Wiederherstellungs-
-  punkte im Browser-Speicher, die letzten drei werden behalten. Das ist der Weg,
-  der **auch mitten in einer XR-Sitzung** funktioniert – ein Datei-Dialog würde
-  die immersive Sitzung verlassen. Ist der Speicher voll, werden erst ältere
-  Punkte und zuletzt die Whiteboard-Zeichnung geopfert, bevor aufgegeben wird.
 - **Desktop-Fallback:** Läuft ohne Headset im normalen Browser – Maus-Steuerung
   (Orbit), Karten per Klick auswählen und ziehen, alle Aktionen über das Overlay
   links oben. Ideal zum schnellen Iterieren. Das Overlay ist auf die Fensterhöhe
@@ -410,7 +405,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── haptics.js          Controller-Rumble (Greifen, Klick, Verbinden, Löschen)
 │   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
-│   ├── boardState.js       JSON-Export/-Import, Mermaid-Export, Sicherungspunkte + Autosave
+│   ├── boardState.js       JSON-Export/-Import, Mermaid-Export, Autosave
 │   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt
 │   │                       inkl. Matrix-Sitzgruppe: Ohrensessel + Radiola-Konsole)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
@@ -465,7 +460,6 @@ Einfach `https://localhost:5173` öffnen:
 | Themen-Start | Thema ins Eingabefeld → „🚀 Themen-Start“ |
 | KI-Funktionen | Buttons „Verwandte Ideen“ / „Kritiker“ / „Cluster anwenden“ / „Zusammenfassen“ |
 | **Rückgängig / Wiederholen** | **Strg+Z** / **Strg+Umschalt+Z** (auch Strg+Y) oder die Buttons im Overlay |
-| Sicherungspunkt | „💾 Sichern“ / „📂 Laden“ im Overlay |
 | Export/Import | Buttons im Overlay |
 | Menü ein-/ausklappen | Knopf rechts neben dem Overlay oder **M** |
 | Fehlerkarte schließen | Anklicken oder **Esc** |
@@ -536,7 +530,6 @@ Deployment.
 | Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
 | Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |
 | **Rückgängig / Wiederholen** | Menü → „🗂 Board“ → **„↶ Rückgängig“** / **„↷ Wiederholen“** |
-| Board sichern / laden | Menü → „🗂 Board“ → „💾 Sichern“ / „📂 Laden“ |
 | Board als Datei | Menü → „🗂 Board“ → „⬇️ Als Datei“ (liegt nach der Sitzung in den Downloads) |
 | Fehlerkarte schließen | Die rote Karte im Blickfeld antippen (verschwindet sonst nach 10 s) |
 | Zone / Timer | Menü → „🗂 Board“ → „🗂️ Zone“ bzw. „⏱️ Timer“ |
@@ -588,8 +581,9 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   Rate-Limits werden automatisch bis zu dreimal wiederholt, bevor die Fehlerkarte
   erscheint.
 - **Aus Versehen alles gelöscht:** **Strg+Z** bzw. „↶ Rückgängig" im Menü holt
-  auch ein komplett geleertes Board zurück. Der Verlauf gilt pro Sitzung – nach
-  einem Reload hilft „📂 Laden" (letzter Sicherungspunkt) oder ein JSON-Import.
+  auch ein komplett geleertes Board zurück. Der Verlauf gilt pro Sitzung – über
+  einen Reload hinweg trägt das Autosave (das Board wird bei jeder Änderung
+  automatisch gespeichert), für bewusste Stände der JSON-Export.
 - **Menü erscheint bei Hand-Tracking nicht:** Es zeigt sich nur bei **flacher,
   offener Hand, deren Innenfläche zum Gesicht zeigt** – Faust und Handrücken
   blenden es bewusst aus. Beide Hände funktionieren. Wenn gar keine Hände

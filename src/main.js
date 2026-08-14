@@ -23,8 +23,6 @@ import {
   importBoardFile,
   saveBoardLocal,
   loadBoardLocal,
-  saveSnapshot,
-  loadSnapshot,
   downloadMermaid,
 } from './boardState.js';
 import { createEnvironments } from './environments.js';
@@ -594,26 +592,6 @@ async function handleAction(action) {
       setStatus(label ? `↷ Wiederhergestellt: ${label}` : 'Kein Schritt zum Wiederherstellen.');
       return;
     }
-    if (action === 'save') {
-      const entry = saveSnapshot(boardToJSON());
-      setStatus(`💾 Sicherungspunkt angelegt (${entry.cards} Karten).`);
-      return;
-    }
-    if (action === 'load') {
-      const entry = loadSnapshot(0);
-      if (!entry) {
-        setStatus('Noch kein Sicherungspunkt vorhanden – erst „💾 Sichern".');
-        return;
-      }
-      applyBoardJSON(entry.data);
-      commit('Sicherungspunkt geladen');
-      const time = new Date(entry.at).toLocaleTimeString('de-DE', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-      setStatus(`📂 Sicherungspunkt von ${time} geladen (${cardManager.cards.length} Karten).`);
-      return;
-    }
     if (action === 'export') {
       const count = downloadBoard(boardToJSON());
       setStatus(
@@ -1141,8 +1119,6 @@ const DESKTOP_BUTTONS = {
   'btn-env': 'environment',
   'btn-undo': 'undo',
   'btn-redo': 'redo',
-  'btn-save': 'save',
-  'btn-load': 'load',
 };
 for (const [id, action] of Object.entries(DESKTOP_BUTTONS)) {
   document.getElementById(id)?.addEventListener('click', () => handleAction(action));
