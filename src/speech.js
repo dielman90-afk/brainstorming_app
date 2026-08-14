@@ -210,8 +210,6 @@ export const VOICE_COMMANDS = [
   { action: 'whiteboard', phrases: ['whiteboard', 'zeichnen', 'tafel'] },
   { action: 'environment', phrases: ['umgebung', 'welt wechseln', 'umgebung wechseln'] },
   { action: 'fontsize', phrases: ['schrift', 'schriftgröße', 'größere schrift'] },
-  { action: 'save', phrases: ['sichern', 'speichern', 'sicherungspunkt'] },
-  { action: 'load', phrases: ['laden', 'wiederherstellen von'] },
   { action: 'export', phrases: ['exportieren', 'als datei'] },
 ];
 
