@@ -17,6 +17,7 @@ import {
   applyFoliageMaterial,
   updateFoliage,
   blobGeometry,
+  branchInto,
 } from './dojo/foliage.js';
 import { buildSkyEnvironment } from './dojo/skylight.js';
 import { applyQuality } from './dojo/quality.js';
@@ -261,7 +262,13 @@ function baueKrone({
     // schrumpften die Bäume auf grüne Punkte. Streuung und Größe zusammen
     // müssen rund `ar` ergeben, damit die Krone die Ausdehnung behält, die die
     // Ansatzliste beschreibt: 0,55 + 0,62 ≈ 1,17.
-    const n = Math.max(5, Math.round(ar * 12));
+    // **Weniger Schöpfe je Ansatz, seit die Ansätze an Astspitzen sitzen.**
+    //
+    // Mit `branchInto()` hat ein Laubbaum statt zwei Kronenansätzen jetzt zwölf
+    // bis vierundzwanzig – die Streuung leisten die Zweige. Bei unverändert
+    // fünf Schöpfen je Ansatz sprang die Insel von 80.052 auf 240.016 Dreiecke,
+    // also weit über das mobile Limit. Gemessen mit stufen.mjs.
+    const n = Math.max(2, Math.round(ar * 9));
     for (let k = 0; k < n; k++) {
       schoepfe.push({
         x: ax + (r() - 0.5) * ar * 1.1,
@@ -396,23 +403,61 @@ function makeTree(rand) {
     // Jetzt ist der Baum eine **Reihe von Ansätzen mit abnehmendem Radius** –
     // dieselbe Bauweise wie beim Laubbaum, nur als Kegel angeordnet statt als
     // Kugel. Die Silhouette entsteht aus den Schöpfen, nicht aus einem Trichter.
-    const etagen = 4 + Math.floor(rand() * 2);
-    for (let i = 0; i < etagen; i++) {
-      const t = i / (etagen - 1);
-      // Radius nach oben linear abnehmend, unten am breitesten – der Umriss,
-      // an dem man eine Fichte auf zweihundert Meter erkennt.
-      const radius = 0.46 * (1 - t * 0.72);
-      // Die Etagen rücken oben enger zusammen, sonst franst die Spitze aus.
-      ansaetze.push([
-        (rand() - 0.5) * 0.05,
-        trunkHeight + 0.1 + t * 1.15,
-        (rand() - 0.5) * 0.05,
-        radius,
-      ]);
+    // **Der Etagenabstand folgt dem Radius, nicht einem festen Schritt.**
+    //
+    // Vorher lagen die Etagen in gleichen Abständen von 0,29 übereinander,
+    // während ihr Radius nach oben von 0,46 auf 0,13 fiel. Oben standen die
+    // Schöpfe dadurch weiter auseinander als sie groß waren: Im Bild schwebte
+    // die oberste Etage als abgetrennter dunkler Klecks 1,6 m über der
+    // Baumspitze. Per Strahl nachgewiesen – der Treffer war `island-laub` bei
+    // y = 7,3, die Spitze darunter bei 5,7.
+    //
+    // Jetzt wächst y um den Radius der jeweiligen Etage. Damit überlappen zwei
+    // aufeinanderfolgende Etagen zwangsläufig, egal wie schnell der Radius
+    // abnimmt.
+    let ey = trunkHeight + 0.1;
+    for (let i = 0; i < 7; i++) {
+      const t = i / 6;
+      const radius = 0.46 * (1 - t * 0.78);
+      ansaetze.push([(rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05, radius]);
+      // 0,95 statt 1,0: eine Spur enger als der Radius, damit die Etagen sich
+      // sicher schneiden statt sich nur zu berühren.
+      ey += radius * 0.95;
     }
   } else {
-    ansaetze.push([0, trunkHeight + 0.3, 0, 0.34]);
-    ansaetze.push([0.2 * (rand() > 0.5 ? 1 : -1), trunkHeight + 0.44, 0.12, 0.24]);
+    // **Laubbaum mit echtem Astwerk.**
+    //
+    // Vorher: zwei Kronenansätze über einem nackten Kegelstumpf. Der Stamm
+    // endete abrupt, es gab keinen Übergang zur Krone, und die Krone war eine
+    // Masse auf einem Stab. Der Dojo-Garten hat denselben Fehler schon einmal
+    // gehabt, und der Kommentar dort sagt, warum es keine Farbfrage ist:
+    //
+    //   „Ein Baum wird nicht durch seine Krone glaubwürdig, sondern durch die
+    //    Zweige, die man **durch** sie sieht."
+    //
+    // `branchInto()` verzweigt rekursiv über drei Ebenen. Die Laubschöpfe
+    // sitzen auf den **Zweigenden**, nicht als Kugel über allem – dadurch löst
+    // sich die Silhouette auf und man sieht Äste durch die Krone.
+    const teile = [];
+    const oben = new THREE.Vector3(0, trunkHeight, 0);
+    const nb = 3 + Math.floor(rand() * 2);
+    for (let k = 0; k < nb; k++) {
+      const az = (k / nb) * Math.PI * 2 + rand() * 0.9;
+      const dir = new THREE.Vector3(
+        Math.cos(az) * 0.6,
+        0.74,
+        Math.sin(az) * 0.6
+      ).normalize();
+      branchInto(teile, oben, dir, 0.34 + rand() * 0.14, 0.035, 2, rand);
+    }
+    const astGeos = teile.map((t) => t.geo);
+    const aeste = new THREE.Mesh(mergeGeometries(astGeos, false), holz);
+    aeste.name = 'island-aeste';
+    tree.add(aeste);
+    for (const t of teile) {
+      if (t.depth > 0) continue;
+      ansaetze.push([t.tip.x, t.tip.y, t.tip.z, 0.17 + rand() * 0.06]);
+    }
   }
 
   const grundton = nadelbaum
@@ -420,9 +465,13 @@ function makeTree(rand) {
       // Schatten **zwischen** den Zweigen, nicht eine zweite Grünfläche. Mit
       // 0x24503a blitzte er als flacher türkiser Fleck durch die Nadeln.
       ? [0x16281c, 0x1c3324, 0x101f16]
-    : hell
-      ? [0x3e8e4f, 0x479a58, 0x35803f]
-      : [0x57ab68, 0x62b874, 0x4d9d5e];
+    : // Auch beim Laubbaum ist der Hüllkörper der Schatten **zwischen** den
+      // Blättern. Die alten Werte waren die Kronenfarbe von früher, als er die
+      // Krone *war* – heller als die Karten davor, also blitzte er als
+      // hellgrüner Fleck durch. Derselbe Fehler wie beim Nadelbaum.
+      hell
+      ? [0x1f3f26, 0x27492d, 0x1a3521]
+      : [0x27482e, 0x2f5436, 0x203e27];
   const krone = baueKrone({
     ansaetze,
     seed: 0x1de4 + Math.floor(rand() * 512),
@@ -430,7 +479,9 @@ function makeTree(rand) {
     kind: nadelbaum ? 'nadel' : 'azalea',
     // Nadelschöpfe stehen dichter und kleiner als Laubschöpfe.
     cardScale: nadelbaum ? 0.95 : 0.85,
-    dichte: nadelbaum ? 110 : 96,
+    // Auch die Kartendichte sinkt: Viele kleine Schöpfe brauchen jeder für
+    // sich weniger Karten als wenige große, weil sie sich gegenseitig füllen.
+    dichte: nadelbaum ? 74 : 64,
     farben: grundton,
     kartenFarben: nadelbaum
       ? [0xd8f0c0, 0xc6e4ae, 0xe4ffd0]
