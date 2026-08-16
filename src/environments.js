@@ -1276,15 +1276,22 @@ function makeCloud(rand, size = 1) {
 // Hängende Wurzelvorhänge unter der Abbruchkante. Nicht gleichmäßig verteilt,
 // sondern in Büscheln: Wurzeln wachsen dort, wo Erde ist, nicht alle 30 Grad.
 function addVines(bucket, rand, shape, clusters) {
-  const strand = (a, t0, len, thick) => {
-    // Ansatzpunkt auf der TATSÄCHLICHEN Flanke, ein Stück INNERHALB der
-    // Oberfläche: Ein Strang, der exakt auf der Haut sitzt, steht bei jeder
-    // Facettenkante frei in der Luft. Er steckt deshalb bewusst im Fels.
-    const surf = shape.sideRadius(t0, a);
-    const rr = shape.radius * shape.outline(a) * (surf - 0.02);
+  // Ein Strang hängt senkrecht, die Felswand zieht sich nach unten aber ein.
+  // Wird der Radius nur am Ansatzpunkt bestimmt, steht der untere Teil frei in
+  // der Luft – als kurzer Stummel vor der Wand oder als Haarlinie vor dem
+  // Himmel. Deshalb wird die Flanke über die GANZE Länge abgetastet und der
+  // engste Radius genommen; und das Ende bleibt über der Felsunterkante.
+  const strand = (a, t0, tEnd, thick) => {
+    let minR = Infinity;
+    for (let k = 0; k <= 6; k++) {
+      const t = t0 + ((tEnd - t0) * k) / 6;
+      minR = Math.min(minR, shape.sideRadius(t, a));
+    }
+    const rr = shape.radius * shape.outline(a) * (minR - 0.025);
     const x = Math.sin(a) * rr;
     const z = Math.cos(a) * rr;
     const top = shape.edgeY(a) - shape.sideDepth(t0, a);
+    const len = shape.sideDepth(tEnd, a) - shape.sideDepth(t0, a);
     const g = new THREE.CylinderGeometry(thick, thick * 0.30, len, 5, 8);
     // Bogen und Verjüngung: Wurzeln hängen nicht kerzengerade, sondern folgen
     // erst der Wand und schwingen dann frei.
@@ -1310,30 +1317,33 @@ function addVines(bucket, rand, shape, clusters) {
         0.075 + 0.075 * smoothstep(top - len, top, vy)
       )
     );
-    return { x, z, bottom: top - len, bendX, bendZ, len };
+    // Der Ausschwung am unteren Ende ist sag(1) = 1.0, also bendX * len * 0.34.
+    // Mit einem anderen Faktor säßen die Blattbüschel neben der Strangspitze.
+    return { x, z, bottom: top - len, tipX: bendX * len * 0.34, tipZ: bendZ * len * 0.34 };
   };
 
   for (let c = 0; c < clusters; c++) {
     const base = (c / clusters) * TAU + (rand() - 0.5) * 0.7;
-    const n = 2 + Math.floor(rand() * 4);
-    const mainLen = 1.1 + rand() * 2.0;
+    const n = 3 + Math.floor(rand() * 4);
+    // tEnd bleibt deutlich über der Felsunterkante (max 0.62 der Flanke) –
+    // sonst endet der Strang frei im Himmel unter der Insel.
+    const deepest = 0.30 + rand() * 0.32;
     for (let i = 0; i < n; i++) {
       const a = base + (rand() - 0.5) * 0.34;
-      const t0 = 0.02 + rand() * 0.10;
-      const len = mainLen * (0.45 + rand() * 0.75);
-      const end = strand(a, t0, len, 0.020 + rand() * 0.022);
-      // Blattbüschel nur an den längsten Strängen
-      if (len > mainLen * 0.85 && rand() > 0.4) {
-        for (let k = 0; k < 2 + Math.floor(rand() * 2); k++) {
-          const leaf = new THREE.IcosahedronGeometry(0.05 + rand() * 0.05, 0);
-          leaf.scale(1.3, 0.5, 1.3);
-          leaf.translate(
-            end.x + end.bendX * end.len * 0.22 + (rand() - 0.5) * 0.13,
-            end.bottom + rand() * 0.16,
-            end.z + end.bendZ * end.len * 0.22 + (rand() - 0.5) * 0.13
-          );
-          bucket.add(leaf, pick(rand, [0x40693a, 0x4d7a3f, 0x35592f]));
-        }
+      const t0 = 0.02 + rand() * 0.08;
+      const tEnd = Math.min(0.62, t0 + deepest * (0.45 + rand() * 0.75));
+      const end = strand(a, t0, tEnd, 0.020 + rand() * 0.022);
+      // Jeder Strang endet in einem Blattbüschel. Ein glatt abgeschnittener
+      // Zylinder vor dem Himmel liest sich als Kratzer im Bild.
+      for (let k = 0, m = 2 + Math.floor(rand() * 3); k < m; k++) {
+        const leaf = new THREE.IcosahedronGeometry(0.05 + rand() * 0.055, 0);
+        leaf.scale(1.3, 0.5, 1.3);
+        leaf.translate(
+          end.x + end.tipX + (rand() - 0.5) * 0.13,
+          end.bottom + rand() * 0.14,
+          end.z + end.tipZ + (rand() - 0.5) * 0.13
+        );
+        bucket.add(leaf, pick(rand, [0x40693a, 0x4d7a3f, 0x35592f]));
       }
     }
   }

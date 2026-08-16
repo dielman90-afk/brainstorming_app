@@ -340,6 +340,87 @@ nicht angeglichene Felsfamilie ein. Die Nachstellung
 ist grün, aber stark entsättigt, und dahinter steht eine reinweiße Wolke. Das
 ist fehlende atmosphärische Perspektive und gehört zu Paket 6.
 
-### Prüfung 4 (nach run-11)
+### Prüfung 4 (nach run-11): NICHT BESTANDEN – Durchläufe aufgebraucht
 
-Läuft.
+Der Prüfer hat diesmal Pixelwerte gemessen statt geschätzt. Ergebnis:
+
+**Behoben:** N2b (Nahfindling misst (101,99,94) – identisch mit dem Klippenfels
+(101,99,92)), N6 (alle Knöchel im Grauband der Klippe). **Teilweise:** N7 (der
+glatte Verlauf ist weg, es fehlt die kleine Skala und der Wurzelsaum), N8
+(Zickzack nimmt die Geradlinigkeit, nicht die Gleichmäßigkeit).
+**Keine echten Rückfälle.**
+
+**Ich lag beim Streitpunkt N2a falsch.** Meine Erklärung „reinweiße Wolke
+dahinter" ist an der genannten Koordinate widerlegt: Der Himmel neben der
+Fläche misst (180,218,236), das Weiß sitzt auf dem Objekt selbst. Der Prüfer
+gibt den Punkt trotzdem an Paket 6 ab – aber mit einer schärferen Diagnose als
+meiner: Es fehlt nicht die atmosphärische Perspektive, sie ist **falsch
+gefärbt und zu stark**. Der Dunst zieht gegen Weiß/Mint statt gegen die
+Himmelsfarbe, dadurch wird das ferne Objekt **heller als der Himmel davor**.
+Gemessen über drei Inseln desselben Materials: fern (157–190), Hauptkörper
+(67–113), mittlere Mini-Insel (17–88). **Die Tiefenstaffelung ist nicht
+schwach, sie ist invertiert.** Auftrag an Paket 6: Dunstfarbe an den Himmel
+binden und die Kurve einheitlich über alle Objekte außerhalb der Hauptinsel
+anwenden.
+
+### Sofort behoben (echter Fehler, keine Paket-Iteration)
+
+Die Ranken hingen senkrecht an einem Radius, der nur am Ansatzpunkt bestimmt
+wurde – die Felswand zieht sich nach unten aber ein. Ergebnis: kurze Stummel,
+die frei vor der Wand standen, und Haarlinien, die unter der Insel im blauen
+Himmel abbrachen. Die Flanke wird jetzt über die **ganze** Stranglänge
+abgetastet und der engste Radius genommen, das Strangende bleibt über der
+Felsunterkante, und jeder Strang endet in einem Blattbüschel statt in einem
+glatt abgeschnittenen Zylinder. Zusätzlich saßen die Blattbüschel wegen eines
+falschen Faktors (0,22 statt 0,34) neben der Strangspitze statt an ihr.
+
+## Paket 1 – Abschluss: NICHT BESTANDEN nach vier Durchläufen
+
+Der Hauptkörper ist erledigt und wurde vom Prüfer ausdrücklich so bewertet:
+Kiel, überkragendes Gesims, Kaminspalte, Bruchzonen, Erdband-Facettierung,
+Ton- und Hellwerttrennung, Größenhierarchie, Grundrisskonkavität. Kriterium 5
+(Materialtrennung) ist für die Trias Fels/Erde/Gras **bestanden**, gemessen:
+Fels (101,99,92), Erde (127,108,82), Gras (152,177,120).
+
+**Paket 1 scheitert nicht am Hauptkörper, sondern daran, dass zwei Dinge nicht
+erfasst wurden, die zum Umfang gehören.** Offene Punkte, die weitergetragen
+werden:
+
+| # | Offener Punkt | Weitergabe an |
+| --- | --- | --- |
+| 1 | **Mini-Inseln haben Kastensilhouette**: flacher Deckel, senkrechte Flanken, gekappte Unterkante, acht gleich dicke Simse. In `1-eyelevel`, `2-waterfall` und `5-backlight` stellen sie die **einzige** Felssilhouette gegen den Himmel – dort ist von Paket 1 nichts zu sehen. | **Paket 8** (dessen Thema sie sind) |
+| 2 | **Fehlende Sodendicke**: Messreihe über die Kante zeigt einen reinen Schattierungsverlauf über 54 px ohne einen einzigen Materialsprung. An den Mini-Inseln ist die Narbe eine „rasierklingendünne Waffel". | **Paket 3** |
+| 3 | **Facettenskala im Nahbereich**: In `6-groundcover` ist ein Block über 30 % der Bildfläche auf ±1 Tonwert uniform. Der Fels ist für die Totale gebaut, nicht für Augenhöhe – also nicht für die VR-Standarddistanz. | **Paket 3** |
+| 4 | **Metronomische Bankrhythmik im Frontsektor**: Höhe, Abstand und Zickzack-Amplitude bleiben über die ganze Frontbreite gleich – liest sich als Textur-Kachelung. | Performance-/Schlusspass |
+| 5 | Nachrangig: N7-Feinskala (Krümel, Wurzelsaum an der Naht Gras↔Erde), Restfuge unter dem großen Knöchel, inkonsistenter Nahtcharakter (links Airbrush-Verlauf, rechts harte Facettenkante). | Paket 3 |
+
+Der Prüfer stellt ausdrücklich fest: **keine Budget-Ausrede.** 73 von 120
+Draw-Calls, 54 767 von 350 000 Dreiecken, 0,5 von 60 MB. Alle offenen Punkte
+sind Form- und Geometrieprobleme mit reichlich Kopfraum; nur bei den
+Mini-Inseln ist auf die Draw-Call-Seite zu achten.
+
+### Für Paket 2 vorgemerkte Messwerte des Prüfers
+
+- Gegenlicht-Krone in `5-backlight` misst **(0,19,5)** – absolut schwarz, kein
+  Rim-Light, keine Blattdurchsicht.
+- Die Sonne ist eine flache Scheibe (231,184,140) ohne Halo.
+- Der Kiel wird nach unten **dunkler** statt heller: (158,148,117) → (95,92,85)
+  → (51,52,51). Null Bounce-Fill von unten, an einer Insel, die frei im hellen
+  Himmel hängt.
+- In keinem der sechs Bilder gibt es einen Schlagschatten.
+
+Das ist laut Prüfer der Hauptgrund, warum der gut geformte Fels noch nach
+grauem Kunststoff aussieht: „die Form von Paket 1 wird vom fehlenden Licht
+verschenkt."
+
+### Messwerte Paket 1 (Abschluss)
+
+| | Ausgang | Paket 1 | Budget |
+| --- | ---: | ---: | ---: |
+| Draw-Calls env-island | 112 | **73** | 120 |
+| Dreiecke Szene | 27 816 | **59 282** | 350 000 |
+| Texturspeicher | 0,50 MB | **0,50 MB** | 60 MB |
+| Shader-Programme | 19 | 18 | – |
+| Konsole | sauber | sauber | – |
+| Build | grün | grün | – |
+| Andere drei Umgebungen | – | unverändert | – |
