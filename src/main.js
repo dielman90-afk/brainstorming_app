@@ -559,7 +559,7 @@ async function handleAction(action) {
     if (action === 'flow-layout') {
       const count = layoutFlow(cardManager.cards, connectionManager.connections, camera, scene);
       if (!count) {
-        setStatus('Noch keine Prozessschritte da – erst „＋ Schritt" oder „✨ Aus Text bauen".');
+        setStatus('Noch keine Prozessschritte da – erst „Schritt" oder „Aus Text" benutzen.');
         return;
       }
       commit('Prozess angeordnet');
@@ -901,8 +901,17 @@ function toggleVoiceCommands() {
 // gewählt (Formleiste im Overlay und im Kontextmenü).
 const FLOW_CYCLE = ['task', 'decision', 'start', 'end', null];
 
-// Kurzzeichen für die enge Formleiste. Text stünde dort nicht.
-const FLOW_GLYPHS = { start: '⬭', task: '▭', decision: '◇', end: '⬬' };
+// Icons für die Formleiste im Kontextmenü – dieselben Miniaturformen wie im
+// Overlay. Vorher standen hier Unicode-Zeichen (⬭ ▭ ◇ ⬬), und die hatten genau
+// das Problem, das die Icons abgelöst haben: „Ende" (⬬) kam als *gefüllte*
+// Ellipse heraus, „Start" (⬭) als Umriss – zwei Formen, die im Diagramm gleich
+// aussehen, wirkten im Menü völlig verschieden, je nach installiertem Font.
+const FLOW_ICONS = {
+  start: 'flow-start',
+  task: 'flow-task',
+  decision: 'flow-decision',
+  end: 'flow-end',
+};
 
 // Eine Form setzen und den Schritt festhalten. Einziger Weg dorthin, damit
 // Overlay, Kontextmenü und VR-Menü sich nicht auseinanderentwickeln.
@@ -1341,16 +1350,21 @@ contextMenu.addEventListener('click', (e) => {
 });
 
 // Formauswahl im Kontextmenü – nach demselben Muster wie die Farbpunkte.
+// Beschriftet wie die Formleiste im Overlay: Fünf namenlose Symbole
+// untereinander waren nicht zu deuten, und breiter wird das Menü davon nicht –
+// die Chips brechen um und brauchen zusammen weniger Platz als vorher fünf
+// volle Zeilen.
 const contextFlowRow = document.getElementById('context-flow-row');
 if (contextFlowRow) {
   const entries = [
-    ...FLOW_TYPES.map((t) => ({ id: t.id, label: t.label, glyph: FLOW_GLYPHS[t.id] })),
-    { id: null, label: 'Normale Karte', glyph: '✕' },
+    ...FLOW_TYPES.map((t) => ({ id: t.id, label: t.label, icon: FLOW_ICONS[t.id] })),
+    { id: null, label: 'Karte', icon: 'flow-none' },
   ];
   for (const entry of entries) {
     const button = document.createElement('button');
-    button.textContent = entry.glyph;
-    button.title = entry.label;
+    button.textContent = entry.label;
+    button.dataset.icon = entry.icon;
+    button.title = entry.id ? `Form: ${entry.label}` : 'Form entfernen – wieder normale Karte';
     button.addEventListener('click', () => {
       const card = contextCard;
       closeContextMenu();
@@ -1358,6 +1372,9 @@ if (contextFlowRow) {
     });
     contextFlowRow.appendChild(button);
   }
+  // decorateIcons() ist oben schon gelaufen – diese Knöpfe entstehen erst
+  // jetzt und brauchen ihren eigenen Durchgang.
+  decorateIcons(contextFlowRow);
 }
 
 // Farbpunkte im Kontextmenü

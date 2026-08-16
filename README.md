@@ -448,8 +448,8 @@ Einfach `https://localhost:5173` öffnen:
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
 | **Prozessdiagramm** | Eigene **umrandete Gruppenbox „Prozessdiagramm"** im Overlay: Formleiste (*Start · Schritt · Entscheidung · Ende · Karte*, jede mit ihrer Miniaturform als Icon) setzt die Form der **ausgewählten** Karte direkt, dazu *Pfeil ziehen*, *Zweig*, *Anordnen*, *Aus Text*, *Mermaid*. Per **Rechtsklick auf eine Karte** gibt es dieselbe Formleiste und „Pfeil ziehen zu…" |
-| **Diktieren** | **„Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen). Chrome/Edge, nicht in XR |
-| **Sprachbefehle** | **„Sprachbefehle"** im Overlay ein-/ausschalten. Chrome/Edge, nicht in XR |
+| **Diktieren** | **„Diktieren"** in der Overlay-Gruppe **„Sprache"** (direkt unter dem Eingabefeld) – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen). Chrome/Edge, nicht in XR |
+| **Sprachbefehle** | **„Sprachbefehle"** in derselben Gruppe **„Sprache"** ein-/ausschalten. Chrome/Edge, nicht in XR |
 | **Kartenschrift** | **„Schrift: …"** im Overlay – Normal → Groß → Sehr groß |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |

@@ -188,6 +188,11 @@
     .action-list button:hover .ic { color: var(--accent); }
     .ic svg, .ic-lead svg { display: block; }
     .ic-lead { display: inline-flex; vertical-align: -3px; margin-right: 7px; color: #9b95a4; }
+    /* In den mini-row-Knöpfen trägt das Icon die Bedeutung mit (Mikrofon,
+       Pfeil, Export) – gedimmt gegenüber der Beschriftung sackte es weg.
+       Nur die Helligkeit ans Label angeglichen, nicht die Größe: Bei 17 px
+       brach „Pfeil ziehen" zweizeilig um, die Knöpfe haben keine 2 px Reserve. */
+    .mini-row button > .ic-lead, .mini-row .file-btn > .ic-lead { color: #c2bcca; }
     button:hover > .ic-lead, .file-btn:hover > .ic-lead { color: var(--accent); }
     .btn-primary .ic-lead { color: #231b10; }
     .btn-primary:hover .ic-lead { color: #231b10; }
@@ -251,6 +256,30 @@
       border-color: rgba(255, 180, 84, 0.45);
       color: var(--accent);
     }
+    /* Formleiste im Kontextmenü: `#context-menu button` (weiter unten) schlägt
+       `.chip-row button` an ID-Spezifität – ohne diesen Block standen die fünf
+       Formen als volle Zeilen untereinander statt als umbrechende Chips. Zwei
+       IDs im Selektor, damit die Regel unabhängig von der Reihenfolge im
+       Stylesheet gewinnt: mit nur einer wäre sie gleich spezifisch und die
+       später notierte Regel würde sie wieder aushebeln. */
+    #context-menu #context-flow-row button {
+      display: inline-flex;
+      width: auto;
+      flex: 1 1 auto;
+      justify-content: center;
+      padding: 7px 9px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      font: 12px var(--body);
+      text-align: center;
+      white-space: nowrap;
+    }
+    #context-menu #context-flow-row button:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--accent-text);
+    }
+    #context-flow-row .ic-lead { margin-right: 5px; color: #8b8593; }
     .mini-row { display: flex; gap: 8px; margin-bottom: 16px; }
     .mini-row button, .mini-row .file-btn {
       flex: 1;
@@ -337,6 +366,10 @@
       position: fixed;
       z-index: 30;
       min-width: 216px;
+      /* Ohne Deckel bemisst sich das schwebende Menü an seinem breitesten
+         Inhalt – die Formleiste zöge es dann auf eine einzige lange Zeile,
+         statt umzubrechen. */
+      max-width: 258px;
       padding: 7px;
       border-radius: 16px;
       background: var(--panel-solid);
@@ -409,8 +442,14 @@
     <div class="eyebrow">WebXR · Meta Quest 3</div>
     <h1>Brainstorming</h1>
     <input id="idea-input" type="text" placeholder="Idee oder Thema eingeben…" />
-    <!-- Beide über die volle Breite: „🎙 Sprachbefehle: aus" bricht nebeneinander
-         um und reißt dabei das Emoji auf eine eigene Zeile. -->
+    <!-- Eigene Überschrift wie „Ideen" und „Board": Ohne sie waren die beiden
+         Sprach-Knöpfe die einzige unbetitelte Gruppe im Menü. Seit die Emojis
+         weg sind (🎤/🎙 stachen von selbst hervor), sehen sie aus wie jeder
+         andere graue mini-row-Knopf – wer „Diktieren" sucht, findet es beim
+         Überfliegen der Abschnitte sonst nicht.
+         Beide über die volle Breite: „Sprachbefehle: aus" bricht nebeneinander
+         um und reißt dabei das Icon auf eine eigene Zeile. -->
+    <div class="section-title">Sprache</div>
     <div class="mini-row">
       <button id="btn-dictate" data-icon="mic" title="Text ins Feld diktieren (Web Speech API)"><span class="lbl">Diktieren</span></button>
     </div>
