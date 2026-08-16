@@ -2416,7 +2416,9 @@ function makeRadiolaConsole() {
   // langsam durchlaufenden Bildstrich – der typische Eindruck einer alten
   // Übertragung. Neu gezeichnet wird bewusst nur ~12×/s: Der Canvas-Upload pro
   // Frame wäre auf der Quest teurer als das ganze Möbelstück.
-  const ctx = screenCanvas.getContext('2d');
+  // willReadFrequently: Das Bildrauschen liest den Canvas per getImageData
+  // zurück; ohne das Flag warnt Chromium bei jedem Bild.
+  const ctx = screenCanvas.getContext('2d', { willReadFrequently: true });
   const { width: sw, height: sh } = screenCanvas;
   let lastDraw = -1;
 
