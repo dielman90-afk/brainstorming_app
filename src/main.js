@@ -1233,12 +1233,16 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-const clock = new THREE.Clock();
+// THREE.Timer statt des abgekündigten THREE.Clock (three ≥ r180 warnt sonst bei
+// jedem Start). Mit connect(document) liefert er nach einem Tab-Wechsel kein
+// riesiges Delta mehr – Karten und Animationen springen dadurch nicht.
+const clock = new THREE.Timer();
+clock.connect(document);
 let elapsed = 0;
 
 renderer.setAnimationLoop(() => {
-  // getDelta() ist die einzige Zeitquelle; elapsed wird selbst akkumuliert
-  // (getElapsedTime würde den Delta verbrauchen und dt auf 0 setzen).
+  // update() ist die einzige Zeitquelle; elapsed wird selbst akkumuliert.
+  clock.update();
   const dt = Math.min(0.1, clock.getDelta());
   elapsed += dt;
   interactions.update();
