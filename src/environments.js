@@ -387,11 +387,18 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
   // Schichtkoordinate: Der Abstand der Bänke schwankt, die Folge liegt schräg
   // im Raum UND ist pro Sektor verschoben. Ohne den Rauschterm laufen die Bänke
   // als saubere Ringe um die Insel – das verrät die Drehbank sofort.
-  const strataCoord = (u, a) =>
-    u * strataRate +
-    0.42 * Math.sin(u * 7.3 + strataPhase) +
-    0.95 * Math.cos(a + strataTilt) +
-    1.6 * (valueNoise2(Math.cos(a) * 2.2 + fracPhase, Math.sin(a) * 2.2 + 7) - 0.5);
+  const strataCoord = (u, a) => {
+    const sector = Math.floor((a / TAU) * SECTORS);
+    const jump = valueNoise2(sector * 1.31 + 9, 3.7) - 0.5; // Versatz je Sektor
+    const rate = strataRate * (0.72 + 0.62 * valueNoise2(sector * 2.17 + 5, 1.3));
+    return (
+      u * rate +
+      0.42 * Math.sin(u * 7.3 + strataPhase) +
+      0.95 * Math.cos(a + strataTilt) +
+      1.9 * jump +
+      1.6 * (valueNoise2(Math.cos(a) * 2.2 + fracPhase, Math.sin(a) * 2.2 + 7) - 0.5)
+    );
+  };
 
   // Grobe Felsplatten: Sektoren × Tiefenbänder werden blockweise radial
   // versetzt. Das erzeugt große, ebene Wandflächen mit scharfen Kanten –
@@ -415,8 +422,20 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
     const ee = earthEndAt(a);
     let rf;
     if (t < ee) {
-      // Erdreich: kaum eingezogen, damit die Grasplatte eine echte Kante bekommt
-      rf = 1 - 0.075 * Math.pow(t / ee, 0.6);
+      // Erdreich. Es ist im Nahbild die zweitgrößte Fläche und darf deshalb
+      // keine glatte Zylinderwand sein: senkrechte Auswaschungsrillen, eine
+      // grobe Krümelstruktur und kleine, blockweise vorspringende Simse geben
+      // ihm eine eigene Oberflächenlesung neben dem facettierten Fels.
+      const cc = Math.cos(a);
+      const ss = Math.sin(a);
+      const f = t / ee;
+      const rill =
+        0.075 * (valueNoise2(cc * 17 + 7, ss * 17 + 2) - 0.5) +
+        0.045 * (valueNoise2(cc * 33 + 3, ss * 33 + 11) - 0.5);
+      const crumb =
+        0.05 *
+        (valueNoise2(Math.floor((a / TAU) * 40) * 2.9 + 1, Math.floor(f * 7) * 3.7 + 6) - 0.5);
+      rf = (1 - 0.075 * Math.pow(f, 0.6)) * (1 + (rill + crumb) * 2.0 * smoothstep(0, 0.25, f));
     } else {
       const u = (t - ee) / (1 - ee);
       // Kiel statt Kegel: breite Schulter, dann ein stumpf endender Keil.
@@ -677,7 +696,12 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
 
   const mesh = new THREE.Mesh(geo, [
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 }),
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0, metalness: 0 }),
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 1.0,
+      metalness: 0,
+      flatShading: true,
+    }),
     new THREE.MeshStandardMaterial({
       vertexColors: true,
       roughness: 0.82,
@@ -725,10 +749,17 @@ function bodyColor(out, zone, shape, p, t, a) {
     // mit senkrechten Auswaschungsstreifen.
     const d = Math.min(1, t / 0.22);
     const streak = valueNoise2(Math.cos(a) * 16, Math.sin(a) * 16 + t * 2);
+    const grit = valueNoise2(Math.cos(a) * 44 + 5, Math.sin(a) * 44 + t * 9);
+    const humus = 1 - smoothstep(0, 0.35, d); // feuchter, dunkler Saum unter dem Gras
     out.setHSL(
-      0.075 + 0.012 * (streak - 0.5),
-      0.34 - 0.08 * d,
-      0.20 + 0.055 * d + 0.05 * (mott - 0.5) + 0.035 * (streak - 0.5)
+      0.075 + 0.014 * (streak - 0.5) + 0.010 * humus,
+      0.34 - 0.08 * d + 0.05 * humus,
+      0.20 +
+        0.055 * d +
+        0.05 * (mott - 0.5) +
+        0.045 * (streak - 0.5) +
+        0.055 * (grit - 0.5) -
+        0.055 * humus
     );
     // Die Grasnarbe hängt unterschiedlich weit über die Kante. Der Übergang
     // läuft über die Farbe (stufenlos) statt über die Materialgrenze (Treppe).
@@ -1257,8 +1288,8 @@ function addVines(bucket, rand, shape, clusters) {
     const g = new THREE.CylinderGeometry(thick, thick * 0.30, len, 5, 8);
     // Bogen und Verjüngung: Wurzeln hängen nicht kerzengerade, sondern folgen
     // erst der Wand und schwingen dann frei.
-    const bendX = (rand() - 0.5) * 0.9;
-    const bendZ = (rand() - 0.5) * 0.9;
+    const bendX = (rand() - 0.5) * 1.5;
+    const bendZ = (rand() - 0.5) * 1.5;
     const p = g.attributes.position;
     for (let v = 0; v < p.count; v++) {
       const f = 0.5 - p.getY(v) / len; // 0 oben … 1 unten
@@ -1274,9 +1305,9 @@ function addVines(bucket, rand, shape, clusters) {
     g.translate(x, top, z);
     bucket.add(g, (vx, vy) =>
       new THREE.Color().setHSL(
-        0.115 + 0.06 * valueNoise2(vx * 3, vy * 3),
-        0.26,
-        0.13 + 0.11 * smoothstep(top - len, top, vy)
+        0.085 + 0.035 * valueNoise2(vx * 3, vy * 3),
+        0.22,
+        0.075 + 0.075 * smoothstep(top - len, top, vy)
       )
     );
     return { x, z, bottom: top - len, bendX, bendZ, len };
@@ -1285,12 +1316,12 @@ function addVines(bucket, rand, shape, clusters) {
   for (let c = 0; c < clusters; c++) {
     const base = (c / clusters) * TAU + (rand() - 0.5) * 0.7;
     const n = 2 + Math.floor(rand() * 4);
-    const mainLen = 0.9 + rand() * 2.4;
+    const mainLen = 1.1 + rand() * 2.0;
     for (let i = 0; i < n; i++) {
       const a = base + (rand() - 0.5) * 0.34;
       const t0 = 0.02 + rand() * 0.10;
       const len = mainLen * (0.45 + rand() * 0.75);
-      const end = strand(a, t0, len, 0.032 + rand() * 0.030);
+      const end = strand(a, t0, len, 0.020 + rand() * 0.022);
       // Blattbüschel nur an den längsten Strängen
       if (len > mainLen * 0.85 && rand() > 0.4) {
         for (let k = 0; k < 2 + Math.floor(rand() * 2); k++) {
@@ -1384,7 +1415,7 @@ function buildIsland(
     const g = boulderGeometry(rand, s);
     g.scale(1.0 + rand() * 0.45, 0.55 + rand() * 0.45, 1.0 + rand() * 0.45);
     // Tief eingesenkt: nur die Kuppe schaut heraus, wie anstehendes Gestein
-    const ky = shape.heightAt(kx, kz) - s * (0.25 + rand() * 0.35);
+    const ky = shape.heightAt(kx, kz) - s * (0.15 + rand() * 0.3);
     g.translate(kx, ky, kz);
     // Der Fuß geht in Erdreich über: Ohne den Farbverlauf schneidet der Block
     // mit einer harten, geraden Linie durch die Wiese und wirkt wie eingeclippt.
@@ -1393,15 +1424,8 @@ function buildIsland(
       const rock = new THREE.Color().setHSL(0.095, 0.045 + 0.02 * n, 0.115 + 0.055 * n);
       const soil = _tmpColor.setHSL(0.075, 0.28, 0.16 + 0.04 * n);
       // unten (nahe der Grasnarbe) erdig, oben blanker Fels
-      return rock.lerp(soil, 0.75 * smoothstep(ky + s * 0.15, ky - s * 0.30, vy));
+      return rock.lerp(soil, 0.55 * smoothstep(ky - s * 0.05, ky - s * 0.55, vy));
     });
-    // Aufgeworfene Erde ringsum, damit der Block aus dem Boden wächst
-    const mound = new THREE.IcosahedronGeometry(s * 1.15, 0);
-    mound.scale(1.15, 0.14, 1.15);
-    mound.translate(kx, shape.heightAt(kx, kz) - s * 0.10, kz);
-    stoneBucket.add(mound, (vx, vy, vz) =>
-      new THREE.Color().setHSL(0.078, 0.26, 0.17 + 0.05 * valueNoise2(vx * 5, vz * 5))
-    );
   }
 
   // Findlinge: bevorzugt am Wall und an der Abbruchkante, wo sie die

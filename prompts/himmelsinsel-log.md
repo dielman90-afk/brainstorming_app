@@ -299,6 +299,47 @@ Bildern das größte und lauteste Objekt im Frame (voll gesättigtes Rot). Sie
 sind jetzt auf ein Drittel verkleinert und entsättigt – das gehört eigentlich
 zu Paket 4, hätte aber jede weitere Prüfung verfälscht.
 
-### Prüfung 3 (nach run-09)
+### Prüfung 3 (nach run-09): NICHT BESTANDEN, Restliste auf zwei Punkte
+
+Behoben: N1 (Bruchzonen-Maske wirkt – „genau der Wechsel aus wenigen ruhigen
+Flächen und wenigen konzentrierten Bruchzonen, der gefehlt hat"), N3, B4
+(Größenhierarchie), B8 (Rankenverankerung), B10. Teilweise: N2, N4, N5, B3
+(„jetzt ein Feinheitsproblem, kein Formproblem").
+
+Drei neue Defekte:
+
+- **N6** Die Kantensaum-Knöchel sind über ihre ganze Fläche warmes Sandbraun
+  und lesen sich als Erdklumpen statt als durchstoßender Fels.
+- **N7** Das Erdband ist durch die angehobene Untergrenze die zweitgrößte
+  Fläche im Nahbild geworden – und ein vollkommen glatter Farbverlauf ohne
+  Facettierung, Krümel, Wurzelsaum oder Vertex-Variation. Neben dem
+  facettierten Fels trennt es sich damit nur noch über den Ton.
+- **N8** Im Frontsektor der Totale liegen wieder vier parallele, gleich dicke
+  Bänke übereinander, während links und rechts der Sektorversatz funktioniert.
+
+### Nacharbeit (run-10, run-11) – Durchlauf 4, die zulässige Obergrenze
+
+- **N6**: Der Übeltäter war nicht die Einfärbung des Blocks, sondern ein
+  zusätzlicher flacher „Erdaufwurf" aus run-08 – eine waagerechte Scheibe, die
+  auf dem geneigten Kantensaum talseitig weit heraushing. Ersatzlos entfallen;
+  der Erdton wirkt jetzt nur noch auf den verdeckten Fuß.
+- **N7**: Senkrechte Auswaschungsrillen (zwei Frequenzen), blockweise
+  Krümelstruktur, dunkler Humussaum unter der Grasnarbe, körnige
+  Vertex-Variation; Erdmaterial auf facettierte Schattierung umgestellt,
+  bleibt aber matter als der Fels.
+- **N8**: Bankfolge springt jetzt pro Sektor im Versatz UND in der Dichte
+  (Bankdicke je Sektor 0,72–1,34 der Grundrate).
+- **N4**: Ranken dünner und länger mit stärkerem Ausschwung, dunkler
+  Wurzelton. run-10 war hier zu kurz und zu dick – sie standen als helle
+  Stummel vom Fels ab.
+
+**Zum Streitpunkt „dritter Felston" (N2-Rest):** Der Prüfer sah in der Totale
+eine auffällig helle, weißlich-graue Fläche und ordnete sie als dritte,
+nicht angeglichene Felsfamilie ein. Die Nachstellung
+(`tools/shots/debug/mini-closeup.png`) zeigt: Es ist **kein Fels**. Die Fläche
+ist grün, aber stark entsättigt, und dahinter steht eine reinweiße Wolke. Das
+ist fehlende atmosphärische Perspektive und gehört zu Paket 6.
+
+### Prüfung 4 (nach run-11)
 
 Läuft.
