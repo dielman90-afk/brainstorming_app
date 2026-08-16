@@ -51,10 +51,17 @@ export const ICONS = {
   export: 'M12 4v11M8 8l4-4 4 4M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4',
   import: 'M12 15V4M8 11l4 4 4-4M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4',
   // --- Sprache --------------------------------------------------------------
-  mic: 'M12 4a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V7a3 3 0 0 1 3-3zM6 11a6 6 0 0 0 12 0M12 17v3',
+  // Mikrofon mit Bügel und Fuß. Die Kapsel füllt bewusst 7 der 24 Einheiten:
+  // Bei den vorherigen 6 blieben von ihr bei 16 px Rendergröße noch 4 px
+  // Breite übrig – ein Strich, kein erkennbares Mikrofon. Der Fuß unten gibt
+  // der Silhouette den Rest, der sie auch klein eindeutig macht.
+  mic:
+    'M12 3a3.5 3.5 0 0 1 3.5 3.5v4a3.5 3.5 0 0 1-7 0v-4A3.5 3.5 0 0 1 12 3zM5.5 11.5V12a6.5 6.5 0 0 0 13 0v-.5M12 18.5V21M8.5 21h7',
   // Sprachbefehle: Schallwellen – bewusst anders als das Diktier-Mikrofon,
-  // die beiden Knöpfe stehen direkt untereinander.
-  voice: 'M5 9v6M9 6v12M13 8v8M17 5v14M21 10v4',
+  // die beiden Knöpfe stehen direkt untereinander. Fünf Balken mit dem
+  // höchsten in der Mitte; vorher lag die Spitze rechts daneben und die
+  // engeren Abstände liefen bei 16 px zu einem Fleck zusammen.
+  voice: 'M4 10v4M8.5 6.5v11M13 4.5v15M17.5 7.5v9M21 10v4',
   // Themen-Start: Zielscheibe – der Ausgangspunkt, um den sich alles anordnet.
   topic:
     'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM12 16.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zM12 12.01',

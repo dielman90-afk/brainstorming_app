@@ -48,7 +48,10 @@ export const CARD_FONT_STEPS = [
 // solche zu erkennen ist.
 export const FLOW_TYPES = [
   { id: 'start', label: 'Start', shape: 'stadium', colorIndex: 2, width: 0.30, height: 0.15, radius: 28 },
-  { id: 'task', label: 'Tätigkeit', shape: 'rect', colorIndex: 0, width: 0.34, height: 0.18, radius: 20 },
+  // „Schritt", nicht „Tätigkeit": So heißt der Knopf im Overlay, im
+  // Kontextmenü und im VR-Menü – die Statusmeldung nannte die Form bisher
+  // anders als jede Schaltfläche, über die man sie setzt.
+  { id: 'task', label: 'Schritt', shape: 'rect', colorIndex: 0, width: 0.34, height: 0.18, radius: 20 },
   { id: 'decision', label: 'Entscheidung', shape: 'diamond', colorIndex: 1, width: 0.42, height: 0.28, radius: 24 },
   { id: 'end', label: 'Ende', shape: 'stadium', colorIndex: 4, width: 0.30, height: 0.15, radius: 28 },
 ];
