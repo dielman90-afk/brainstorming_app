@@ -20,6 +20,23 @@ function hashNoise(x, y, z) {
   return s - Math.floor(s);
 }
 
+const TAU = Math.PI * 2;
+
+// Kürzester Winkelabstand, damit Formmerkmale (Landzunge, Bucht, Höhenrücken)
+// über die 0/2π-Naht hinweg stetig bleiben.
+function angDelta(a, b) {
+  let d = (a - b) % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d < -Math.PI) d += TAU;
+  return d;
+}
+
+// Glockenkurve – weiche, lokal begrenzte Formmerkmale ohne harte Kanten.
+function gauss(d, s) {
+  const t = d / s;
+  return Math.exp(-t * t);
+}
+
 function mulberry32(seed) {
   return function () {
     seed |= 0;
@@ -170,46 +187,633 @@ function displaceRadial(geometry, amount, yAmount = 0, smooth = false) {
   return nonIndexed;
 }
 
-function makeTree(rand) {
-  const tree = new THREE.Group();
-  const trunkHeight = 0.5 + rand() * 0.5;
-  const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8),
-    new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.9, metalness: 0 })
-  );
-  trunk.position.y = trunkHeight / 2;
-  tree.add(trunk);
-
-  const foliageColor = rand() > 0.5 ? 0x3e8e4f : 0x57ab68;
-  const foliageMaterial = new THREE.MeshStandardMaterial({
-    color: foliageColor,
-    roughness: 0.85,
-    metalness: 0,
-  });
-  if (rand() > 0.45) {
-    // Nadelbaum: gestapelte, glatt schattierte Kegel
-    const layers = 2 + Math.floor(rand() * 2);
-    for (let i = 0; i < layers; i++) {
-      const radius = 0.45 - i * 0.12;
-      const cone = new THREE.Mesh(new THREE.ConeGeometry(radius, 0.6, 14), foliageMaterial);
-      cone.position.y = trunkHeight + 0.15 + i * 0.32;
-      tree.add(cone);
-    }
-  } else {
-    // Laubbaum: weiche, runde Krone aus zwei Icosaeder-Blobs (detail 1 = glatter)
-    const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(0.36, 1), foliageMaterial);
-    crown.position.y = trunkHeight + 0.26;
-    crown.scale.y = 0.88;
-    tree.add(crown);
-    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 1), foliageMaterial);
-    blob.position.set(0.2 * (rand() > 0.5 ? 1 : -1), trunkHeight + 0.4, 0.12);
-    tree.add(blob);
+// --- Geometrie-Eimer: viele kleine Teile → EIN Mesh --------------------------
+//
+// Der Engpass der Umgebung sind nicht Dreiecke (Budget 350 000, belegt ~30 000),
+// sondern Draw-Calls (Budget 120, im Ausgangsstand 112 belegt). Alles, was sich
+// nicht bewegt, wandert deshalb in einen Eimer und wird einmal gezeichnet.
+// Farbe kommt über Vertex-Farben, damit ein Material für viele Töne reicht.
+class GeoBucket {
+  constructor() {
+    this.parts = [];
   }
-  return tree;
+
+  // geo wird verbraucht (nicht kopiert). color: Hex, THREE.Color oder
+  // Funktion (x, y, z) → Hex/THREE.Color.
+  add(geo, color) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    if (!g.attributes.normal) g.computeVertexNormals();
+    if (!g.attributes.uv) {
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    }
+    const pos = g.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const c = new THREE.Color();
+    const fixed = typeof color === 'function' ? null : c.set(color);
+    for (let i = 0; i < pos.count; i++) {
+      const v = fixed ?? c.set(color(pos.getX(i), pos.getY(i), pos.getZ(i)));
+      colors[i * 3] = v.r;
+      colors[i * 3 + 1] = v.g;
+      colors[i * 3 + 2] = v.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    // Zusatzattribute (z.B. Tangenten) verhindern das Verschmelzen.
+    for (const key of Object.keys(g.attributes)) {
+      if (!['position', 'normal', 'uv', 'color'].includes(key)) g.deleteAttribute(key);
+    }
+    this.parts.push(g);
+    return this;
+  }
+
+  mesh(material, name) {
+    if (!this.parts.length) return null;
+    const merged = mergeGeometries(this.parts);
+    for (const p of this.parts) p.dispose();
+    this.parts.length = 0;
+    const m = new THREE.Mesh(merged, material);
+    if (name) m.name = name;
+    return m;
+  }
 }
 
-// Blumen und Grasbüschel auf der Hauptinsel (InstancedMesh = 2 Draw-Calls)
-function addGrassDecoration(group, rand, radius) {
+// Zufällig, aber reproduzierbar aus einer Palette wählen.
+const pick = (rand, list) => list[Math.floor(rand() * list.length) % list.length];
+
+// ---------------------------------------------------------------------------
+// Formbeschreibung einer schwebenden Insel
+// ---------------------------------------------------------------------------
+//
+// Grundriss, Oberflächenhöhe und Flankenprofil stecken in EINER analytischen
+// Beschreibung. Geometrie und Objektplatzierung benutzen dieselben Funktionen –
+// dadurch kann nichts schweben und nichts im Boden stecken.
+//
+// Wichtige Einschränkung: Die Fortbewegung (locomotion.js) kennt kein Gelände,
+// der Nutzer läuft immer auf y = 0. Die begehbare Innenfläche bleibt deshalb
+// bewusst eben; die Höhenentwicklung setzt erst außerhalb davon ein und geht in
+// den felsigen Randwall über, der ohnehin nicht zum Betreten einlädt.
+const ISLAND_TOP_Y = -0.02; // Höhe der ebenen Grasfläche (Bestand beibehalten)
+const ISLAND_FLAT_R = 0.58; // bis hierhin (Anteil des Radius) bleibt es eben
+
+function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
+  const p0 = rand() * TAU;
+  const p1 = rand() * TAU;
+  const p2 = rand() * TAU;
+  const headland = rand() * TAU; // eine weit vorspringende Landzunge
+  const bay = headland + 2.0 + rand() * 1.2; // eine tiefe Bucht gegenüber
+  const notch = headland + 0.9 + rand() * 0.6; // ein schmaler Einschnitt daneben
+  const nx = rand() * 60;
+  const nz = rand() * 60;
+  const strataPhase = rand() * TAU;
+  const strataTilt = rand() * TAU; // die Bänke liegen schräg, nicht waagerecht
+  const strataRate = 4.2 + rand() * 2.6; // Bankdicke: je Insel anders
+  const fracPhase = rand() * 40;
+  const leanX = (rand() - 0.5) * 0.9; // der Felskeil hängt schief, nicht mittig
+  const leanZ = (rand() - 0.5) * 0.9;
+  const chimneyA = rand() * TAU; // eine durchgehende Kaminspalte
+  const ledgeA = rand() * TAU; // ein überkragendes Felsgesims
+
+  // EIN dominanter Kiel plus zwei bis drei kleinere Strebepfeiler. Ohne die
+  // Größenstaffelung („eine Großform, zwei mittlere, viele kleine") endet die
+  // Unterseite in einer Reihe gleich großer Zacken.
+  const spurs = [
+    {
+      a: rand() * TAU,
+      w: 0.62,
+      amp: 0.30 + rand() * 0.12,
+      at: 0.48,
+      deeper: 0.42 + rand() * 0.20,
+    },
+  ];
+  for (let i = 0, n = 2 + Math.floor(rand() * 2); i < n; i++) {
+    spurs.push({
+      a: rand() * TAU,
+      w: 0.20 + rand() * 0.16,
+      amp: 0.16 + rand() * 0.16,
+      at: 0.30 + rand() * 0.34,
+      deeper: 0.06 + rand() * 0.12,
+    });
+  }
+  // Der Höhenrücken liegt dem Wasserfall gegenüber: Das Wasser braucht die
+  // niedrige Seite, der Blick bekommt auf der anderen einen Abschluss.
+  const ridgeA = river != null ? river + Math.PI : rand() * TAU;
+
+  // Grundriss. Eine schwach gewellte Ellipse liest sich als schwarze Kontur
+  // immer noch als Kartoffel – es braucht echte Konkavität. Deshalb greifen
+  // Landzunge, Bucht und Einschnitt kräftig ein: der Radius schwankt zwischen
+  // rund 0,6 und 1,3.
+  const outline = (a) =>
+    1 +
+    0.090 * Math.sin(3 * a + p0) +
+    0.055 * Math.sin(5 * a + p1) +
+    0.028 * Math.sin(8 * a + p2) +
+    0.30 * gauss(angDelta(a, headland), 0.30) -
+    0.24 * gauss(angDelta(a, bay), 0.38) -
+    0.17 * gauss(angDelta(a, notch), 0.19);
+
+  // --- Flusslauf (nur Hauptinsel): eine Kurve, die Gelände UND Wasser teilen ---
+  let riverCurve = null;
+  let riverPts = null;
+  if (river != null) {
+    const er = radius * outline(river) - 0.32;
+    riverCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.1, 0, 0.2),
+      new THREE.Vector3(Math.sin(river) * er * 0.34 + 0.5, 0, Math.cos(river) * er * 0.34 - 0.32),
+      new THREE.Vector3(Math.sin(river) * er * 0.7 - 0.38, 0, Math.cos(river) * er * 0.7 + 0.42),
+      new THREE.Vector3(Math.sin(river) * er, 0, Math.cos(river) * er),
+    ]);
+    riverPts = [];
+    for (let i = 0; i <= 44; i++) {
+      const p = riverCurve.getPoint(i / 44);
+      riverPts.push(p.x, p.z);
+    }
+  }
+  const riverDist = (x, z) => {
+    if (!riverPts) return 99;
+    let best = 1e9;
+    for (let i = 0; i < riverPts.length; i += 2) {
+      const dx = x - riverPts[i];
+      const dz = z - riverPts[i + 1];
+      const d = dx * dx + dz * dz;
+      if (d < best) best = d;
+    }
+    return Math.sqrt(best);
+  };
+
+  // Oberfläche: eben in der Mitte, nach außen ein weicher Wall, am Rand
+  // abgerundet nach unten (die Grasnarbe legt sich über die Kante), plus die
+  // eingeschnittene Flussrinne.
+  const relief = (x, z) => {
+    const a = Math.atan2(x, z);
+    const R = radius * outline(a);
+    const rr = Math.hypot(x, z) / R;
+    const band = smoothstep(ISLAND_FLAT_R, 0.90, rr);
+    const ridge = 0.60 * gauss(angDelta(a, ridgeA), 1.0) + 0.14;
+    const rough = fbm2(x * 0.52 + nx, z * 0.52 + nz) * 0.62;
+    let h = band * (ridge + rough);
+    // Abrisskante statt Rundung: Die Grasnarbe endet in ungleichmäßigen Zungen
+    // und Kerben, nicht als überall gleich dicker, rundgeschliffener Wulst.
+    const tear = valueNoise2(Math.cos(a) * 13 + 5, Math.sin(a) * 13 + 9);
+    const tear2 = valueNoise2(Math.cos(a) * 5.7 + 27, Math.sin(a) * 5.7 + 2);
+    h -= smoothstep(0.90, 1.0, rr) * 0.30 * tear * tear2;
+    h -= smoothstep(0.962, 1.0, rr) * (h + 0.06); // kurze, steile Traufkante
+    h -= 0.09 * gauss(riverDist(x, z), 0.40); // Flussbett eingeschnitten
+    return h;
+  };
+  const heightAt = (x, z) => ISLAND_TOP_Y + relief(x, z);
+  const edgeY = (a) => heightAt(Math.sin(a) * radius * outline(a), Math.cos(a) * radius * outline(a));
+
+  // --- Flanke: Erdschicht, dann geschichteter, zerklüfteter Fels ---
+  const EARTH_END = 0.20; // mittlerer Anteil der Flanke, der Erdreich ist
+  // Die Dicke der Erdschicht schwankt STARK: An manchen Stellen stößt der Fels
+  // bis unter die Grasnarbe durch, an anderen läuft Erde tief in eine Spalte.
+  // Eine überall gleich dicke Schicht ergibt eine umlaufend höhengleiche Kante –
+  // der auffälligste Hinweis auf gestapelte Zylinder.
+  const earthEndAt = (a) => {
+    const broad = valueNoise2(Math.cos(a) * 2.1 + 17, Math.sin(a) * 2.1 + 5);
+    const fine = valueNoise2(Math.cos(a) * 7.5 + 41, Math.sin(a) * 7.5 + 29);
+    return EARTH_END * Math.max(0.10, 0.15 + 2.4 * broad * broad + 0.5 * (fine - 0.5));
+  };
+
+  // Wie weit die Grasnarbe an dieser Stelle über die Kante hängt. Stark
+  // schwankend, damit Gras und Erde keine umlaufende Linie bilden.
+  const drapeAt = (a) =>
+    0.006 +
+    0.055 *
+      valueNoise2(Math.cos(a) * 3.1 + 31, Math.sin(a) * 3.1 + 7) *
+      valueNoise2(Math.cos(a) * 9.5 + 3, Math.sin(a) * 9.5 + 19);
+
+  // Schichtkoordinate: Der Abstand der Bänke schwankt, die Folge liegt schräg
+  // im Raum UND ist pro Sektor verschoben. Ohne den Rauschterm laufen die Bänke
+  // als saubere Ringe um die Insel – das verrät die Drehbank sofort.
+  const strataCoord = (u, a) =>
+    u * strataRate +
+    0.42 * Math.sin(u * 7.3 + strataPhase) +
+    0.95 * Math.cos(a + strataTilt) +
+    1.6 * (valueNoise2(Math.cos(a) * 2.2 + fracPhase, Math.sin(a) * 2.2 + 7) - 0.5);
+
+  // Grobe Felsplatten: Sektoren × Tiefenbänder werden blockweise radial
+  // versetzt. Das erzeugt große, ebene Wandflächen mit scharfen Kanten –
+  // Fels, statt einer gleichmäßig verrauschten Kartoffel.
+  const SECTORS = 14 + Math.floor(rand() * 8);
+  const slab = (t, a) =>
+    valueNoise2(
+      Math.floor((a / TAU) * SECTORS) * 1.73 + 3,
+      Math.floor(t * 6.5) * 2.31 + fracPhase
+    ) - 0.5;
+
+  const spurAt = (u, a) => {
+    let m = 0;
+    for (const sp of spurs) {
+      m += sp.amp * gauss(angDelta(a, sp.a), sp.w) * gauss(u - sp.at, 0.30);
+    }
+    return m;
+  };
+
+  const sideRadius = (t, a) => {
+    const ee = earthEndAt(a);
+    let rf;
+    if (t < ee) {
+      // Erdreich: kaum eingezogen, damit die Grasplatte eine echte Kante bekommt
+      rf = 1 - 0.075 * Math.pow(t / ee, 0.6);
+    } else {
+      const u = (t - ee) / (1 - ee);
+      // Kiel statt Kegel: breite Schulter, dann ein stumpf endender Keil.
+      // Der Exponent hält die Masse unten zusammen – mit reinem (1-u) lief das
+      // Ganze in eine Eiszapfen-Nadel aus.
+      const taper = 0.94 * Math.pow(1 - Math.pow(u, 1.45), 0.58);
+      // Bänke mit scharfer Oberkante und auslaufender Unterseite (Sägezahn,
+      // geglättet) – so entstehen echte Simse statt einer Sinuswelle.
+      const sv = strataCoord(u, a);
+      const w = sv - Math.floor(sv);
+      const shelf = Math.pow(1 - w, 2.2) - 0.32;
+      // Überkragendes Gesims: An EINER Stelle steht der Fels weiter aus als die
+      // Grasplatte darüber. Ohne so einen Undercut bleibt das Profil ein
+      // umgekehrter Ziggurat, bei dem oben immer alles am breitesten ist.
+      const ledge = 0.26 * gauss(angDelta(a, ledgeA), 0.44) * gauss(u - 0.13, 0.11);
+      // Kaminspalte: eine senkrechte Rinne über die ganze Höhe
+      const chimney = -0.20 * gauss(angDelta(a, chimneyA), 0.17) * smoothstep(0.0, 0.35, u);
+      rf =
+        taper *
+        (1 + 0.115 * shelf * (1 - 0.30 * u)) *
+        (1 + 0.075 * slab(t, a)) *
+        (1 + spurAt(u, a) + ledge + chimney);
+    }
+    // Zerklüftung: senkrechte Risse und Rippen, nach unten kräftiger
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    const frac =
+      0.105 * (valueNoise2(c * 5.5 + fracPhase, s * 5.5 + 3) - 0.5) +
+      0.085 * (valueNoise2(c * 13 + fracPhase, s * 13 + 21) - 0.5) +
+      0.070 * (valueNoise2(c * 8.5 + t * 2.6, s * 8.5 + fracPhase) - 0.5);
+    return Math.max(0, rf * (1 + frac * 2 * (0.35 + 0.65 * Math.min(1, t * 2.2))));
+  };
+
+  // Tiefe entlang der Flanke. Nicht jede Seite reicht gleich weit hinunter:
+  // Strebepfeiler ziehen ihren Sektor tiefer, dazu kommt eine Grundwelle.
+  const sideDepth = (t, a) => {
+    let extra = 0;
+    for (const sp of spurs) extra += sp.deeper * gauss(angDelta(a, sp.a), sp.w * 1.5);
+    const wave = 0.09 * (valueNoise2(Math.cos(a) * 2.6 + 5, Math.sin(a) * 2.6 + 13) - 0.5) * 2;
+    return depth * (1 + extra + wave) * (Math.pow(t, 1.10) + 0.05 * Math.sin(t * 4.1 + a * 1.7) * t);
+  };
+  const leanAt = (t) => Math.pow(t, 1.9);
+
+  return {
+    radius,
+    depth,
+    outline,
+    heightAt,
+    edgeY,
+    sideRadius,
+    sideDepth,
+    earthEndAt,
+    leanX,
+    leanZ,
+    leanAt,
+    drapeAt,
+    slab,
+    riverCurve,
+    riverAngle: river,
+    ridgeAngle: ridgeA,
+    strataCoord,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Inselkörper als EIN Mesh mit drei Materialgruppen (Gras / Erde / Fels)
+// ---------------------------------------------------------------------------
+//
+// Statt Zylinderplatte + Kegel darunter (harte Kante bei y ≈ 0, symmetrischer
+// Trichter) entsteht ein durchgehendes Gitter: begehbare Fläche, Randwall,
+// überrollende Traufkante, ausgefranste Erdschicht und darunter der
+// geschichtete, zerklüftete, schief hängende Felskeil.
+//
+// Drei Materialgruppen statt einer, weil sich Gras, Erde und Fels nicht nur im
+// Farbton unterscheiden sollen: Gras und Erde sind glatt schattiert und stumpf,
+// der Fels ist facettiert (flatShading) und etwas glänzender. Die Zuordnung
+// erfolgt pro Vierecksspalte, die Grenzen sind pro Winkel versetzt – dadurch
+// gibt es keine umlaufende Trennlinie.
+const ZONE_GRASS = 0;
+const ZONE_EARTH = 1;
+const ZONE_ROCK = 2;
+
+function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detail = 1 } = {}) {
+  const S = Math.max(24, Math.round(seg * detail));
+  const TR = Math.max(6, Math.round(topRings * detail));
+  const SR = Math.max(8, Math.round(sideRings * detail));
+  const { radius, outline, heightAt, edgeY, sideRadius, sideDepth, earthEndAt } = shape;
+
+  const rings = []; // rings[j] = { pos: Float64Array(S*3), zone(i) }
+  const ringT = [];
+
+  // --- Oberseite: Ringe von der Mitte nach außen, außen feiner aufgelöst ---
+  for (let j = 0; j <= TR; j++) {
+    const frac = 1 - Math.pow(1 - j / TR, 1.35);
+    const pos = new Float64Array(S * 3);
+    for (let i = 0; i < S; i++) {
+      const a = (i / S) * TAU;
+      const R = radius * outline(a) * frac;
+      const x = Math.sin(a) * R;
+      const z = Math.cos(a) * R;
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = j === 0 ? heightAt(0, 0) : heightAt(x, z);
+      pos[i * 3 + 2] = z;
+    }
+    rings.push(pos);
+    ringT.push(-1); // Oberseite
+  }
+
+  // --- Flanke: Erdschicht + Fels bis zur Spitze ---
+  for (let j = 1; j <= SR; j++) {
+    const t = Math.pow(j / (SR + 1), 1.06);
+    const pos = new Float64Array(S * 3);
+    for (let i = 0; i < S; i++) {
+      const a = (i / S) * TAU;
+      const R = radius * outline(a) * sideRadius(t, a);
+      const lean = shape.leanAt(t);
+      pos[i * 3] = Math.sin(a) * R + shape.leanX * lean * radius * 0.5;
+      pos[i * 3 + 1] = edgeY(a) - sideDepth(t, a);
+      pos[i * 3 + 2] = Math.cos(a) * R + shape.leanZ * lean * radius * 0.5;
+    }
+    rings.push(pos);
+    ringT.push(t);
+  }
+
+  // Spitze: ein einzelner, seitlich versetzter Punkt
+  const tipLean = shape.leanAt(1);
+  const tip = [
+    shape.leanX * tipLean * radius * 0.5,
+    edgeY(0) - sideDepth(1.02, 0),
+    shape.leanZ * tipLean * radius * 0.5,
+  ];
+
+  // --- Glatte Normalen aus dem Gitter (der Fels überschreibt sie per flatShading) ---
+  const RN = rings.length;
+  const normals = rings.map(() => new Float64Array(S * 3));
+  const get = (j, i) => {
+    const r = rings[Math.max(0, Math.min(RN - 1, j))];
+    const k = ((i % S) + S) % S;
+    return [r[k * 3], r[k * 3 + 1], r[k * 3 + 2]];
+  };
+  for (let j = 0; j < RN; j++) {
+    for (let i = 0; i < S; i++) {
+      const [ax, ay, az] = get(j, i + 1);
+      const [bx, by, bz] = get(j, i - 1);
+      let [cx, cy, cz] = get(j + 1, i);
+      const [dx, dy, dz] = get(j - 1, i);
+      if (j === RN - 1) [cx, cy, cz] = tip;
+      const u = [ax - bx, ay - by, az - bz];
+      const v = [cx - dx, cy - dy, cz - dz];
+      let nx = u[1] * v[2] - u[2] * v[1];
+      let ny = u[2] * v[0] - u[0] * v[2];
+      let nz = u[0] * v[1] - u[1] * v[0];
+      const len = Math.hypot(nx, ny, nz);
+      if (len < 1e-9) {
+        // Der innerste Ring liegt komplett im Mittelpunkt – dort ist das
+        // Kreuzprodukt null. Ohne diesen Zweig bleibt die Normale (0,0,0) und
+        // die Fläche wird stockschwarz gerendert (ein Loch mitten im Gras).
+        nx = 0;
+        ny = -1;
+        nz = 0;
+      } else {
+        nx /= len;
+        ny /= len;
+        nz /= len;
+      }
+      // Ringe laufen von der Mitte nach außen und dann nach unten – das
+      // Kreuzprodukt zeigt dabei nach innen, deshalb umgedreht.
+      normals[j][i * 3] = -nx;
+      normals[j][i * 3 + 1] = -ny;
+      normals[j][i * 3 + 2] = -nz;
+    }
+  }
+
+  // --- Dreiecke in drei Eimer (Gras / Erde / Fels) einsortieren ---
+  const buckets = [
+    { pos: [], nor: [], col: [] },
+    { pos: [], nor: [], col: [] },
+    { pos: [], nor: [], col: [] },
+  ];
+  const c = new THREE.Color();
+  const push = (zone, j, i) => {
+    const b = buckets[zone];
+    const k = ((i % S) + S) % S;
+    const isTip = j >= RN;
+    const p = isTip ? tip : [rings[j][k * 3], rings[j][k * 3 + 1], rings[j][k * 3 + 2]];
+    const n = isTip ? [0, -1, 0] : [normals[j][k * 3], normals[j][k * 3 + 1], normals[j][k * 3 + 2]];
+    b.pos.push(p[0], p[1], p[2]);
+    b.nor.push(n[0], n[1], n[2]);
+    bodyColor(c, zone, shape, p, isTip ? 1 : Math.max(0, ringT[j]), (k / S) * TAU);
+    b.col.push(c.r, c.g, c.b);
+  };
+  const quad = (zone, j, i) => {
+    push(zone, j, i);
+    push(zone, j + 1, i);
+    push(zone, j + 1, i + 1);
+    push(zone, j, i);
+    push(zone, j + 1, i + 1);
+    push(zone, j, i + 1);
+  };
+
+  for (let j = 0; j < RN - 1; j++) {
+    for (let i = 0; i < S; i++) {
+      const a = (i / S) * TAU;
+      const t = ringT[j + 1];
+      let zone;
+      if (t < 0) zone = ZONE_GRASS;
+      else if (t < earthEndAt(a)) zone = ZONE_EARTH;
+      else zone = ZONE_ROCK;
+      // Die MATERIALgrenze liegt bewusst fest und dicht unter der Kante: Eine
+      // pro Viereck ausgefranste Grenze erzeugt eine Treppe aus rechten Winkeln
+      // (ein sofort erkennbares Rasterartefakt). Der sichtbare, unregelmäßige
+      // Übergang Gras → Erde entsteht stattdessen in der Vertex-Farbe und ist
+      // dadurch stufenlos.
+      if (zone === ZONE_EARTH && t < 0.010) zone = ZONE_GRASS;
+      quad(zone, j, i);
+    }
+  }
+  // Fächer auf die Spitze
+  for (let i = 0; i < S; i++) {
+    push(ZONE_ROCK, RN - 1, i);
+    push(ZONE_ROCK, RN, i);
+    push(ZONE_ROCK, RN - 1, i + 1);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const total = buckets.reduce((s, b) => s + b.pos.length, 0);
+  const pos = new Float32Array(total);
+  const nor = new Float32Array(total);
+  const col = new Float32Array(total);
+  let write = 0;
+  let offset = 0;
+  const groups = [];
+  for (let z = 0; z < 3; z++) {
+    const b = buckets[z];
+    pos.set(b.pos, write);
+    nor.set(b.nor, write);
+    col.set(b.col, write);
+    const count = b.pos.length / 3;
+    groups.push([offset, count, z]);
+    write += b.pos.length;
+    offset += count;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  for (const [start, count, mat] of groups) geo.addGroup(start, count, mat);
+  geo.computeBoundingSphere();
+
+  const mesh = new THREE.Mesh(geo, [
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 }),
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1.0, metalness: 0 }),
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.82,
+      metalness: 0,
+      flatShading: true,
+    }),
+  ]);
+  mesh.name = 'island-body';
+  return mesh;
+}
+
+// Vertex-Farbe des Inselkörpers. Trägt die Materialtrennung mit: warmes,
+// leicht entsättigtes Grün oben, erdiges Braun in der Abbruchkante, kühl
+// gebrochener Fels darunter – mit Schichtbändern, Rissverdunklung und
+// gebackenem AO nach unten.
+const _tmpColor = new THREE.Color();
+
+function bodyColor(out, zone, shape, p, t, a) {
+  const [x, y, z] = p;
+  const mott = valueNoise2(x * 1.7 + 40, z * 1.7 + 12);
+  if (zone === ZONE_GRASS) {
+    const R = shape.radius * shape.outline(a);
+    const rr = Math.min(1, Math.hypot(x, z) / R);
+    const high = smoothstep(0.05, 0.55, y - ISLAND_TOP_Y); // Wallrücken heller
+    out.setHSL(
+      0.268 - 0.022 * high + 0.016 * (mott - 0.5),
+      0.40 + 0.10 * mott - 0.06 * high,
+      0.34 + 0.10 * high + 0.05 * (mott - 0.5) - 0.07 * smoothstep(0.82, 1.0, rr)
+    );
+    // Zur Kante hin reißt die Narbe auf: Erde und Fels kommen durch. Ohne das
+    // liegt das Gras als geschlossene, gleichmäßig dicke Zuckergussschicht auf
+    // der Insel. Der Aufriss läuft über die Farbe – eine pro Viereck gesetzte
+    // Materialgrenze ergäbe wieder eine Treppe aus rechten Winkeln.
+    const bare = valueNoise2(Math.cos(a) * 5.5 + 61, Math.sin(a) * 5.5 + 13);
+    const patch = valueNoise2(x * 1.1 + 7, z * 1.1 + 23);
+    const wear = smoothstep(0.70, 0.99, rr) * smoothstep(0.42, 0.78, bare * 0.5 + patch * 0.5);
+    if (wear > 0) {
+      const soil = _tmpColor.setHSL(0.072, 0.30, 0.19 + 0.05 * (patch - 0.5));
+      out.lerp(soil, Math.min(0.85, wear));
+    }
+    return out;
+  }
+  if (zone === ZONE_EARTH) {
+    // Erdreich: oben feucht-dunkel unter der Grasnarbe, nach unten staubiger,
+    // mit senkrechten Auswaschungsstreifen.
+    const d = Math.min(1, t / 0.22);
+    const streak = valueNoise2(Math.cos(a) * 16, Math.sin(a) * 16 + t * 2);
+    out.setHSL(
+      0.075 + 0.012 * (streak - 0.5),
+      0.34 - 0.08 * d,
+      0.20 + 0.055 * d + 0.05 * (mott - 0.5) + 0.035 * (streak - 0.5)
+    );
+    // Die Grasnarbe hängt unterschiedlich weit über die Kante. Der Übergang
+    // läuft über die Farbe (stufenlos) statt über die Materialgrenze (Treppe).
+    const drape = shape.drapeAt(a);
+    const g2e = smoothstep(drape * 0.30, drape * 1.15, t);
+    if (g2e < 1) {
+      const grass = _tmpColor.setHSL(0.272, 0.42, 0.30 + 0.05 * (mott - 0.5));
+      out.lerp(grass, 1 - g2e);
+    }
+    return out;
+  }
+  // Fels: Schichtbänke (dieselbe Koordinate wie die Geometrie, damit Farbe und
+  // Form zusammenfallen), senkrechte Risse und Verdunklung zur Spitze.
+  const sv = shape.strataCoord(t, a);
+  const w = sv - Math.floor(sv);
+  const shelf = Math.pow(1 - w, 2.0); // 1 an der Oberkante einer Bank … 0 darunter
+  const fissure = valueNoise2(Math.cos(a) * 11, Math.sin(a) * 11 + t * 3);
+  const face = shape.slab(t, a); // -0.5 … 0.5, konstant je Felsplatte
+  // Deutlich dunkler und kühler als das Erdreich darüber: Vorher lagen Fels und
+  // Erde im gleichen Hellwert und im gleichen warmen Bereich – die Flanke las
+  // sich als ein einziges beiges Volumen mit einer eingeritzten Linie.
+  const depthShade = 1 - smoothstep(0.10, 1.0, t) * 0.62;
+  out.setHSL(
+    0.095 + 0.022 * shelf - 0.018 * face,
+    0.045 + 0.045 * shelf + 0.025 * (mott - 0.5),
+    (0.095 + 0.060 * shelf + 0.045 * (fissure - 0.5) + 0.070 * face + 0.025 * (mott - 0.5)) *
+      depthShade +
+      0.010
+  );
+  return out;
+}
+
+// --- Baum: liefert Geometrie in die Eimer, nicht eigene Meshes -------------
+// Nadelbaum (gestapelte Kegel) oder Laubbaum (Icosaeder-Blobs); die Krone
+// bekommt Vertex-Farben, damit ein Blattwerk-Material für alle Bäume reicht.
+const CONIFER_GREENS = [0x2f7a46, 0x38874c, 0x2a6d43];
+const BROADLEAF_GREENS = [0x4f9c56, 0x5cab60, 0x458f52];
+
+function addTree(rand, trunkBucket, leafBucket, { x, y, z, scale = 1 }) {
+  const trunkHeight = (0.55 + rand() * 0.55) * scale;
+  const lean = (rand() - 0.5) * 0.16;
+  const yaw = rand() * TAU;
+  const place = (geo, dy, tilt = true) => {
+    if (tilt) geo.applyMatrix4(new THREE.Matrix4().makeRotationZ(lean));
+    geo.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw));
+    geo.translate(x + Math.sin(lean) * dy * 0.5, y + dy, z);
+    return geo;
+  };
+
+  const trunk = new THREE.CylinderGeometry(0.045 * scale, 0.095 * scale, trunkHeight, 7, 2);
+  displaceRadial(trunk, 0.12, 0, true);
+  trunkBucket.add(place(trunk, trunkHeight / 2), (vx, vy) =>
+    new THREE.Color().setHSL(0.075, 0.30, 0.20 + 0.07 * valueNoise2(vx * 9, vy * 9))
+  );
+
+  if (rand() > 0.45) {
+    const layers = 3 + Math.floor(rand() * 2);
+    const tone = pick(rand, CONIFER_GREENS);
+    for (let i = 0; i < layers; i++) {
+      const f = i / (layers - 1);
+      const r = (0.52 - f * 0.30) * scale;
+      const cone = new THREE.ConeGeometry(r, 0.66 * scale, 12);
+      displaceRadial(cone, 0.22, 0.04, true);
+      leafBucket.add(place(cone, trunkHeight + (0.12 + f * 0.98) * scale), (vx, vy, vz) => {
+        const c = new THREE.Color(tone);
+        // von unten dunkler, oben heller → Volumen statt flacher Kegel
+        const up = smoothstep(0, 1, (vy - y) / (trunkHeight + scale));
+        return c.multiplyScalar(0.72 + 0.5 * up + 0.12 * (valueNoise2(vx * 7, vz * 7) - 0.5));
+      });
+    }
+  } else {
+    const tone = pick(rand, BROADLEAF_GREENS);
+    const blobs = 3 + Math.floor(rand() * 2);
+    for (let i = 0; i < blobs; i++) {
+      const s = (i === 0 ? 0.40 : 0.20 + rand() * 0.14) * scale;
+      const blob = new THREE.IcosahedronGeometry(s, 1);
+      displaceRadial(blob, 0.26, 0, true);
+      const off =
+        i === 0
+          ? [0, 0.30 * scale, 0]
+          : [(rand() - 0.5) * 0.62 * scale, (0.18 + rand() * 0.42) * scale, (rand() - 0.5) * 0.62 * scale];
+      blob.scale(1, 0.86, 1);
+      blob.translate(off[0], 0, off[2]);
+      leafBucket.add(place(blob, trunkHeight + off[1]), (vx, vy, vz) => {
+        const c = new THREE.Color(tone);
+        const up = smoothstep(0, 1, (vy - y - trunkHeight) / (0.9 * scale) + 0.4);
+        return c.multiplyScalar(0.68 + 0.55 * up + 0.14 * (valueNoise2(vx * 6, vz * 6) - 0.5));
+      });
+    }
+  }
+  return trunkHeight;
+}
+
+// Blumen und Grasbüschel auf der Hauptinsel (InstancedMesh = 2 Draw-Calls).
+// Alle Instanzen sitzen auf der tatsächlichen Geländehöhe (shape.heightAt) und
+// bleiben innerhalb des tatsächlichen, unrunden Umrisses.
+function addGrassDecoration(group, rand, shape) {
   const flowerColors = [0xfff3b0, 0xffb3c1, 0xcdb4f6, 0xf8f9fa, 0xffd166];
   const flowers = new THREE.InstancedMesh(
     new THREE.IcosahedronGeometry(0.025, 0),
@@ -219,10 +823,16 @@ function addGrassDecoration(group, rand, radius) {
   flowers.name = 'flowers';
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
+  const spot = (min, max) => {
+    const angle = rand() * TAU;
+    const r = shape.radius * shape.outline(angle) * (min + rand() * (max - min));
+    const x = Math.sin(angle) * r;
+    const z = Math.cos(angle) * r;
+    return [x, shape.heightAt(x, z), z];
+  };
   for (let i = 0; i < flowers.count; i++) {
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.2 + rand() * 0.72);
-    dummy.position.set(Math.sin(angle) * r, 0.02, Math.cos(angle) * r);
+    const [x, y, z] = spot(0.18, 0.86);
+    dummy.position.set(x, y + 0.03, z);
     dummy.scale.setScalar(0.8 + rand() * 0.7);
     dummy.updateMatrix();
     flowers.setMatrixAt(i, dummy.matrix);
@@ -239,9 +849,8 @@ function addGrassDecoration(group, rand, radius) {
   );
   tufts.name = 'tufts';
   for (let i = 0; i < tufts.count; i++) {
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.15 + rand() * 0.78);
-    dummy.position.set(Math.sin(angle) * r, 0.045, Math.cos(angle) * r);
+    const [x, y, z] = spot(0.14, 0.9);
+    dummy.position.set(x, y + 0.045, z);
     dummy.rotation.set((rand() - 0.5) * 0.4, rand() * Math.PI, (rand() - 0.5) * 0.4);
     dummy.scale.setScalar(0.8 + rand() * 0.8);
     dummy.updateMatrix();
@@ -286,12 +895,14 @@ function makeWaterTexture() {
 // Kleiner Fluss von der Inselmitte zur Kante + Wasserfall über den Rand.
 // Ursprung: eine Quelle in der Mitte, aus der ein schmaler Bach zur Klippe läuft
 // und dort als Partikelstrom in die Tiefe stürzt.
-function makeWaterfall(rand, islandRadius) {
+function makeWaterfall(rand, shape) {
   const group = new THREE.Group();
   group.name = 'waterfall';
-  const angle = 2.1;
-  const edgeX = Math.sin(angle) * (islandRadius - 0.5);
-  const edgeZ = Math.cos(angle) * (islandRadius - 0.5);
+  const angle = shape.riverAngle;
+  const curve = shape.riverCurve;
+  const end = curve.getPoint(1);
+  const edgeX = end.x;
+  const edgeZ = end.z;
   const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
 
   const waterTex = makeWaterTexture();
@@ -304,29 +915,34 @@ function makeWaterfall(rand, islandRadius) {
     opacity: 0.9,
   });
 
-  // --- Quelle in der Inselmitte ---
+  // --- Quelle in der Inselmitte, in die eingeschnittene Rinne gelegt ---
+  const springY = shape.heightAt(0.1, 0.2) + 0.035;
   const spring = new THREE.Mesh(new THREE.CircleGeometry(0.32, 24), waterMat);
   spring.rotation.x = -Math.PI / 2;
-  spring.position.set(0.1, 0.02, 0.2);
+  spring.position.set(0.1, springY, 0.2);
   group.add(spring);
-  // Kleiner Steinkranz um die Quelle
-  const ringMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 1, metalness: 0 });
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + rand();
-    const stone = new THREE.Mesh(new THREE.IcosahedronGeometry(0.07 + rand() * 0.05, 0), ringMat);
-    stone.position.set(0.1 + Math.cos(a) * 0.34, 0.03, 0.2 + Math.sin(a) * 0.34);
-    stone.rotation.set(rand(), rand(), rand());
-    group.add(stone);
+  // Steinkranz um die Quelle – ein verschmolzenes Mesh statt sieben Draw-Calls
+  const springStones = new GeoBucket();
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * TAU + rand() * 0.4;
+    const rr = 0.32 + rand() * 0.08;
+    const sx = 0.1 + Math.cos(a) * rr;
+    const sz = 0.2 + Math.sin(a) * rr;
+    const g = boulderGeometry(rand, 0.08 + rand() * 0.06);
+    g.translate(sx, shape.heightAt(sx, sz) + 0.03, sz);
+    springStones.add(g, (vx, vy, vz) =>
+      new THREE.Color().setHSL(0.09, 0.05, 0.36 + 0.09 * valueNoise2(vx * 6, vz * 6))
+    );
   }
+  const stones = springStones.mesh(
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, flatShading: true }),
+    'spring-stones'
+  );
+  if (stones) group.add(stones);
 
-  // --- Flussbett als Band entlang einer weichen Kurve (Mitte → Klippe) ---
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0.1, 0.02, 0.2),
-    new THREE.Vector3(edgeX * 0.35 + 0.3, 0.02, edgeZ * 0.35 - 0.2),
-    new THREE.Vector3(edgeX * 0.7 - 0.2, 0.02, edgeZ * 0.7 + 0.3),
-    new THREE.Vector3(edgeX, 0.02, edgeZ),
-  ]);
-  const SEG = 60;
+  // --- Flussbett als Band entlang der geteilten Kurve: Es folgt exakt der
+  // Rinne, die auch ins Gelände eingeschnitten ist, und liegt knapp darüber. ---
+  const SEG = 64;
   const up = new THREE.Vector3(0, 1, 0);
   const riverPos = [];
   const riverUv = [];
@@ -337,9 +953,12 @@ function makeWaterfall(rand, islandRadius) {
     const tan = curve.getTangent(t);
     const side = new THREE.Vector3().crossVectors(tan, up).normalize();
     const halfW = 0.14 + t * 0.34; // schmal an der Quelle, breiter zur Klippe
+    const yl = shape.heightAt(p.x - side.x * halfW, p.z - side.z * halfW) + 0.03;
+    const yr = shape.heightAt(p.x + side.x * halfW, p.z + side.z * halfW) + 0.03;
+    const yc = Math.min(yl, yr);
     riverPos.push(
-      p.x - side.x * halfW, 0.022, p.z - side.z * halfW,
-      p.x + side.x * halfW, 0.022, p.z + side.z * halfW
+      p.x - side.x * halfW, yc, p.z - side.z * halfW,
+      p.x + side.x * halfW, yc, p.z + side.z * halfW
     );
     const v = t * 8;
     riverUv.push(0, v, 1, v);
@@ -357,9 +976,10 @@ function makeWaterfall(rand, islandRadius) {
   group.add(river);
 
   // --- Auffangbecken an der Kante, kurz bevor das Wasser stürzt ---
+  const edgeY = shape.heightAt(edgeX, edgeZ) + 0.03;
   const pond = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), waterMat);
   pond.rotation.x = -Math.PI / 2;
-  pond.position.set(edgeX, 0.02, edgeZ);
+  pond.position.set(edgeX, edgeY, edgeZ);
   pond.scale.x = 1.4;
   group.add(pond);
 
@@ -400,9 +1020,11 @@ function makeWaterfall(rand, islandRadius) {
       opacity: 0.55,
     })
   );
-  const outX = Math.sin(angle) * (islandRadius + 0.15);
-  const outZ = Math.cos(angle) * (islandRadius + 0.15);
-  mist.position.set(outX, -1.2, outZ);
+  // Fußpunkt des Sturzes: knapp außerhalb der tatsächlichen Abbruchkante
+  const outR = shape.radius * shape.outline(angle) + 0.2;
+  const outX = Math.sin(angle) * outR;
+  const outZ = Math.cos(angle) * outR;
+  mist.position.set(outX, edgeY - 1.4, outZ);
   mist.scale.set(2.4, 2.4, 1);
   group.add(mist);
 
@@ -416,7 +1038,7 @@ function makeWaterfall(rand, islandRadius) {
       fog: false,
     })
   );
-  foam.position.set(edgeX, 0.03, edgeZ);
+  foam.position.set(edgeX, edgeY + 0.02, edgeZ);
   foam.scale.set(1.3, 0.5, 1);
   group.add(foam);
 
@@ -446,8 +1068,8 @@ function makeWaterfall(rand, islandRadius) {
       fog: false,
     })
   );
-  rainbow.position.set(outX, -1.4, outZ);
-  rainbow.lookAt(0, -0.4, 0); // zum Inselzentrum ausrichten
+  rainbow.position.set(outX, edgeY - 1.6, outZ);
+  rainbow.lookAt(0, edgeY - 0.6, 0); // zum Inselzentrum ausrichten
   group.add(rainbow);
 
   return {
@@ -463,7 +1085,7 @@ function makeWaterfall(rand, islandRadius) {
         pos.setXYZ(
           i,
           outX + tangent.x * m.side + m.jitter * Math.sin(time * 3 + i),
-          -0.05 - fall,
+          edgeY - 0.05 - fall,
           outZ + tangent.z * m.side + m.jitter * Math.cos(time * 3 + i)
         );
       }
@@ -605,110 +1227,229 @@ function makeCloud(rand, size = 1) {
   return cloud;
 }
 
-// Hängende Ranken/Wurzeln unter dem Inselrand, zu EINEM Mesh verschmolzen.
-function makeVines(rand, radius, count) {
-  const geos = [];
-  for (let i = 0; i < count; i++) {
-    const a = (i / count) * Math.PI * 2 + (rand() - 0.5) * 0.4;
-    const rr = radius * (0.72 + rand() * 0.22);
-    const len = 0.7 + rand() * 1.8;
-    const g = new THREE.CylinderGeometry(0.012, 0.05, len, 5, 1);
-    g.translate(0, -len / 2, 0); // oben am Rand, hängt nach unten
-    g.applyMatrix4(new THREE.Matrix4().makeRotationZ((rand() - 0.5) * 0.4));
-    g.translate(Math.cos(a) * rr, -0.34, Math.sin(a) * rr);
-    geos.push(g);
-    // kleiner Blattknubbel am Ende
-    if (rand() > 0.4) {
-      const leaf = new THREE.IcosahedronGeometry(0.06 + rand() * 0.05, 0);
-      leaf.translate(Math.cos(a) * rr, -0.34 - len, Math.sin(a) * rr);
-      geos.push(leaf);
+// Hängende Ranken/Wurzeln unter dem Inselrand. Sie setzen jetzt an der
+// tatsächlichen, unrunden Abbruchkante an (shape.outline/edgeY) statt an einem
+// gedachten Kreis – vorher hingen sie teils in der Luft neben dem Fels.
+// Hängende Wurzelvorhänge unter der Abbruchkante. Nicht gleichmäßig verteilt,
+// sondern in Büscheln: Wurzeln wachsen dort, wo Erde ist, nicht alle 30 Grad.
+function addVines(bucket, rand, shape, clusters) {
+  const strand = (a, t0, len, thick) => {
+    // Ansatzpunkt auf der TATSÄCHLICHEN Flanke, ein Stück INNERHALB der
+    // Oberfläche: Ein Strang, der exakt auf der Haut sitzt, steht bei jeder
+    // Facettenkante frei in der Luft. Er steckt deshalb bewusst im Fels.
+    const surf = shape.sideRadius(t0, a);
+    const rr = shape.radius * shape.outline(a) * (surf - 0.02);
+    const x = Math.sin(a) * rr;
+    const z = Math.cos(a) * rr;
+    const top = shape.edgeY(a) - shape.sideDepth(t0, a);
+    const g = new THREE.CylinderGeometry(thick * 0.28, thick, len, 4, 6);
+    // Bogen und Verjüngung: Wurzeln hängen nicht kerzengerade, sondern folgen
+    // erst der Wand und schwingen dann frei.
+    const bendX = (rand() - 0.5) * 0.9;
+    const bendZ = (rand() - 0.5) * 0.9;
+    const p = g.attributes.position;
+    for (let v = 0; v < p.count; v++) {
+      const f = 0.5 - p.getY(v) / len; // 0 oben … 1 unten
+      p.setX(v, p.getX(v) + f * f * bendX * len * 0.22 + Math.sin(f * 6) * thick * 0.6);
+      p.setZ(v, p.getZ(v) + f * f * bendZ * len * 0.22 + Math.cos(f * 7) * thick * 0.6);
+    }
+    g.computeVertexNormals();
+    g.translate(0, -len / 2, 0);
+    g.translate(x, top, z);
+    // Wurzelteller am Ansatz: macht sichtbar, WO die Ranke hängt
+    const plate = new THREE.IcosahedronGeometry(thick * 1.9, 0);
+    plate.scale(1.5, 0.6, 1.5);
+    plate.translate(x, top, z);
+    bucket.add(plate, 0x3b2f20);
+    bucket.add(g, (vx, vy) =>
+      new THREE.Color().setHSL(
+        0.115 + 0.06 * valueNoise2(vx * 3, vy * 3),
+        0.26,
+        0.13 + 0.11 * smoothstep(top - len, top, vy)
+      )
+    );
+    return { x, z, bottom: top - len, bendX, bendZ, len };
+  };
+
+  for (let c = 0; c < clusters; c++) {
+    const base = (c / clusters) * TAU + (rand() - 0.5) * 0.7;
+    const n = 2 + Math.floor(rand() * 4);
+    const mainLen = 0.9 + rand() * 2.4;
+    for (let i = 0; i < n; i++) {
+      const a = base + (rand() - 0.5) * 0.34;
+      const t0 = 0.02 + rand() * 0.10;
+      const len = mainLen * (0.45 + rand() * 0.75);
+      const end = strand(a, t0, len, 0.016 + rand() * 0.020);
+      // Blattbüschel nur an den längsten Strängen
+      if (len > mainLen * 0.85 && rand() > 0.4) {
+        for (let k = 0; k < 2 + Math.floor(rand() * 2); k++) {
+          const leaf = new THREE.IcosahedronGeometry(0.05 + rand() * 0.05, 0);
+          leaf.scale(1.3, 0.5, 1.3);
+          leaf.translate(
+            end.x + end.bendX * end.len * 0.22 + (rand() - 0.5) * 0.13,
+            end.bottom + rand() * 0.16,
+            end.z + end.bendZ * end.len * 0.22 + (rand() - 0.5) * 0.13
+          );
+          bucket.add(leaf, pick(rand, [0x40693a, 0x4d7a3f, 0x35592f]));
+        }
+      }
     }
   }
-  // Cylinder ist indiziert, Icosaeder nicht → vor dem Merge vereinheitlichen
-  const merged = mergeGeometries(geos.map((g) => (g.index ? g.toNonIndexed() : g)));
-  return new THREE.Mesh(merged, new THREE.MeshStandardMaterial({ color: 0x4e6b3a, roughness: 1, metalness: 0 }));
 }
 
-// Schwebende Insel: Grasplatte mit Erdrand + felsige, zerklüftete Unterseite
-function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4, vines = 9 } = {}) {
+// Ein Findling: unregelmäßig verschobener Icosaeder, flach gelagert.
+function boulderGeometry(rand, size) {
+  const g = new THREE.IcosahedronGeometry(size, 1);
+  const p = g.attributes.position;
+  for (let v = 0; v < p.count; v++) {
+    const x = p.getX(v);
+    const y = p.getY(v);
+    const z = p.getZ(v);
+    const f = 0.74 + hashNoise(x * 27, y * 27, z * 27) * 0.5;
+    p.setXYZ(v, x * f, y * f * 0.72, z * f);
+  }
+  g.computeVertexNormals();
+  g.rotateY(rand() * TAU);
+  g.rotateX((rand() - 0.5) * 0.5);
+  return g;
+}
+
+// Kontaktschatten als EIN verschmolzenes Mesh statt eines Draw-Calls je Objekt.
+// Die Quads liegen auf der tatsächlichen Geländehöhe – auf dem Wall kippen sie
+// nicht in den Hang, weil sie knapp darüber schweben und weich auslaufen.
+function addContactShadow(bucket, shape, x, z, radius) {
+  const g = new THREE.PlaneGeometry(radius * 2, radius * 2);
+  g.rotateX(-Math.PI / 2);
+  g.translate(x, shape.heightAt(x, z) + 0.012, z);
+  bucket.add(g, 0xffffff);
+}
+
+// Schwebende Insel: durchgehender Körper (Gras → Erde → geschichteter Fels),
+// darauf Bäume, Findlinge und Kontaktschatten – alles in wenigen Meshes.
+function buildIsland(
+  rand,
+  { radius = 5, depth = 5, trees = 3, rocks = 4, vines = 9, river = null, detail = 1 } = {}
+) {
   const island = new THREE.Group();
+  island.name = 'island';
+  const shape = makeIslandShape(rand, { radius, depth, river });
+  island.userData.shape = shape;
 
-  // Grasfläche + Erdrand glatt schattiert (smooth=true) → weniger facettiert.
-  // Gebackenes Vertex-Shading: Rand/Unterseite dezent dunkler + leichtes Mottling.
-  const capGeometry = bakeVertexShade(
-    displaceRadial(new THREE.CylinderGeometry(radius, radius * 0.94, 0.32, 48, 1), 0.08, 0, true),
-    (x, y, z) => {
-      const edge = Math.min(1, Math.hypot(x, z) / radius); // 0 Mitte … 1 Rand
-      const low = y < 0 ? 0.82 : 1; // Erdrand unten leicht abdunkeln
-      const mott = 0.94 + hashNoise(x * 3, y, z * 3) * 0.12;
-      return Math.min(1.05, (1 - edge * 0.12) * low * mott);
-    }
-  );
-  const capMat = (color, rough = 1) =>
-    new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0, vertexColors: true });
-  const cap = new THREE.Mesh(capGeometry, [
-    capMat(0x8a6844), // Erdrand
-    capMat(0x6cbb5c, 0.95), // Gras
-    capMat(0x6b4f34), // Unterseite
-  ]);
-  cap.position.y = -0.18; // Grasfläche liegt bei y ≈ -0.02
-  island.add(cap);
+  island.add(buildIslandBody(shape, { detail }));
 
-  // Fels-Unterseite mit gebackenem AO (dunkler zur Spitze) für mehr Tiefe
-  const rockGeometry = bakeVertexShade(
-    displaceRadial(new THREE.ConeGeometry(radius * 0.92, depth, 32, 6), 0.3, 0.25),
-    (x, y) => 0.7 + ((y + depth / 2) / depth) * 0.4 // Basis heller, Spitze dunkler
-  );
-  const rock = new THREE.Mesh(
-    rockGeometry,
-    new THREE.MeshStandardMaterial({ color: 0x7d6f5c, roughness: 1, metalness: 0, flatShading: true, vertexColors: true })
-  );
-  rock.rotation.x = Math.PI; // Spitze nach unten
-  rock.position.y = -0.3 - depth / 2;
-  island.add(rock);
+  const rootBucket = new GeoBucket();
+  addVines(rootBucket, rand, shape, vines);
 
-  island.add(makeVines(rand, radius, vines));
+  const trunkBucket = new GeoBucket();
+  const leafBucket = new GeoBucket();
+  const stoneBucket = new GeoBucket();
+  const shadowBucket = new GeoBucket();
 
+  // Bäume: gehäuft am Höhenrücken, einzeln im offenen Feld – das staffelt den
+  // Blick in Vorder-, Mittel- und Hintergrund, statt gleichmäßig zu streuen.
   for (let i = 0; i < trees; i++) {
-    const tree = makeTree(rand);
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.55 + rand() * 0.3);
+    const clustered = i > 0 && rand() > 0.35;
+    const angle = clustered ? shape.ridgeAngle + (rand() - 0.5) * 1.5 : rand() * TAU;
+    const r = radius * (clustered ? 0.62 + rand() * 0.22 : 0.30 + rand() * 0.45);
     const tx = Math.sin(angle) * r;
     const tz = Math.cos(angle) * r;
-    tree.position.set(tx, -0.02, tz);
-    tree.rotation.y = rand() * Math.PI * 2;
-    island.add(tree);
-    const shadow = makeBlobShadow(0.45, 0.6, -0.005);
-    shadow.position.set(tx, -0.005, tz);
-    island.add(shadow);
+    if (shape.riverCurve && Math.hypot(tx - 0.1, tz - 0.2) < 0.7) continue; // nicht in die Quelle
+    const y = shape.heightAt(tx, tz);
+    const scale = 0.85 + rand() * 0.5;
+    addTree(rand, trunkBucket, leafBucket, { x: tx, y, z: tz, scale });
+    addContactShadow(shadowBucket, shape, tx, tz, 0.46 * scale);
   }
 
+  // Felsknöchel am Kantensaum: teils versenkte Blöcke, die durch die Grasnarbe
+  // stoßen. Sie lösen den durchgehenden grünen Wulst auf und verzahnen
+  // Grasplatte und Fels – ohne sie liegt das Gras wie Glasur auf einer Torte.
+  const knuckles = Math.round(rocks * 1.8);
+  for (let i = 0; i < knuckles; i++) {
+    const a = rand() * TAU;
+    const rf = 0.86 + rand() * 0.16;
+    const kx = Math.sin(a) * radius * shape.outline(a) * rf;
+    const kz = Math.cos(a) * radius * shape.outline(a) * rf;
+    const s = 0.20 + rand() * 0.42;
+    const g = boulderGeometry(rand, s);
+    g.scale(1.1 + rand() * 0.7, 0.75 + rand() * 0.6, 1.1 + rand() * 0.7);
+    // Tief eingesenkt: nur die Kuppe schaut heraus, wie anstehendes Gestein
+    g.translate(kx, shape.heightAt(kx, kz) - s * (0.45 + rand() * 0.5), kz);
+    stoneBucket.add(g, (vx, vy, vz) => {
+      const n = valueNoise2(vx * 4 + 13, vz * 4 + 2);
+      return new THREE.Color().setHSL(0.095, 0.045 + 0.02 * n, 0.115 + 0.055 * n);
+    });
+  }
+
+  // Findlinge: bevorzugt am Wall und an der Abbruchkante, wo sie die
+  // Silhouette brechen.
   for (let i = 0; i < rocks; i++) {
-    const s = 0.12 + rand() * 0.2;
-    const stone = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(s, 0),
-      new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 1, metalness: 0, flatShading: true })
-    );
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.5 + rand() * 0.4);
+    const s = 0.14 + rand() * 0.30;
+    const angle = rand() * TAU;
+    const r = radius * (rand() > 0.4 ? 0.66 + rand() * 0.26 : 0.30 + rand() * 0.3);
     const sx = Math.sin(angle) * r;
     const sz = Math.cos(angle) * r;
-    stone.position.set(sx, 0.03, sz);
-    stone.scale.y = 0.6 + rand() * 0.5;
-    stone.rotation.set(rand(), rand(), rand());
-    island.add(stone);
-    const shadow = makeBlobShadow(s * 1.6, 0.5, -0.005);
-    shadow.position.set(sx, -0.005, sz);
-    island.add(shadow);
+    const g = boulderGeometry(rand, s);
+    g.translate(sx, shape.heightAt(sx, sz) + s * 0.30, sz);
+    stoneBucket.add(g, (vx, vy, vz) => {
+      const n = valueNoise2(vx * 5 + 3, vz * 5 + 9);
+      return new THREE.Color().setHSL(0.092, 0.055 + 0.03 * n, 0.20 + 0.09 * n + 0.05 * vy);
+    });
+    addContactShadow(shadowBucket, shape, sx, sz, s * 1.7);
+  }
+
+  const roots = rootBucket.mesh(
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }),
+    'island-vines'
+  );
+  if (roots) island.add(roots);
+
+  const trunks = trunkBucket.mesh(
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }),
+    'island-trunks'
+  );
+  if (trunks) island.add(trunks);
+
+  const leaves = leafBucket.mesh(
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }),
+    'island-leaves'
+  );
+  if (leaves) island.add(leaves);
+
+  const stones = stoneBucket.mesh(
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0, flatShading: true }),
+    'island-stones'
+  );
+  if (stones) island.add(stones);
+
+  const shadows = shadowBucket.mesh(
+    new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+    'island-shadows'
+  );
+  if (shadows) {
+    shadows.renderOrder = 1;
+    island.add(shadows);
   }
 
   return island;
 }
 
 // Unterwuchs: instanzierte Büsche + Pilze (wenige Draw-Calls) auf der Hauptinsel.
-function addUndergrowth(group, rand, radius) {
+function addUndergrowth(group, rand, shape) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
+  const spot = (min, max) => {
+    const angle = rand() * TAU;
+    const r = shape.radius * shape.outline(angle) * (min + rand() * (max - min));
+    const x = Math.sin(angle) * r;
+    const z = Math.cos(angle) * r;
+    return [x, shape.heightAt(x, z), z];
+  };
 
   const bushColors = [0x4f9a4a, 0x3e8e4f, 0x5fb069, 0x6cbb5c];
   const bushes = new THREE.InstancedMesh(
@@ -718,9 +1459,8 @@ function addUndergrowth(group, rand, radius) {
   );
   bushes.name = 'bushes';
   for (let i = 0; i < bushes.count; i++) {
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.25 + rand() * 0.72);
-    dummy.position.set(Math.sin(angle) * r, 0.02, Math.cos(angle) * r);
+    const [x, y, z] = spot(0.24, 0.88);
+    dummy.position.set(x, y + 0.02, z);
     dummy.scale.set(0.7 + rand() * 0.9, 0.55 + rand() * 0.5, 0.7 + rand() * 0.9);
     dummy.rotation.y = rand() * Math.PI;
     dummy.updateMatrix();
@@ -747,9 +1487,8 @@ function addUndergrowth(group, rand, radius) {
   );
   mushrooms.name = 'mushrooms';
   for (let i = 0; i < mushrooms.count; i++) {
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.2 + rand() * 0.75);
-    dummy.position.set(Math.sin(angle) * r, 0.0, Math.cos(angle) * r);
+    const [x, y, z] = spot(0.2, 0.9);
+    dummy.position.set(x, y, z);
     dummy.scale.setScalar(0.7 + rand() * 0.8);
     dummy.rotation.set(0, rand() * Math.PI, 0);
     dummy.updateMatrix();
@@ -778,17 +1517,17 @@ function createIslandEnvironment() {
   sun.scale.set(11, 11, 1);
   group.add(sun);
 
-  group.add(new THREE.HemisphereLight(0xdcefff, 0x8f9b7a, 1.15));
-  const sunlight = new THREE.DirectionalLight(0xfff2d9, 1.9);
+  group.add(new THREE.HemisphereLight(0xdcefff, 0x8f9b7a, 0.75));
+  const sunlight = new THREE.DirectionalLight(0xfff2d9, 1.35);
   sunlight.position.set(10, 18, -8);
   group.add(sunlight);
   // Sanftes Fülllicht von unten, damit Wolken- und Inselunterseiten nicht absaufen
-  const fill = new THREE.DirectionalLight(0xbfd4e8, 0.35);
+  const fill = new THREE.DirectionalLight(0xbfd4e8, 0.22);
   fill.position.set(-6, -10, 4);
   group.add(fill);
 
   // Warmes Rim-/Backlight zum Abheben der Silhouetten (billiger Realismus-Boost)
-  const rim = new THREE.DirectionalLight(0xfff0d6, 0.5);
+  const rim = new THREE.DirectionalLight(0xfff0d6, 0.42);
   rim.position.set(-14, 8, 18);
   group.add(rim);
 
@@ -807,10 +1546,19 @@ function createIslandEnvironment() {
   group.add(haze);
 
   // Hauptinsel, auf der der Nutzer steht – mit Blumen, Gras, Fluss und Wasserfall
-  group.add(buildIsland(rand, { radius: 5, depth: 4.5, trees: 3, rocks: 5, vines: 11 }));
-  addGrassDecoration(group, rand, 4.4);
-  addUndergrowth(group, rand, 4.4);
-  const waterfall = makeWaterfall(rand, 5);
+  const main = buildIsland(rand, {
+    radius: 5,
+    depth: 8.2,
+    trees: 9,
+    rocks: 9,
+    vines: 9,
+    river: 2.1,
+  });
+  group.add(main);
+  const shape = main.userData.shape;
+  addGrassDecoration(group, rand, shape);
+  addUndergrowth(group, rand, shape);
+  const waterfall = makeWaterfall(rand, shape);
   group.add(waterfall.group);
   const birds = makeBirds(rand);
   group.add(birds.group);
@@ -827,7 +1575,9 @@ function createIslandEnvironment() {
     { angle: 1.5, dist: 26, y: -5.5, scale: 0.55 },
   ];
   miniConfigs.forEach((cfg, i) => {
-    const mini = buildIsland(rand, { radius: 5, depth: 4, trees: 2, rocks: 2 });
+    // Geringere Auflösung: Die Mini-Inseln stehen 14–26 m entfernt, dort fällt
+    // die halbe Gitterdichte nicht auf, spart aber Dreiecke und Bauzeit.
+    const mini = buildIsland(rand, { radius: 5, depth: 6.4, trees: 3, rocks: 2, vines: 5, detail: 0.55 });
     mini.scale.setScalar(cfg.scale);
     mini.position.set(Math.sin(cfg.angle) * cfg.dist, cfg.y, Math.cos(cfg.angle) * cfg.dist);
     mini.userData.baseY = cfg.y;

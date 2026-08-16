@@ -44,9 +44,11 @@ export const SHOTS = [
   {
     name: '3-edge-down',
     title: 'Über die Kante nach unten',
-    pos: [0.0, 2.0, 18.5],
-    look: [0.0, -13.0, 27.0],
-    fov: 75,
+    // Knapp außerhalb der Abbruchkante, Blick zurück und hinab: zeigt
+    // Grasnarbe, Erdschicht und den geschichteten Fels in einem Bild.
+    pos: [3.0, 3.2, 27.0],
+    look: [-1.0, -11.0, 10.0],
+    fov: 72,
   },
   {
     name: '4-aerial',
@@ -190,36 +192,48 @@ export async function openApp(browser, { collectConsole = true } = {}) {
   return { context, page, messages };
 }
 
+// Die Animationsschleife der App ruft env.update(elapsed) mit ihrer eigenen Uhr
+// auf – direkt vor dem Rendern. Ohne Eingriff steht die Umgebung in jedem Lauf
+// woanders und die Bilder sind nicht vergleichbar. Deshalb wird die
+// update-Funktion auf einen festen Zeitpunkt festgenagelt.
+export const FROZEN_TIME = 6.0;
+
 export async function selectEnv(page, id) {
-  await page.evaluate((wanted) => {
-    const api = window.__app.env;
-    const target = api.environments.findIndex((e) => e.id === wanted);
-    let guard = 0;
-    while (api.current() !== target && guard++ < 12) api.cycle();
-    // Umgebungsgruppe wieder sichtbar machen (das Ausblenden oben lief evtl.
-    // über die aktive Gruppe, wenn sie schon aktiv war).
-    api.environments[target].group.visible = true;
-  }, id);
+  await page.evaluate(
+    ({ wanted, frozen }) => {
+      const api = window.__app.env;
+      const target = api.environments.findIndex((e) => e.id === wanted);
+      let guard = 0;
+      while (api.current() !== target && guard++ < 12) api.cycle();
+      const env = api.environments[target];
+      env.group.visible = true;
+      if (env.update && !env.__frozen) {
+        const original = env.update.bind(env);
+        env.__frozen = true;
+        env.update = () => original(frozen);
+        original(frozen);
+      }
+    },
+    { wanted: id, frozen: FROZEN_TIME }
+  );
   await page.waitForTimeout(150);
 }
 
 export async function placeCamera(page, shot, time = 6.0) {
   await page.evaluate(
     ({ pos, look, fov, time }) => {
-      const { camera, player, renderer, scene } = window.__app;
+      const { camera, player, renderer, scene, controls } = window.__app;
       player.position.set(0, 0, 0);
       player.rotation.set(0, 0, 0);
+      // OrbitControls.update() ruft am Ende lookAt(target) auf und würde eine
+      // von außen gesetzte Blickrichtung wieder überschreiben.
+      controls.target.set(look[0], look[1], look[2]);
       camera.fov = fov;
       camera.position.set(pos[0], pos[1], pos[2]);
       camera.up.set(0, 1, 0);
       camera.lookAt(look[0], look[1], look[2]);
       camera.updateProjectionMatrix();
       camera.updateMatrixWorld(true);
-      // Die Animationsschleife der App aktualisiert die Umgebung mit ihrer
-      // eigenen Uhr; wir stoßen zusätzlich einen festen Zeitpunkt an, damit
-      // Wolken/Wasser/Vögel in jedem Durchlauf identisch stehen.
-      const idx = window.__app.env.current();
-      if (idx >= 0) window.__app.env.environments[idx].update?.(time);
       renderer.render(scene, camera);
     },
     { pos: shot.pos, look: shot.look, fov: shot.fov, time }
@@ -234,13 +248,12 @@ export async function lockCamera(page, shot, time) {
       const app = window.__app;
       if (app.__harnessLock) cancelAnimationFrame(app.__harnessLock);
       const tick = () => {
+        app.controls.target.set(look[0], look[1], look[2]);
         app.camera.fov = fov;
         app.camera.position.set(pos[0], pos[1], pos[2]);
         app.camera.up.set(0, 1, 0);
         app.camera.lookAt(look[0], look[1], look[2]);
         app.camera.updateProjectionMatrix();
-        const idx = app.env.current();
-        if (idx >= 0) app.env.environments[idx].update?.(time);
         app.__harnessLock = requestAnimationFrame(tick);
       };
       tick();
