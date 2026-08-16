@@ -255,6 +255,50 @@ auf dem Boden. Das gehört zu Paket 2.
   am Ansatz.
 - **B10**: Felston von Findlingen, Knöcheln und Inselkörper angeglichen.
 
-### Prüfung 2 (nach run-07)
+### Prüfung 2 (nach run-07): NICHT BESTANDEN
+
+6 von 10 Defekten behoben (B1 Grundriss, B2 Erde↔Fels-Kante, B5 Tontrennung,
+B6 Kiel, B7 Undercut/Kaminspalte, B9 Mini-Insel-Formen), 4 teilweise
+(B3, B4, B8, B10). Dazu fünf **neue** Defekte, die die Änderungen erzeugt haben:
+
+- **N1** Die Felswand ist jetzt gleichförmiges Splitterrauschen: „Der alte
+  Fehler war zu viel Regelmäßigkeit – der neue ist zu viel gleichverteilte
+  Unregelmäßigkeit." Es fehlen große ruhige Wandflächen, gegen die sich der
+  Bruch abheben kann.
+- **N2** Der dunklere Klippenfels hat die Szene in zwei unvereinbare
+  Felsfamilien gespalten – die Findlinge auf der Wiese blieben hell.
+- **N3** Durch die stellenweise auf null gehende Erddicke ist die Erdschicht
+  ausgerechnet in der Totale fast nicht mehr zu sehen.
+- **N4** Die Ranken haben keinen Durchhang und laufen als Haarlinien über die
+  Felskontur vor den Himmel.
+- **N5** Die neuen Kantensaum-Knöchel stecken mit harter, gerader
+  Durchdringungslinie in der Wiese.
+
+### Nacharbeit (run-08, run-09)
+
+- **N1**: Bruchzonen-Maske über die Wand; hochfrequente Rauschanteile halbiert,
+  niederfrequente verstärkt; Felsplatten größer (10–14 Sektoren statt 14–22).
+- **N2**: Findlinge, Quellsteine und Knöchel auf dieselbe Palette wie der
+  Klippenfels (Helligkeit 0,20–0,32 → 0,115–0,19).
+- **N3**: Untergrenze der Erddicke angehoben, sie geht nirgends mehr auf null.
+- **N4**: Ranken doppelt so dick, mit Kettenlinien-Durchhang, oben dick nach
+  unten dünn; Wurzelteller entfernt (sie lagen als brauner Span auf der Wand).
+- **N5**: Knöchel kleiner, tiefer versenkt, nur noch ganz außen, mit erdigem
+  Fuß und flachem Erdaufwurf.
+- **B3**: Grasnarbe zieht sich nochmals halb so weit über die Kante; der Abriss
+  wirkt jetzt über den ganzen Umfang statt nur punktuell.
+
+**run-08 war ein Rückschritt** und wird hier festgehalten, weil das Muster
+lehrreich ist: Der erdige Fuß der Knöchel färbte über den gewählten
+Verlaufsbereich den *ganzen* Block sandbraun, und der „Erdaufwurf" war so groß
+und flach, dass die Blöcke als Tische auf der Grasnarbe lagen. In run-09
+korrigiert.
+
+Außerhalb von Paket 1 vorgezogen: Die Fliegenpilze waren in drei von sechs
+Bildern das größte und lauteste Objekt im Frame (voll gesättigtes Rot). Sie
+sind jetzt auf ein Drittel verkleinert und entsättigt – das gehört eigentlich
+zu Paket 4, hätte aber jede weitere Prüfung verfälscht.
+
+### Prüfung 3 (nach run-09)
 
 Läuft.
