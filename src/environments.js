@@ -354,7 +354,9 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
     // und Kerben, nicht als überall gleich dicker, rundgeschliffener Wulst.
     const tear = valueNoise2(Math.cos(a) * 13 + 5, Math.sin(a) * 13 + 9);
     const tear2 = valueNoise2(Math.cos(a) * 5.7 + 27, Math.sin(a) * 5.7 + 2);
-    h -= smoothstep(0.90, 1.0, rr) * 0.30 * tear * tear2;
+    const fineTear = valueNoise2(Math.cos(a) * 27 + 11, Math.sin(a) * 27 + 33);
+    h -= smoothstep(0.88, 1.0, rr) * (0.14 + 0.42 * tear * tear2);
+    h -= smoothstep(0.955, 1.0, rr) * 0.16 * fineTear;
     h -= smoothstep(0.962, 1.0, rr) * (h + 0.06); // kurze, steile Traufkante
     h -= 0.09 * gauss(riverDist(x, z), 0.40); // Flussbett eingeschnitten
     return h;
@@ -371,14 +373,14 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
   const earthEndAt = (a) => {
     const broad = valueNoise2(Math.cos(a) * 2.1 + 17, Math.sin(a) * 2.1 + 5);
     const fine = valueNoise2(Math.cos(a) * 7.5 + 41, Math.sin(a) * 7.5 + 29);
-    return EARTH_END * Math.max(0.10, 0.15 + 2.4 * broad * broad + 0.5 * (fine - 0.5));
+    return EARTH_END * Math.max(0.48, 0.30 + 2.0 * broad * broad + 0.42 * (fine - 0.5));
   };
 
   // Wie weit die Grasnarbe an dieser Stelle über die Kante hängt. Stark
   // schwankend, damit Gras und Erde keine umlaufende Linie bilden.
   const drapeAt = (a) =>
-    0.006 +
-    0.055 *
+    0.005 +
+    0.030 *
       valueNoise2(Math.cos(a) * 3.1 + 31, Math.sin(a) * 3.1 + 7) *
       valueNoise2(Math.cos(a) * 9.5 + 3, Math.sin(a) * 9.5 + 19);
 
@@ -394,11 +396,11 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
   // Grobe Felsplatten: Sektoren × Tiefenbänder werden blockweise radial
   // versetzt. Das erzeugt große, ebene Wandflächen mit scharfen Kanten –
   // Fels, statt einer gleichmäßig verrauschten Kartoffel.
-  const SECTORS = 14 + Math.floor(rand() * 8);
+  const SECTORS = 10 + Math.floor(rand() * 5);
   const slab = (t, a) =>
     valueNoise2(
       Math.floor((a / TAU) * SECTORS) * 1.73 + 3,
-      Math.floor(t * 6.5) * 2.31 + fracPhase
+      Math.floor(t * 4.5) * 2.31 + fracPhase
     ) - 0.5;
 
   const spurAt = (u, a) => {
@@ -435,17 +437,27 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
       rf =
         taper *
         (1 + 0.115 * shelf * (1 - 0.30 * u)) *
-        (1 + 0.075 * slab(t, a)) *
+        (1 + 0.105 * slab(t, a)) *
         (1 + spurAt(u, a) + ledge + chimney);
     }
-    // Zerklüftung: senkrechte Risse und Rippen, nach unten kräftiger
+    // Zerklüftung. Entscheidend ist nicht die Menge, sondern die VERTEILUNG:
+    // Gleichmäßig über die ganze Wand gestreute Splitter derselben Größe lesen
+    // sich aus mittlerer Entfernung als Rauschen, nicht als Fels. Deshalb liegt
+    // eine Bruchzonen-Maske darüber – wenige zerklüftete Bereiche, dazwischen
+    // große, ruhige Wandflächen, gegen die sich der Bruch abheben kann.
     const c = Math.cos(a);
     const s = Math.sin(a);
+    const rugged = smoothstep(
+      0.34,
+      0.68,
+      valueNoise2(c * 1.5 + fracPhase, s * 1.5 + t * 1.1 + 4)
+    );
     const frac =
-      0.105 * (valueNoise2(c * 5.5 + fracPhase, s * 5.5 + 3) - 0.5) +
-      0.085 * (valueNoise2(c * 13 + fracPhase, s * 13 + 21) - 0.5) +
-      0.070 * (valueNoise2(c * 8.5 + t * 2.6, s * 8.5 + fracPhase) - 0.5);
-    return Math.max(0, rf * (1 + frac * 2 * (0.35 + 0.65 * Math.min(1, t * 2.2))));
+      0.130 * (valueNoise2(c * 3.4 + fracPhase, s * 3.4 + 3) - 0.5) +
+      0.055 * (valueNoise2(c * 9.0 + fracPhase, s * 9.0 + 21) - 0.5) +
+      0.035 * (valueNoise2(c * 6.0 + t * 2.0, s * 6.0 + fracPhase) - 0.5);
+    const amount = (0.22 + 1.45 * rugged) * (0.35 + 0.65 * Math.min(1, t * 2.2));
+    return Math.max(0, rf * (1 + frac * 2 * amount));
   };
 
   // Tiefe entlang der Flanke. Nicht jede Seite reicht gleich weit hinunter:
@@ -931,7 +943,7 @@ function makeWaterfall(rand, shape) {
     const g = boulderGeometry(rand, 0.08 + rand() * 0.06);
     g.translate(sx, shape.heightAt(sx, sz) + 0.03, sz);
     springStones.add(g, (vx, vy, vz) =>
-      new THREE.Color().setHSL(0.09, 0.05, 0.36 + 0.09 * valueNoise2(vx * 6, vz * 6))
+      new THREE.Color().setHSL(0.094, 0.05, 0.125 + 0.07 * valueNoise2(vx * 6, vz * 6))
     );
   }
   const stones = springStones.mesh(
@@ -1242,7 +1254,7 @@ function addVines(bucket, rand, shape, clusters) {
     const x = Math.sin(a) * rr;
     const z = Math.cos(a) * rr;
     const top = shape.edgeY(a) - shape.sideDepth(t0, a);
-    const g = new THREE.CylinderGeometry(thick * 0.28, thick, len, 4, 6);
+    const g = new THREE.CylinderGeometry(thick, thick * 0.30, len, 5, 8);
     // Bogen und Verjüngung: Wurzeln hängen nicht kerzengerade, sondern folgen
     // erst der Wand und schwingen dann frei.
     const bendX = (rand() - 0.5) * 0.9;
@@ -1250,17 +1262,16 @@ function addVines(bucket, rand, shape, clusters) {
     const p = g.attributes.position;
     for (let v = 0; v < p.count; v++) {
       const f = 0.5 - p.getY(v) / len; // 0 oben … 1 unten
-      p.setX(v, p.getX(v) + f * f * bendX * len * 0.22 + Math.sin(f * 6) * thick * 0.6);
-      p.setZ(v, p.getZ(v) + f * f * bendZ * len * 0.22 + Math.cos(f * 7) * thick * 0.6);
+      // Kettenlinie: die Ranke schwingt aus und hängt am Ende deutlich seitlich
+      // aus. Ohne Durchhang bleibt sie eine schnurgerade Haarlinie, die vor dem
+      // Himmel wie ein Kratzer im Bild aussieht.
+      const sag = f * f * (1.6 - 0.6 * f);
+      p.setX(v, p.getX(v) + sag * bendX * len * 0.34 + Math.sin(f * 6) * thick * 0.8);
+      p.setZ(v, p.getZ(v) + sag * bendZ * len * 0.34 + Math.cos(f * 7) * thick * 0.8);
     }
     g.computeVertexNormals();
     g.translate(0, -len / 2, 0);
     g.translate(x, top, z);
-    // Wurzelteller am Ansatz: macht sichtbar, WO die Ranke hängt
-    const plate = new THREE.IcosahedronGeometry(thick * 1.9, 0);
-    plate.scale(1.5, 0.6, 1.5);
-    plate.translate(x, top, z);
-    bucket.add(plate, 0x3b2f20);
     bucket.add(g, (vx, vy) =>
       new THREE.Color().setHSL(
         0.115 + 0.06 * valueNoise2(vx * 3, vy * 3),
@@ -1279,7 +1290,7 @@ function addVines(bucket, rand, shape, clusters) {
       const a = base + (rand() - 0.5) * 0.34;
       const t0 = 0.02 + rand() * 0.10;
       const len = mainLen * (0.45 + rand() * 0.75);
-      const end = strand(a, t0, len, 0.016 + rand() * 0.020);
+      const end = strand(a, t0, len, 0.032 + rand() * 0.030);
       // Blattbüschel nur an den längsten Strängen
       if (len > mainLen * 0.85 && rand() > 0.4) {
         for (let k = 0; k < 2 + Math.floor(rand() * 2); k++) {
@@ -1366,18 +1377,31 @@ function buildIsland(
   const knuckles = Math.round(rocks * 1.8);
   for (let i = 0; i < knuckles; i++) {
     const a = rand() * TAU;
-    const rf = 0.86 + rand() * 0.16;
+    const rf = 0.92 + rand() * 0.12;
     const kx = Math.sin(a) * radius * shape.outline(a) * rf;
     const kz = Math.cos(a) * radius * shape.outline(a) * rf;
-    const s = 0.20 + rand() * 0.42;
+    const s = 0.11 + rand() * 0.20;
     const g = boulderGeometry(rand, s);
-    g.scale(1.1 + rand() * 0.7, 0.75 + rand() * 0.6, 1.1 + rand() * 0.7);
+    g.scale(1.0 + rand() * 0.45, 0.55 + rand() * 0.45, 1.0 + rand() * 0.45);
     // Tief eingesenkt: nur die Kuppe schaut heraus, wie anstehendes Gestein
-    g.translate(kx, shape.heightAt(kx, kz) - s * (0.45 + rand() * 0.5), kz);
+    const ky = shape.heightAt(kx, kz) - s * (0.25 + rand() * 0.35);
+    g.translate(kx, ky, kz);
+    // Der Fuß geht in Erdreich über: Ohne den Farbverlauf schneidet der Block
+    // mit einer harten, geraden Linie durch die Wiese und wirkt wie eingeclippt.
     stoneBucket.add(g, (vx, vy, vz) => {
       const n = valueNoise2(vx * 4 + 13, vz * 4 + 2);
-      return new THREE.Color().setHSL(0.095, 0.045 + 0.02 * n, 0.115 + 0.055 * n);
+      const rock = new THREE.Color().setHSL(0.095, 0.045 + 0.02 * n, 0.115 + 0.055 * n);
+      const soil = _tmpColor.setHSL(0.075, 0.28, 0.16 + 0.04 * n);
+      // unten (nahe der Grasnarbe) erdig, oben blanker Fels
+      return rock.lerp(soil, 0.75 * smoothstep(ky + s * 0.15, ky - s * 0.30, vy));
     });
+    // Aufgeworfene Erde ringsum, damit der Block aus dem Boden wächst
+    const mound = new THREE.IcosahedronGeometry(s * 1.15, 0);
+    mound.scale(1.15, 0.14, 1.15);
+    mound.translate(kx, shape.heightAt(kx, kz) - s * 0.10, kz);
+    stoneBucket.add(mound, (vx, vy, vz) =>
+      new THREE.Color().setHSL(0.078, 0.26, 0.17 + 0.05 * valueNoise2(vx * 5, vz * 5))
+    );
   }
 
   // Findlinge: bevorzugt am Wall und an der Abbruchkante, wo sie die
@@ -1392,7 +1416,7 @@ function buildIsland(
     g.translate(sx, shape.heightAt(sx, sz) + s * 0.30, sz);
     stoneBucket.add(g, (vx, vy, vz) => {
       const n = valueNoise2(vx * 5 + 3, vz * 5 + 9);
-      return new THREE.Color().setHSL(0.092, 0.055 + 0.03 * n, 0.20 + 0.09 * n + 0.05 * vy);
+      return new THREE.Color().setHSL(0.094, 0.05 + 0.025 * n, 0.115 + 0.065 * n + 0.03 * vy);
     });
     addContactShadow(shadowBucket, shape, sx, sz, s * 1.7);
   }
@@ -1478,7 +1502,7 @@ function addUndergrowth(group, rand, shape) {
   const cap = new THREE.SphereGeometry(0.06, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2);
   cap.scale(1, 0.7, 1);
   cap.translate(0, 0.09, 0);
-  paintVertices(cap, 0xd7402f);
+  paintVertices(cap, 0xb0503c);
   const mushGeo = mergeGeometries([stem, cap]);
   const mushrooms = new THREE.InstancedMesh(
     mushGeo,
@@ -1489,7 +1513,7 @@ function addUndergrowth(group, rand, shape) {
   for (let i = 0; i < mushrooms.count; i++) {
     const [x, y, z] = spot(0.2, 0.9);
     dummy.position.set(x, y, z);
-    dummy.scale.setScalar(0.7 + rand() * 0.8);
+    dummy.scale.setScalar(0.45 + rand() * 0.4);
     dummy.rotation.set(0, rand() * Math.PI, 0);
     dummy.updateMatrix();
     mushrooms.setMatrixAt(i, dummy.matrix);
