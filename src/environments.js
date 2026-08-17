@@ -1186,6 +1186,61 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
 // gebackenem AO nach unten.
 const _tmpColor = new THREE.Color();
 
+// --- Wind für Bodenbewuchs --------------------------------------------------
+//
+// Alle Materialien mit Wind teilen sich EINE Uhr. Sonst müsste die
+// Animationsschleife jedes Material einzeln fortschreiben, und ein vergessenes
+// bliebe stehen – der sichtbarste Fehler bei Vegetation überhaupt.
+//
+// Die Bewegung sitzt im Vertex-Shader und kostet damit nichts pro Bild auf der
+// CPU. Sie greift nur oben: Der Faktor ist die Höhe über dem Objektursprung,
+// ein Halm wird also am Boden gehalten und schwingt an der Spitze. Ohne das
+// verrutscht der ganze Büschel und löst sich vom Boden.
+const _windClock = { value: 0 };
+
+function addWind(material, { strength = 0.06, speed = 1.4 } = {}) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    shader.uniforms.windTime = _windClock;
+    shader.uniforms.windStrength = { value: strength };
+    shader.uniforms.windSpeed = { value: speed };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         uniform float windTime;
+         uniform float windStrength;
+         uniform float windSpeed;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+         {
+           // Weltposition der Instanz bestimmt die Phase – benachbarte Horste
+           // schwingen dadurch leicht versetzt statt im Gleichtakt.
+           #ifdef USE_INSTANCING
+             vec3 wOrigin = instanceMatrix[3].xyz;
+           #else
+             vec3 wOrigin = vec3(0.0);
+           #endif
+           float phase = wOrigin.x * 0.7 + wOrigin.z * 0.5;
+           float h = max(transformed.y, 0.0);
+           // Zwei Frequenzen: eine tragende Böe und ein schnelleres Zittern.
+           float sway =
+             sin(windTime * windSpeed + phase) * 0.75 +
+             sin(windTime * windSpeed * 2.7 + phase * 1.9) * 0.25;
+           transformed.x += sway * windStrength * h;
+           transformed.z += sway * windStrength * h * 0.45;
+         }`
+      );
+  };
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () =>
+    `${vorherKey ? vorherKey() : ''}|wind-${strength}-${speed}`;
+  return material;
+}
+
 // --- Himmelssaum (Rim) auf jede Silhouette ---------------------------------
 //
 // Ein gerichtetes „Rim-Light" von hinten löst das Problem nicht: Es beleuchtet
@@ -1357,53 +1412,137 @@ function bodyColor(out, zone, shape, p, t, a) {
 // Blumen und Grasbüschel auf der Hauptinsel (InstancedMesh = 2 Draw-Calls).
 // Alle Instanzen sitzen auf der tatsächlichen Geländehöhe (shape.heightAt) und
 // bleiben innerhalb des tatsächlichen, unrunden Umrisses.
+// Ein Grashorst: mehrere schmale, gebogene Halme aus einem Punkt.
+//
+// Vorher war jeder „Büschel" EIN Kegel. Aus zwei Metern liest sich das als
+// grüner Zapfen, und weil alle gleich groß waren und gleichmäßig gestreut,
+// entstand das Raster, das die Messlatte ausschließt. Ein Horst aus fünf
+// Halmen kostet 60 Dreiecke statt 12 – bei einem Budget, das zur Hälfte frei
+// ist, ist das der richtige Tausch.
+function tuftGeometry(rand) {
+  const halme = [];
+  const n = 4 + Math.floor(rand() * 3);
+  for (let i = 0; i < n; i++) {
+    const h = 0.075 + rand() * 0.075;
+    const g = new THREE.CylinderGeometry(0.002, 0.011, h, 3, 3);
+    const p = g.attributes.position;
+    // Neigung nach außen, mit Krümmung: ein Halm steht nicht senkrecht.
+    const a = (i / n) * TAU + rand() * 0.8;
+    const lean = 0.35 + rand() * 0.5;
+    for (let v = 0; v < p.count; v++) {
+      const f = 0.5 + p.getY(v) / h; // 0 unten … 1 Spitze
+      const bow = f * f * lean * h;
+      p.setX(v, p.getX(v) + Math.cos(a) * bow);
+      p.setZ(v, p.getZ(v) + Math.sin(a) * bow);
+    }
+    g.computeVertexNormals();
+    g.translate(0, h / 2, 0);
+    halme.push(g);
+  }
+  return mergeGeometries(halme);
+}
+
+// Streudekoration der Wiese: Grashorste und Blumen.
+//
+// Beides steht jetzt in Horsten und Nestern statt gleichmäßig gestreut, und
+// beides richtet sich nach der Feuchte – Gras wächst dichter am Bach, Blumen
+// auf den trockenen Rücken. Damit ist die Verteilung kein Rauschen mehr,
+// sondern folgt derselben Regel wie die Farbe des Bodens.
 function addGrassDecoration(group, rand, shape) {
-  const flowerColors = [0xfff3b0, 0xffb3c1, 0xcdb4f6, 0xf8f9fa, 0xffd166];
-  const flowers = new THREE.InstancedMesh(
-    new THREE.IcosahedronGeometry(0.025, 0),
-    new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0, emissiveIntensity: 0.2 }),
-    54
-  );
-  flowers.name = 'flowers';
-  flowers.userData.fullCount = flowers.count;
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
-  const spot = (min, max) => {
+
+  // Nester statt Gleichverteilung: erst ein Zentrum würfeln, dann darum streuen.
+  const nester = [];
+  for (let i = 0; i < 26; i++) {
     const angle = rand() * TAU;
-    const r = shape.radius * shape.outline(angle) * (min + rand() * (max - min));
-    const x = Math.sin(angle) * r;
-    const z = Math.cos(angle) * r;
+    const r = shape.radius * shape.outline(angle) * (0.10 + rand() * 0.80);
+    nester.push({ x: Math.sin(angle) * r, z: Math.cos(angle) * r, s: 0.35 + rand() * 0.9 });
+  }
+  const imNest = (nest) => {
+    const a = rand() * TAU;
+    const d = Math.sqrt(rand()) * nest.s;
+    const x = nest.x + Math.cos(a) * d;
+    const z = nest.z + Math.sin(a) * d;
     return [x, shape.heightAt(x, z), z];
   };
-  for (let i = 0; i < flowers.count; i++) {
-    const [x, y, z] = spot(0.18, 0.86);
-    dummy.position.set(x, y + 0.03, z);
-    dummy.scale.setScalar(0.8 + rand() * 0.7);
+
+  // --- Grashorste ---------------------------------------------------------
+  const HORSTE = 240;
+  const tufts = new THREE.InstancedMesh(
+    tuftGeometry(rand),
+    addWind(new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }), {
+      strength: 0.055,
+      speed: 1.35,
+    }),
+    HORSTE
+  );
+  tufts.name = 'tufts';
+  tufts.userData.fullCount = HORSTE;
+  tufts.castShadow = false;
+  tufts.receiveShadow = true;
+  const halmTon = [0x5c9a44, 0x6aa84f, 0x4e8b3c, 0x74ad57, 0x568f40];
+  for (let i = 0; i < HORSTE; i++) {
+    const nest = nester[Math.floor(rand() * nester.length)];
+    const [x, y, z] = imNest(nest);
+    // Am Bach steht das Gras höher und satter.
+    const nass = 1 - smoothstep(0, 1.6, shape.riverDist(x, z));
+    dummy.position.set(x, y - 0.012, z);
+    dummy.rotation.set((rand() - 0.5) * 0.22, rand() * TAU, (rand() - 0.5) * 0.22);
+    dummy.scale.setScalar((0.6 + rand() * 0.9) * (1 + 0.45 * nass));
+    dummy.updateMatrix();
+    tufts.setMatrixAt(i, dummy.matrix);
+    color.setHex(pick(rand, halmTon));
+    if (nass > 0) color.offsetHSL(0.015 * nass, 0.10 * nass, -0.05 * nass);
+    tufts.setColorAt(i, color);
+  }
+  tufts.instanceMatrix.needsUpdate = true;
+  if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
+  group.add(tufts);
+
+  // --- Blumen -------------------------------------------------------------
+  //
+  // Vorher waren es freischwebende Ikosaeder in Rosa, Violett, Gelb und Creme –
+  // gesättigte Primärfarben nebeneinander, ohne Stiel, ohne Bezug zur Wiese.
+  // Jetzt: kleine Dolden auf einem Halm, in nur zwei zur Palette passenden
+  // Tönen, und in Nestern statt einzeln gestreut.
+  const stiel = new THREE.CylinderGeometry(0.0025, 0.004, 0.055, 3);
+  stiel.translate(0, 0.0275, 0);
+  paintVertices(stiel, 0x5f8f45);
+  const dolde = new THREE.IcosahedronGeometry(0.016, 0);
+  dolde.scale(1, 0.75, 1);
+  dolde.translate(0, 0.062, 0);
+  paintVertices(dolde, 0xffffff);
+  const blumeGeo = mergeGeometries([stiel, dolde].map((g) => (g.index ? g.toNonIndexed() : g)));
+
+  const BLUMEN = 90;
+  const flowers = new THREE.InstancedMesh(
+    blumeGeo,
+    addWind(
+      new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0, vertexColors: true }),
+      { strength: 0.075, speed: 1.9 }
+    ),
+    BLUMEN
+  );
+  flowers.name = 'flowers';
+  flowers.userData.fullCount = BLUMEN;
+  flowers.receiveShadow = true;
+  // Zwei Töne, beide aus der Umgebungspalette: ein warmes Cremegelb und ein
+  // blasses Rosé. Kein Violett, kein Reinweiß.
+  const bluetenTon = [0xf2e2a8, 0xead7b6, 0xe8c7bd, 0xf0e6c4];
+  for (let i = 0; i < BLUMEN; i++) {
+    const nest = nester[Math.floor(rand() * nester.length)];
+    const [x, y, z] = imNest(nest);
+    dummy.position.set(x, y, z);
+    dummy.rotation.set((rand() - 0.5) * 0.3, rand() * TAU, (rand() - 0.5) * 0.3);
+    dummy.scale.setScalar(0.75 + rand() * 0.6);
     dummy.updateMatrix();
     flowers.setMatrixAt(i, dummy.matrix);
-    flowers.setColorAt(i, color.setHex(flowerColors[Math.floor(rand() * flowerColors.length)]));
+    flowers.setColorAt(i, color.setHex(pick(rand, bluetenTon)));
   }
   flowers.instanceMatrix.needsUpdate = true;
   if (flowers.instanceColor) flowers.instanceColor.needsUpdate = true;
   group.add(flowers);
-
-  const tufts = new THREE.InstancedMesh(
-    new THREE.ConeGeometry(0.024, 0.09, 6),
-    new THREE.MeshStandardMaterial({ color: 0x4c9a4a, roughness: 0.9, metalness: 0 }),
-    70
-  );
-  tufts.name = 'tufts';
-  tufts.userData.fullCount = tufts.count;
-  for (let i = 0; i < tufts.count; i++) {
-    const [x, y, z] = spot(0.14, 0.9);
-    dummy.position.set(x, y + 0.045, z);
-    dummy.rotation.set((rand() - 0.5) * 0.4, rand() * Math.PI, (rand() - 0.5) * 0.4);
-    dummy.scale.setScalar(0.8 + rand() * 0.8);
-    dummy.updateMatrix();
-    tufts.setMatrixAt(i, dummy.matrix);
-  }
-  tufts.instanceMatrix.needsUpdate = true;
-  group.add(tufts);
 }
 
 // Sanft animiertes Wasser: hellblaue Fläche mit fließenden Strähnen (Canvas-Textur,
@@ -2213,6 +2352,7 @@ function buildIsland(
 function addUndergrowth(group, rand, shape) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
+  const shadowBucket = new GeoBucket();
   const spot = (min, max) => {
     const angle = rand() * TAU;
     const r = shape.radius * shape.outline(angle) * (min + rand() * (max - min));
@@ -2221,41 +2361,55 @@ function addUndergrowth(group, rand, shape) {
     return [x, shape.heightAt(x, z), z];
   };
 
-  const bushColors = [0x4f9a4a, 0x3e8e4f, 0x5fb069, 0x6cbb5c];
-  const bushes = new THREE.InstancedMesh(
-    new THREE.IcosahedronGeometry(0.16, 1),
-    new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, vertexColors: false }),
-    10
-  );
-  bushes.name = 'bushes';
-  bushes.userData.fullCount = bushes.count;
-  for (let i = 0; i < bushes.count; i++) {
-    const [x, y, z] = spot(0.24, 0.88);
-    dummy.position.set(x, y + 0.02, z);
-    dummy.scale.set(0.7 + rand() * 0.9, 0.55 + rand() * 0.5, 0.7 + rand() * 0.9);
-    dummy.rotation.y = rand() * Math.PI;
-    dummy.updateMatrix();
-    bushes.setMatrixAt(i, dummy.matrix);
-    bushes.setColorAt(i, color.setHex(bushColors[Math.floor(rand() * bushColors.length)]));
+  // --- Büsche ---------------------------------------------------------------
+  //
+  // Vorher: glatt schattierte Ikosaeder mit erkennbar sphärischer Silhouette –
+  // grüne Halbkugeln, die sich vom Gras nur in der Sättigung unterschieden.
+  // Ihr Grün hatte dazu einen auf null geklemmten Rotkanal und stand damit in
+  // einer völlig anderen Farbfamilie als die Wiese.
+  //
+  // Jetzt tragen sie dasselbe Blattwerk wie die Bäume: dunkler Hüllkörper als
+  // Verdecker, Blattkarten davor. Damit lösen sie sich in der Silhouette auf,
+  // bewegen sich im selben Wind und gehören farblich zur selben Familie.
+  const buschAnsaetze = [];
+  const BUESCHE = 14;
+  for (let i = 0; i < BUESCHE; i++) {
+    const [x, y, z] = spot(0.24, 0.90);
+    const s = 0.085 + rand() * 0.075;
+    // Zwei bis drei Ansätze je Busch: ein Strauch ist kein Ball.
+    const n = 2 + Math.floor(rand() * 2);
+    for (let k = 0; k < n; k++) {
+      buschAnsaetze.push([
+        x + (rand() - 0.5) * s * 1.7,
+        y + s * (0.5 + rand() * 0.5),
+        z + (rand() - 0.5) * s * 1.7,
+        s * (0.72 + rand() * 0.4),
+        rand() > 0.5 ? 3 : 0,
+      ]);
+    }
+    addContactShadow(shadowBucket, shape, x, z, s * 1.5, true);
   }
-  bushes.instanceMatrix.needsUpdate = true;
-  if (bushes.instanceColor) bushes.instanceColor.needsUpdate = true;
-  group.add(bushes);
+  const busch = baueKrone({
+    ansaetze: buschAnsaetze,
+    seed: 0x6b21,
+    kartenMaterial: inselBaumMaterialien().karten,
+    kind: 'azalea',
+    cardScale: 0.78,
+    dichte: 82,
+    kern: 0.52,
+    schale: 1.35,
+    farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
+    kartenFarben: [0xd2eaa8, 0xc3dd99, 0xdcf2b4, 0xcae4a0, 0xd8eeae, 0xbfd894],
+  });
+  busch.blobs.name = 'bushes';
+  busch.karten.name = 'bush-leaves';
+  busch.karten.receiveShadow = true;
+  group.add(busch.blobs, busch.karten);
 
-  // Kontaktverdunklung unter den Büschen. Ohne sie sitzen sie mit einer
+  // Kontaktverdunklung unter Büschen und Pilzen. Ohne sie sitzen sie mit einer
   // haarscharfen Kante auf vollwertig hellem Gras – gemessen lag die Abweichung
   // am Buschfuß unter drei Luminanzstufen. Alle zusammen ein Draw-Call.
-  const bushShade = new GeoBucket();
-  for (let i = 0; i < bushes.count; i++) {
-    bushes.getMatrixAt(i, dummy.matrix);
-    dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
-    const r = 0.19 * Math.max(dummy.scale.x, dummy.scale.z);
-    const g = new THREE.PlaneGeometry(r * 2, r * 2);
-    g.rotateX(-Math.PI / 2);
-    g.translate(dummy.position.x, shape.heightAt(dummy.position.x, dummy.position.z) + 0.01, dummy.position.z);
-    bushShade.add(g, 0xffffff);
-  }
-  const shade = bushShade.mesh(
+  const shade = shadowBucket.mesh(
     new THREE.MeshBasicMaterial({
       map: shadowTexture(),
       transparent: true,
@@ -2277,7 +2431,7 @@ function addUndergrowth(group, rand, shape) {
   const cap = new THREE.SphereGeometry(0.06, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2);
   cap.scale(1, 0.7, 1);
   cap.translate(0, 0.09, 0);
-  paintVertices(cap, 0xb0503c);
+  paintVertices(cap, 0x9d5a4a);
   const mushGeo = mergeGeometries([stem, cap]);
   const mushrooms = new THREE.InstancedMesh(
     mushGeo,
@@ -2548,6 +2702,7 @@ function createIslandEnvironment() {
         const x = cloud.userData.baseX + time * cloud.userData.speed;
         cloud.position.x = ((x + range) % (range * 2) + range * 2) % (range * 2) - range;
       }
+      _windClock.value = time;
       waterfall.update(time);
       birds.update(time);
       butterflies.update(time);
