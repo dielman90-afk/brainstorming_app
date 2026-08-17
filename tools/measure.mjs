@@ -26,7 +26,13 @@ import {
 const argv = process.argv.slice(2);
 const outArg = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : 'tools/metrics/latest.json';
 const outFile = path.resolve(ROOT, outArg);
-const FRAMES = 300;
+// 60 statt 300 Frames je Kamera. Der Container hat keine GPU; seit die Insel
+// das Alpha-Karten-Laub trägt, kostet ein Bild im Software-Rasterizer bis zu
+// einer Sekunde – 300 Frames × 6 Kameras wären über eine halbe Stunde für eine
+// Zahl, die ohnehin kein Budgetkriterium ist (siehe Kopf dieser Datei).
+// Draw-Calls, Dreiecke und Texturspeicher – die belastbaren Werte – stehen
+// nach dem ersten Bild fest.
+const FRAMES = 60;
 
 const server = await startServer();
 const browser = await launchBrowser({ perf: true });
