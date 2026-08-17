@@ -87,15 +87,23 @@ function mulberry32(seed) {
 }
 
 // Himmelskuppel mit vertikalem Farbverlauf (von innen sichtbar)
-function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44) {
+function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44, sun = null) {
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
+    defines: sun ? { HAS_SUN: '' } : {},
     uniforms: {
       topColor: { value: new THREE.Color(topColor) },
       horizonColor: { value: new THREE.Color(horizonColor) },
       bottomColor: { value: new THREE.Color(bottomColor) },
+      // Sonnenhof: Ohne ihn ist die Sonne eine aufgeklebte Scheibe und der
+      // Himmel weiß nichts von ihr. Der Hof bindet beide aneinander und liefert
+      // die Grundlage für das Gegenlicht.
+      sunDir: { value: sun ? sun.dir.clone().normalize() : new THREE.Vector3(0, 1, 0) },
+      sunColor: { value: new THREE.Color(sun ? sun.color : 0xffffff) },
+      sunTight: { value: sun ? sun.tight : 60 },
+      sunBroad: { value: sun ? sun.broad : 3 },
     },
     vertexShader: `
       varying vec3 vPos;
@@ -107,12 +115,23 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
       uniform vec3 topColor;
       uniform vec3 horizonColor;
       uniform vec3 bottomColor;
+      uniform vec3 sunDir;
+      uniform vec3 sunColor;
+      uniform float sunTight;
+      uniform float sunBroad;
       varying vec3 vPos;
       void main() {
-        float h = normalize(vPos).y;
+        vec3 dir = normalize(vPos);
+        float h = dir.y;
         vec3 col = h > 0.0
           ? mix(horizonColor, topColor, pow(h, 0.8))
           : mix(horizonColor, bottomColor, pow(-h, 0.8));
+        #ifdef HAS_SUN
+          // Zwei Keulen: ein weiter, schwacher Hof über den halben Himmel und
+          // ein enger, heller Kern direkt um die Sonne.
+          float d = max(dot(dir, sunDir), 0.0);
+          col += sunColor * (0.22 * pow(d, sunBroad) + 0.75 * pow(d, sunTight));
+        #endif
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
@@ -631,6 +650,10 @@ const pick = (rand, list) => list[Math.floor(rand() * list.length) % list.length
 // bewusst eben; die Höhenentwicklung setzt erst außerhalb davon ein und geht in
 // den felsigen Randwall über, der ohnehin nicht zum Betreten einlädt.
 const ISLAND_TOP_Y = -0.02; // Höhe der ebenen Grasfläche (Bestand beibehalten)
+// Weltmaßstab der ganzen Insel-Gruppe. Steht auf Modulebene, weil auch das
+// Schattenvolumen ihn braucht – und das wird gesetzt, bevor die Gruppe skaliert
+// wird. Wer ihn ändert, bricht Fog-Distanzen, Locomotion und Kartenplatzierung.
+const WORLD_SCALE = 4;
 const ISLAND_FLAT_R = 0.58; // bis hierhin (Anteil des Radius) bleibt es eben
 
 function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
@@ -1160,7 +1183,7 @@ function bodyColor(out, zone, shape, p, t, a) {
   // Deutlich dunkler und kühler als das Erdreich darüber: Vorher lagen Fels und
   // Erde im gleichen Hellwert und im gleichen warmen Bereich – die Flanke las
   // sich als ein einziges beiges Volumen mit einer eingeritzten Linie.
-  const depthShade = 1 - smoothstep(0.10, 1.0, t) * 0.62;
+  const depthShade = 1 - smoothstep(0.10, 1.0, t) * 0.46;
   out.setHSL(
     0.095 + 0.022 * shelf - 0.018 * face,
     0.045 + 0.045 * shelf + 0.025 * (mott - 0.5),
@@ -1776,7 +1799,18 @@ function addContactShadow(bucket, shape, x, z, radius) {
 // darauf Bäume, Findlinge und Kontaktschatten – alles in wenigen Meshes.
 function buildIsland(
   rand,
-  { radius = 5, depth = 5, trees = 3, rocks = 4, vines = 9, river = null, detail = 1 } = {}
+  {
+    radius = 5,
+    depth = 5,
+    trees = 3,
+    rocks = 4,
+    vines = 9,
+    river = null,
+    detail = 1,
+    // Echte Schlagschatten nur auf der Hauptinsel; siehe Begruendung beim
+    // Schattenvolumen in createIslandEnvironment().
+    shadows = false,
+  } = {}
 ) {
   const island = new THREE.Group();
   island.name = 'island';
@@ -1799,7 +1833,7 @@ function buildIsland(
     // Die Inselmitte bleibt frei. Dort steht der Nutzer, und dort landen die
     // Karten im Halbkreis – ein Baum an dieser Stelle verstellt nicht nur die
     // Sicht, er steht mitten im Arbeitsbereich.
-    const r = radius * (clustered ? 0.62 + rand() * 0.24 : 0.46 + rand() * 0.34);
+    const r = radius * (clustered ? 0.70 + rand() * 0.20 : 0.60 + rand() * 0.28);
     const tx = Math.sin(angle) * r;
     const tz = Math.cos(angle) * r;
     if (shape.riverCurve && Math.hypot(tx - 0.1, tz - 0.2) < 0.7) continue; // nicht in die Quelle
@@ -1861,19 +1895,40 @@ function buildIsland(
   );
   if (stones) island.add(stones);
 
-  const shadows = shadowBucket.mesh(
-    new THREE.MeshBasicMaterial({
-      map: shadowTexture(),
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-      toneMapped: false,
-    }),
-    'island-shadows'
-  );
-  if (shadows) {
-    shadows.renderOrder = 1;
-    island.add(shadows);
+  // Gemalte Kontaktschatten nur dort, wo KEIN echter Schlagschatten fällt.
+  // Beides zusammen ergäbe zwei Schatten je Objekt – einen aus der Sonne und
+  // einen unbeweglichen Fleck darunter.
+  if (!shadows) {
+    const blob = shadowBucket.mesh(
+      new THREE.MeshBasicMaterial({
+        map: shadowTexture(),
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+        toneMapped: false,
+      }),
+      'island-shadows'
+    );
+    if (blob) {
+      blob.renderOrder = 1;
+      island.add(blob);
+    }
+  } else {
+    // Werfer und Empfänger. Das Gras empfängt, wirft aber nicht: Es ist die
+    // Fläche, auf der die Schatten liegen, und ein Deckel, der sich selbst
+    // beschattet, erzeugt bei streifendem Licht nur Schattenakne.
+    island.traverse((o) => {
+      if (!o.isMesh) return;
+      if (o.name === 'island-body') {
+        o.receiveShadow = true;
+        o.castShadow = true;
+      } else if (o.name === 'island-krone' || o.name === 'island-laub' || o.name === 'island-holz') {
+        o.castShadow = true;
+      } else if (o.name === 'island-stones') {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
   }
 
   return island;
@@ -1945,53 +2000,134 @@ function createIslandEnvironment() {
   const group = new THREE.Group();
   group.name = 'env-island';
 
-  group.add(makeDome(0x3f83c9, 0xdceff7, 0xcfe8f7));
+  // --- Lichtführung ---------------------------------------------------------
+  //
+  // Der Ausgangszustand hatte kein gerichtetes Licht im Wortsinn: Zwei
+  // Hemisphärenlichter (das globale aus main.js mit 1,4 plus ein eigenes mit
+  // 1,15) summierten sich auf mehr Umgebungslicht, als die Sonne mit 1,9
+  // beisteuerte. Gemessen an den Bildern: die Baumkrone im Gegenlicht lag bei
+  // (0,19,5) – absolut schwarz, ohne Rim –, die Sonne war eine flache Scheibe
+  // ohne Hof, und der Felskiel wurde nach unten immer dunkler statt heller,
+  // obwohl die Insel frei im hellen Himmel hängt.
+  //
+  // Deshalb wird hier nicht nachjustiert, sondern von vorne aufgebaut. Der
+  // erste Schritt ist, das globale Hemisphärenlicht **inselintern**
+  // zurückzunehmen. Das ist derselbe Kniff, den die Dojo-Umgebung schon
+  // benutzt, und er wirkt nur, solange diese Gruppe sichtbar ist: three sammelt
+  // Lichter unter unsichtbaren Elternteilen nicht ein. Karten, Whiteboard,
+  // Zonen und Wrist-Menü sind davon nicht betroffen – die benutzen
+  // ausnahmslos MeshBasicMaterial und werden gar nicht beleuchtet.
+  const hemiKomp = new THREE.HemisphereLight(0xffffff, 0x334455, -1.4);
+  hemiKomp.name = 'global-hemi-compensation';
+  group.add(hemiKomp);
+
+  // Sonnenstand. EINE Quelle für Sprite, Sonnenhof im Himmel, gerichtetes Licht
+  // und Schattenrichtung – vorher stand die sichtbare Sonne bei (18, 24, -24)
+  // und das Licht kam aus (10, 18, -8), die Schatten hätten also aus einer
+  // anderen Richtung kommen müssen als das Leuchten am Himmel.
+  const SUN_DIR = new THREE.Vector3(18, 24, -24).normalize();
+  const sunPos = SUN_DIR.clone().multiplyScalar(38);
+
+  group.add(
+    makeDome(0x2f6fb8, 0xd6ecf6, 0xc4e2f4, 44, {
+      dir: SUN_DIR,
+      color: 0x4a3a1c,
+      tight: 250,
+      broad: 2.2,
+    })
+  );
+
+  // Sonnenscheibe plus weiter Korona-Schleier. Zwei Sprites, weil ein einzelner
+  // Verlauf entweder einen harten Kern oder einen weiten Hof ergibt, nie beides.
+  const corona = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(255,244,214,0.55)', 'rgba(255,226,160,0.20)'),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    })
+  );
+  corona.position.copy(sunPos);
+  corona.scale.set(30, 30, 1);
+  group.add(corona);
 
   const sun = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(255,250,225,1)', 'rgba(255,238,180,0.55)'),
+      map: makeGlowTexture('rgba(255,253,240,1)', 'rgba(255,240,190,0.7)'),
       transparent: true,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
       fog: false,
     })
   );
-  sun.position.set(18, 24, -24);
-  sun.scale.set(11, 11, 1);
+  sun.position.copy(sunPos);
+  sun.scale.set(9, 9, 1);
   group.add(sun);
 
-  group.add(new THREE.HemisphereLight(0xdcefff, 0x8f9b7a, 0.75));
-  const sunlight = new THREE.DirectionalLight(0xfff2d9, 1.35);
-  sunlight.position.set(10, 18, -8);
-  group.add(sunlight);
-  // Sanftes Fülllicht von unten, damit Wolken- und Inselunterseiten nicht absaufen
-  const fill = new THREE.DirectionalLight(0xbfd4e8, 0.22);
-  fill.position.set(-6, -10, 4);
-  group.add(fill);
+  // Himmelslicht. Der „Boden" ist hier kein Boden: Unter der Insel liegt heller
+  // Himmel, und genau daher kommt das Bounce-Fill, das der Unterseite gefehlt
+  // hat. Deshalb ist der untere Ton kühl und keineswegs dunkel.
+  const sky = new THREE.HemisphereLight(0xbcdcf2, 0xaecbe2, 0.78);
+  group.add(sky);
 
-  // Warmes Rim-/Backlight zum Abheben der Silhouetten (billiger Realismus-Boost)
-  const rim = new THREE.DirectionalLight(0xfff0d6, 0.42);
-  rim.position.set(-14, 8, 18);
+  // Sonne: die klar dominierende Quelle. Sie wirft als einzige Schatten.
+  const sunlight = new THREE.DirectionalLight(0xfff1d4, 2.5);
+  sunlight.position.copy(sunPos);
+  group.add(sunlight);
+  group.add(sunlight.target);
+
+  // Rückwärtiges Streiflicht gegenüber der Sonne, kühl und schwach: Es zieht
+  // eine helle Kante auf die sonnenabgewandte Seite und verhindert, dass
+  // Silhouetten im Gegenlicht in eine tote schwarze Fläche kippen.
+  const rim = new THREE.DirectionalLight(0xcfe6ff, 0.75);
+  rim.position.set(-sunPos.x * 0.9, sunPos.y * 0.35, -sunPos.z * 0.9);
   group.add(rim);
 
-  // Weiche Horizont-Dunstschicht für Tiefe
-  const haze = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(226,240,250,0.55)', 'rgba(210,230,245,0.22)'),
-      transparent: true,
-      depthWrite: false,
-      opacity: 0.6,
-      fog: false,
-    })
-  );
-  haze.position.set(0, 3, -30);
-  haze.scale.set(90, 22, 1);
-  group.add(haze);
+  // Aufhellung von unten: Das Licht des Himmels unter der Insel. Ohne sie wird
+  // der Kiel nach unten dunkler, obwohl dort nichts ist, was ihn beschatten
+  // könnte.
+  const bounce = new THREE.DirectionalLight(0xa9cbe8, 1.15);
+  bounce.position.set(-8, -22, 6);
+  group.add(bounce);
+
+  // --- Schlagschatten -------------------------------------------------------
+  //
+  // In keinem der sechs Prüfbilder gab es einen einzigen. Das Gras unter jedem
+  // Baum, jedem Findling und jedem Busch hatte exakt denselben Wert wie das
+  // Gras daneben – deshalb *stand* nichts, alles *lag auf*.
+  //
+  // Das Schattenvolumen umfasst bewusst nur die Hauptinsel. Die Mini-Inseln
+  // liegen bis zu 26 Einheiten entfernt; sie mit einzuschließen hieße, dieselbe
+  // Kartenauflösung über die sechsfache Fläche zu strecken – aus scharfen
+  // Baumschatten würden Flecken. Sie sind weit genug weg, dass ihr fehlender
+  // Schlagschatten nicht auffällt.
+  sunlight.castShadow = true;
+  const sh = sunlight.shadow;
+  sh.mapSize.set(1024, 1024);
+  // Inselradius 5 lokal, Umriss bis 1,3 davon, mal WORLD_SCALE = 4.
+  const HALF = 6.6 * WORLD_SCALE;
+  sh.camera.left = -HALF;
+  sh.camera.right = HALF;
+  sh.camera.top = HALF;
+  sh.camera.bottom = -HALF;
+  // Die Lichtquelle steht 38 lokale Einheiten vom Ursprung entfernt, also 152
+  // in Weltkoordinaten; die Insel reicht von dort aus grob 100 bis 200.
+  sh.camera.near = 95;
+  sh.camera.far = 215;
+  // Normal-Bias statt großem Tiefen-Bias: Er verschiebt den Abtastpunkt entlang
+  // der Normalen und erzeugt deshalb kein Peter-Panning (den sichtbaren Spalt
+  // zwischen Objekt und Schattenansatz).
+  sh.bias = -0.0006;
+  sh.normalBias = 0.035;
+  sh.camera.updateProjectionMatrix();
 
   // Hauptinsel, auf der der Nutzer steht – mit Blumen, Gras, Fluss und Wasserfall
   const main = buildIsland(rand, {
     radius: 5,
     depth: 8.2,
     trees: 9,
+    shadows: true,
     rocks: 9,
     vines: 9,
     river: 2.1,
@@ -2058,13 +2194,12 @@ function createIslandEnvironment() {
   // deshalb hochskaliert; Bäume erreichen so gut 6 m, die Insel rund 40 m, und
   // die Komposition (Lichtrichtungen, Winkel, Silhouetten) bleibt exakt
   // erhalten, weil alles denselben Faktor bekommt.
-  const WORLD_SCALE = 4;
   group.scale.setScalar(WORLD_SCALE);
 
   // Leichter Tiefennebel (fern), damit ferne Inseln/Wolken sanft ausblenden –
   // Karten in Reichweite bleiben unberührt. Die Distanzen sind Weltkoordinaten
   // und müssen den Maßstab mitgehen, sonst versinkt die Insel im Nebel.
-  const fog = new THREE.Fog(0xcfe4f2, 18 * WORLD_SCALE, 46 * WORLD_SCALE);
+  const fog = new THREE.Fog(0x9fc6e2, 20 * WORLD_SCALE, 52 * WORLD_SCALE);
 
   // Was in der Brille dünner wird. Das Laub zuerst – Alpha-Test und
   // Überzeichnung –, dann die Streudekoration: Blumen, Grasbüschel, Pilze und
@@ -2088,7 +2223,7 @@ function createIslandEnvironment() {
   return {
     id: 'island',
     name: '🏝 Himmelsinsel',
-    background: new THREE.Color(0x9cc9e8),
+    background: new THREE.Color(0x9fc6e2),
     fog,
     group,
     setQuality(stufe) {

@@ -64,6 +64,14 @@ renderer.xr.enabled = true;
 // UI/Karten sind per material.toneMapped = false ausgenommen, bleiben also knackig.
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
+// Schatten sind eine RENDERER-Einstellung und gehören deshalb hierher, nicht in
+// eine einzelne Umgebung. Sie standen in der Dojo-Atmosphäre, die erst gebaut
+// wird, wenn man das Dojo betritt – die Himmelsinsel hat ihre Schattenwerfer
+// und -empfänger dadurch gesetzt, ohne dass je eine Schattenkarte entstand.
+// Folgenlos für Umgebungen ohne Werfer: Ohne castShadow und receiveShadow
+// rendert three keine Schattenkarte und ändert kein Pixel.
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
