@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
 import { flatLayer, makeRoundedPanel } from './wristMenu.js';
-import { isSpeechAvailable, recognizeSpeech, speechUnavailableReason } from './speech.js';
 
-// Texteingabe in XR: virtuelle Tastatur mit Diktat-Knopf.
+// Texteingabe in XR: virtuelle Tastatur.
+//
+// Ohne Diktat-Knopf – in der Brille gibt es keine Spracherkennung, siehe die
+// Begründung weiter unten bei „Kein Diktat in XR".
 //
 // Optisch bewusst wie die übrigen Oberflächen („Soft Spatial Minimal"):
 // abgerundetes Glas-Panel mit Amber-Rahmen, weich abgerundete Tasten, gleiche
@@ -42,22 +44,16 @@ const COLORS = {
   accentText: '#231b10',
   danger: '#3a2830',
   dangerHover: '#4e3540',
-  mic: '#2b3340',
-  micHover: '#3a4557',
-  listening: '#7dd3fc',
   active: '#4a3a24',
   text: '#f0eef2',
   muted: '#8f8a98',
 };
 
 export class VirtualKeyboard {
-  // onStatus: kurze Rückmeldungen (Mikrofon-Status, Fehler) nach außen reichen.
-  // systemKeyboard: SystemKeyboardBridge – der Diktierweg auf der Quest, wo es
-  // keine Web Speech API gibt.
-  constructor(scene, { onStatus = null, systemKeyboard = null } = {}) {
+  // onStatus: kurze Rückmeldungen nach außen reichen.
+  constructor(scene, { onStatus = null } = {}) {
     this.scene = scene;
     this.onStatus = onStatus;
-    this.systemKeyboard = systemKeyboard;
     this.group = new THREE.Group();
     this.group.name = 'virtualKeyboard';
     this.group.visible = false;
@@ -66,8 +62,6 @@ export class VirtualKeyboard {
     this.text = '';
     this.callbacks = null;
     this.shift = true; // Deutsche Sätze fangen groß an
-    this.listening = false;
-    this._dictationAbort = null;
 
     const boardW = MAX_COLS * KEY + (MAX_COLS - 1) * GAP + PAD * 2;
     const rowsH = ROWS.length * KEY + ROWS.length * ROW_GAP;
@@ -133,12 +127,11 @@ export class VirtualKeyboard {
     // die Tasten schieben sich sichtbar übereinander.
     const inner = boardW - PAD * 2;
     const specs = [
-      { id: 'shift', label: 'Aa', flex: 0.08, bg: COLORS.key, hover: COLORS.keyHover },
-      { id: 'cancel', label: 'Abbrechen', flex: 0.185, bg: COLORS.danger, hover: COLORS.dangerHover },
-      { id: 'mic', label: '🎤 Sprechen', flex: 0.215, bg: COLORS.mic, hover: COLORS.micHover },
-      { id: 'space', label: 'Leerzeichen', flex: 0.245, bg: COLORS.key, hover: COLORS.keyHover },
+      { id: 'shift', label: 'Aa', flex: 0.09, bg: COLORS.key, hover: COLORS.keyHover },
+      { id: 'cancel', label: 'Abbrechen', flex: 0.21, bg: COLORS.danger, hover: COLORS.dangerHover },
+      { id: 'space', label: 'Leerzeichen', flex: 0.4, bg: COLORS.key, hover: COLORS.keyHover },
       { id: 'back', label: '←', flex: 0.09, bg: COLORS.key, hover: COLORS.keyHover },
-      { id: 'ok', label: '✓ OK', flex: 0.185, bg: COLORS.accent, hover: COLORS.accentHover, fg: COLORS.accentText },
+      { id: 'ok', label: '✓ OK', flex: 0.21, bg: COLORS.accent, hover: COLORS.accentHover, fg: COLORS.accentText },
     ];
     const gap = GAP;
     const usable = inner - gap * (specs.length - 1);
@@ -147,7 +140,6 @@ export class VirtualKeyboard {
     const handlers = {
       shift: () => this._toggleShift(),
       cancel: () => this._cancel(),
-      mic: () => this.toggleDictation(),
       space: () => this._type(' '),
       back: () => this._backspace(),
       ok: () => this._submit(),
@@ -199,7 +191,7 @@ export class VirtualKeyboard {
     return key;
   }
 
-  // Farben einer Taste dauerhaft ändern (aktive Umschalttaste, laufendes Diktat)
+  // Farben einer Taste dauerhaft ändern (z. B. aktive Umschalttaste)
   _setKeyColors(key, { bg, hover, fg }) {
     key.bg = bg ?? key.bg;
     key.hover = hover ?? key.hover;
@@ -242,114 +234,19 @@ export class VirtualKeyboard {
     }
   }
 
-  // --- Diktat ---
-
-  // Der eigentliche Punkt des Ganzen: Wer nicht tippen will, drückt hier und
-  // spricht.
+  // Kein Diktat in XR.
   //
-  // Es gibt zwei Wege, und welcher zieht, hängt vom Gerät ab:
-  //   1. Systemtastatur der Brille – ihre Mikrofon-Taste ist auf der Quest der
-  //      einzige Weg, der überhaupt etwas erkennt.
-  //   2. Web Speech API – am Desktop (Chrome/Edge) erkennt sie direkt im
-  //      Browser.
+  // Hier saß eine „🎤 Sprechen"-Taste. Sie ist raus, weil es in der Brille
+  // nichts gibt, worauf sie sich stützen könnte: Der Quest-Browser meldet zwar
+  // `webkitSpeechRecognition`, hat darunter aber keinen Erkennungsdienst – der
+  // Aufruf riss den Browser mit. Der Umweg über die Systemtastatur der Brille
+  // (deren Mikrofon-Taste diktieren kann) hat auf echter Hardware ebenfalls
+  // nicht getragen.
   //
-  // Die Systemtastatur hat bewusst Vorrang, nicht nur die Rolle des Ersatzes:
-  // Auf der Brille die Web Speech API auch nur anzufassen, war der Grund für
-  // den Absturz – der Konstruktor ist da, der Dienst darunter nicht. isSpeech-
-  // Available() blendet sie auf Brillen-Browsern deshalb komplett aus, und
-  // diese Reihenfolge sorgt zusätzlich dafür, dass sie dort gar nicht erst
-  // drankäme.
-  async toggleDictation() {
-    if (this.listening) {
-      this._dictationAbort?.abort();
-      return;
-    }
-    if (this.systemKeyboard?.available) {
-      await this._systemDictation();
-      return;
-    }
-    if (isSpeechAvailable()) {
-      await this._webSpeechDictation();
-      return;
-    }
-    this.onStatus?.(
-      this.systemKeyboard?.blockedReason ?? speechUnavailableReason() ?? '',
-      8000
-    );
-  }
+  // Diktiert wird deshalb nur noch am Desktop, über „🎤 Diktieren" im Overlay
+  // (Chrome/Edge, siehe main.js). In XR ist Tippen der Weg.
 
-  async _webSpeechDictation() {
-    const controller = new AbortController();
-    this._dictationAbort = controller;
-    this._setListening(true);
-    this.onStatus?.('🎤 Sprich jetzt…');
-    try {
-      const text = await recognizeSpeech({
-        signal: controller.signal,
-        onPartial: (partial) => this._showPartial(partial),
-        onReady: () => this._setListening(true, 'Hört zu…'),
-      });
-      this.text = this.text ? `${this.text.trimEnd()} ${text}` : text;
-      this.onStatus?.('');
-    } catch (err) {
-      this.onStatus?.(err.message);
-    } finally {
-      this._dictationAbort = null;
-      this._setListening(false);
-      this._updatePreview();
-    }
-  }
-
-  // Diktat über die Systemtastatur der Brille.
-  //
-  // Solange sie oben liegt, steht die XR-Sitzung auf „visible-blurred" und
-  // nimmt keine Controller-Eingaben an – unsere „Abbrechen"-Taste ist in dieser
-  // Zeit also nicht erreichbar. Beendet wird über die Systemtastatur selbst;
-  // danach steht der Text im Vorschaufeld und kann hier weiterbearbeitet werden.
-  async _systemDictation() {
-    this._setListening(true, '⌨️ Systemtastatur');
-    this.onStatus?.('Systemtastatur offen – 🎤 antippen und sprechen, dann schließen.', 0);
-    try {
-      const text = await this.systemKeyboard.request({
-        onPartial: (partial) => this._showPartial(partial),
-        onOpen: () => this.onStatus?.('🎤-Taste der Systemtastatur antippen und sprechen.', 0),
-        onSilent: () =>
-          this.onStatus?.('Systemtastatur meldet sich nicht – notfalls hier tippen.', 6000),
-      });
-      if (text) {
-        this.text = this.text ? `${this.text.trimEnd()} ${text}` : text;
-        this.onStatus?.('Diktat übernommen.');
-      } else {
-        this.onStatus?.('');
-      }
-    } catch (err) {
-      this.onStatus?.(err.message, 6000);
-    } finally {
-      this._setListening(false);
-      this._updatePreview();
-    }
-  }
-
-  _setListening(listening, label = '🎙 Hört zu…') {
-    this.listening = listening;
-    if (!this.micKey) return;
-    this.micKey.panel.setText(listening ? label : '🎤 Sprechen');
-    this._setKeyColors(this.micKey, {
-      bg: listening ? COLORS.listening : COLORS.mic,
-      hover: listening ? COLORS.listening : COLORS.micHover,
-      fg: listening ? COLORS.accentText : COLORS.text,
-    });
-  }
-
-  // Zwischenergebnis nur anzeigen, nicht übernehmen – erst das Endergebnis
-  // landet im Text.
-  _showPartial(partial) {
-    const combined = this.text ? `${this.text.trimEnd()} ${partial}` : partial;
-    this.preview.setText(this._fit(combined));
-    this.preview.setColors({ color: COLORS.text });
-  }
-
-  // Ein diktierter Satz ist schnell länger als das Feld. Statt die Schrift immer
+  // Ein längerer Satz passt schnell nicht mehr ins Feld. Statt die Schrift immer
   // weiter zu schrumpfen (singleLine tut das von sich aus) wird vorn gekürzt –
   // das Ende mit der Schreibmarke bleibt sichtbar, wie in einem echten Feld.
   _fit(text) {
@@ -365,7 +262,6 @@ export class VirtualKeyboard {
     this.text = '';
     this.shift = true;
     this._applyShiftLabels();
-    this._setListening(false);
     this._updatePreview();
 
     const camPos = new THREE.Vector3();
@@ -389,13 +285,12 @@ export class VirtualKeyboard {
   close() {
     const callbacks = this.callbacks;
     this.callbacks = null;
-    this._dictationAbort?.abort();
     this.group.visible = false;
     callbacks?.onCancel?.();
   }
 
   _updatePreview() {
-    this.preview.setText(this.text ? this._fit(this.text) : 'Sprechen oder tippen…▏');
+    this.preview.setText(this.text ? this._fit(this.text) : 'Text eingeben…▏');
     this.preview.setColors({ color: this.text ? COLORS.text : COLORS.muted });
   }
 
