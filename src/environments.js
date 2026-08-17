@@ -318,7 +318,7 @@ function baueKrone({
 }) {
   const r = mulberry32(seed);
   const schoepfe = [];
-  for (const [ax, ay, az, ar] of ansaetze) {
+  for (const [ax, ay, az, ar, slice] of ansaetze) {
     // Anzahl aus dem Radius: Ein großer Ansatz bekommt mehr Schöpfe, nicht
     // größere. Genau das ist der Unterschied zwischen Krone und Blumenkohl.
     //
@@ -341,6 +341,7 @@ function baueKrone({
         y: ay + (r() - 0.45) * ar * 0.8,
         z: az + (r() - 0.5) * ar * 1.1,
         s: ar * (0.42 + r() * 0.2),
+        slice: slice ?? 0,
         ton: Math.floor(r() * farben.length),
         dreh: [r() * 0.6, r() * Math.PI * 2, r() * 0.6],
       });
@@ -359,7 +360,12 @@ function baueKrone({
         new THREE.Vector3(s * 1.25, s, s * 1.15)
       );
       mesh.setMatrixAt(i, m);
-      mesh.setColorAt(i, new THREE.Color(palette[c.ton % palette.length]));
+      // `slice` verschiebt den Griff in die Palette. Werden die Schöpfe VIELER
+      // Bäume in einem InstancedMesh gesammelt, bekäme sonst jeder Baum
+      // dieselbe Mischung – die Unterscheidung „heller/dunkler Laubbaum" ginge
+      // verloren. Mit dem Versatz zieht jeder Baum aus seinem eigenen Drittel.
+      const idx = (c.slice ?? 0) + (c.ton % 3);
+      mesh.setColorAt(i, new THREE.Color(palette[idx % palette.length]));
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -442,20 +448,99 @@ function inselBaumMaterialien() {
   return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten, nadeln: _inselNadeln };
 }
 
-function makeTree(rand) {
-  const tree = new THREE.Group();
+// Sammelbehälter für die Bäume EINER Insel.
+//
+// Warum nicht ein Baum = ein Objekt: Ein Baum besteht aus Stamm/Astwerk,
+// Hüllkörpern und Blattkarten – als eigenes Objekt gebaut sind das drei
+// Draw-Calls je Baum. Neun Bäume auf der Hauptinsel waren damit 27 Draw-Calls
+// und die ganze Umgebung lag bei 129 von 120. Gemessen.
+//
+// Stämme und Äste wandern deshalb in einen Geometrie-Eimer, und die Schöpfe
+// aller Bäume werden je Laubart in EIN InstancedMesh-Paar gesammelt. Aus 27
+// werden fünf: Holz, Nadel-Hüllkörper, Nadel-Karten, Laub-Hüllkörper,
+// Laub-Karten. Die Form der Bäume bleibt dabei unangetastet.
+function makeTreeCollector() {
+  return {
+    holz: new GeoBucket(),
+    nadel: [],
+    laub: [],
+    laubSlices: 0,
+  };
+}
+
+// Baut die gesammelten Bäume zu wenigen Meshes zusammen.
+function buildCollectedTrees(ctx, seed) {
+  const { holz: holzMat, karten, nadeln } = inselBaumMaterialien();
+  const meshes = [];
+  const stamm = ctx.holz.mesh(holzMat, 'island-holz');
+  if (stamm) meshes.push(stamm);
+
+  if (ctx.nadel.length) {
+    const k = baueKrone({
+      ansaetze: ctx.nadel,
+      seed: seed ^ 0x5a11,
+      kartenMaterial: nadeln,
+      kind: 'nadel',
+      cardScale: 0.95,
+      dichte: 74,
+      farben: [0x16281c, 0x1c3324, 0x101f16],
+      kartenFarben: [0xd8f0c0, 0xc6e4ae, 0xe4ffd0],
+    });
+    k.blobs.name = 'island-krone';
+    k.karten.name = 'island-laub';
+    meshes.push(k.blobs, k.karten);
+  }
+
+  if (ctx.laub.length) {
+    const k = baueKrone({
+      ansaetze: ctx.laub,
+      seed: seed ^ 0x2c93,
+      kartenMaterial: karten,
+      kind: 'azalea',
+      cardScale: 0.85,
+      dichte: 64,
+      // Zwei Drittel: dunkle und helle Laubbäume. Jeder Baum greift über
+      // seinen `slice` in genau eines davon.
+      farben: [0x27482e, 0x2f5436, 0x203e27, 0x1f3f26, 0x27492d, 0x1a3521],
+      kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8, 0xd3efb0, 0xc2e39c, 0xe0f8c0],
+    });
+    k.blobs.name = 'island-krone';
+    k.karten.name = 'island-laub';
+    meshes.push(k.blobs, k.karten);
+  }
+  return meshes;
+}
+
+// Ein Baum – Form unverändert aus PR #9, aber er baut keine eigenen Meshes
+// mehr, sondern schreibt in den Sammelbehälter der Insel.
+function addTree(rand, ctx, { x, y, z, scale = 1 }) {
+  const yaw = rand() * TAU;
+  const cy = Math.cos(yaw);
+  const sy = Math.sin(yaw);
+  // Baumlokale Koordinaten in Inselkoordinaten überführen.
+  const place = (geo) => {
+    geo.scale(scale, scale, scale);
+    geo.rotateY(yaw);
+    geo.translate(x, y, z);
+    return geo;
+  };
+  const punkt = (px, py, pz) => [
+    x + (px * cy + pz * sy) * scale,
+    y + py * scale,
+    z + (-px * sy + pz * cy) * scale,
+  ];
+
   const trunkHeight = 0.5 + rand() * 0.5;
-  const { holz, laub: laubMat, karten, nadeln } = inselBaumMaterialien();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8), holz);
-  trunk.position.y = trunkHeight / 2;
-  tree.add(trunk);
+  ctx.holz.add(
+    place(new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8).translate(0, trunkHeight / 2, 0)),
+    0xffffff
+  );
 
   // Krone nach demselben Rezept wie im Zen-Garten: viele kleine Schöpfe, der
   // Hüllkörper als Verdecker darunter. Der erste Anlauf dieser Runde hatte hier
   // einen glatten Ball von 0,36 m Radius mit ein paar Karten davor – aus zwei
   // Metern ein grüner Luftballon mit Aufklebern.
   const hell = rand() > 0.5;
-  const ansaetze = [];
   const nadelbaum = rand() > 0.45;
 
   if (nadelbaum) {
@@ -485,7 +570,8 @@ function makeTree(rand) {
     for (let i = 0; i < 7; i++) {
       const t = i / 6;
       const radius = 0.46 * (1 - t * 0.78);
-      ansaetze.push([(rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05, radius]);
+      const p = punkt((rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05);
+      ctx.nadel.push([p[0], p[1], p[2], radius * scale, 0]);
       // 0,95 statt 1,0: eine Spur enger als der Radius, damit die Etagen sich
       // sicher schneiden statt sich nur zu berühren.
       ey += radius * 0.95;
@@ -516,49 +602,18 @@ function makeTree(rand) {
       ).normalize();
       branchInto(teile, oben, dir, 0.34 + rand() * 0.14, 0.035, 2, rand);
     }
-    const astGeos = teile.map((t) => t.geo);
-    const aeste = new THREE.Mesh(mergeGeometries(astGeos, false), holz);
-    aeste.name = 'island-aeste';
-    tree.add(aeste);
+    for (const t of teile) ctx.holz.add(place(t.geo), 0xffffff);
+    // Heller oder dunkler Laubbaum: der Griff in die obere oder untere Hälfte
+    // der gemeinsamen Palette.
+    const slice = hell ? 3 : 0;
     for (const t of teile) {
       if (t.depth > 0) continue;
-      ansaetze.push([t.tip.x, t.tip.y, t.tip.z, 0.17 + rand() * 0.06]);
+      const p = punkt(t.tip.x, t.tip.y, t.tip.z);
+      ctx.laub.push([p[0], p[1], p[2], (0.17 + rand() * 0.06) * scale, slice]);
     }
   }
-
-  const grundton = nadelbaum
-    // Sehr dunkel und entsättigt: Der Hüllkörper einer Konifere ist der
-      // Schatten **zwischen** den Zweigen, nicht eine zweite Grünfläche. Mit
-      // 0x24503a blitzte er als flacher türkiser Fleck durch die Nadeln.
-      ? [0x16281c, 0x1c3324, 0x101f16]
-    : // Auch beim Laubbaum ist der Hüllkörper der Schatten **zwischen** den
-      // Blättern. Die alten Werte waren die Kronenfarbe von früher, als er die
-      // Krone *war* – heller als die Karten davor, also blitzte er als
-      // hellgrüner Fleck durch. Derselbe Fehler wie beim Nadelbaum.
-      hell
-      ? [0x1f3f26, 0x27492d, 0x1a3521]
-      : [0x27482e, 0x2f5436, 0x203e27];
-  const krone = baueKrone({
-    ansaetze,
-    seed: 0x1de4 + Math.floor(rand() * 512),
-    kartenMaterial: nadelbaum ? nadeln : karten,
-    kind: nadelbaum ? 'nadel' : 'azalea',
-    // Nadelschöpfe stehen dichter und kleiner als Laubschöpfe.
-    cardScale: nadelbaum ? 0.95 : 0.85,
-    // Auch die Kartendichte sinkt: Viele kleine Schöpfe brauchen jeder für
-    // sich weniger Karten als wenige große, weil sie sich gegenseitig füllen.
-    dichte: nadelbaum ? 74 : 64,
-    farben: grundton,
-    kartenFarben: nadelbaum
-      ? [0xd8f0c0, 0xc6e4ae, 0xe4ffd0]
-      : [0xdcf5b8, 0xcbeaa4, 0xe6ffc8],
-  });
-  krone.blobs.name = 'island-krone';
-  krone.karten.name = 'island-laub';
-  tree.add(krone.blobs, krone.karten);
-
-  return tree;
 }
+
 
 // Zufällig, aber reproduzierbar aus einer Palette wählen.
 const pick = (rand, list) => list[Math.floor(rand() * list.length) % list.length];
@@ -1116,66 +1171,6 @@ function bodyColor(out, zone, shape, p, t, a) {
   return out;
 }
 
-// --- Baum: liefert Geometrie in die Eimer, nicht eigene Meshes -------------
-// Nadelbaum (gestapelte Kegel) oder Laubbaum (Icosaeder-Blobs); die Krone
-// bekommt Vertex-Farben, damit ein Blattwerk-Material für alle Bäume reicht.
-const CONIFER_GREENS = [0x2f7a46, 0x38874c, 0x2a6d43];
-const BROADLEAF_GREENS = [0x4f9c56, 0x5cab60, 0x458f52];
-
-function addTree(rand, trunkBucket, leafBucket, { x, y, z, scale = 1 }) {
-  const trunkHeight = (0.55 + rand() * 0.55) * scale;
-  const lean = (rand() - 0.5) * 0.16;
-  const yaw = rand() * TAU;
-  const place = (geo, dy, tilt = true) => {
-    if (tilt) geo.applyMatrix4(new THREE.Matrix4().makeRotationZ(lean));
-    geo.applyMatrix4(new THREE.Matrix4().makeRotationY(yaw));
-    geo.translate(x + Math.sin(lean) * dy * 0.5, y + dy, z);
-    return geo;
-  };
-
-  const trunk = new THREE.CylinderGeometry(0.045 * scale, 0.095 * scale, trunkHeight, 7, 2);
-  displaceRadial(trunk, 0.12, 0, true);
-  trunkBucket.add(place(trunk, trunkHeight / 2), (vx, vy) =>
-    new THREE.Color().setHSL(0.075, 0.30, 0.20 + 0.07 * valueNoise2(vx * 9, vy * 9))
-  );
-
-  if (rand() > 0.45) {
-    const layers = 3 + Math.floor(rand() * 2);
-    const tone = pick(rand, CONIFER_GREENS);
-    for (let i = 0; i < layers; i++) {
-      const f = i / (layers - 1);
-      const r = (0.52 - f * 0.30) * scale;
-      const cone = new THREE.ConeGeometry(r, 0.66 * scale, 12);
-      displaceRadial(cone, 0.22, 0.04, true);
-      leafBucket.add(place(cone, trunkHeight + (0.12 + f * 0.98) * scale), (vx, vy, vz) => {
-        const c = new THREE.Color(tone);
-        // von unten dunkler, oben heller → Volumen statt flacher Kegel
-        const up = smoothstep(0, 1, (vy - y) / (trunkHeight + scale));
-        return c.multiplyScalar(0.72 + 0.5 * up + 0.12 * (valueNoise2(vx * 7, vz * 7) - 0.5));
-      });
-    }
-  } else {
-    const tone = pick(rand, BROADLEAF_GREENS);
-    const blobs = 3 + Math.floor(rand() * 2);
-    for (let i = 0; i < blobs; i++) {
-      const s = (i === 0 ? 0.40 : 0.20 + rand() * 0.14) * scale;
-      const blob = new THREE.IcosahedronGeometry(s, 1);
-      displaceRadial(blob, 0.26, 0, true);
-      const off =
-        i === 0
-          ? [0, 0.30 * scale, 0]
-          : [(rand() - 0.5) * 0.62 * scale, (0.18 + rand() * 0.42) * scale, (rand() - 0.5) * 0.62 * scale];
-      blob.scale(1, 0.86, 1);
-      blob.translate(off[0], 0, off[2]);
-      leafBucket.add(place(blob, trunkHeight + off[1]), (vx, vy, vz) => {
-        const c = new THREE.Color(tone);
-        const up = smoothstep(0, 1, (vy - y - trunkHeight) / (0.9 * scale) + 0.4);
-        return c.multiplyScalar(0.68 + 0.55 * up + 0.14 * (valueNoise2(vx * 6, vz * 6) - 0.5));
-      });
-    }
-  }
-  return trunkHeight;
-}
 
 // Blumen und Grasbüschel auf der Hauptinsel (InstancedMesh = 2 Draw-Calls).
 // Alle Instanzen sitzen auf der tatsächlichen Geländehöhe (shape.heightAt) und
@@ -1598,83 +1593,6 @@ function makeCloud(rand, size = 1) {
 
 // Hängende Ranken/Wurzeln unter dem Inselrand. Sie setzen jetzt an der
 // tatsächlichen, unrunden Abbruchkante an (shape.outline/edgeY) statt an einem
-// gedachten Kreis – vorher hingen sie teils in der Luft neben dem Fels.
-// Hängende Wurzelvorhänge unter der Abbruchkante. Nicht gleichmäßig verteilt,
-// sondern in Büscheln: Wurzeln wachsen dort, wo Erde ist, nicht alle 30 Grad.
-function addVines(bucket, rand, shape, clusters) {
-  // Ein Strang hängt senkrecht, die Felswand zieht sich nach unten aber ein.
-  // Wird der Radius nur am Ansatzpunkt bestimmt, steht der untere Teil frei in
-  // der Luft – als kurzer Stummel vor der Wand oder als Haarlinie vor dem
-  // Himmel. Deshalb wird die Flanke über die GANZE Länge abgetastet und der
-  // engste Radius genommen; und das Ende bleibt über der Felsunterkante.
-  const strand = (a, t0, tEnd, thick) => {
-    let minR = Infinity;
-    for (let k = 0; k <= 6; k++) {
-      const t = t0 + ((tEnd - t0) * k) / 6;
-      minR = Math.min(minR, shape.sideRadius(t, a));
-    }
-    const rr = shape.radius * shape.outline(a) * (minR - 0.025);
-    const x = Math.sin(a) * rr;
-    const z = Math.cos(a) * rr;
-    const top = shape.edgeY(a) - shape.sideDepth(t0, a);
-    const len = shape.sideDepth(tEnd, a) - shape.sideDepth(t0, a);
-    const g = new THREE.CylinderGeometry(thick, thick * 0.30, len, 5, 8);
-    // Bogen und Verjüngung: Wurzeln hängen nicht kerzengerade, sondern folgen
-    // erst der Wand und schwingen dann frei.
-    const bendX = (rand() - 0.5) * 1.5;
-    const bendZ = (rand() - 0.5) * 1.5;
-    const p = g.attributes.position;
-    for (let v = 0; v < p.count; v++) {
-      const f = 0.5 - p.getY(v) / len; // 0 oben … 1 unten
-      // Kettenlinie: die Ranke schwingt aus und hängt am Ende deutlich seitlich
-      // aus. Ohne Durchhang bleibt sie eine schnurgerade Haarlinie, die vor dem
-      // Himmel wie ein Kratzer im Bild aussieht.
-      const sag = f * f * (1.6 - 0.6 * f);
-      p.setX(v, p.getX(v) + sag * bendX * len * 0.34 + Math.sin(f * 6) * thick * 0.8);
-      p.setZ(v, p.getZ(v) + sag * bendZ * len * 0.34 + Math.cos(f * 7) * thick * 0.8);
-    }
-    g.computeVertexNormals();
-    g.translate(0, -len / 2, 0);
-    g.translate(x, top, z);
-    bucket.add(g, (vx, vy) =>
-      new THREE.Color().setHSL(
-        0.085 + 0.035 * valueNoise2(vx * 3, vy * 3),
-        0.22,
-        0.075 + 0.075 * smoothstep(top - len, top, vy)
-      )
-    );
-    // Der Ausschwung am unteren Ende ist sag(1) = 1.0, also bendX * len * 0.34.
-    // Mit einem anderen Faktor säßen die Blattbüschel neben der Strangspitze.
-    return { x, z, bottom: top - len, tipX: bendX * len * 0.34, tipZ: bendZ * len * 0.34 };
-  };
-
-  for (let c = 0; c < clusters; c++) {
-    const base = (c / clusters) * TAU + (rand() - 0.5) * 0.7;
-    const n = 3 + Math.floor(rand() * 4);
-    // tEnd bleibt deutlich über der Felsunterkante (max 0.62 der Flanke) –
-    // sonst endet der Strang frei im Himmel unter der Insel.
-    const deepest = 0.30 + rand() * 0.32;
-    for (let i = 0; i < n; i++) {
-      const a = base + (rand() - 0.5) * 0.34;
-      const t0 = 0.02 + rand() * 0.08;
-      const tEnd = Math.min(0.62, t0 + deepest * (0.45 + rand() * 0.75));
-      const end = strand(a, t0, tEnd, 0.020 + rand() * 0.022);
-      // Jeder Strang endet in einem Blattbüschel. Ein glatt abgeschnittener
-      // Zylinder vor dem Himmel liest sich als Kratzer im Bild.
-      for (let k = 0, m = 2 + Math.floor(rand() * 3); k < m; k++) {
-        const leaf = new THREE.IcosahedronGeometry(0.05 + rand() * 0.055, 0);
-        leaf.scale(1.3, 0.5, 1.3);
-        leaf.translate(
-          end.x + end.tipX + (rand() - 0.5) * 0.13,
-          end.bottom + rand() * 0.14,
-          end.z + end.tipZ + (rand() - 0.5) * 0.13
-        );
-        bucket.add(leaf, pick(rand, [0x40693a, 0x4d7a3f, 0x35592f]));
-      }
-    }
-  }
-}
-
 // Hängende Ranken/Wurzeln unter dem Inselrand, zu EINEM Mesh verschmolzen.
 // `shape` ist optional und nur die Verankerung, nicht die Form: Ohne sie hängen
 // die Stränge an einem gedachten Kreis bei y = -0.3 – auf dem unrunden
@@ -1838,18 +1756,6 @@ function addContactShadow(bucket, shape, x, z, radius) {
   bucket.add(g, 0xffffff);
 }
 
-// --- Vorübergehender Umschalter für den Bildvergleich der Vegetation --------
-//
-// Beim Zusammenführen von PR #9 mit der Paket-1-Arbeit treffen zwei Fassungen
-// von Bäumen und Ranken aufeinander:
-//   'pr9'    – Astwerk-Bäume mit Alpha-Karten-Laub und Kettenlinien-Ranken aus
-//              PR #9, hier auf den neuen Inselkörper gesetzt
-//   'paket1' – die verschmolzenen, draw-call-sparsamen Fassungen aus Paket 1
-// Der Inselkörper (Fels, Erde, Terrain) ist in beiden Fällen der aus Paket 1.
-// Sobald entschieden ist, welche Vegetation bleibt, fliegt der Umschalter
-// zusammen mit der Verliererfassung raus.
-const ISLAND_VEGETATION = 'paket1';
-
 // Schwebende Insel: durchgehender Körper (Gras → Erde → geschichteter Fels),
 // darauf Bäume, Findlinge und Kontaktschatten – alles in wenigen Meshes.
 function buildIsland(
@@ -1863,15 +1769,9 @@ function buildIsland(
 
   island.add(buildIslandBody(shape, { detail }));
 
-  const rootBucket = new GeoBucket();
-  if (ISLAND_VEGETATION === 'pr9') {
-    island.add(makeVines(rand, radius, vines + 4, shape));
-  } else {
-    addVines(rootBucket, rand, shape, vines);
-  }
+  island.add(makeVines(rand, radius, vines + 4, shape));
 
-  const trunkBucket = new GeoBucket();
-  const leafBucket = new GeoBucket();
+  const trees_ = makeTreeCollector();
   const stoneBucket = new GeoBucket();
   const shadowBucket = new GeoBucket();
 
@@ -1880,22 +1780,20 @@ function buildIsland(
   for (let i = 0; i < trees; i++) {
     const clustered = i > 0 && rand() > 0.35;
     const angle = clustered ? shape.ridgeAngle + (rand() - 0.5) * 1.5 : rand() * TAU;
-    const r = radius * (clustered ? 0.62 + rand() * 0.22 : 0.30 + rand() * 0.45);
+    // Die Inselmitte bleibt frei. Dort steht der Nutzer, und dort landen die
+    // Karten im Halbkreis – ein Baum an dieser Stelle verstellt nicht nur die
+    // Sicht, er steht mitten im Arbeitsbereich.
+    const r = radius * (clustered ? 0.62 + rand() * 0.24 : 0.46 + rand() * 0.34);
     const tx = Math.sin(angle) * r;
     const tz = Math.cos(angle) * r;
     if (shape.riverCurve && Math.hypot(tx - 0.1, tz - 0.2) < 0.7) continue; // nicht in die Quelle
     const y = shape.heightAt(tx, tz);
     const scale = 0.85 + rand() * 0.5;
-    if (ISLAND_VEGETATION === 'pr9') {
-      const tree = makeTree(rand);
-      tree.position.set(tx, y, tz);
-      tree.rotation.y = rand() * TAU;
-      tree.scale.setScalar(scale);
-      island.add(tree);
-    } else {
-      addTree(rand, trunkBucket, leafBucket, { x: tx, y, z: tz, scale });
-    }
+    addTree(rand, trees_, { x: tx, y, z: tz, scale });
     addContactShadow(shadowBucket, shape, tx, tz, 0.46 * scale);
+  }
+  for (const m of buildCollectedTrees(trees_, 0x1de4 ^ Math.floor(rand() * 4096))) {
+    island.add(m);
   }
 
   // Felsknöchel am Kantensaum: teils versenkte Blöcke, die durch die Grasnarbe
@@ -1940,24 +1838,6 @@ function buildIsland(
     });
     addContactShadow(shadowBucket, shape, sx, sz, s * 1.7);
   }
-
-  const roots = rootBucket.mesh(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 }),
-    'island-vines'
-  );
-  if (roots) island.add(roots);
-
-  const trunks = trunkBucket.mesh(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }),
-    'island-trunks'
-  );
-  if (trunks) island.add(trunks);
-
-  const leaves = leafBucket.mesh(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 }),
-    'island-leaves'
-  );
-  if (leaves) island.add(leaves);
 
   const stones = stoneBucket.mesh(
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0, flatShading: true }),
