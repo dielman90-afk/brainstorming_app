@@ -1848,7 +1848,7 @@ function addContactShadow(bucket, shape, x, z, radius) {
 // Der Inselkörper (Fels, Erde, Terrain) ist in beiden Fällen der aus Paket 1.
 // Sobald entschieden ist, welche Vegetation bleibt, fliegt der Umschalter
 // zusammen mit der Verliererfassung raus.
-const ISLAND_VEGETATION = 'pr9';
+const ISLAND_VEGETATION = 'paket1';
 
 // Schwebende Insel: durchgehender Körper (Gras → Erde → geschichteter Fels),
 // darauf Bäume, Findlinge und Kontaktschatten – alles in wenigen Meshes.
