@@ -777,7 +777,7 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
     // dann in einem kurzen, steilen Absatz ab. Die Dicke schwankt, damit keine
     // umlaufende Stufe entsteht.
     const sod = 0.055 + 0.075 * tear2;
-    h -= smoothstep(0.984, 1.0, rr) * sod;
+    h -= smoothstep(0.983, 0.998, rr) * sod;
     h -= 0.09 * gauss(riverDist(x, z), 0.40); // Flussbett eingeschnitten
     return h;
   };
@@ -959,8 +959,21 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   const ringT = [];
 
   // --- Oberseite: Ringe von der Mitte nach außen, außen feiner aufgelöst ---
-  for (let j = 0; j <= TR; j++) {
-    const frac = 1 - Math.pow(1 - j / TR, 1.35);
+  //
+  // Die letzten drei Ringe liegen FEST bei 98,4 / 99,2 / 100 % – unabhängig von
+  // der Detailstufe. Genau dort sitzt der Absatz der Grasnarbe, und mit der
+  // reinen Potenzverteilung fiel er auf den Mini-Inseln (halbe Detailstufe) in
+  // eine einzige Vierecksreihe: Die Narbe konnte dort gar keine Dicke zeigen,
+  // gemessen 6 px Gras auf 70 px Fels. Drei Ringe kosten pro Insel 3 × seg
+  // Vierecke – auf einem Dreiecksbudget, das zu weniger als der Hälfte belegt
+  // ist, ist das nichts.
+  const RAND_RINGE = [0.984, 0.992, 1.0];
+  const TOP_RINGE = TR + RAND_RINGE.length;
+  for (let j = 0; j <= TOP_RINGE; j++) {
+    const frac =
+      j <= TR
+        ? (1 - Math.pow(1 - j / TR, 1.35)) * RAND_RINGE[0]
+        : RAND_RINGE[j - TR - 1];
     const pos = new Float64Array(S * 3);
     for (let i = 0; i < S; i++) {
       const a = (i / S) * TAU;
@@ -1121,7 +1134,7 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   // beliebig gekrümmte Form; jede Abwicklung liefe an der Spitze zusammen und
   // würde die Körnung dort auf ein Vielfaches strecken. Die Projektion gibt
   // jeder Fläche dieselbe Korngröße, Deckel wie Flanke.
-  boxProjectUV(geo, 0.28 * WORLD_SCALE);
+  faceBoxUV(geo, 0.28 * WORLD_SCALE);
   for (const [start, count, mat] of groups) geo.addGroup(start, count, mat);
   geo.computeBoundingSphere();
 
@@ -1943,9 +1956,67 @@ function makeVines(rand, radius, count, shape = null) {
   return gruppe;
 }
 
+// Boxprojektion je DREIECK statt je Vertex.
+//
+// `boxProjectUV()` wählt die Projektionsachse pro Vertex. Auf einer facettierten
+// Form wählen die drei Ecken eines Dreiecks nahe einer Achsengrenze
+// unterschiedlich – die UVs des Dreiecks stammen dann aus zwei verschiedenen
+// Ebenen und die Textur wird darüber gestreckt. Sichtbar war das als Naht
+// mitten auf einem einzelnen Findling: zwei Texeldichten auf demselben Stein.
+//
+// Hier entscheidet die Facettennormale, und alle drei Ecken bekommen dieselbe
+// Ebene. Setzt eine nicht-indizierte Geometrie voraus.
+function faceBoxUV(geometry, metersPerTile = 0.4) {
+  const geo = geometry.index ? geometry.toNonIndexed() : geometry;
+  const pos = geo.attributes.position;
+  const uv = new Float32Array(pos.count * 2);
+  const s = 1 / Math.max(metersPerTile, 1e-3);
+  const ax = new THREE.Vector3();
+  const bx = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  for (let f = 0; f < pos.count; f += 3) {
+    ax.set(
+      pos.getX(f + 1) - pos.getX(f),
+      pos.getY(f + 1) - pos.getY(f),
+      pos.getZ(f + 1) - pos.getZ(f)
+    );
+    bx.set(
+      pos.getX(f + 2) - pos.getX(f),
+      pos.getY(f + 2) - pos.getY(f),
+      pos.getZ(f + 2) - pos.getZ(f)
+    );
+    n.crossVectors(ax, bx);
+    const nx = Math.abs(n.x);
+    const ny = Math.abs(n.y);
+    const nz = Math.abs(n.z);
+    for (let k = 0; k < 3; k++) {
+      const i = f + k;
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      let u;
+      let v;
+      if (ny >= nx && ny >= nz) {
+        u = x;
+        v = z;
+      } else if (nx >= nz) {
+        u = z;
+        v = y;
+      } else {
+        u = x;
+        v = y;
+      }
+      uv[i * 2] = u * s;
+      uv[i * 2 + 1] = v * s;
+    }
+  }
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return geo;
+}
+
 // Ein Findling: unregelmäßig verschobener Icosaeder, flach gelagert.
-function boulderGeometry(rand, size) {
-  const g = new THREE.IcosahedronGeometry(size, 1);
+function boulderGeometry(rand, size, detail = 2) {
+  const g = new THREE.IcosahedronGeometry(size, detail);
   const p = g.attributes.position;
   for (let v = 0; v < p.count; v++) {
     const x = p.getX(v);
@@ -1958,9 +2029,8 @@ function boulderGeometry(rand, size) {
   g.rotateY(rand() * TAU);
   g.rotateX((rand() - 0.5) * 0.5);
   // Eigene UVs: Die des Ikosaeders sind nach dem Verschieben verzerrt, und die
-  // Granitkarte braucht ueberall dieselbe Korngroesse.
-  boxProjectUV(g, 0.17 * WORLD_SCALE);
-  return g;
+  // Granitkarte braucht überall dieselbe Korngröße.
+  return faceBoxUV(g, 0.17 * WORLD_SCALE);
 }
 
 // Kontaktschatten als EIN verschmolzenes Mesh statt eines Draw-Calls je Objekt.
