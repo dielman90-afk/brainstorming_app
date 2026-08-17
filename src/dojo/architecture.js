@@ -1172,7 +1172,6 @@ export function buildArchitecture() {
   // Sicherung: Nichts darf in die Freizone ragen, in der die Ideenkarten
   // erscheinen (cards.js:256, Radius 1,15–1,5 m). Der Boden ist ausgenommen.
   if (import.meta.env?.DEV) {
-    const box = new THREE.Box3();
     const local = new THREE.Box3();
     const mat = new THREE.Matrix4();
 

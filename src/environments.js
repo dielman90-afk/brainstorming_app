@@ -1621,7 +1621,17 @@ function makeVines(rand, radius, count, shape = null) {
     let ansatzY = -0.3;
     if (shape) {
       const t0 = 0.04 + rand() * 0.08;
-      rr = shape.radius * shape.outline(a) * (shape.sideRadius(t0, a) - 0.02);
+      // Der Strang hängt senkrecht, die Felswand zieht sich nach unten aber
+      // ein. Wird der Radius nur am Ansatzpunkt bestimmt, steht der untere Teil
+      // frei in der Luft. Deshalb wird die Flanke über die ganze Stranglänge
+      // abgetastet und der ENGSTE Radius genommen – derselbe Fehler war schon
+      // einmal an den Wurzelvorhängen zu beheben.
+      const tEnd = Math.min(0.7, t0 + len / Math.max(0.001, shape.depth));
+      let engste = Infinity;
+      for (let k = 0; k <= 6; k++) {
+        engste = Math.min(engste, shape.sideRadius(t0 + ((tEnd - t0) * k) / 6, a));
+      }
+      rr = shape.radius * shape.outline(a) * (engste - 0.02);
       ansatzY = shape.edgeY(a) - shape.sideDepth(t0, a);
     } else {
       rr = radius * (0.72 + rand() * 0.22);
