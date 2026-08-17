@@ -443,7 +443,7 @@ function inselBaumMaterialien() {
       metalness: 0,
       vertexColors: true,
     });
-    _inselNadeln = foliageMaterial({
+    _inselNadeln = addSkyRim(foliageMaterial({
       atlas: leafAtlas('nadel'),
       // Nadeln sind steif und wachsig: wenig Wind, wenig Transluzenz. Eine
       // Konifere im Gegenlicht leuchtet **nicht** – das ist der halbe
@@ -453,8 +453,8 @@ function inselBaumMaterialien() {
       windStrength: 0.03,
       roughness: 0.7,
       color: 0xbfe3a8,
-    });
-    _inselKarten = foliageMaterial({
+    }), { strength: 0.55, power: 1.9 });
+    _inselKarten = addSkyRim(foliageMaterial({
       atlas: leafAtlas('azalea'),
       // Aufgehellt auf das Inselgrün. Der Azaleen-Atlas ist für den schattigen
       // Dojo-Garten gezeichnet; unverändert standen seine Blätter als dunkle
@@ -467,7 +467,7 @@ function inselBaumMaterialien() {
       translucency: 0.95,
       transColor: 0xdcf7b0,
       windStrength: 0.06,
-    });
+    }), { strength: 0.50, power: 2.0 });
   }
   return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten, nadeln: _inselNadeln };
 }
@@ -1113,7 +1113,7 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
         metalness: 0,
         flatShading: true,
       }),
-      { strength: 0.22, power: 3.0 }
+      { strength: 0.12, power: 3.6 }
     ),
     addSkyRim(
       new THREE.MeshStandardMaterial({
@@ -1122,7 +1122,7 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
         metalness: 0,
         flatShading: true,
       }),
-      { strength: 0.60, power: 2.2 }
+      { strength: 0.18, power: 4.0 }
     ),
   ]);
   mesh.name = 'island-body';
@@ -1148,7 +1148,15 @@ const _tmpColor = new THREE.Color();
 // nur ein paar Zeilen im vorhandenen Shader.
 function addSkyRim(material, { color = 0xbcdcf2, strength = 0.55, power = 2.6 } = {}) {
   const rim = new THREE.Color(color);
-  material.onBeforeCompile = (shader) => {
+  // Vorhandene Shader-Eingriffe bleiben erhalten. Das Blattwerk aus PR #9
+  // bringt eigene mit (Wind, Blattdurchsicht); sie einfach zu überschreiben
+  // hieße, den halben Baum kaputtzumachen, um seine Kante zu retten.
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    // Der Anker muss noch da sein – ein vorheriger Eingriff könnte ihn ersetzt
+    // haben. Ohne diese Prüfung fiele der Saum still aus.
+    if (!shader.fragmentShader.includes('#include <dithering_fragment>')) return;
     shader.uniforms.rimColor = { value: rim };
     shader.uniforms.rimStrength = { value: strength };
     shader.uniforms.rimPower = { value: power };
@@ -1174,8 +1182,11 @@ function addSkyRim(material, { color = 0xbcdcf2, strength = 0.55, power = 2.6 } 
     material.userData.shader = shader;
   };
   // Ohne eigenen Schlüssel hält three Varianten desselben Materials für
-  // austauschbar und liefert das falsche Programm aus.
-  material.customProgramCacheKey = () => `skyrim-${strength}-${power}-${rim.getHex()}`;
+  // austauschbar und liefert das falsche Programm aus. Ein bereits gesetzter
+  // Schlüssel wird ergänzt, nicht ersetzt.
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () =>
+    `${vorherKey ? vorherKey() : ''}|skyrim-${strength}-${power}-${rim.getHex()}`;
   return material;
 }
 
@@ -1955,7 +1966,7 @@ function buildIsland(
         metalness: 0,
         flatShading: true,
       }),
-      { strength: 0.45, power: 2.4 }
+      { strength: 0.16, power: 3.8 }
     ),
     'island-stones'
   );
@@ -2271,7 +2282,7 @@ function createIslandEnvironment() {
   // Leichter Tiefennebel (fern), damit ferne Inseln/Wolken sanft ausblenden –
   // Karten in Reichweite bleiben unberührt. Die Distanzen sind Weltkoordinaten
   // und müssen den Maßstab mitgehen, sonst versinkt die Insel im Nebel.
-  const fog = new THREE.Fog(0xa9cee6, 9 * WORLD_SCALE, 90 * WORLD_SCALE);
+  const fog = new THREE.Fog(0xb2d6ea, 10 * WORLD_SCALE, 46 * WORLD_SCALE);
 
   // Was in der Brille dünner wird. Das Laub zuerst – Alpha-Test und
   // Überzeichnung –, dann die Streudekoration: Blumen, Grasbüschel, Pilze und
