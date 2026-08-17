@@ -922,6 +922,7 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
     leanZ,
     leanAt,
     drapeAt,
+    riverDist,
     slab,
     riverCurve,
     riverAngle: river,
@@ -1132,19 +1133,19 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   // den dunklen, feuchten Dojo-Garten gezeichnet und ergäbe mit dem Inselgrün
   // multipliziert einen fast schwarzen, fleckigen Rasen. Gebraucht wird hier
   // die Halmstruktur, nicht der Farbton.
-  const gras = mossMaterial();
-  gras.map = null;
-  gras.vertexColors = true;
-  gras.color.setHex(0xffffff);
-  gras.normalScale.set(0.7, 0.7);
-  // Halme sind feiner als Felskorn; beide teilen sich denselben UV-Satz, also
-  // wird die Wiederholung hier nachgezogen statt in der Projektion.
-  for (const key of ['normalMap', 'roughnessMap']) {
-    if (!gras[key]) continue;
-    gras[key] = gras[key].clone();
-    gras[key].needsUpdate = true;
-    gras[key].repeat.set(3.2, 3.2);
-  }
+  // Die Grasnarbe bekommt KEINE Karte.
+  //
+  // Der erste Anlauf legte die Mooskarten aus dem Dojo-Satz darauf und kostete
+  // dafuer den dreifachen Texturspeicher (9,17 auf 27,83 MB). Nachgemessen
+  // aenderte sich am Bild nichts: Bildmittel 144,9 gegen 145,0, p50 identisch.
+  // Auf einer mobilen Brille ist das ein schlechter Tausch. Die Variation der
+  // Wiese kommt aus den Scheitelfarben - sie haengt an der Geometrie, ist damit
+  // im richtigen Massstab und kostet nichts.
+  const gras = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.97,
+    metalness: 0,
+  });
 
   const mesh = new THREE.Mesh(geo, [
     gras,
@@ -1230,10 +1231,36 @@ function bodyColor(out, zone, shape, p, t, a) {
     const R = shape.radius * shape.outline(a);
     const rr = Math.min(1, Math.hypot(x, z) / R);
     const high = smoothstep(0.05, 0.55, y - ISLAND_TOP_Y); // Wallrücken heller
+
+    // --- Feuchte bestimmt die Farbe, nicht Zufall -------------------------
+    //
+    // Gemessen war die Wiese über rund 40 % der Bildfläche EINE Farbe: zehn
+    // weit verteilte Punkte lagen zwischen 181,4 und 185,6, der Farbton auf
+    // ±2 pro Kanal konstant. Ein Fleckenrauschen allein behebt das nicht – es
+    // ergibt gesprenkelten Teppich. Was fehlt, ist ein Grund für die
+    // Variation.
+    //
+    // Der Grund ist Wasser. Es sammelt sich in den Senken und am Bach, es
+    // läuft vom Höhenrücken ab. Danach richtet sich alles: Moos in den
+    // Mulden (dunkel, blaustichig, satt), ausgedörrtes Gras auf dem Rücken
+    // (hell, gelblich, blass), Normalgrün dazwischen.
+    const rel = y - ISLAND_TOP_Y; // Höhe über der ebenen Fläche
+    const bach = 1 - smoothstep(0.0, 1.5, shape.riverDist(x, z));
+    const senke = smoothstep(0.12, -0.15, rel); // je tiefer, desto feuchter
+    const feucht = Math.min(1, Math.max(senke, bach * 0.9));
+    const trocken = smoothstep(0.18, 0.62, rel);
+
+    // Drei Ortsfrequenzen: breite Flächen, mittlere Flecken, feines Korn.
+    const gross = fbm2(x * 0.34 + 11, z * 0.34 + 7);
+    const mittel = valueNoise2(x * 1.15 + 3, z * 1.15 + 19) - 0.5;
+    const fein = valueNoise2(x * 4.3 + 29, z * 4.3 + 5) - 0.5;
+    const variation = gross * 1.15 + mittel * 0.45 + fein * 0.22;
+
     out.setHSL(
-      0.268 - 0.022 * high + 0.016 * (mott - 0.5),
-      0.40 + 0.10 * mott - 0.06 * high,
-      0.34 + 0.10 * high + 0.05 * (mott - 0.5) - 0.07 * smoothstep(0.82, 1.0, rr)
+      // Moos zieht ins Blaugrüne, dürres Gras ins Gelbe.
+      0.268 + 0.030 * feucht - 0.045 * trocken + 0.020 * variation,
+      0.40 + 0.16 * feucht - 0.14 * trocken + 0.10 * variation,
+      0.34 - 0.10 * feucht + 0.09 * trocken + 0.115 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
     );
     // Zur Kante hin reißt die Narbe auf: Erde und Fels kommen durch. Ohne das
     // liegt das Gras als geschlossene, gleichmäßig dicke Zuckergussschicht auf
