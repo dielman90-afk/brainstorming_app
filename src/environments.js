@@ -764,7 +764,20 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
     const fineTear = valueNoise2(Math.cos(a) * 27 + 11, Math.sin(a) * 27 + 33);
     h -= smoothstep(0.88, 1.0, rr) * (0.14 + 0.42 * tear * tear2);
     h -= smoothstep(0.955, 1.0, rr) * 0.16 * fineTear;
-    h -= smoothstep(0.962, 1.0, rr) * (h + 0.06); // kurze, steile Traufkante
+    // Die Grasnarbe endet als SCHNITTKANTE, nicht als Rundung.
+    //
+    // Vorher rollte die Oberfläche über die Kante und krümmte sich dabei nach
+    // unten. Das hatte zwei Folgen: Die Narbe hatte keine sichtbare Dicke – sie
+    // war eine Haube ohne Materialstärke –, und weil die abwärts gekrümmte
+    // Fläche das Licht von unten auffängt, lief um die ganze Insel ein
+    // gleichbreites helles Band. Beides ist an einer abgerissenen Landmasse
+    // falsch: Dort steht eine Sodenplatte über, und darunter liegt es dunkel.
+    //
+    // Deshalb bleibt die Oberfläche bis zur Kante fast waagerecht und fällt
+    // dann in einem kurzen, steilen Absatz ab. Die Dicke schwankt, damit keine
+    // umlaufende Stufe entsteht.
+    const sod = 0.055 + 0.075 * tear2;
+    h -= smoothstep(0.984, 1.0, rr) * sod;
     h -= 0.09 * gauss(riverDist(x, z), 0.40); // Flussbett eingeschnitten
     return h;
   };
@@ -786,8 +799,8 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
   // Wie weit die Grasnarbe an dieser Stelle über die Kante hängt. Stark
   // schwankend, damit Gras und Erde keine umlaufende Linie bilden.
   const drapeAt = (a) =>
-    0.005 +
-    0.030 *
+    0.004 +
+    0.014 *
       valueNoise2(Math.cos(a) * 3.1 + 31, Math.sin(a) * 3.1 + 7) *
       valueNoise2(Math.cos(a) * 9.5 + 3, Math.sin(a) * 9.5 + 19);
 
@@ -1098,27 +1111,53 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  // UVs für die Oberflächenkarten. Der Inselkörper hatte bisher gar keine – er
+  // war deshalb im Nahbereich eine glatte Fläche: In der Bodennahaufnahme lag
+  // ein Felsblock über 30 % der Bildfläche auf ±1 Tonwert konstant. Auf einer
+  // Quest steht man 1–2 m davor, das ist die eigentliche Prüfdistanz.
+  //
+  // Boxprojektion statt einer Abwicklung: Die Insel ist eine geschlossene,
+  // beliebig gekrümmte Form; jede Abwicklung liefe an der Spitze zusammen und
+  // würde die Körnung dort auf ein Vielfaches strecken. Die Projektion gibt
+  // jeder Fläche dieselbe Korngröße, Deckel wie Flanke.
+  boxProjectUV(geo, 0.28 * WORLD_SCALE);
   for (const [start, count, mat] of groups) geo.addGroup(start, count, mat);
   geo.computeBoundingSphere();
 
+  // Drei Materialien mit eigener Oberflächenlesung. Die Karten stammen aus dem
+  // Materialsatz, den PR #9 mitgebracht hat – sie liefern Relief und Rauheit;
+  // die Farbe kommt weiter aus den Scheitelfarben.
+  //
+  // Bei der Grasnarbe fliegt die FARBkarte des Mooses bewusst raus: Sie ist für
+  // den dunklen, feuchten Dojo-Garten gezeichnet und ergäbe mit dem Inselgrün
+  // multipliziert einen fast schwarzen, fleckigen Rasen. Gebraucht wird hier
+  // die Halmstruktur, nicht der Farbton.
+  const gras = mossMaterial();
+  gras.map = null;
+  gras.vertexColors = true;
+  gras.color.setHex(0xffffff);
+  gras.normalScale.set(0.7, 0.7);
+  // Halme sind feiner als Felskorn; beide teilen sich denselben UV-Satz, also
+  // wird die Wiederholung hier nachgezogen statt in der Projektion.
+  for (const key of ['normalMap', 'roughnessMap']) {
+    if (!gras[key]) continue;
+    gras[key] = gras[key].clone();
+    gras[key].needsUpdate = true;
+    gras[key].repeat.set(3.2, 3.2);
+  }
+
   const mesh = new THREE.Mesh(geo, [
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 }),
-    new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 1.0,
-      metalness: 0,
-      flatShading: true,
+    gras,
+    graniteMaterial({ tone: 0xffffff, vertexColors: true }).clone(),
+    addSkyRim(graniteMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
+      strength: 0.18,
+      power: 4.0,
     }),
-    addSkyRim(
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 0.82,
-        metalness: 0,
-        flatShading: true,
-      }),
-      { strength: 0.18, power: 4.0 }
-    ),
   ]);
+  // graniteMaterial() liefert aus einem Cache; ohne clone() bekäme jede Insel
+  // dasselbe Objekt, und der Saum des Felses läge auch auf dem Erdreich.
+  mesh.material[1].flatShading = true;
+  mesh.material[2].flatShading = true;
   mesh.name = 'island-body';
   return mesh;
 }
@@ -1215,16 +1254,22 @@ function bodyColor(out, zone, shape, p, t, a) {
     const d = Math.min(1, t / 0.22);
     const streak = valueNoise2(Math.cos(a) * 16, Math.sin(a) * 16 + t * 2);
     const grit = valueNoise2(Math.cos(a) * 44 + 5, Math.sin(a) * 44 + t * 9);
-    const humus = 1 - smoothstep(0, 0.35, d); // feuchter, dunkler Saum unter dem Gras
+    // Wurzelfilz direkt unter der Narbe: dunkel, feucht, faserig. Er ist der
+    // sichtbare Beleg dafuer, dass die Grasplatte Dicke hat – ohne ihn geht
+    // Gruen ohne Zwischenschritt in Sandbraun ueber und die Narbe wirkt
+    // aufgemalt.
+    const wurzel = 1 - smoothstep(0, 0.16, d);
+    const faser = valueNoise2(Math.cos(a) * 62 + 9, Math.sin(a) * 62 + t * 14);
     out.setHSL(
-      0.075 + 0.014 * (streak - 0.5) + 0.010 * humus,
-      0.34 - 0.08 * d + 0.05 * humus,
+      0.075 + 0.014 * (streak - 0.5) + 0.020 * wurzel,
+      0.34 - 0.08 * d + 0.10 * wurzel,
       0.20 +
         0.055 * d +
         0.05 * (mott - 0.5) +
         0.045 * (streak - 0.5) +
         0.055 * (grit - 0.5) -
-        0.055 * humus
+        0.115 * wurzel +
+        0.05 * wurzel * (faser - 0.5)
     );
     // Die Grasnarbe hängt unterschiedlich weit über die Kante. Der Übergang
     // läuft über die Farbe (stufenlos) statt über die Materialgrenze (Treppe).
@@ -1885,6 +1930,9 @@ function boulderGeometry(rand, size) {
   g.computeVertexNormals();
   g.rotateY(rand() * TAU);
   g.rotateX((rand() - 0.5) * 0.5);
+  // Eigene UVs: Die des Ikosaeders sind nach dem Verschieben verzerrt, und die
+  // Granitkarte braucht ueberall dieselbe Korngroesse.
+  boxProjectUV(g, 0.17 * WORLD_SCALE);
   return g;
 }
 
@@ -1992,18 +2040,16 @@ function buildIsland(
     addContactShadow(shadowBucket, shape, sx, sz, s * 1.7, shadows);
   }
 
-  const stones = stoneBucket.mesh(
-    addSkyRim(
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 0.78,
-        metalness: 0,
-        flatShading: true,
-      }),
-      { strength: 0.16, power: 3.8 }
-    ),
-    'island-stones'
-  );
+  const steinMat = addSkyRim(graniteMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
+    strength: 0.16,
+    power: 3.8,
+  });
+  steinMat.flatShading = true;
+  // Die Granitkarte traegt runde Einschluesse. Bei kleiner Kachel kehren sie
+  // sichtbar wieder und lesen sich als Muster statt als Gestein; die Kachel ist
+  // deshalb groesser und das Relief flacher.
+  steinMat.normalScale = new THREE.Vector2(0.55, 0.55);
+  const stones = stoneBucket.mesh(steinMat, 'island-stones');
   if (stones) island.add(stones);
 
   // Kontaktverdunklung. Beim Einführen der echten Schlagschatten habe ich sie
