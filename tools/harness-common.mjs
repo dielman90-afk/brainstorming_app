@@ -73,11 +73,19 @@ export const SHOTS = [
   },
 ];
 
-// Screenshots der drei anderen Umgebungen (Regressionsvergleich).
+// Screenshots der anderen Umgebungen (Regressionsvergleich).
+//
+// Achtung beim Pixelvergleich: ⬜ Konstrukt ist NICHT reproduzierbar. Das Bild
+// der Röhre wird mit Math.random() verrauscht und das Schirmlicht flackert
+// zufällig – zwei Läufe desselben Standes unterscheiden sich dort immer. Für
+// diese Umgebung zählt der Blick aufs Bild, nicht der Byte-Vergleich.
 export const REGRESSION_SHOTS = {
   night: { pos: [0, 1.6, 6], look: [0, 2.5, -18], fov: 70 },
   zen: { pos: [0, 1.6, 6], look: [0, 1.0, -12], fov: 70 },
   matrix: { pos: [0, 1.6, 2.5], look: [0, 1.0, -5], fov: 70 },
+  // Seit PR #9 gibt es eine fuenfte Umgebung; ohne sie im Regressionssatz
+  // wuerde eine Aenderung dort unbemerkt bleiben.
+  dojo: { pos: [0, 1.6, 4.5], look: [0, 1.2, -6], fov: 70 },
 };
 
 function waitForPort(port, timeoutMs = 90000) {
