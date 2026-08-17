@@ -4,38 +4,63 @@ import { createTextPanel } from './textPanel.js';
 // Das Menü ist auf zwei Reiter aufgeteilt: 21 Aktionen untereinander wären ein
 // über 80 cm hohes Panel an der Hand. Zwei Seiten à sechs Reihen bleiben
 // kompakt und sind auch verkleinert auf der Handfläche noch lesbar.
-const PAGES = [
+// Exportiert, damit Tests die Seiten prüfen können, ohne die Knopf-Meshes
+// auseinanderzunehmen.
+// Die Icon-Namen zeigen in icons.js – dieselben Pfade, die das
+// Desktop-Overlay als Inline-SVG rendert, hier über Path2D auf die
+// Canvas-Texturen gezeichnet. Keine Emojis mehr: Sie rendern je Plattform
+// anders, lassen sich nicht einfärben und wirkten nach Chat statt Werkzeug.
+export const PAGES = [
   {
     id: 'ideas',
-    label: '💡 Ideen',
+    label: 'Ideen',
     actions: [
-      { id: 'new', label: '＋ Neue Karte' },
-      { id: 'topic', label: '🚀 Themen-Start' },
-      { id: 'related', label: '✨ Verwandte Ideen' },
-      { id: 'critic', label: '😈 Kritiker' },
-      { id: 'cluster', label: '📂 Cluster' },
-      { id: 'summary', label: '📝 Zusammenfassen' },
-      { id: 'color', label: '🎨 Farbe' },
-      { id: 'connect', label: '🔗 Verbinden' },
-      { id: 'fontsize', label: '🔠 Schrift' },
-      { id: 'delete', label: '🗑️ Karte löschen', danger: true },
+      { id: 'new', label: 'Neue Karte', icon: 'plus' },
+      { id: 'topic', label: 'Themen-Start', icon: 'topic' },
+      { id: 'related', label: 'Verwandte Ideen', icon: 'spark' },
+      { id: 'critic', label: 'Kritiker', icon: 'critic' },
+      { id: 'cluster', label: 'Cluster', icon: 'cluster' },
+      { id: 'summary', label: 'Zusammenfassen', icon: 'summary' },
+      { id: 'color', label: 'Farbe', icon: 'color' },
+      { id: 'connect', label: 'Verbinden', icon: 'connect' },
+      { id: 'fontsize', label: 'Schrift', icon: 'fontsize' },
+      { id: 'delete', label: 'Karte löschen', icon: 'trash', danger: true },
     ],
   },
   {
     id: 'board',
-    label: '🗂 Board',
+    label: 'Board',
     actions: [
-      { id: 'undo', label: '↶ Rückgängig' },
-      { id: 'redo', label: '↷ Wiederholen' },
-      { id: 'zone', label: '🗂️ Zone' },
-      { id: 'timer', label: '⏱️ Timer' },
-      { id: 'whiteboard', label: '📋 Whiteboard' },
-      { id: 'environment', label: '🌐 Umgebung' },
-      { id: 'voice', label: '🎙 Sprachbefehle' },
-      { id: 'save', label: '💾 Sichern' },
-      { id: 'load', label: '📂 Laden' },
-      { id: 'export', label: '⬇️ Als Datei' },
-      { id: 'clear', label: '🧹 Alles löschen', danger: true },
+      { id: 'undo', label: 'Rückgängig', icon: 'undo' },
+      { id: 'redo', label: 'Wiederholen', icon: 'redo' },
+      { id: 'zone', label: 'Zone', icon: 'zone' },
+      { id: 'timer', label: 'Timer', icon: 'timer' },
+      { id: 'whiteboard', label: 'Whiteboard', icon: 'whiteboard' },
+      { id: 'environment', label: 'Umgebung', icon: 'environment' },
+      // Der Regler für die Bildqualität gehört in die Brille und nicht nur ins
+      // Desktop-Overlay: Ob die Quest die volle Fassung trägt, entscheidet sich
+      // dort und nirgends sonst. Headless lässt sich die Füllrate einer Adreno
+      // nicht messen (SwiftShader hat keine Textur-Abtasteinheiten), also
+      // bekommt der Nutzer den Schalter statt einer geratenen Zahl.
+      { id: 'quality', label: 'Bildqualität', icon: 'quality' },
+      // Kein Eintrag für Sprachbefehle: In der Brille gibt es keine
+      // Spracherkennung (siehe speech.js) – der Knopf konnte dort nur
+      // scheitern. Am Desktop steht er weiterhin im Overlay.
+      { id: 'export', label: 'Als Datei', icon: 'export' },
+      { id: 'clear', label: 'Alles löschen', icon: 'clear', danger: true },
+    ],
+  },
+  {
+    id: 'flow',
+    label: 'Prozess',
+    actions: [
+      { id: 'flow-generate', label: 'Aus Text bauen', icon: 'spark' },
+      { id: 'flow-node', label: 'Schritt', icon: 'flow-task' },
+      { id: 'flow-type', label: 'Form wechseln', icon: 'flow-decision' },
+      { id: 'flow-arrow', label: 'Pfeil ziehen', icon: 'arrow' },
+      { id: 'flow-label', label: 'Zweig benennen', icon: 'label' },
+      { id: 'flow-layout', label: 'Anordnen', icon: 'layout' },
+      { id: 'flow-export', label: 'Als Mermaid', icon: 'branch' },
     ],
   },
 ];
@@ -73,7 +98,6 @@ const PALM_FORWARD = 0.03; // leicht Richtung Finger, damit das Handgelenk frei 
 // und die untere Reihe ist am schlechtesten zu treffen. Aufgestellt wie ein
 // Laptop-Deckel steht die Fläche dem Blick zugewandt.
 const PALM_TILT = 0.62; // rad, gut 35°
-
 
 // Ein-/Ausblenden mit Hysterese, sonst flackert das Menü an der Schwelle.
 // Die Schwellen sind bewusst großzügig: Handtracking rauscht, und ein Menü,
@@ -182,8 +206,7 @@ export class WristMenu {
     const rows = Math.max(...PAGES.map((page) => Math.ceil(page.actions.length / 2)));
 
     const panelW = 2 * BTN_W + GAP_X + PAD * 2;
-    const panelH =
-      PAD + HEADER_H + 0.006 + TAB_H + 0.012 + rows * BTN_H + (rows - 1) * GAP_Y + PAD;
+    const panelH = PAD + HEADER_H + 0.006 + TAB_H + 0.012 + rows * BTN_H + (rows - 1) * GAP_Y + PAD;
     // Die Handflächen-Platzierung braucht die Höhe, um den Aufstellwinkel
     // auszugleichen (siehe PALM_TILT).
     this.panelHeight = panelH;
@@ -202,7 +225,7 @@ export class WristMenu {
     const title = createTextPanel({
       width: panelW - PAD * 2,
       height: HEADER_H,
-      text: '🧠 Brainstorming',
+      text: 'Brainstorming',
       background: 'transparent',
       color: COLORS.accent,
       weight: 700,
@@ -215,8 +238,13 @@ export class WristMenu {
     this.group.add(title.mesh);
 
     // --- Reiter für die Seiten ---
+    //
+    // Breite aus der Anzahl gerechnet, nicht für zwei Reiter fest verdrahtet:
+    // Beim dritten Reiter hätten sich sonst die Beschriftungen überlappt – exakt
+    // der Fehler, den die Funktionsreihe der Tastatur schon einmal hatte.
     const tabY = headerY - HEADER_H / 2 - 0.006 - TAB_H / 2;
-    const tabW = (panelW - PAD * 2 - GAP_X) / 2;
+    const innerW = panelW - PAD * 2;
+    const tabW = (innerW - GAP_X * (PAGES.length - 1)) / PAGES.length;
     this.tabs = [];
     PAGES.forEach((page, i) => {
       const tab = createTextPanel({
@@ -227,12 +255,12 @@ export class WristMenu {
         color: COLORS.textMuted,
         weight: 600,
         singleLine: true,
-        fontSize: 23,
-        padding: 20,
+        fontSize: 22,
+        padding: 14,
         radius: 16,
         doubleSided: false,
       });
-      tab.mesh.position.set((i === 0 ? -1 : 1) * (tabW + GAP_X) / 2, tabY, 0.002);
+      tab.mesh.position.set(-innerW / 2 + tabW / 2 + i * (tabW + GAP_X), tabY, 0.002);
       flatLayer(tab.mesh, 23);
       tab.mesh.userData.onClick = () => this.setPage(i);
       tab.mesh.userData.setHover = (hovered) => {
@@ -264,6 +292,7 @@ export class WristMenu {
           width: BTN_W,
           height: BTN_H,
           text: action.label,
+          icon: action.icon ?? null,
           background: base,
           color: COLORS.text,
           weight: 600,
@@ -344,7 +373,9 @@ export class WristMenu {
   // Alle passenden Quellen, linke Hand zuerst (sie ist die gewohnte Menühand).
   _tracked(test) {
     const all = [...this.sources.values()].filter(test);
-    return all.sort((a, b) => (a.handedness === 'left' ? -1 : 0) - (b.handedness === 'left' ? -1 : 0));
+    return all.sort(
+      (a, b) => (a.handedness === 'left' ? -1 : 0) - (b.handedness === 'left' ? -1 : 0)
+    );
   }
 
   _attachTo(parent, mode) {
