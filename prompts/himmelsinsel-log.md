@@ -399,6 +399,64 @@ Draw-Calls, 54 767 von 350 000 Dreiecken, 0,5 von 60 MB. Alle offenen Punkte
 sind Form- und Geometrieprobleme mit reichlich Kopfraum; nur bei den
 Mini-Inseln ist auf die Draw-Call-Seite zu achten.
 
+---
+
+## Paket 2 – Licht & Atmosphäre: NICHT BESTANDEN nach vier Durchläufen
+
+### Was erledigt ist (vom Prüfer gemessen bestätigt)
+
+| Befund | Vorher | Nachher |
+| --- | --- | --- |
+| **Rim im Gegenlicht** – Kronenrand `5-backlight` (294,380) | (0,13,2) L=9,4 | **L=28,0**, rechte Krone 51→85, Saum stellenweise heller als der Himmel |
+| **Bounce von unten** – Kiel `4-aerial` x=600 | 147/95/54/25, fallend | **127/57/145/98**, zum Kiel hin *steigend* |
+| **Tiefenstaffelung** | invertiert (fern heller als der Himmel) | **Kriterium 6 BESTANDEN** – Dunst zieht messbar zur Himmelsfarbe (b−r +28…+32), Fog erreicht die Nachbarinseln |
+| **Globale Helligkeit** | Einbruch in 5 von 6 Bildern | fünf von sechs auf oder über Ausgangsniveau |
+| **Sonne mit Hof, Himmel weiß von ihr** | flache Scheibe | Kern + Korona + Hof im Kuppel-Shader |
+| **Konsistente Lichtrichtung** | Sonne und Licht an verschiedenen Orten | eine Quelle für Sprite, Hof, Licht und Schatten |
+| **Zenit-Clamp** | Kuppel oben flach | Verlauf 112,6 → 204,4 wiederhergestellt |
+
+### Offene Punkte, die weitergetragen werden
+
+| # | Punkt | Weitergabe |
+| --- | --- | --- |
+| 1 | **Himmelssaum an der Grasnarbe.** Der Prüfer misst an der Inselkante ein helles Band (104 → 140), wo vor Paket 2 eine Verdunklung lag (153 → 49), und wertet es als Kontur statt Licht. Ich habe den Saum von Gras und Erde entfernt – das Band blieb. Es stammt also **nicht** vom Saum, sondern vom Bounce-Licht, das die nach unten gekrümmte Traufkante beleuchtet. Physikalisch ist das an einer frei schwebenden Insel richtig; dass es als gleichbreite Kontur liest, ist es nicht. **Hier widerspreche ich dem Prüfer in der Ursache, nicht im Befund.** | Paket 3 (Terrain-Material), zusammen mit der fehlenden Sodendicke |
+| 2 | **Schlagschatten weiterhin lückenhaft.** Bäume und Findlinge werfen, Büsche/Grasbüschel/Blüten/Pilze nicht; `6-groundcover` enthält keinen einzigen. Schatten tragen keine Himmelsfarbe (b/g = 0,62/0,66). | Paket 4 (Vegetation) + Schlusspass |
+| 3 | **Wolken tragen zu wenig Lichtrichtung.** Die Richtung ist jetzt in die Scheitelfarben gebacken (Modulation 3,6 → 12,7 Luminanzstufen), aber weit von einem Silberrand entfernt. | Paket 6 (Wolken) |
+| 4 | **Facettenspreizung der Unterseite** an der Messstelle `3-edge-down` x=400: 9,1 gegen 27,3 im Ausgangsstand. Flächig ist die Unterseite besser (Spreizung 73 gegen 57), an dieser Stelle nicht. | Paket 3 |
+| 5 | **Halbschattenbreite inkonsistent** (5 px gegen 20 px) – Auflösungsgrenze der Schattenkarte. | Schlusspass |
+
+### Eigene Fehler in diesem Paket, protokolliert
+
+- **Regression:** Ich nahm 1,4 globales Hemisphärenlicht weg und gab nur 0,78
+  zurück. Der Kiel fiel von L≈100 auf L≈30 – die untere Inselhälfte war
+  *unlesbarer als vor dem Paket*.
+- **Zweimal am falschen Ort gesucht:** Das Schattenvolumen war in lokalen statt
+  Welteinheiten gesetzt (deckte 14 m einer 40-m-Insel ab), und
+  `renderer.shadowMap.enabled` stand in der Dojo-Atmosphäre, die erst beim
+  Betreten des Dojos läuft. Beide Male habe ich zur Laufzeit nachgemessen
+  statt weiter zu raten – das war der schnellere Weg.
+- **Rim-Light falsch verstanden:** Ein gerichtetes Licht von hinten beleuchtet
+  die Rückseite, die man nicht sieht. Der Saum musste ein Materialeffekt
+  werden.
+- **Saum überdosiert:** Bei `flatShading` ist die Normale je Facette konstant,
+  der Fresnel-Term wird damit zur Flächenhelligkeit statt zur Kante – der Fels
+  sah aus wie bereift.
+- **Kontaktverdunklung zu grob entfernt:** Ich hatte sie beim Einführen der
+  echten Schatten ganz gestrichen. Ein Schlagschatten sagt, wo die Sonne nicht
+  hinkommt; eine Kontaktverdunklung sagt, wo das Umgebungslicht nicht
+  hinkommt. Sie ist jetzt wieder da, eng und schwach.
+
+### Messwerte Paket 2 (Abschluss)
+
+| | vor Paket 2 | Paket 2 | Budget |
+| --- | ---: | ---: | ---: |
+| Draw-Calls env-island | 83 | **93** | 120 |
+| Dreiecke Szene | 117 769 | **164 461** | 350 000 |
+| Texturspeicher | 9,17 MB | 9,17 MB | 60 MB |
+| Shader-Programme | 22 | 30 | – |
+| Konsole | sauber | sauber | – |
+| Andere vier Umgebungen | – | unverändert | – |
+
 ### Für Paket 2 vorgemerkte Messwerte des Prüfers
 
 - Gegenlicht-Krone in `5-backlight` misst **(0,19,5)** – absolut schwarz, kein

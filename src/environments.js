@@ -507,7 +507,7 @@ function buildCollectedTrees(ctx, seed) {
       kind: 'nadel',
       cardScale: 0.95,
       dichte: 74,
-      farben: [0x16281c, 0x1c3324, 0x101f16],
+      farben: [0x2b4436, 0x33513e, 0x24392c],
       kartenFarben: [0xd8f0c0, 0xc6e4ae, 0xe4ffd0],
     });
     k.blobs.name = 'island-krone';
@@ -525,7 +525,7 @@ function buildCollectedTrees(ctx, seed) {
       dichte: 64,
       // Zwei Drittel: dunkle und helle Laubbäume. Jeder Baum greift über
       // seinen `slice` in genau eines davon.
-      farben: [0x27482e, 0x2f5436, 0x203e27, 0x1f3f26, 0x27492d, 0x1a3521],
+      farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
       kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8, 0xd3efb0, 0xc2e39c, 0xe0f8c0],
     });
     k.blobs.name = 'island-krone';
@@ -1102,19 +1102,13 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   geo.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(geo, [
-    addSkyRim(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 }), {
-      strength: 0.16,
-      power: 3.4,
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 }),
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 1.0,
+      metalness: 0,
+      flatShading: true,
     }),
-    addSkyRim(
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 1.0,
-        metalness: 0,
-        flatShading: true,
-      }),
-      { strength: 0.12, power: 3.6 }
-    ),
     addSkyRim(
       new THREE.MeshStandardMaterial({
         vertexColors: true,
@@ -1662,9 +1656,11 @@ const CLOUD_MATERIAL = new THREE.MeshStandardMaterial({
   roughness: 1,
   metalness: 0,
   flatShading: false,
+  // Die Lichtrichtung steckt in den Scheitelfarben (siehe makeCloud).
+  vertexColors: true,
 });
 
-function makeCloud(rand, size = 1) {
+function makeCloud(rand, size = 1, sunDir = null) {
   const geos = [];
   const puffs = 5 + Math.floor(rand() * 4);
   for (let i = 0; i < puffs; i++) {
@@ -1678,6 +1674,44 @@ function makeCloud(rand, size = 1) {
     geos.push(g);
   }
   const merged = mergeGeometries(geos);
+
+  // Lichtrichtung in die Scheitelfarben backen.
+  //
+  // Gemessen war die Unterseite der Wolken HELLER als ihr Körper, und die
+  // Gesamtmodulation lag unter 23 Luminanzstufen: Sie waren die größte Fläche
+  // des Himmels und die einzige ohne jede Lichtinformation – in dem Bild, das
+  // die Sonnenposition eindeutig benennt, standen sie 300 px neben der Scheibe
+  // ohne Silberrand.
+  //
+  // Das Licht der Szene allein bringt das nicht in Ordnung: Die Aufhellung von
+  // unten, die der Inselunterseite gilt, trifft die Wolken genauso und hebt
+  // ausgerechnet ihre Schattenseite an. Deshalb steht die Richtung hier fest in
+  // der Geometrie – eine Wolke ist ohnehin kein Lambert-Körper, ihre Helligkeit
+  // kommt aus Streuung, nicht aus N·L.
+  const dir = sunDir ? sunDir.clone().normalize() : new THREE.Vector3(0, 1, 0);
+  const pos = merged.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  let maxY = 0;
+  for (let i = 0; i < pos.count; i++) maxY = Math.max(maxY, Math.abs(pos.getY(i)));
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const len = Math.hypot(x, y, z) || 1;
+    // Wie stark diese Stelle der Sonne zugewandt ist (−1 … 1)
+    const facing = (x * dir.x + y * dir.y + z * dir.z) / len;
+    // Und wie weit oben sie liegt – Wolken sind unten grundsätzlich dichter.
+    const up = maxY > 0 ? y / maxY : 0;
+    const f = 0.74 + 0.46 * Math.max(0, facing) + 0.20 * up - 0.18 * Math.max(0, -facing);
+    // Die Schattenseite ist kühl, die Sonnenseite eine Spur warm.
+    c.setRGB(f * (1 + 0.05 * facing), f * (1 + 0.01 * facing), f * (1 - 0.04 * facing));
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
   const cloud = new THREE.Mesh(merged, CLOUD_MATERIAL);
   cloud.scale.y = 0.62; // flach drücken → Wolkenform
   return cloud;
@@ -1857,8 +1891,8 @@ function boulderGeometry(rand, size) {
 // Kontaktschatten als EIN verschmolzenes Mesh statt eines Draw-Calls je Objekt.
 // Die Quads liegen auf der tatsächlichen Geländehöhe – auf dem Wall kippen sie
 // nicht in den Hang, weil sie knapp darüber schweben und weich auslaufen.
-function addContactShadow(bucket, shape, x, z, radius) {
-  const g = new THREE.PlaneGeometry(radius * 2, radius * 2);
+function addContactShadow(bucket, shape, x, z, radius, tight = false) {
+  const g = new THREE.PlaneGeometry(radius * (tight ? 1.25 : 2), radius * (tight ? 1.25 : 2));
   g.rotateX(-Math.PI / 2);
   g.translate(x, shape.heightAt(x, z) + 0.012, z);
   bucket.add(g, 0xffffff);
@@ -1909,7 +1943,7 @@ function buildIsland(
     const y = shape.heightAt(tx, tz);
     const scale = 0.85 + rand() * 0.5;
     addTree(rand, trees_, { x: tx, y, z: tz, scale });
-    addContactShadow(shadowBucket, shape, tx, tz, 0.46 * scale);
+    addContactShadow(shadowBucket, shape, tx, tz, 0.46 * scale, shadows);
   }
   for (const m of buildCollectedTrees(trees_, 0x1de4 ^ Math.floor(rand() * 4096))) {
     island.add(m);
@@ -1953,9 +1987,9 @@ function buildIsland(
     g.translate(sx, shape.heightAt(sx, sz) + s * 0.30, sz);
     stoneBucket.add(g, (vx, vy, vz) => {
       const n = valueNoise2(vx * 5 + 3, vz * 5 + 9);
-      return new THREE.Color().setHSL(0.094, 0.05 + 0.025 * n, 0.115 + 0.065 * n + 0.03 * vy);
+      return new THREE.Color().setHSL(0.094, 0.05 + 0.025 * n, 0.20 + 0.10 * n + 0.03 * vy);
     });
-    addContactShadow(shadowBucket, shape, sx, sz, s * 1.7);
+    addContactShadow(shadowBucket, shape, sx, sz, s * 1.7, shadows);
   }
 
   const stones = stoneBucket.mesh(
@@ -1972,25 +2006,31 @@ function buildIsland(
   );
   if (stones) island.add(stones);
 
-  // Gemalte Kontaktschatten nur dort, wo KEIN echter Schlagschatten fällt.
-  // Beides zusammen ergäbe zwei Schatten je Objekt – einen aus der Sonne und
-  // einen unbeweglichen Fleck darunter.
-  if (!shadows) {
-    const blob = shadowBucket.mesh(
-      new THREE.MeshBasicMaterial({
-        map: shadowTexture(),
-        transparent: true,
-        opacity: 0.55,
-        depthWrite: false,
-        toneMapped: false,
-      }),
-      'island-shadows'
-    );
-    if (blob) {
-      blob.renderOrder = 1;
-      island.add(blob);
-    }
-  } else {
+  // Kontaktverdunklung. Beim Einführen der echten Schlagschatten habe ich sie
+  // ganz entfernt, weil zwei Schatten je Objekt falsch wären – das war zu
+  // grob gedacht: Ein Schlagschatten sagt, wo die Sonne NICHT hinkommt, eine
+  // Kontaktverdunklung sagt, wo das Umgebungslicht nicht hinkommt. Ohne sie
+  // sitzt jeder Busch, jeder Findling und jeder Grasbüschel mit einer
+  // haarscharfen Kante auf vollwertig hellem Gras (gemessen: weniger als drei
+  // Luminanzstufen Abweichung am Fuß).
+  //
+  // Wo echte Schatten fallen, wird sie deshalb nicht weggelassen, sondern eng
+  // und schwach gehalten: ein kurzer Saum am Fuß statt eines Flecks daneben.
+  const blob = shadowBucket.mesh(
+    new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      opacity: shadows ? 0.34 : 0.55,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+    'island-shadows'
+  );
+  if (blob) {
+    blob.renderOrder = 1;
+    island.add(blob);
+  }
+  if (shadows) {
     // Werfer und Empfänger. Das Gras empfängt, wirft aber nicht: Es ist die
     // Fläche, auf der die Schatten liegen, und ein Deckel, der sich selbst
     // beschattet, erzeugt bei streifendem Licht nur Schattenakne.
@@ -2043,6 +2083,34 @@ function addUndergrowth(group, rand, shape) {
   bushes.instanceMatrix.needsUpdate = true;
   if (bushes.instanceColor) bushes.instanceColor.needsUpdate = true;
   group.add(bushes);
+
+  // Kontaktverdunklung unter den Büschen. Ohne sie sitzen sie mit einer
+  // haarscharfen Kante auf vollwertig hellem Gras – gemessen lag die Abweichung
+  // am Buschfuß unter drei Luminanzstufen. Alle zusammen ein Draw-Call.
+  const bushShade = new GeoBucket();
+  for (let i = 0; i < bushes.count; i++) {
+    bushes.getMatrixAt(i, dummy.matrix);
+    dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+    const r = 0.19 * Math.max(dummy.scale.x, dummy.scale.z);
+    const g = new THREE.PlaneGeometry(r * 2, r * 2);
+    g.rotateX(-Math.PI / 2);
+    g.translate(dummy.position.x, shape.heightAt(dummy.position.x, dummy.position.z) + 0.01, dummy.position.z);
+    bushShade.add(g, 0xffffff);
+  }
+  const shade = bushShade.mesh(
+    new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      opacity: 0.30,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+    'undergrowth-shade'
+  );
+  if (shade) {
+    shade.renderOrder = 1;
+    group.add(shade);
+  }
 
   // Pilz: verschmolzene Geometrie mit Vertex-Farben (weißer Stiel, roter Hut)
   const stem = new THREE.CylinderGeometry(0.02, 0.028, 0.09, 6);
@@ -2256,7 +2324,7 @@ function createIslandEnvironment() {
   ];
   for (const layer of cloudLayers) {
     for (let i = 0; i < layer.count; i++) {
-      const cloud = makeCloud(rand, layer.size);
+      const cloud = makeCloud(rand, layer.size, SUN_DIR);
       const a = rand() * Math.PI * 2;
       const r = layer.rMin + rand() * (layer.rMax - layer.rMin);
       const y = layer.yMin + rand() * (layer.yMax - layer.yMin);
