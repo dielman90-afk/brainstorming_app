@@ -1162,7 +1162,12 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
 
   const mesh = new THREE.Mesh(geo, [
     gras,
-    graniteMaterial({ tone: 0xffffff, vertexColors: true }).clone(),
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 1.0,
+      metalness: 0,
+      flatShading: true,
+    }),
     addSkyRim(graniteMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
       strength: 0.18,
       power: 4.0,
@@ -1170,7 +1175,6 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   ]);
   // graniteMaterial() liefert aus einem Cache; ohne clone() bekäme jede Insel
   // dasselbe Objekt, und der Saum des Felses läge auch auf dem Erdreich.
-  mesh.material[1].flatShading = true;
   mesh.material[2].flatShading = true;
   mesh.name = 'island-body';
   return mesh;
@@ -1258,10 +1262,15 @@ function bodyColor(out, zone, shape, p, t, a) {
     // Mulden (dunkel, blaustichig, satt), ausgedörrtes Gras auf dem Rücken
     // (hell, gelblich, blass), Normalgrün dazwischen.
     const rel = y - ISLAND_TOP_Y; // Höhe über der ebenen Fläche
-    const bach = 1 - smoothstep(0.0, 1.5, shape.riverDist(x, z));
-    const senke = smoothstep(0.12, -0.15, rel); // je tiefer, desto feuchter
-    const feucht = Math.min(1, Math.max(senke, bach * 0.9));
-    const trocken = smoothstep(0.18, 0.62, rel);
+    const bach = 1 - smoothstep(0.15, 1.6, shape.riverDist(x, z));
+    // Die begehbare Fläche ist bewusst EBEN. Feuchte aus der absoluten Höhe
+    // abzuleiten ergibt dort deshalb überall denselben Wert – gemessen war der
+    // Rot-Blau-Abstand über die ganze Wiese konstant 26–27, die Feuchte kam
+    // ausschließlich als Helligkeit an. Sie braucht auf der Ebene eine eigene
+    // Quelle: zusammenhängende Senken, in denen Wasser stehen bleibt.
+    const mulde = smoothstep(0.42, 0.72, valueNoise2(x * 0.42 + 61, z * 0.42 + 17));
+    const feucht = Math.min(1, Math.max(mulde * 0.85, bach) * (1 - smoothstep(0.1, 0.5, rel)));
+    const trocken = smoothstep(0.12, 0.55, rel) * 0.7 + 0.5 * smoothstep(0.55, 0.25, valueNoise2(x * 0.5 + 3, z * 0.5 + 41));
 
     // Drei Ortsfrequenzen: breite Flächen, mittlere Flecken, feines Korn.
     const gross = fbm2(x * 0.34 + 11, z * 0.34 + 7);
@@ -1270,10 +1279,12 @@ function bodyColor(out, zone, shape, p, t, a) {
     const variation = gross * 1.15 + mittel * 0.45 + fein * 0.22;
 
     out.setHSL(
-      // Moos zieht ins Blaugrüne, dürres Gras ins Gelbe.
-      0.268 + 0.030 * feucht - 0.045 * trocken + 0.020 * variation,
-      0.40 + 0.16 * feucht - 0.14 * trocken + 0.10 * variation,
-      0.34 - 0.10 * feucht + 0.09 * trocken + 0.115 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
+      // Moos zieht ins Blaugrüne, dürres Gras ins Gelbe. Die Ausschläge sind
+      // bewusst groß: Bei der halben Stärke blieb der Rot-Blau-Abstand über
+      // die ganze Wiese konstant, und die Feuchte war nur als Helligkeit da.
+      0.268 + 0.072 * feucht - 0.098 * trocken + 0.024 * variation,
+      0.40 + 0.24 * feucht - 0.20 * trocken + 0.10 * variation,
+      0.34 - 0.13 * feucht + 0.12 * trocken + 0.115 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
     );
     // Zur Kante hin reißt die Narbe auf: Erde und Fels kommen durch. Ohne das
     // liegt das Gras als geschlossene, gleichmäßig dicke Zuckergussschicht auf
@@ -2015,14 +2026,18 @@ function faceBoxUV(geometry, metersPerTile = 0.4) {
 }
 
 // Ein Findling: unregelmäßig verschobener Icosaeder, flach gelagert.
-function boulderGeometry(rand, size, detail = 2) {
+function boulderGeometry(rand, size, detail = 1) {
   const g = new THREE.IcosahedronGeometry(size, detail);
   const p = g.attributes.position;
   for (let v = 0; v < p.count; v++) {
     const x = p.getX(v);
     const y = p.getY(v);
     const z = p.getZ(v);
-    const f = 0.74 + hashNoise(x * 27, y * 27, z * 27) * 0.5;
+    // Zwei Ortsfrequenzen: eine grobe, die den Block kippt und staucht, und
+    // eine feine für die Unregelmäßigkeit der Einzelfacette.
+    const grob = hashNoise(x * 6, y * 6, z * 6) - 0.5;
+    const fein = hashNoise(x * 27, y * 27, z * 27) - 0.5;
+    const f = 1 + grob * 0.62 + fein * 0.30;
     p.setXYZ(v, x * f, y * f * 0.72, z * f);
   }
   g.computeVertexNormals();

@@ -49,12 +49,35 @@ entscheidenden Größen.
 | **Zwischenschritt: Branch-Zusammenführung** | PR #9 (60 Commits) in den Default-Branch, Vegetation daraus übernommen und ins Draw-Call-Budget verschmolzen (129 → 85) |
 | 1 Silhouette & Fels | abgeschlossen, **nicht bestanden** – 5 offene Punkte |
 | 2 Licht & Atmosphäre | abgeschlossen, **nicht bestanden** – Kriterium 6 bestanden, 5 offene Punkte |
-| 3 Terrain-Material | Durchlauf 3 gebaut, zweite Prüfung läuft |
+| 3 Terrain-Material | abgeschlossen, **nicht bestanden** – 4 offene Punkte |
 | 4 Vegetation … 9 Performance-Pass | offen |
 
 **Budget durchgehend eingehalten:** 93 von 120 Draw-Calls, 173 667 von 350 000
 Dreiecken, 11,83 von 60 MB Texturspeicher. Konsole sauber, Build grün, die vier
 anderen Umgebungen unverändert.
+
+### Offene Punkte aus Paket 3
+
+| Punkt | Befund | Weitergabe |
+| --- | --- | --- |
+| Ringsignatur der Granitkarte | Rund 20 gleiche elliptische Sichelstempel, Wiederholungsvektor (18,6), Korrelation 0,377. Sie hat sich in Durchlauf 3 **verdoppelt**, weil die Karte aufs helle Erdband kam. Karte dort wieder entfernt – auf dem Fels bleibt sie und damit auch die Signatur. | Schlusspass: eigene Felskarte statt der Dojo-Granitkarte |
+| Wiese im Nahbereich | Auf Inselmaßstab jetzt variabel (L-Spanne 8,6 → 15,6), auf Schrittmaßstab weiterhin flach: 32 Farben auf 64 000 Pixel. | Paket 4 (Bodenbewuchs deckt die Fläche) |
+| Sodendicke der Mini-Inseln | 6–9 px Gras auf 54–85 px Fels. Die festen Randringe haben dort nichts bewirkt – das Verhältnis ist die Proportion der Insel selbst, nicht ein Fehler der Kante. **Hier widerspreche ich dem Prüfer teilweise.** | Paket 8 (Mini-Inseln) |
+| Spektrallücke 5–17 px im Felsrelief | Zwischen 4-px-Korn und Facettenmaßstab liegt nichts – es fehlt die mittlere Skala (Risse, Adern, Abplatzungen). | Schlusspass |
+
+### Eigene Fehler in Paket 3
+
+- **Regression:** Auf den Vorwurf „ein Dreieck überspannt 400 px" habe ich die
+  Facettenzahl der Findlinge vervierfacht. Damit sank die Tontrennung um 59 %
+  (SD 18,89 → 7,59) und der nächstgelegene Stein wurde eine weiche Beule. Der
+  stilisierte Look lebt von **wenigen, klar getrennten** Facetten – die
+  Korrektur war eine zweite Verschiebungsebene bei gleicher Facettenzahl.
+- **Falscher Hebel:** Die Mooskarten kosteten den dreifachen Texturspeicher
+  (+18,7 MB) und änderten am Bild messbar nichts. Wieder entfernt.
+- **Toter Parameter:** Meine Feuchte-Achse leitete sich aus der absoluten Höhe
+  ab – auf der bewusst ebenen Fläche ergibt das überall denselben Wert. Die
+  Wiese bekam dadurch nur Helligkeits-, keine Farbtonvariation. Feuchte kommt
+  jetzt aus Mulden und Bachnähe.
 
 **Bestandene Messlatten-Kriterien: 1 von 8** (Tiefenstaffelung). Der Fortschritt
 ist real und in jeder Runde nachgemessen, aber die Messlatte ist hoch angesetzt.
