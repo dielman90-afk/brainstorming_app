@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import './fonts.js'; // lokal gebündelte Schriften (kein CDN nötig)
-import { CardManager, CARD_COLORS, CARD_FONT_STEPS } from './cards.js';
+import { CardManager, CARD_COLORS, CARD_FONT_STEPS, FLOW_TYPES, flowTypeById } from './cards.js';
 import { ConnectionManager } from './connections.js';
+import { layoutFlow } from './flowLayout.js';
+import { decorateIcons } from './icons.js';
+import { Tweener } from './tween.js';
 import { InteractionManager } from './interactions.js';
 import { WristMenu } from './wristMenu.js';
 import { VirtualKeyboard } from './keyboard.js';
-import { SystemKeyboardBridge } from './systemKeyboard.js';
 import {
   isHeadsetBrowser,
   isSpeechAvailable,
@@ -22,8 +24,7 @@ import {
   importBoardFile,
   saveBoardLocal,
   loadBoardLocal,
-  saveSnapshot,
-  loadSnapshot,
+  downloadMermaid,
 } from './boardState.js';
 import { createEnvironments } from './environments.js';
 import { Whiteboard } from './whiteboard.js';
@@ -102,16 +103,27 @@ function applyEnvironment() {
     env.group.visible = i === envIndex;
   });
   if (envIndex >= 0) {
-    scene.background = environments[envIndex].background;
-    scene.fog = environments[envIndex].fog ?? null;
+    const env = environments[envIndex];
+    scene.background = env.background;
+    scene.fog = env.fog ?? null;
+    // Environment-Map (IBL) für Umgebungen, die spiegelnde Materialien haben.
+    // Erst hier gebaut, nicht beim Laden: Der PMREM-Generator braucht einen
+    // lebenden Renderer und rechnet auf der GPU – das wäre Startzeit für jeden,
+    // der die Umgebung nie aufruft. Ohne die Karte rendern Metall und Lack
+    // schwarz, weil ein Metall ohne etwas zu spiegeln keine diffuse Komponente
+    // hat.
+    env.ensureEnvironment?.(renderer);
+    scene.environment = env.environment ?? null;
     desktopFloor.visible = false;
   } else if (inPassthrough) {
     scene.background = null;
     scene.fog = null;
+    scene.environment = null;
     desktopFloor.visible = false;
   } else {
     scene.background = DESKTOP_BG;
     scene.fog = null;
+    scene.environment = null;
     desktopFloor.visible = true;
   }
 }
@@ -163,7 +175,14 @@ controls.update();
 
 const cardManager = new CardManager(scene);
 const connectionManager = new ConnectionManager(scene, cardManager);
-cardManager.onCardRemoved = (card) => connectionManager.removeForCard(card);
+// Fährt Karten sanft an neue Plätze, statt sie springen zu lassen.
+const tweener = new Tweener();
+cardManager.onCardRemoved = (card) => {
+  connectionManager.removeForCard(card);
+  // Eine gelöschte Karte darf nicht weiter animiert werden – sonst schreibt
+  // der Tweener noch Positionen in ein entsorgtes Objekt.
+  tweener.cancel(card.group);
+};
 
 // Kartenschrift (Barrierefreiheit): gewählte Stufe überdauert einen Reload und
 // wird gesetzt, bevor die ersten Karten entstehen.
@@ -199,20 +218,25 @@ function boardToJSON() {
 }
 
 function applyBoardJSON(data) {
+  // Erst die laufenden Bewegungen abbrechen: Ein Undo mitten in einer
+  // laufenden Kartenfahrt würde die geladenen Positionen sonst gleich wieder
+  // überschrieben bekommen.
+  tweener.clear();
   cardManager.loadJSON(data);
   connectionManager.loadJSON(data?.connections ?? []);
   whiteboard.loadJSON(data?.whiteboard);
   zoneManager.loadJSON(data?.zones ?? []);
+  // Beim Laden und bei jedem Undo werden alle Verbindungen neu aufgebaut – ein
+  // gemerkter Pfeil zeigt danach auf ein entsorgtes Objekt.
+  lastFlowEdge = null;
+  // Befund 8: `applyState` ändert die Form der weiterhin ausgewählten Karte,
+  // ohne die Auswahl anzufassen. Ohne diesen Aufruf bliebe die Markierung in
+  // der Formleiste nach einem Undo auf der alten Form stehen.
+  updateFlowShapeRow();
 }
-
-// Diktat auf der Quest läuft über die Systemtastatur der Brille – der
-// Quest-Browser kennt die Web Speech API nicht. Die Sitzung wird erst beim
-// Aufruf geholt, weil sie bei jedem Start eine andere ist.
-const systemKeyboard = new SystemKeyboardBridge({ getSession: () => renderer.xr.getSession() });
 
 const keyboard = new VirtualKeyboard(scene, {
   onStatus: (message, duration = 5000) => setStatus(message, duration),
-  systemKeyboard,
 });
 const wristMenu = new WristMenu((action) => handleAction(action));
 
@@ -244,22 +268,35 @@ interactions.onInputConnected = ({ handedness, grip, hand, isHand }) => {
   // Hand-Tracking ist ohne Hinweis kaum zu erraten – einmal pro Sitzung zeigen.
   if (isHand && !handHintShown) {
     handHintShown = true;
-    setStatus('🖐 Hände erkannt: Handfläche öffnen = Menü · ins Leere pinchen und ziehen = bewegen', 8000);
+    setStatus(
+      '🖐 Hände erkannt: Handfläche öffnen = Menü · ins Leere pinchen und ziehen = bewegen',
+      8000
+    );
   }
 };
 
 // Fortbewegung: VR über den Player-Rig (Gleiten/Snap-Turn/Teleport),
 // Desktop über WASD/Pfeile (siehe Animationsschleife).
-const locomotion = new Locomotion({ renderer, player, camera, controllers: interactions.controllers });
+const locomotion = new Locomotion({
+  renderer,
+  player,
+  camera,
+  controllers: interactions.controllers,
+});
 
 const UP = new THREE.Vector3(0, 1, 0);
 const moveKeys = { forward: false, back: false, left: false, right: false, up: false, down: false };
 const MOVE_KEYMAP = {
-  KeyW: 'forward', ArrowUp: 'forward',
-  KeyS: 'back', ArrowDown: 'back',
-  KeyA: 'left', ArrowLeft: 'left',
-  KeyD: 'right', ArrowRight: 'right',
-  KeyE: 'up', KeyQ: 'down',
+  KeyW: 'forward',
+  ArrowUp: 'forward',
+  KeyS: 'back',
+  ArrowDown: 'back',
+  KeyA: 'left',
+  ArrowLeft: 'left',
+  KeyD: 'right',
+  ArrowRight: 'right',
+  KeyE: 'up',
+  KeyQ: 'down',
 };
 function isTypingTarget() {
   const tag = document.activeElement?.tagName;
@@ -276,6 +313,44 @@ window.addEventListener('keyup', (e) => {
   const k = MOVE_KEYMAP[e.code];
   if (k) moveKeys[k] = false;
 });
+
+// --- Bildqualität ------------------------------------------------------------
+//
+// Drei Stufen (siehe src/dojo/quality.js). Die Vorgabe hängt am Gerät: am
+// Desktop die volle Fassung, in der Brille die mittlere. Der Nutzer kann sie
+// überstimmen – im Handgelenk-Menü, weil die Frage nur auf dem Gerät zu
+// beantworten ist, und über `?q=` für den Test am Rechner.
+//
+// `null` heißt „automatisch"; sobald einmal umgeschaltet wurde, gilt die Wahl
+// für beide Betriebsarten.
+const QUALITAETSSTUFEN = ['sparsam', 'mittel', 'voll'];
+const QUALITAET_NAMEN = { sparsam: 'sparsam', mittel: 'mittel', voll: 'voll' };
+let qualitaetsWahl = (() => {
+  const q = new URLSearchParams(location.search).get('q');
+  return QUALITAETSSTUFEN.includes(q) ? q : null;
+})();
+
+function aktuelleQualitaet() {
+  if (qualitaetsWahl) return qualitaetsWahl;
+  return renderer.xr.isPresenting ? 'mittel' : 'voll';
+}
+
+function applyQualityTier() {
+  const stufe = aktuelleQualitaet();
+  for (const env of environments) env.setQuality?.(stufe);
+  return stufe;
+}
+
+function cycleQuality() {
+  const jetzt = aktuelleQualitaet();
+  const i = QUALITAETSSTUFEN.indexOf(jetzt);
+  qualitaetsWahl = QUALITAETSSTUFEN[(i + 1) % QUALITAETSSTUFEN.length];
+  const stufe = applyQualityTier();
+  // Die Umgebung muss die Änderung sehen: `setQuality` liefert die neue
+  // Environment-Map zurück, und die hängt an der Szene, nicht an der Gruppe.
+  applyEnvironment();
+  setStatus(`🎚 Bildqualität: ${QUALITAET_NAMEN[stufe]}`);
+}
 
 // Desktop: Standpunkt (Kamera + Orbit-Ziel) gemeinsam durch die Welt schieben,
 // sodass die gewohnte Orbit-Ansicht und Karten-Bedienung erhalten bleiben.
@@ -383,6 +458,7 @@ function updateHistoryButtons() {
   if (redo) redo.disabled = !history.canRedo;
 }
 
+interactions.onCardGrabStart = (card) => tweener.cancel(card.group);
 interactions.onCardMoved = () => commit('Karte verschoben');
 interactions.onCardScaled = () => commitSoon('Kartengröße');
 // Zonen hängen ebenfalls im Verlauf; die Whiteboard-Griffleiste löst hier zwar
@@ -397,15 +473,32 @@ let busy = false;
 
 let clearArmedAt = 0;
 let linkSource = null;
+// 'lose' = ungerichtete Linie, 'flow' = gerichteter Prozesspfeil. Beide laufen
+// über dieselbe Auswahl-Mechanik (Quelle merken, Ziel antippen).
+//
+// Der Wert hieß bis zur Entfernung des Mindmap-Layouts `'mindmap'`. Das war
+// schon vorher missverständlich – gemeint ist die Linie, nicht das Layout –,
+// und ohne das Layout wäre es ein Name ohne Gegenstück gewesen. Er steht in
+// keiner gespeicherten Datei: `connections.js` legt `directed: false` ab, nicht
+// diesen Bezeichner.
+let linkMode = 'lose';
+// Zuletzt gezogener Pfeil – „Zweig benennen" beschriftet ihn.
+let lastFlowEdge = null;
 
-function startLinking() {
+function startLinking(mode = 'lose') {
   const selected = cardManager.selected;
   if (!selected) {
     setStatus('Bitte zuerst eine Karte auswählen.');
     return;
   }
   linkSource = selected;
-  setStatus('🔗 Verbinden: Ziel-Karte anklicken (gleiche Karte oder Esc = abbrechen)', 0);
+  linkMode = mode;
+  setStatus(
+    mode === 'flow'
+      ? '➜ Pfeil: Ziel-Schritt anklicken (gleiche Karte oder Esc = abbrechen)'
+      : '🔗 Verbinden: Ziel-Karte anklicken (gleiche Karte oder Esc = abbrechen)',
+    0
+  );
 }
 
 // Meldet Wiederholversuche an die Ladeanzeige, damit eine hakelige Verbindung
@@ -413,7 +506,9 @@ function startLinking() {
 function aiProgress(label) {
   return {
     onProgress: ({ attempt, maxAttempts, waitMs, message }) => {
-      setBusyLabel(`${label} – Versuch ${attempt + 1}/${maxAttempts} in ${Math.ceil(waitMs / 1000)} s`);
+      setBusyLabel(
+        `${label} – Versuch ${attempt + 1}/${maxAttempts} in ${Math.ceil(waitMs / 1000)} s`
+      );
       setStatus(`⚠️ ${message} Neuer Versuch…`, 0);
     },
   };
@@ -433,12 +528,55 @@ async function handleAction(action) {
       cycleEnvironment();
       return;
     }
+    if (action === 'quality') {
+      cycleQuality();
+      return;
+    }
     if (action === 'fontsize') {
       cycleCardFont();
       return;
     }
     if (action === 'voice') {
       toggleVoiceCommands();
+      return;
+    }
+    if (action === 'flow-node') {
+      newFlowNode();
+      return;
+    }
+    if (action === 'flow-type') {
+      cycleFlowType();
+      return;
+    }
+    if (action === 'flow-arrow') {
+      startLinking('flow');
+      return;
+    }
+    if (action === 'flow-label') {
+      labelFlowEdge();
+      return;
+    }
+    if (action === 'flow-layout') {
+      const count = layoutFlow(cardManager.cards, connectionManager.connections, camera, scene);
+      if (!count) {
+        setStatus('Noch keine Prozessschritte da – erst „Schritt" oder „Aus Text" benutzen.');
+        return;
+      }
+      commit('Prozess angeordnet');
+      setStatus(`⤓ ${count} Schritte angeordnet.`);
+      return;
+    }
+    if (action === 'flow-generate') {
+      buildFlowFromText();
+      return;
+    }
+    if (action === 'flow-export') {
+      const count = downloadMermaid(boardToJSON());
+      setStatus(
+        count
+          ? `⬇️ ${count} Schritte als Mermaid gespeichert.`
+          : 'Kein Prozessdiagramm auf dem Board – erst Schritte anlegen.'
+      );
       return;
     }
     if (action === 'undo') {
@@ -455,23 +593,6 @@ async function handleAction(action) {
       setStatus(label ? `↷ Wiederhergestellt: ${label}` : 'Kein Schritt zum Wiederherstellen.');
       return;
     }
-    if (action === 'save') {
-      const entry = saveSnapshot(boardToJSON());
-      setStatus(`💾 Sicherungspunkt angelegt (${entry.cards} Karten).`);
-      return;
-    }
-    if (action === 'load') {
-      const entry = loadSnapshot(0);
-      if (!entry) {
-        setStatus('Noch kein Sicherungspunkt vorhanden – erst „💾 Sichern".');
-        return;
-      }
-      applyBoardJSON(entry.data);
-      commit('Sicherungspunkt geladen');
-      const time = new Date(entry.at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-      setStatus(`📂 Sicherungspunkt von ${time} geladen (${cardManager.cards.length} Karten).`);
-      return;
-    }
     if (action === 'export') {
       const count = downloadBoard(boardToJSON());
       setStatus(
@@ -485,7 +606,11 @@ async function handleAction(action) {
       const show = !whiteboard.group.visible;
       whiteboard.setVisible(show);
       if (show) whiteboard.placeInFront(camera);
-      setStatus(show ? '📋 Whiteboard eingeblendet – einfach drauf loszeichnen.' : 'Whiteboard ausgeblendet.');
+      setStatus(
+        show
+          ? '📋 Whiteboard eingeblendet – einfach drauf loszeichnen.'
+          : 'Whiteboard ausgeblendet.'
+      );
       return;
     }
     if (action === 'sketch') {
@@ -502,7 +627,10 @@ async function handleAction(action) {
         { image, ideas: cardManager.cards.map((c) => c.text) },
         aiProgress('Claude liest die Skizze…')
       );
-      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       commit('Ideen aus Skizze');
       setStatus(`✨ ${result.length} Ideen aus der Skizze erstellt.`);
       return;
@@ -518,7 +646,10 @@ async function handleAction(action) {
       return;
     }
     if (action === 'zone') {
-      const zone = zoneManager.addZone({ title: 'Neue Zone', colorIndex: zoneManager.zones.length });
+      const zone = zoneManager.addZone({
+        title: 'Neue Zone',
+        colorIndex: zoneManager.zones.length,
+      });
       zone.placeInFront(camera);
       commit('Zone erstellt');
       setStatus('🗂️ Zone erstellt – Karten davor gruppieren. ✎ zum Umbenennen.');
@@ -543,7 +674,10 @@ async function handleAction(action) {
         { selectedIdea: selected.text, ideas: cardManager.cards.map((c) => c.text) },
         aiProgress('😈 Advocatus Diaboli prüft…')
       );
-      const cards = cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      const cards = cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       for (const card of cards) card.setColor(4); // Rot = kritische Einwände
       commit('Kritische Einwände');
       setStatus(`😈 ${result.length} kritische Einwände zu „${selected.text}“`);
@@ -564,7 +698,10 @@ async function handleAction(action) {
         { topic, ideas: cardManager.cards.map((c) => c.text) },
         aiProgress(`Start-Board zu „${topic}“…`)
       );
-      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       commit(`Themen-Start „${topic}“`);
       setStatus(`Start-Board zu „${topic}“: ${result.length} Ideen.`);
       return;
@@ -617,7 +754,10 @@ async function handleAction(action) {
         { selectedIdea: selected.text, ideas },
         aiProgress('Claude sucht verwandte Ideen…')
       );
-      cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       commit('Verwandte Ideen');
       setStatus(`${result.length} neue Ideen zu „${selected.text}“`);
     } else if (action === 'cluster') {
@@ -646,12 +786,17 @@ async function handleAction(action) {
       if (!clusterDefs.length) throw new Error('Keine verwertbaren Cluster erhalten.');
       cardManager.applyClusters(clusterDefs, camera);
       commit('Cluster angewendet');
-      setStatus(`${clusterDefs.length} Cluster angewendet – Karten wurden gruppiert und eingefärbt.`);
+      setStatus(
+        `${clusterDefs.length} Cluster angewendet – Karten wurden gruppiert und eingefärbt.`
+      );
     } else if (action === 'summary') {
       setStatus('Claude fasst das Board zusammen…', 0);
       setBusyLabel('Claude fasst zusammen…');
       const result = await requestIdeas('summary', { ideas }, aiProgress('Claude fasst zusammen…'));
-      const cards = cardManager.spawnIdeas(result.map((i) => i.text), camera);
+      const cards = cardManager.spawnIdeas(
+        result.map((i) => i.text),
+        camera
+      );
       // Eine Zusammenfassung ist deutlich länger als eine Idee. Sie bekommt
       // deshalb eine größere Karte – der Text schrumpft sonst zwar mit (siehe
       // shrinkToFit in textPanel.js), wäre auf Ideengröße aber winzig.
@@ -685,7 +830,10 @@ function cycleCardFont() {
 
 function updateFontButton() {
   const button = document.getElementById('btn-fontsize');
-  if (button) button.textContent = `Schrift: ${cardManager.fontStep.label}`;
+  // In den Label-Span schreiben, nicht in den Knopf: textContent auf dem
+  // Knopf würde das Icon gleich mit auslöschen.
+  const lbl = button?.querySelector('.lbl');
+  if (lbl) lbl.textContent = `Schrift: ${cardManager.fontStep.label}`;
 }
 
 // --- Sprachbefehle ---
@@ -712,10 +860,10 @@ const voice = new VoiceCommands({
   },
   onError: (message) => setStatus(`🎙 ${message}`, 6000),
   onStateChange: (active) => {
-    wristMenu.setActionActive('voice', active);
     const button = document.getElementById('btn-voice');
     if (button) {
-      button.textContent = active ? '🎙 Sprachbefehle: an' : '🎙 Sprachbefehle: aus';
+      const lbl = button.querySelector('.lbl');
+      if (lbl) lbl.textContent = active ? 'Sprachbefehle: an' : 'Sprachbefehle: aus';
       button.classList.toggle('active', active);
     }
   },
@@ -732,19 +880,167 @@ function toggleVoiceCommands() {
     return;
   }
   if (!voice.available) {
-    // Auf der Quest ist das keine Panne, sondern der Normalfall: Der Browser
-    // hat keine Spracherkennung, nur die Systemtastatur kann diktieren – und
-    // die läuft über die 🎤-Taste der Tastatur, nicht über Dauer-Zuhören.
-    setStatus(
-      isHeadsetBrowser()
-        ? 'Dauerhafte Sprachbefehle kann der Brillen-Browser nicht. Diktieren geht: „＋ Neue Karte" → 🎤 Sprechen.'
-        : speechUnavailableReason(),
-      8000
-    );
+    setStatus(speechUnavailableReason(), 8000);
     return;
   }
   voice.start();
-  setStatus('🎙 Sprachbefehle an – z. B. „neue Karte Fahrradständer", „Cluster", „rückgängig".', 7000);
+  setStatus(
+    '🎙 Sprachbefehle an – z. B. „neue Karte Fahrradständer", „Cluster", „rückgängig".',
+    7000
+  );
+}
+
+// --- Prozessflussdiagramm ---
+//
+// Die Knoten sind ganz normale Karten mit gesetztem `flowType` (siehe
+// FLOW_TYPES in cards.js). Dadurch erben sie Greifen, Auswahl, Undo/Redo,
+// Autosave und Export, ohne dass davon etwas nachgebaut werden müsste.
+
+// Reihenfolge beim Durchschalten: erst die häufigen Arten, dann zurück zur
+// gewöhnlichen Ideenkarte. Nur für VR – am Desktop wird die Form direkt
+// gewählt (Formleiste im Overlay und im Kontextmenü).
+const FLOW_CYCLE = ['task', 'decision', 'start', 'end', null];
+
+// Icons für die Formleiste im Kontextmenü – dieselben Miniaturformen wie im
+// Overlay. Vorher standen hier Unicode-Zeichen (⬭ ▭ ◇ ⬬), und die hatten genau
+// das Problem, das die Icons abgelöst haben: „Ende" (⬬) kam als *gefüllte*
+// Ellipse heraus, „Start" (⬭) als Umriss – zwei Formen, die im Diagramm gleich
+// aussehen, wirkten im Menü völlig verschieden, je nach installiertem Font.
+const FLOW_ICONS = {
+  start: 'flow-start',
+  task: 'flow-task',
+  decision: 'flow-decision',
+  end: 'flow-end',
+};
+
+// Eine Form setzen und den Schritt festhalten. Einziger Weg dorthin, damit
+// Overlay, Kontextmenü und VR-Menü sich nicht auseinanderentwickeln.
+function applyFlowType(card, id) {
+  if (!card) {
+    setStatus('Bitte zuerst eine Karte auswählen.');
+    return;
+  }
+  card.setFlowType(id);
+  commit('Form gewechselt');
+  updateFlowShapeRow();
+  setStatus(`Form: ${id ? flowTypeById(id).label : 'Normale Karte'}`);
+}
+
+// Formleiste im Overlay: zeigt, welche Form die ausgewählte Karte hat, und
+// setzt beim Klick direkt die gewünschte – kein Durchschalten wie in VR.
+function updateFlowShapeRow() {
+  const row = document.getElementById('flow-shapes');
+  if (!row) return;
+  const current = cardManager.selected?.flowType ?? null;
+  const hasSelection = Boolean(cardManager.selected);
+  for (const button of row.querySelectorAll('button')) {
+    const id = button.dataset.flowType || null;
+    button.classList.toggle('active', hasSelection && id === current);
+    button.disabled = !hasSelection;
+  }
+}
+
+async function newFlowNode() {
+  const text = await getUserText();
+  if (!text) return;
+  const card = cardManager.spawnIdeas([text], camera)[0];
+  card.setFlowType('task');
+  cardManager.select(card);
+  updateFlowShapeRow();
+  commit('Prozessschritt angelegt');
+  setStatus('Schritt angelegt – „◇ Form wechseln" macht daraus Start, Entscheidung oder Ende.');
+}
+
+function cycleFlowType() {
+  const card = cardManager.selected;
+  if (!card) {
+    setStatus('Bitte zuerst eine Karte auswählen.');
+    return;
+  }
+  const at = FLOW_CYCLE.indexOf(card.flowType);
+  applyFlowType(card, FLOW_CYCLE[(at + 1) % FLOW_CYCLE.length]);
+}
+
+async function labelFlowEdge() {
+  // Bevorzugt der zuletzt gezogene Pfeil; sonst der erste unbeschriftete
+  // Ausgang der gewählten Karte. Alles andere wäre eine zweite Auswahlrunde
+  // für eine Beschriftung von zwei Buchstaben.
+  let edge = lastFlowEdge;
+  if (!edge && cardManager.selected) {
+    edge = connectionManager.edgesFrom(cardManager.selected).find((e) => !e.label) ?? null;
+  }
+  if (!edge) {
+    setStatus('Erst einen Pfeil ziehen – oder die Karte wählen, von der er ausgeht.');
+    return;
+  }
+  // Leere Eingabe entfernt die Beschriftung. `getUserText()` liefert dafür
+  // null – dasselbe wie ein Abbruch –, deshalb wird hier unterschieden: Bei
+  // einer bereits beschrifteten Kante gilt „nichts eingegeben" als Löschen,
+  // sonst als Abbruch. Vorher war das Entfernen schlicht nicht erreichbar.
+  const text = await getUserText();
+  if (text === null && !edge.label) return;
+  const next = text ?? '';
+  if (!connectionManager.setLabel(edge, next)) {
+    lastFlowEdge = null;
+    setStatus('Dieser Pfeil gibt es nicht mehr.');
+    return;
+  }
+  commit('Zweig benannt');
+  setStatus(next ? `🏷 Zweig „${next}".` : 'Beschriftung entfernt.');
+}
+
+// Prozess aus einer Beschreibung bauen lassen und sofort anordnen.
+async function buildFlowFromText() {
+  if (busy) {
+    setStatus('Claude arbeitet noch – einen Moment.');
+    return;
+  }
+  const description = await getUserText();
+  if (!description) return;
+  try {
+    busy = true;
+    setStatus(`Claude baut den Prozess zu „${description}"…`, 0);
+    setBusyLabel(`Prozess zu „${description}"…`);
+    const data = await requestAI('flow', { topic: description }, aiProgress('Prozess'));
+    const nodes = Array.isArray(data?.nodes) ? data.nodes : [];
+    if (!nodes.length) throw new Error('Claude hat keinen verwertbaren Prozess geliefert.');
+
+    // Vorhandene Prozessschritte weichen dem neuen Diagramm.
+    //
+    // Ohne das lägen zwei Prozesse übereinander: „⤓ Anordnen" rangiert alle
+    // Prozessknoten gemeinsam, beide Startknoten landen auf Rang 0 und beide
+    // Ketten teilen sich dieselben Spalten – das sieht nach kaputtem Layout
+    // aus, nicht nach zwei Diagrammen. Ideenkarten bleiben unangetastet, und
+    // Rückgängig holt den alten Prozess zurück.
+    const previous = cardManager.cards.filter((c) => c.flowType);
+    for (const node of previous) cardManager.removeCard(node);
+
+    // Antwort-IDs sind nur innerhalb der Antwort gültig – hier auf die echten
+    // Karten-IDs abgebildet.
+    const byResponseId = new Map();
+    for (const node of nodes) {
+      const card = cardManager.addCard(node.text, { flowType: node.type });
+      byResponseId.set(node.id, card);
+    }
+    for (const edge of Array.isArray(data?.edges) ? data.edges : []) {
+      const from = byResponseId.get(edge.from);
+      const to = byResponseId.get(edge.to);
+      if (from && to) connectionManager.connect(from, to, { label: edge.label });
+    }
+    layoutFlow(cardManager.cards, connectionManager.connections, camera, scene);
+    commit('Prozess erzeugt');
+    setStatus(
+      previous.length
+        ? `✨ Prozess mit ${nodes.length} Schritten gebaut – der vorherige wurde ersetzt (↶ holt ihn zurück).`
+        : `✨ Prozess mit ${nodes.length} Schritten gebaut.`,
+      7000
+    );
+  } catch (err) {
+    showError(err.message);
+  } finally {
+    busy = false;
+    setBusyLabel(null);
+  }
 }
 
 // Themen-Start mit bereits bekanntem Thema (aus einem Sprachbefehl).
@@ -762,7 +1058,10 @@ async function startTopic(topic) {
       { topic, ideas: cardManager.cards.map((c) => c.text) },
       aiProgress(`Start-Board zu „${topic}“…`)
     );
-    cardManager.spawnIdeas(result.map((i) => i.text), camera);
+    cardManager.spawnIdeas(
+      result.map((i) => i.text),
+      camera
+    );
     commit(`Themen-Start „${topic}“`);
     setStatus(`Start-Board zu „${topic}“: ${result.length} Ideen.`);
   } catch (err) {
@@ -781,22 +1080,17 @@ async function startTopic(topic) {
 // als gleichwertigem Weg für alle, die nicht tippen wollen.
 async function getUserText() {
   if (renderer.xr.isPresenting) {
-    // Der Befehls-Erkenner muss das Mikrofon abgeben, sonst streiten sich beide
-    // und der diktierte Text landet als Kommando.
-    voice.pause();
-    try {
-      return await new Promise((resolve) => {
-        keyboard.open(camera, {
-          onSubmit: (text) => resolve(text),
-          onCancel: () => {
-            setStatus('');
-            resolve(null);
-          },
-        });
+    // In XR wird getippt. Spracheingabe ist dort abgeschaltet (siehe speech.js),
+    // es gibt also auch keinen Erkenner, der ums Mikrofon streiten könnte.
+    return await new Promise((resolve) => {
+      keyboard.open(camera, {
+        onSubmit: (text) => resolve(text),
+        onCancel: () => {
+          setStatus('');
+          resolve(null);
+        },
       });
-    } finally {
-      voice.resume();
-    }
+    });
   }
   const input = document.getElementById('idea-input');
   const text = input.value.trim();
@@ -819,6 +1113,12 @@ async function newCardFlow() {
 
 // --- Desktop-UI ---
 
+// Alle data-icon-Halterungen im Overlay und Kontextmenü mit ihren SVGs
+// bestücken – einmal beim Start, die Elemente sind statisches Markup. Wirft
+// bei unbekanntem Icon-Namen, damit ein Tippfehler nicht als leere Halterung
+// überlebt.
+decorateIcons();
+
 const DESKTOP_BUTTONS = {
   'btn-new': 'new',
   'btn-related': 'related',
@@ -830,16 +1130,28 @@ const DESKTOP_BUTTONS = {
   'btn-topic': 'topic',
   'btn-whiteboard': 'whiteboard',
   'btn-export': 'export',
+  'btn-mermaid': 'flow-export',
+  'btn-flow': 'flow-generate',
+  'btn-flow-arrow': 'flow-arrow',
+  'btn-flow-label': 'flow-label',
+  'btn-flow-layout': 'flow-layout',
   'btn-clear': 'clear',
   'btn-env': 'environment',
   'btn-undo': 'undo',
   'btn-redo': 'redo',
-  'btn-save': 'save',
-  'btn-load': 'load',
 };
 for (const [id, action] of Object.entries(DESKTOP_BUTTONS)) {
   document.getElementById(id)?.addEventListener('click', () => handleAction(action));
 }
+
+// Formleiste: setzt die Form der ausgewählten Karte direkt.
+document.getElementById('flow-shapes')?.addEventListener('click', (e) => {
+  const id = e.target?.dataset?.flowType;
+  if (id === undefined) return;
+  applyFlowType(cardManager.selected, id || null);
+});
+cardManager.onSelect = () => updateFlowShapeRow();
+updateFlowShapeRow();
 document.getElementById('idea-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') handleAction('new');
 });
@@ -865,7 +1177,8 @@ async function toggleDesktopDictation() {
   voice.pause(); // nicht gleichzeitig auf Befehle horchen
   const before = input.value.trim();
   if (dictateButton) {
-    dictateButton.textContent = '🎙 Hört zu…';
+    const lbl = dictateButton.querySelector('.lbl');
+    if (lbl) lbl.textContent = 'Hört zu…';
     dictateButton.classList.add('active');
   }
   setStatus('🎤 Sprich jetzt…', 0);
@@ -886,7 +1199,8 @@ async function toggleDesktopDictation() {
     dictateAbort = null;
     voice.resume();
     if (dictateButton) {
-      dictateButton.textContent = '🎤 Diktieren';
+      const lbl = dictateButton.querySelector('.lbl');
+      if (lbl) lbl.textContent = 'Diktieren';
       dictateButton.classList.remove('active');
     }
   }
@@ -894,6 +1208,19 @@ async function toggleDesktopDictation() {
 
 dictateButton?.addEventListener('click', toggleDesktopDictation);
 document.getElementById('btn-voice')?.addEventListener('click', () => handleAction('voice'));
+
+// Auf einer Brille verschwinden beide Knöpfe ganz.
+//
+// Sie stehen im Desktop-Overlay, das auf der Quest vor dem Start der Sitzung
+// als normale Webseite sichtbar ist – dort wären sie erreichbar, könnten aber
+// nur scheitern: Spracherkennung gibt es auf dem Gerät nicht. Ein Knopf, der
+// bestenfalls eine Fehlermeldung ausgibt und schlimmstenfalls den Browser
+// mitreißt, gehört nicht in die Oberfläche.
+if (isHeadsetBrowser()) {
+  for (const id of ['btn-dictate', 'btn-voice']) {
+    document.getElementById(id)?.remove();
+  }
+}
 document.getElementById('btn-fontsize')?.addEventListener('click', () => handleAction('fontsize'));
 
 // --- Overlay ein-/ausklappen (Desktop) ---
@@ -957,6 +1284,19 @@ interactions.onCardPick = (card) => {
     setStatus('Verbinden abgebrochen.');
     return true;
   }
+  if (linkMode === 'flow') {
+    const result = connectionManager.connect(linkSource, card);
+    lastFlowEdge = result === 'added' ? connectionManager.findDirected(linkSource, card) : null;
+    haptics.pulse('connect');
+    commit(result === 'added' ? 'Pfeil gezogen' : 'Pfeil entfernt');
+    setStatus(
+      result === 'added'
+        ? '➜ Pfeil gezogen. „🏷 Zweig benennen" beschriftet ihn.'
+        : 'Pfeil entfernt.'
+    );
+    linkSource = null;
+    return true;
+  }
   const result = connectionManager.toggle(linkSource, card);
   haptics.pulse('connect');
   commit(result === 'added' ? 'Verbindung erstellt' : 'Verbindung entfernt');
@@ -1003,8 +1343,39 @@ contextMenu.addEventListener('click', (e) => {
   } else if (action === 'connect') {
     cardManager.select(card);
     startLinking();
+  } else if (action === 'flow-arrow') {
+    cardManager.select(card);
+    startLinking('flow');
   }
 });
+
+// Formauswahl im Kontextmenü – nach demselben Muster wie die Farbpunkte.
+// Beschriftet wie die Formleiste im Overlay: Fünf namenlose Symbole
+// untereinander waren nicht zu deuten, und breiter wird das Menü davon nicht –
+// die Chips brechen um und brauchen zusammen weniger Platz als vorher fünf
+// volle Zeilen.
+const contextFlowRow = document.getElementById('context-flow-row');
+if (contextFlowRow) {
+  const entries = [
+    ...FLOW_TYPES.map((t) => ({ id: t.id, label: t.label, icon: FLOW_ICONS[t.id] })),
+    { id: null, label: 'Karte', icon: 'flow-none' },
+  ];
+  for (const entry of entries) {
+    const button = document.createElement('button');
+    button.textContent = entry.label;
+    button.dataset.icon = entry.icon;
+    button.title = entry.id ? `Form: ${entry.label}` : 'Form entfernen – wieder normale Karte';
+    button.addEventListener('click', () => {
+      const card = contextCard;
+      closeContextMenu();
+      if (card) applyFlowType(card, entry.id);
+    });
+    contextFlowRow.appendChild(button);
+  }
+  // decorateIcons() ist oben schon gelaufen – diese Knöpfe entstehen erst
+  // jetzt und brauchen ihren eigenen Durchgang.
+  decorateIcons(contextFlowRow);
+}
 
 // Farbpunkte im Kontextmenü
 const colorRow = document.getElementById('color-row');
@@ -1137,7 +1508,7 @@ async function setupXRButton() {
     return;
   }
   xrMode = arOk ? 'immersive-ar' : 'immersive-vr';
-  button.textContent = arOk ? '🥽 Mixed Reality starten (Passthrough)' : '🥽 VR starten';
+  button.textContent = arOk ? 'Mixed Reality starten (Passthrough)' : 'VR starten';
   button.disabled = false;
   button.addEventListener('click', async () => {
     try {
@@ -1160,6 +1531,10 @@ renderer.xr.addEventListener('sessionstart', () => {
   setXRPresenting(true);
   voice.stop();
   controls.enabled = false;
+  // Sparsame Fassung in der Brille. Gemessen kostet allein die IBL-Abtastung
+  // ein Viertel der Frame-Zeit; welche Umgebung das betrifft, entscheidet sie
+  // selbst (siehe src/dojo/quality.js).
+  applyQualityTier();
   locomotion.reset(); // Fortbewegungs-Rig zentriert starten
   if (xrMode === 'immersive-ar') {
     // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
@@ -1178,6 +1553,7 @@ renderer.xr.addEventListener('sessionstart', () => {
 renderer.xr.addEventListener('sessionend', () => {
   setXRPresenting(false);
   controls.enabled = true;
+  applyQualityTier();
   // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
   locomotion.reset();
   camera.position.set(0, 1.6, 1.2);
@@ -1233,6 +1609,55 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
+const _boundsHead = new THREE.Vector3();
+
+// --- Begehbarer Bereich aus mehreren Zonen -----------------------------------
+//
+// Eine einzige Box reicht nicht mehr, seit der Garten betretbar sein soll: Raum,
+// Türdurchgang, Veranda, Stufe und Kiesbeet sind zusammen ein L, kein Rechteck.
+// Eine Box um beides ließe den Nutzer **neben** der Tür durch die Südwand
+// laufen.
+//
+// **Warum nicht „die Zone mit der kleinsten Korrektur".** Das war der erste
+// Entwurf und er ist falsch: Steht man im Raum bei x = 1,5 vor der geschlossenen
+// Wand und drückt nach Süden, dann liegt der nächste Punkt der Verandazone
+// näher als der Raumrand – man würde durch die Wand geschoben. Die Sperre ist
+// eine Projektion, kein Kollisionssystem; sie kennt keinen Weg.
+//
+// **Kette statt Nähe.** Man wechselt nur in eine Zone, in der man bereits
+// **steht**. Sonst wird auf die aktuelle Zone geklemmt. Benachbarte Zonen
+// überlappen sich deshalb großzügig – ohne Überlappung käme man nie hinüber,
+// und bei zu knapper Überlappung springt man bei hoher Geschwindigkeit darüber
+// hinweg (3,4 m/s mal 0,1 s Bildabstand sind 34 cm pro Bild).
+//
+// Damit entsteht ein Korridor ohne Wegfindung: Aus dem Raum erreicht man die
+// Veranda nur durch den Türdurchgang, weil nur dessen Zone den Streifen
+// dazwischen abdeckt.
+let _zoneIndex = 0;
+let _zoneEnv = -1;
+let _floorY = 0;
+
+function resolveBounds(bounds, px, pz) {
+  const zones = bounds.zones;
+  if (!zones) {
+    return {
+      x: Math.min(Math.max(px, bounds.minX), bounds.maxX),
+      z: Math.min(Math.max(pz, bounds.minZ), bounds.maxZ),
+      floorY: 0,
+    };
+  }
+  const inside = (z) => px >= z.minX && px <= z.maxX && pz >= z.minZ && pz <= z.maxZ;
+  if (!inside(zones[_zoneIndex])) {
+    const k = zones.findIndex(inside);
+    if (k >= 0) _zoneIndex = k;
+  }
+  const z = zones[_zoneIndex];
+  return {
+    x: Math.min(Math.max(px, z.minX), z.maxX),
+    z: Math.min(Math.max(pz, z.minZ), z.maxZ),
+    floorY: z.floorY ?? 0,
+  };
+}
 // THREE.Timer statt des abgekündigten THREE.Clock (three ≥ r180 warnt sonst bei
 // jedem Start). Mit connect(document) liefert er nach einem Tab-Wechsel kein
 // riesiges Delta mehr – Karten und Animationen springen dadurch nicht.
@@ -1253,7 +1678,10 @@ renderer.setAnimationLoop(() => {
   // Rigs und liefert die echte Weltpose (dieselbe Falle wie in locomotion.js).
   wristMenu.update(camera);
   hud.update(dt);
-  connectionManager.update();
+  // Vor connectionManager.update: Die Linien sollen den fahrenden Karten in
+  // demselben Frame folgen, nicht einen hinterher.
+  tweener.update(dt);
+  connectionManager.update(camera);
   if (envIndex >= 0) environments[envIndex].update?.(elapsed);
   timer.update(elapsed);
   if (renderer.xr.isPresenting) {
@@ -1262,6 +1690,74 @@ renderer.setAnimationLoop(() => {
     updateDesktopMovement(dt);
     controls.update();
   }
+  // Den Nutzer im Raum halten.
+  //
+  // Eine geschlossene Umgebung kann eine Begrenzung angeben; wer sie hat,
+  // bekommt sie jeden Frame durchgesetzt. Ohne das laeuft man mit dem Stick
+  // durch die Wand und steht im schwarzen Nichts hinter der Szene – was in VR
+  // besonders unangenehm ist, weil nichts mehr Orientierung gibt.
+  //
+  // Geklemmt wird das **Rig**, nicht die Kamera: Die Kamera ist Kind des Rigs
+  // und traegt in XR zusaetzlich die Kopfpose. Die Kamera zu verschieben wuerde
+  // gegen das Headset-Tracking arbeiten und Uebelkeit ausloesen.
+  const activeBounds = envIndex >= 0 ? environments[envIndex].bounds : null;
+  if (activeBounds) {
+    if (_zoneEnv !== envIndex) {
+      _zoneEnv = envIndex;
+      _zoneIndex = 0;
+      _floorY = activeBounds.zones?.[0]?.floorY ?? 0;
+    }
+    const head = camera.getWorldPosition(_boundsHead);
+    const ziel = resolveBounds(activeBounds, head.x, head.z);
+    const dx = ziel.x - head.x;
+    const dz = ziel.z - head.z;
+
+    // Bodenhöhe weich nachführen. Der Kies liegt 42 cm unter dem Raumboden;
+    // als Sprung ist das in der Brille unangenehm, über ein paar Bilder
+    // verteilt liest es sich als Stufe.
+    const dy = (ziel.floorY - _floorY) * Math.min(1, dt * 7);
+    _floorY += dy;
+
+    if (renderer.xr.isPresenting) {
+      // In XR wird das **Rig** verschoben, nie die Kamera: Die Kamera ist Kind
+      // des Rigs und trägt zusätzlich die Kopfpose. Sie zu verschieben würde
+      // gegen das Headset-Tracking arbeiten und Übelkeit auslösen. Der Versatz
+      // zwischen Rig und Kopf bleibt dabei erhalten, weil die Korrektur aus der
+      // **Kopf**position stammt und auf das Rig angewendet wird.
+      player.position.x += dx;
+      player.position.z += dz;
+      // Der Rig steht auf dem Boden; die Augenhöhe kommt aus der Brille.
+      player.position.y = _floorY;
+    } else {
+      // **Am Desktop wird die Kamera geklemmt, nicht der Rig.**
+      //
+      // `updateDesktopMovement` schiebt die Kameraposition (lokal – die Kamera
+      // hängt im Player-Rig) und das Orbit-Ziel (Welt) um denselben Betrag.
+      // Solange `player.position` null ist, ist das dasselbe Bezugssystem.
+      // Verschiebt die Sperre den Rig, ist es das nicht mehr, und
+      // `controls.update()` rechnet die Kameraposition ab da aus einem Ziel,
+      // das um `player.position` daneben liegt. Gemessen (sperre.mjs): Nach dem
+      // ersten Eingriff fuhr der Nutzer rückwärts, während er vorwärts drückte,
+      // und der Drehpunkt der Maussteuerung lag 2,15 m neben ihm – das
+      // gemeldete „irgendwann drehe ich mich im Kreis".
+      //
+      // Kamera und Ziel wandern deshalb um denselben Vektor; ihr
+      // Kugelkoordinaten-Abstand bleibt erhalten und `controls.update()` im
+      // nächsten Bild stabil. Dass der Rig am Desktop wirklich identisch ist,
+      // stellt `locomotion.reset()` sicher – es läuft bei sessionstart **und**
+      // sessionend.
+      camera.position.x += dx;
+      camera.position.z += dz;
+      camera.position.y = Math.min(
+        Math.max(camera.position.y + dy, _floorY + 0.25),
+        activeBounds.maxY
+      );
+      controls.target.x += dx;
+      controls.target.z += dz;
+      controls.target.y += dy;
+    }
+  }
+
   renderer.render(scene, camera);
 
   // Nach dem ersten gerenderten XR-Frame hat die XR-Kamera eine gültige Pose –
@@ -1294,8 +1790,12 @@ window.__app = {
   cardManager,
   connectionManager,
   keyboard,
-  systemKeyboard,
   voice,
+  flow: {
+    layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera, scene),
+    types: FLOW_TYPES,
+  },
+  tweener,
   wristMenu,
   whiteboard,
   zoneManager,

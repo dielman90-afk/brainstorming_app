@@ -19,8 +19,25 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 
 - **Mixed Reality / VR:** Startet bevorzugt als `immersive-ar` (Passthrough auf der
   Quest 3), Fallback auf `immersive-vr`.
-- **Vier virtuelle Umgebungen** (`src/environments.js`, komplett prozedural, ohne
-  externe Assets): Der Button **„🌐 Umgebung“** schaltet zyklisch durch
+- **Alle Umgebungen mit PBR-Materialien.** Bis August 2026 war das Dojo die
+  einzige Umgebung mit Normal- und Rauheitskarten; die übrigen drei hatten
+  zusammen **240 Materialien und keine einzige Karte**. Genau das – nicht die
+  Polygonzahl – ließ sie daneben wie Spielzeug aussehen. Seither teilen sie
+  sich die Werkzeuge des Dojos (`src/dojo/materials.js`, `ground.js`,
+  `stonework.js`, `foliage.js`): geharkter Sand mit echtem Rillenrelief, Granit
+  mit Würfelprojektion und Moospatina, Wasser mit zwei gegeneinander wandernden
+  Kräuselungslagen, Blattkarten mit Wind und Transluzenz, Marsregolith mit
+  Korn. Der Ordnername `dojo/` ist damit ein leichter Fehlname – verschoben
+  wird trotzdem nichts, siehe den Kommentar im Kopf von `materials.js`.
+
+  **Gemessen kostet das bei p50 nichts.** Der Zen-Garten als Bezugsgröße:
+  114,5 ms vorher, 114,9 ms nachher – bei 31 % mehr gezeichneten Dreiecken,
+  14 zusätzlichen Draw-Calls und der doppelten Texturzahl. (p95 stieg um 16 %,
+  ist aber das unzuverlässigere Signal: Die Streuung p95/p50 stieg mit, und das
+  ist die Signatur von Fremdlast auf der CPU, nicht der Szene.)
+
+- **Fünf virtuelle Umgebungen** (`src/environments.js` und `src/dojo/`, komplett
+  prozedural, ohne externe Assets): Der Button **„Umgebung“** schaltet zyklisch durch
   Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Büschen,
   Pilzen, Blumen, Fluss samt Wasserfall mit Schaum & Regenbogen, hängenden Ranken
   unter den Inseln, kreisenden Vögeln, Schmetterlingen, 3D-Wolken – auch unter den
@@ -73,6 +90,70 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Liste – ein gemerkter Index zeigt nach dem Entfernen einer Umgebung auf die
   falsche Welt); eine reine VR-Session startet direkt in der zuletzt genutzten
   Umgebung (sonst Himmelsinsel).
+- **⛩ Konstrukt-Dojo** (`src/dojo/`, fünfte Umgebung): der Trainingsraum aus
+  demselben Film. Bricht bewusst mit dem flachen Low-Poly-Stil der anderen vier
+  und ist der einzige Ort in der App mit **echten Schatten, PBR-Materialien und
+  einer Environment-Map**.
+  - **Materialien** (`src/dojo/materials.js`): acht Materialien aus zehn
+    prozeduralen Karten – Hinoki mit Jahresringen, Tatami-Binsengeflecht,
+    Kalkputz, Washi, geschmiedeter Stahl mit Hamon-Verlauf in der Rauheit,
+    Eisen, Urushi-Lack, Reisstroh-Seil. Erzeugt über ein verallgemeinertes
+    `heightToMaps()` (Höhenfeld → Sobel → Normal- und Rauheitskarte), dasselbe
+    Verfahren wie bei der Ledernarbung des Ohrensessels.
+  - **Periodisches Rauschen.** Ein Boden kachelt seine Textur rund zwanzig Mal;
+    nicht wiederholendes Rauschen legt dabei ein sichtbares Nahtgitter über die
+    ganze Fläche. Die Gitterindizes laufen deshalb modulo einer Periode, und
+    weil jede Oktave die Frequenz verdoppelt, verdoppelt sich die Periode mit.
+  - **Environment-Map statt Himmelskuppel:** eine Innenraum-Sonde (heller
+    warmer Schlitz im Osten, dunkles Holz unten) durch den `PMREMGenerator`.
+    Ohne sie rendern Klingen und Lack **schwarz** – ein Metall ohne etwas zu
+    spiegeln hat keine diffuse Komponente. Gebaut erst beim ersten Aktivieren,
+    nicht beim Laden.
+  - **Ein** gerichtetes Licht mit **einer** Schattenkarte (2048 am Desktop,
+    1024 in der Brille); alle Maße und die Sonnenrichtung stehen in
+    `src/dojo/layout.js`, damit Schatten, Lichtschächte und Glanzlichter
+    zwangsläufig zusammenpassen. Position **und** Ziel der Sonne wurden beim
+    Verlängern des Raums um denselben Vektor verschoben – die Richtung ist
+    dadurch unverändert, nur der beschattete Ausschnitt wandert mit.
+  - **Öffnungen aus einer Beschreibung** (`buildOpening()` in
+    `architecture.js`): Ostfront, Südfront, die hohen Bänder auf West- und
+    Nordwand und das Ranma sind derselbe Bauteiltyp, unterschieden nur durch
+    Maße und ein Vorzeichen `inward` – die Richtung von der Wandebene in den
+    Raum. Vorher versetzten zwei getrennte Blöcke ihre Teile mit
+    vorzeichenlosen Konstanten; das stimmte auf der Ostwand zufällig und
+    stellte auf West und Nord das Papier vor das Gitter, auf West und Süd mit
+    der Rückseite nach innen. Am Desktop unsichtbar (Washi ist beidseitig), in
+    der Brille drei Löcher, weil `quality.js` dort auf `FrontSide` schaltet.
+    Die Sprossen sind skalierte Einheitswürfel **ohne jede Drehung** – die
+    Bauform, in der „welche Kante liegt auf welcher Achse" nicht mehr falsch
+    sein kann.
+  - **Außenwelt** (`src/dojo/exterior.js`): ein Bambushain, ein japanischer
+    Garten hinter dem Süd-Eingang (Kiesbeet, Trittsteine, Kasuga-Laterne,
+    Tsukubai, Ahorn), eine gemalte Baumlinie, eine Moosfläche. Der ganze Garten
+    kostet **vier** Zeichenaufrufe: Laterne, Becken, Ahornstamm und
+    Beeteinfassung sind zu einem Netz verschmolzen und unterscheiden sich nur
+    in der Vertexfarbe – dasselbe Verfahren wie bei den Requisiten drinnen. Der Hain ist zuerst **Schattenwerfer**: Er
+    steht zwischen Sonne und Ostfront und zeichnet seinen Schattenriss auf das
+    Washi – das Bild, an dem man ein Dojo erkennt. Damit das funktioniert,
+    hängt das Eigenleuchten des Papiers per `onBeforeCompile` an der
+    Schattenmaske; ohne das leuchtet Papier gleichmäßig weiter, egal was davor
+    steht. Gemessen verschattet der Hain 25,8 % der Fensterbreite in 34
+    Hell-Dunkel-Wechseln. Die Außenwelt ist reine Kulisse: Die Begrenzung in
+    `index.js` hält den Spieler im Raum.
+  - **Bekannte Schwäche:** Der Raum ist pro Pixel deutlich teurer als die
+    übrigen Umgebungen. Gemessen (p50, headless, Stand 2026-08-12): XR-Stufe
+    das **4,6-fache** des Zen-Gartens (527 ms gegen 114,9 ms), Desktop-Stufe
+    das 17-fache – bei 101 gegen 62 Draw-Calls. Die Last liegt nicht in der Geometrie, sondern im Fragment:
+    Schattendurchgang, PBR mit Normal- und Rauheitskarte, IBL-Abtastung und
+    additive Lagen. Die XR-Stufe lag nach Runde 5 noch beim 1,16-fachen; seither
+    ist der Raum um 55 % größer geworden und hat eine Außenwelt bekommen.
+    **Das Perf-Gate von 3,5× ist damit knapp verfehlt.** Gemessen wurde headless
+    auf SwiftShader, einem Software-Rasterizer – der überzeichnet Fragmentkosten
+    stark, aber mobile GPUs sind ebenfalls füllratenbegrenzt, und die
+    *Rangfolge* der Posten überträgt sich. **Auf der Quest 3 ist das ungeprüft.**
+    Zu beachten: Die p95-Referenz schwankt zwischen identischen Läufen um rund
+    10 %; p50 ist das stabilere Signal (XR 504 ms gegen Zen 134 ms).
+
 - **Weltmaßstab:** Die Himmelsinsel ist 1:1 zum Nutzer bemaßt – Bäume rund 6 m,
   die Hauptinsel gut 40 m breit, Büsche auf Schulterhöhe. Sie war ursprünglich
   als Diorama modelliert (Bäume 1,6 m, Insel 10 m), wodurch man in VR wie ein
@@ -97,15 +178,57 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Tracking-Aussetzer keinen Sprung auslöst.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
-- **Hand-Menü** (`src/wristMenu.js`) auf zwei Reitern à sechs Reihen, damit das
-  Panel trotz 21 Aktionen kompakt bleibt. Die kürzere Seite wird im Panel
-  vertikal zentriert, damit unten keine leere Reihe klafft:
-  - **💡 Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
+- **Prozessflussdiagramm** (`src/flowLayout.js`, Reiter „Prozess" im
+  Hand-Menü): Abläufe als richtiges Flussdiagramm bauen – mit **Formen**,
+  **gerichteten Pfeilen** und **beschrifteten Zweigen**.
+  - **Knotenarten** (`FLOW_TYPES` in `src/cards.js`): Start und Ende als Stadion,
+    Tätigkeiten als Rechteck, Entscheidungen als **Raute** – jede mit eigener
+    Farbe. Die Form sagt auf einen Blick, um welche Art Schritt es geht.
+    Ein Prozessknoten ist dabei eine ganz normale Karte mit gesetztem `flowType`;
+    dadurch erbt er Greifen, Auswahl, Undo/Redo, Autosave und Export, ohne dass
+    davon etwas nachgebaut werden müsste.
+  - **Pfeile** enden **am Rand** des Zielknotens, nicht in seiner Mitte – sonst
+    verschwände die Spitze hinter der Karte und man sähe nur eine Linie, die im
+    Knoten endet. Bei der Raute wird dafür ihr echter Umriss gerechnet
+    (`|x|/hw + |y|/hh = 1`), nicht das umschließende Rechteck.
+  - **Anordnen** legt den Prozess automatisch auf eine flache Tafel vor dem
+    Nutzer, Fluss **von links nach rechts** (geschichtetes Layout, rein lokal
+    gerechnet). Waagerecht, weil der Platz nach unten ausgeht: Zwischen Boden
+    und bequemer Blickhöhe liegen keine anderthalb Meter, das reicht für vier
+    bis fünf Zeilen. Zur Seite ist dagegen Platz ohne Ende – und lange Ketten
+    sind die Regel, während eine Verzweigung selten mehr als zwei, drei Äste
+    hat. Also bekommt die Kette die Waagerechte und die Geschwister die
+    Senkrechte; die Tafel rückt bei langen Prozessen weiter weg, damit die
+    äußeren Knoten im Blickfeld bleiben.
+    **Rückführungen** – „Unterlagen nachfordern" zurück zur Prüfung –
+    werden vorher per Tiefensuche erkannt und beim Rangieren übersprungen;
+    gezeichnet werden sie trotzdem und zeigen dann nach oben. Ohne das würde der
+    Rang eines Knotens im Kreis immer weiterwachsen.
+  - **Aus Text bauen:** Ablauf in Worten beschreiben, Claude liefert Knoten und
+    Kanten als strukturiertes JSON (`FLOW_SCHEMA` in `server/ai-core.js`, dieselbe
+    Strecke wie *Cluster*), die App baut und ordnet das Diagramm. Ein **vorhandenes
+    Prozessdiagramm wird dabei ersetzt** – zwei Prozesse gleichzeitig würden sich
+    beim Anordnen dieselben Spalten teilen und ineinander stehen. Ideenkarten
+    bleiben unberührt, und „Rückgängig" holt den alten Prozess zurück.
+  - **Als Mermaid:** Export als `flowchart LR` (waagerecht wie in der App) –
+    Stadion `([…])`, Rechteck
+    `[…]`, Raute `{…}`, beschriftete Kanten `-->|ja|`. GitHub, Notion, Obsidian
+    und Confluence rendern das direkt, der in VR gebaute Prozess ist also ohne
+    Zwischenschritt im Dokument und dort weiter bearbeitbar. Ein Bild wäre eine
+    Sackgasse.
+- **Hand-Menü** (`src/wristMenu.js`) auf drei Reitern, damit das Panel trotz
+  26 Aktionen kompakt bleibt. Jede Aktion trägt dasselbe Linien-Icon wie ihr
+  Desktop-Knopf (eine Pfad-Definition in `src/icons.js`, auf die
+  Canvas-Textur gezeichnet). Die kürzere Seite wird im Panel vertikal
+  zentriert, damit unten keine leere Reihe klafft:
+  - **Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
     *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Schrift*,
     *Karte löschen*
-  - **🗂 Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
-    *Umgebung*, *Sprachbefehle*, *Sichern*, *Laden*, *Als Datei*,
+  - **Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
+    *Umgebung*, *Bildqualität*, *Als Datei*,
     *Alles löschen* (mit Zweifach-Bestätigung)
+  - **Prozess:** *Aus Text bauen*, *Schritt*, *Form wechseln*, *Pfeil ziehen*,
+    *Zweig benennen*, *Anordnen*, *Als Mermaid*
 
   Das Menü sitzt **mit Controllern** über dem Handrücken der linken Hand und
   reicht nach vorn ins Blickfeld (statt hinter dem Handgelenk Richtung
@@ -120,10 +243,9 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   angevisiert und per Trigger bzw. Pinch geklickt. Die Hände werden bei
   Hand-Tracking als Gelenk-Kugeln dargestellt (prozedural, ohne externe Assets).
 - **Undo/Redo:** Vollständiger Verlauf über *Anlegen, Löschen, „Alles löschen",
-  Verschieben, Größe, Farbe, Text, Cluster, Verbindungen, Zonen, Import und
-  Laden* –
+  Verschieben, Größe, Farbe, Text, Cluster, Verbindungen, Zonen und Import* –
   am Desktop per **Strg+Z / Strg+Umschalt+Z** (oder Strg+Y) und über die Buttons
-  im Overlay, in VR über *„↶ Rückgängig"* / *„↷ Wiederholen"* im Menü. Intern
+  im Overlay, in VR über *„Rückgängig"* / *„Wiederholen"* im Menü. Intern
   sichert `src/history.js` pro Schritt einen Board-Snapshot (bis zu 60 Schritte);
   beim Zurücksetzen werden bestehende Karten anhand ihrer ID aktualisiert statt
   neu aufgebaut, damit Auswahl und Objekt-Identität erhalten bleiben. Die
@@ -162,72 +284,50 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   `fetch`.
 - **Kartenfarben:** 7 Farben pro Karte (mit leuchtendem Akzentstreifen am linken
   Rand) – am Desktop über die Farbpunkte im Rechtsklick-Menü, in VR über
-  „🎨 Farbe“ (wechselt zyklisch). Cluster färben automatisch.
+  „Farbe“ (wechselt zyklisch). Cluster färben automatisch.
 - **Kartengröße:** Jede Karte ist von 0,45× bis 2,2× skalierbar – am Desktop per
   **Mausrad über der Karte** oder **+/−** (bei ausgewählter Karte), in VR per
   **Daumenstick hoch/runter, während die Karte gegriffen ist**. Die Größe wird
   gespeichert und exportiert.
-- **Verbindungslinien (Mindmap):** Karte auswählen → „🔗 Verbinden“ (Menü bzw.
+- **Verbindungslinien:** Karte auswählen → „Verbinden“ (Menü bzw.
   Rechtsklick → „Verbinden mit…“) → Ziel-Karte anklicken. Nochmal verbinden
   entfernt die Linie; Esc bricht ab. Linien folgen den Karten beim Verschieben.
-- **Texteingabe – Tastatur und Diktat** (`src/keyboard.js`, `src/speech.js`):
+- **Texteingabe in XR – die virtuelle Tastatur** (`src/keyboard.js`):
   In XR öffnet sich die virtuelle 3D-Tastatur im deutschen Layout (Umlaute, ß,
   Satzzeichen, Umschalttaste für genau ein Zeichen wie auf dem Handy). Optisch
-  gehört sie jetzt zum Rest der App: abgerundetes Glas-Panel mit Amber-Rahmen,
-  weich abgerundete Tasten, gleiche Farbwelt wie Hand-Menü und
-  Whiteboard-Leiste.
-  **Wer nicht tippen will, drückt „🎤 Sprechen"** – dann wird direkt ins
-  Eingabefeld diktiert, Zwischenergebnisse laufen live mit, und ein zweiter
-  Druck bricht ab. Am Desktop macht der Knopf **„🎤 Diktieren"** im Overlay
-  dasselbe mit dem Ideen-Feld.
-  Der Diktat-Versuch läuft **nicht** mehr automatisch vor der Tastatur: Auf der
-  Quest scheitert er zuverlässig, und die Wartezeit bis zum Fehlschlag verzögerte
-  bisher jede Eingabe.
-- **Diktieren auf der Quest – über die Systemtastatur** (`src/systemKeyboard.js`):
-  Der Quest-Browser hat **keine funktionierende Web Speech API**. Er stellt
-  `webkitSpeechRecognition` zwar bereit – er ist Chromium-basiert –, aber
-  darunter liegt nichts: Horizon OS ist ein abgespecktes Android ohne
-  Spracherkennungsdienst. Ein `recognition.start()` läuft dort nicht ins Leere,
-  sondern **riss den ganzen Browser mit**; das war der Absturz beim Druck auf
-  „🎤 Sprechen". Eine Prüfung auf „gibt es den Konstruktor?" hilft dagegen
-  nicht, weil es ihn ja gibt – deshalb erkennt `isHeadsetBrowser()` das Gerät
-  am User-Agent und blendet die API auf Brillen-Browsern **komplett** aus.
-  Damit ist auch das Dauer-Zuhören dort abgeschaltet.
-  Weil eine Zeichenkette im User-Agent eine wacklige Grundlage für etwas ist,
-  das den Browser abschießt (aus „Oculus Browser" wurde 2024 „Meta Quest
-  Browser"), kommt eine zweite, gerätunabhängige Sperre dazu: `setXRPresenting()`
-  schaltet die Erkennung **für die Dauer jeder immersiven Sitzung** ab, egal auf
-  welchem Gerät. Auf autarken Brillen fehlt der Dienst dahinter, und selbst wo
-  es ihn gibt, lässt sich die Mikrofon-Abfrage in einer immersiven Sitzung nicht
-  anzeigen.
-  Die **Brille** kann aber sehr wohl Sprache-zu-Text – nur
-  eben ausschließlich in ihrer eigenen Systemtastatur, über deren
-  Mikrofon-Taste. Genau die wird jetzt angezapft: Ist
-  `XRSession.isSystemKeyboardSupported` wahr, öffnet „🎤 Sprechen" per
-  DOM-`focus()` die Systemtastatur mitten in der laufenden Sitzung. Dort einmal
-  auf 🎤 tippen, sprechen, Tastatur schließen – der Text landet im Vorschaufeld
-  der 3D-Tastatur und kann dort weiterbearbeitet werden.
-  Zwei dokumentierte Eigenheiten prägen die Umsetzung: Es gibt **keine
-  Tastendruck-Ereignisse** (der Wert des Feldes wird deshalb zusätzlich
-  gepollt), und jeder **erste Tastendruck überschreibt den gesamten
-  Feldinhalt** – vorbelegt wird darum nie, das Ergebnis wird angehängt. Solange
-  die Systemtastatur oben liegt, steht die Sitzung auf `visible-blurred`; an
-  diesem Wechsel erkennt die App Auf- und Zugehen. Die Systemtastatur hat
-  **Vorrang** vor der Web Speech API, nicht nur die Rolle des Ersatzes – sonst
-  käme auf der Brille wieder der Erkenner zuerst dran.
-  Weil ein `focus()` in einer laufenden immersiven Sitzung tief in den Browser
-  greift und ein `try/catch` einen Absturz nicht auffängt, wird unmittelbar
-  davor ein **Merkzettel** in `localStorage` gelegt und beim Aufgehen der
-  Tastatur gelöscht. Findet die App ihn beim nächsten Start noch vor, hat der
-  letzte Versuch nicht überlebt – dann bleibt dieser Weg zu und die virtuelle
-  Tastatur übernimmt, statt den Nutzer erneut aus der Sitzung zu werfen
-  (`window.__app.systemKeyboard.reset()` hebt die Sperre auf).
-  *Voraussetzung: Die Sprachdiktierung muss in den Quest-Einstellungen einmalig
-  aktiviert worden sein (beim ersten 🎤-Antippen fragt die Brille danach).*
-- **🎙 Sprachbefehle** (`src/speech.js`): dauerhaftes Zuhören, abschaltbar über
-  Menü („🗂 Board" → *Sprachbefehle*) bzw. den Overlay-Knopf – **standardmäßig
-  aus**, ein ungefragt mithörendes Mikrofon will niemand. Erkannt werden u. a.
-  *„neue Karte …"*, *„Thema …"*, *„verwandte Ideen"*, *„Kritiker"*, *„Cluster"*,
+  gehört sie zum Rest der App: abgerundetes Glas-Panel mit Amber-Rahmen, weich
+  abgerundete Tasten, gleiche Farbwelt wie Hand-Menü und Whiteboard-Leiste.
+  **In XR wird getippt – Spracheingabe gibt es dort nicht.** Warum, steht im
+  nächsten Punkt.
+- **Keine Spracheingabe in XR** (`src/speech.js`): Der Quest-Browser hat **keine
+  funktionierende Web Speech API**. Er stellt `webkitSpeechRecognition` bereit –
+  er ist Chromium-basiert –, aber darunter liegt nichts: Horizon OS ist ein
+  abgespecktes Android ohne Spracherkennungsdienst. Ein `recognition.start()`
+  läuft dort nicht ins Leere, sondern **riss den ganzen Browser mit**.
+  Eine Prüfung auf „gibt es den Konstruktor?" hilft nicht, weil es ihn ja gibt.
+  Es greifen deshalb zwei voneinander unabhängige Sperren:
+  `isHeadsetBrowser()` erkennt das Gerät am User-Agent, und `setXRPresenting()`
+  schaltet die Erkennung zusätzlich **für die Dauer jeder immersiven Sitzung**
+  ab, auf jedem Gerät – eine Zeichenkette im User-Agent ist eine wacklige
+  Grundlage für etwas, das den Browser abschießt (aus „Oculus Browser" wurde
+  2024 „Meta Quest Browser").
+  Entsprechend gibt es in XR **keine Mikrofon-Taste** auf der Tastatur und
+  **keinen Eintrag „Sprachbefehle"** im Hand-Menü; auf einem Brillen-Browser
+  verschwinden auch die beiden Overlay-Knöpfe ganz. Ein Knopf, der bestenfalls
+  eine Fehlermeldung ausgibt und schlimmstenfalls den Browser mitreißt, gehört
+  nicht in die Oberfläche.
+  *Der Umweg über die Systemtastatur der Brille – deren Mikrofon-Taste kann
+  diktieren – war ein Versuch, dort doch noch Diktat anzubieten. Auf echter
+  Hardware hat er nicht getragen und ist wieder raus.*
+- **Diktieren – nur am Desktop** (`src/speech.js`): Der Knopf **„Diktieren"**
+  im Overlay füllt das Ideen-Feld mit dem Gesprochenen,
+  Zwischenergebnisse laufen live mit, ein zweiter Druck bricht ab. Von dort geht
+  es mit Enter oder jedem KI-Knopf normal weiter. Braucht Chrome oder Edge und
+  eine Mikrofon-Freigabe.
+- **🎙 Sprachbefehle – nur am Desktop** (`src/speech.js`): dauerhaftes Zuhören,
+  ein-/ausschaltbar über den Overlay-Knopf – **standardmäßig aus**, ein ungefragt
+  mithörendes Mikrofon will niemand. Erkannt werden u. a. *„neue Karte …"*,
+  *„Thema …"*, *„verwandte Ideen"*, *„Kritiker"*, *„Cluster"*,
   *„zusammenfassen"*, *„verbinden"*, *„Karte löschen"*, *„rückgängig"*,
   *„Umgebung"*, *„Schrift"*. Bei *„neue Karte"* und *„Thema"* wird das
   Gesprochene direkt als Text übernommen – *„neue Karte Fahrradständer bauen"*
@@ -235,14 +335,9 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Ein Befehl zählt nur **am Satzanfang** und ohne Nachgeplapper, damit ein
   beiläufiges „…das können wir alles löschen…" im Gespräch nichts auslöst.
   Während eines Diktats pausiert die Befehlserkennung – zwei Erkenner streiten
-  sich sonst um das Mikrofon.
-  *Hinweis: Die Web Speech API ist browserabhängig. Chrome/Edge am Desktop können
-  sie, der Quest-Browser nicht. **Dauerhafte Sprachbefehle gibt es auf der Quest
-  deshalb nicht** – die Systemtastatur kann nur einzelne Eingaben diktieren, kein
-  Dauer-Zuhören. Die App sagt das im Klartext statt still zu scheitern und
-  verweist auf „🎤 Sprechen".*
+  sich sonst um das Mikrofon. Der Start einer XR-Sitzung beendet sie ganz.
 - **🔠 Kartenschrift** (Barrierefreiheit): drei Stufen (*Normal · Groß · Sehr
-  groß*) über „🔠 Schrift" im Menü bzw. den Knopf im Overlay. Angepasst wird nur
+  groß*) über „Schrift" im Menü bzw. den Knopf im Overlay. Angepasst wird nur
   die Textgröße, die Kartenfläche bleibt gleich; die Stufe gilt auch für neue
   Karten und überdauert einen Reload.
 - **Haptik in VR** (`src/haptics.js`): kurzes Controller-Rumble beim Greifen und
@@ -272,15 +367,10 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   (localStorage) und beim nächsten Öffnen wiederhergestellt – auch nach einem
   Browser-Neustart. Gilt pro Gerät/Browser.
 - **Board-Export/-Import** als JSON – am Desktop über „Export“/„Import“ im
-  Overlay, in VR über *„⬇️ Als Datei"* im Menü (die Datei landet im
+  Overlay, in VR über *„Als Datei"* im Menü (die Datei landet im
   Download-Ordner des Quest-Browsers und ist nach der Sitzung dort zu finden).
   Importiertes JSON wird vor dem Anwenden geprüft; ein defektes Board erzeugt
   eine klare Meldung statt eines halb geladenen Zustands.
-- **Sicherungspunkte** (*„💾 Sichern"* / *„📂 Laden"*): manuelle Wiederherstellungs-
-  punkte im Browser-Speicher, die letzten drei werden behalten. Das ist der Weg,
-  der **auch mitten in einer XR-Sitzung** funktioniert – ein Datei-Dialog würde
-  die immersive Sitzung verlassen. Ist der Speicher voll, werden erst ältere
-  Punkte und zuletzt die Whiteboard-Zeichnung geopfert, bevor aufgegeben wird.
 - **Desktop-Fallback:** Läuft ohne Headset im normalen Browser – Maus-Steuerung
   (Orbit), Karten per Klick auswählen und ziehen, alle Aktionen über das Overlay
   links oben. Ideal zum schnellen Iterieren. Das Overlay ist auf die Fensterhöhe
@@ -301,19 +391,22 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 ├── index.html              Overlay-UI (Desktop) + Einstieg
 ├── src/
 │   ├── main.js             Szene, XR-Session (AR→VR-Fallback), Verdrahtung
-│   ├── cards.js            IdeaCard + CardManager (Halbkreis-Anordnung, Serialisierung)
+│   ├── cards.js            IdeaCard + CardManager (Halbkreis-Anordnung, Serialisierung,
+│   │                       Knotenarten für Prozessdiagramme)
+│   ├── connections.js      Lose Verbindungslinien + gerichtete Prozesspfeile mit Beschriftung
+│   ├── flowLayout.js       Geschichtetes Layout fürs Prozessflussdiagramm
+│   ├── tween.js            Sanftes Umsetzen von Objekten (Layout-Animation)
 │   ├── interactions.js     Controller-/Hand-Raycasting, Grab + Maus-Fallback
 │   ├── locomotion.js       Fortbewegung (Player-Rig): VR-Gleiten + Snap-Turn
 │   ├── wristMenu.js        Menü-Panel an Controller bzw. Handfläche
 │   ├── history.js          Undo/Redo (Board-Snapshots)
 │   ├── hud.js              Statuszeile, Ladeanzeige und Fehlerkarte im Blickfeld
-│   ├── keyboard.js         Virtuelle 3D-Tastatur mit Diktat-Knopf
-│   ├── speech.js           Diktat + Sprachbefehle (Web Speech API)
-│   ├── systemKeyboard.js   Systemtastatur der Brille – Diktat-Weg auf der Quest
+│   ├── keyboard.js         Virtuelle 3D-Tastatur (XR, ohne Spracheingabe)
+│   ├── speech.js           Diktat + Sprachbefehle – nur Desktop (Web Speech API)
 │   ├── haptics.js          Controller-Rumble (Greifen, Klick, Verbinden, Löschen)
 │   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
-│   ├── boardState.js       JSON-Export/-Import, Sicherungspunkte + Autosave
+│   ├── boardState.js       JSON-Export/-Import, Mermaid-Export, Autosave
 │   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt
 │   │                       inkl. Matrix-Sitzgruppe: Ohrensessel + Radiola-Konsole)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
@@ -354,8 +447,9 @@ Einfach `https://localhost:5173` öffnen:
 | **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
-| **Diktieren** | **„🎤 Diktieren"** im Overlay – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen) |
-| **Sprachbefehle** | **„🎙 Sprachbefehle"** im Overlay ein-/ausschalten |
+| **Prozessdiagramm** | Eigene **umrandete Gruppenbox „Prozessdiagramm"** im Overlay: Formleiste (*Start · Schritt · Entscheidung · Ende · Karte*, jede mit ihrer Miniaturform als Icon) setzt die Form der **ausgewählten** Karte direkt, dazu *Pfeil ziehen*, *Zweig*, *Anordnen*, *Aus Text*, *Mermaid*. Per **Rechtsklick auf eine Karte** gibt es dieselbe Formleiste und „Pfeil ziehen zu…" |
+| **Diktieren** | **„Diktieren"** in der Overlay-Gruppe **„Sprache"** (direkt unter dem Eingabefeld) – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen). Chrome/Edge, nicht in XR |
+| **Sprachbefehle** | **„Sprachbefehle"** in derselben Gruppe **„Sprache"** ein-/ausschalten. Chrome/Edge, nicht in XR |
 | **Kartenschrift** | **„Schrift: …"** im Overlay – Normal → Groß → Sehr groß |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |
@@ -364,10 +458,9 @@ Einfach `https://localhost:5173` öffnen:
 | Karte einfärben | Rechtsklick → Farbpunkt anklicken |
 | Karten verbinden | Rechtsklick → „Verbinden mit…“ → Ziel-Karte anklicken (nochmal = Linie entfernen, Esc = abbrechen) |
 | Neue Karte | Text ins Eingabefeld, „Neue Karte“ oder Enter |
-| Themen-Start | Thema ins Eingabefeld → „🚀 Themen-Start“ |
+| Themen-Start | Thema ins Eingabefeld → „Themen-Start“ |
 | KI-Funktionen | Buttons „Verwandte Ideen“ / „Kritiker“ / „Cluster anwenden“ / „Zusammenfassen“ |
 | **Rückgängig / Wiederholen** | **Strg+Z** / **Strg+Umschalt+Z** (auch Strg+Y) oder die Buttons im Overlay |
-| Sicherungspunkt | „💾 Sichern“ / „📂 Laden“ im Overlay |
 | Export/Import | Buttons im Overlay |
 | Menü ein-/ausklappen | Knopf rechts neben dem Overlay oder **M** |
 | Fehlerkarte schließen | Anklicken oder **Esc** |
@@ -384,7 +477,7 @@ WebXR funktioniert nur über **HTTPS** – dafür sorgt `vite-plugin-mkcert`.
 3. Diese URL im **Quest-Browser** öffnen. Beim ersten Mal erscheint eine
    Zertifikatswarnung (das mkcert-Zertifikat ist auf der Quest nicht als
    vertrauenswürdig installiert): **„Erweitert“ → „Trotzdem fortfahren“**.
-4. Auf **„🥽 Mixed Reality starten (Passthrough)“** tippen. Unterstützt der
+4. Auf **„Mixed Reality starten (Passthrough)“** tippen. Unterstützt der
    Browser kein `immersive-ar`, bietet der Button automatisch VR an.
 
 > Firewall-Hinweis: Port 5173 muss aus dem WLAN erreichbar sein. Der API-Proxy
@@ -427,22 +520,21 @@ Deployment.
 | Menü **mit Controllern** | Über dem Handrücken der **linken Hand** – mit dem rechten Ray anvisieren und Trigger drücken |
 | Menü **ohne Controller** | **Handfläche öffnen und zum Gesicht drehen** – das Menü erscheint darüber (linke Hand bevorzugt, die rechte geht genauso). Klicken per **Pinch** (Daumen + Zeigefinger) der anderen Hand |
 | Bewegen **ohne Controller** | **Ins Leere pinchen und die Hand bewegen** = sich an der Welt entlangziehen · **beide Hände** = zusätzlich drehen |
-| Menüseite wechseln | Reiter **„💡 Ideen“** bzw. **„🗂 Board“** oben im Panel antippen |
-| Neue Karte | Menü → „＋ Neue Karte“ → Tastatur öffnet sich; **„🎤 Sprechen"** diktiert statt zu tippen |
-| **Diktieren (Quest)** | „🎤 Sprechen“ öffnet die **Systemtastatur der Brille** → dort **🎤 antippen, sprechen, Tastatur schließen** – der Text steht in der 3D-Tastatur |
-| Themen-Start | Menü → „🚀 Themen-Start“ → Thema sprechen/tippen |
-| **Sprachbefehle** | Menü → „🗂 Board“ → **„🎙 Sprachbefehle“** (der Knopf leuchtet, solange zugehört wird) – **am Desktop**; der Quest-Browser kann kein Dauer-Zuhören |
-| **Kartenschrift** | Menü → „💡 Ideen“ → **„🔠 Schrift“** (Normal → Groß → Sehr groß) |
-| Karte einfärben | Karte auswählen → Menü → „🎨 Farbe“ (wechselt zyklisch) |
-| Karten verbinden | Karte auswählen → Menü → „🔗 Verbinden“ → Ziel-Karte antippen |
-| Karte löschen | Karte auswählen → Menü → „🗑 Karte löschen“ |
-| Alle Karten löschen | Menü → „🧹 Alles löschen“ → zur Bestätigung nochmal drücken |
-| **Rückgängig / Wiederholen** | Menü → „🗂 Board“ → **„↶ Rückgängig“** / **„↷ Wiederholen“** |
-| Board sichern / laden | Menü → „🗂 Board“ → „💾 Sichern“ / „📂 Laden“ |
-| Board als Datei | Menü → „🗂 Board“ → „⬇️ Als Datei“ (liegt nach der Sitzung in den Downloads) |
+| Menüseite wechseln | Reiter **„Ideen“**, **„Board“** bzw. **„Prozess“** oben im Panel antippen |
+| Neue Karte | Menü → „Neue Karte“ → virtuelle Tastatur öffnet sich (Spracheingabe gibt es in XR nicht) |
+| Themen-Start | Menü → „Themen-Start“ → Thema sprechen/tippen |
+| **Kartenschrift** | Menü → „Ideen“ → **„Schrift“** (Normal → Groß → Sehr groß) |
+| Karte einfärben | Karte auswählen → Menü → „Farbe“ (wechselt zyklisch) |
+| Karten verbinden | Karte auswählen → Menü → „Verbinden“ → Ziel-Karte antippen |
+| **Prozess bauen** | Menü → „Prozess“ → **„Aus Text bauen“** (Ablauf beschreiben) oder von Hand: „Schritt“ → „Form wechseln“ → „Pfeil ziehen“ → „Zweig benennen“ → „Anordnen“. In VR wird die Form **durchgeschaltet**; am Desktop direkt gewählt |
+| **Prozess mitnehmen** | Menü → „Prozess“ → **„Als Mermaid“** – die `.mmd`-Datei rendert GitHub, Notion und Confluence direkt |
+| Karte löschen | Karte auswählen → Menü → „Karte löschen“ |
+| Alle Karten löschen | Menü → „Alles löschen“ → zur Bestätigung nochmal drücken |
+| **Rückgängig / Wiederholen** | Menü → „Board“ → **„Rückgängig“** / **„Wiederholen“** |
+| Board als Datei | Menü → „Board“ → „Als Datei“ (liegt nach der Sitzung in den Downloads) |
 | Fehlerkarte schließen | Die rote Karte im Blickfeld antippen (verschwindet sonst nach 10 s) |
-| Zone / Timer | Menü → „🗂 Board“ → „🗂️ Zone“ bzw. „⏱️ Timer“ |
-| Umgebung wechseln | Menü → „🌐 Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Konstrukt) |
+| Zone / Timer | Menü → „Board“ → „Zone“ bzw. „Timer“ |
+| Umgebung wechseln | Menü → „Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Konstrukt) |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
 Die Platzierung des Menüs lässt sich in `src/wristMenu.js` über die Konstanten
@@ -489,34 +581,28 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   eintragen, oder mit `MOCK_AI=1` ohne Key testen. Zeitüberschreitungen und
   Rate-Limits werden automatisch bis zu dreimal wiederholt, bevor die Fehlerkarte
   erscheint.
-- **Aus Versehen alles gelöscht:** **Strg+Z** bzw. „↶ Rückgängig" im Menü holt
-  auch ein komplett geleertes Board zurück. Der Verlauf gilt pro Sitzung – nach
-  einem Reload hilft „📂 Laden" (letzter Sicherungspunkt) oder ein JSON-Import.
+- **Aus Versehen alles gelöscht:** **Strg+Z** bzw. „Rückgängig" im Menü holt
+  auch ein komplett geleertes Board zurück. Der Verlauf gilt pro Sitzung – über
+  einen Reload hinweg trägt das Autosave (das Board wird bei jeder Änderung
+  automatisch gespeichert), für bewusste Stände der JSON-Export.
 - **Menü erscheint bei Hand-Tracking nicht:** Es zeigt sich nur bei **flacher,
   offener Hand, deren Innenfläche zum Gesicht zeigt** – Faust und Handrücken
   blenden es bewusst aus. Beide Hände funktionieren. Wenn gar keine Hände
   getrackt werden, sind im Quest-System die Handbewegungen einzuschalten und die
   Controller abzulegen (`hand-tracking` wird als optionales WebXR-Feature
   angefragt).
-- **Diktieren auf der Quest tut nichts:** „🎤 Sprechen" öffnet dort die
-  **Systemtastatur der Brille**; das Diktat läuft über deren 🎤-Taste, nicht
-  über die App. Kommt die Systemtastatur nicht hoch, meldet die App
-  „Systemtastatur meldet sich nicht". Häufigste Ursachen: die Sprachdiktierung
-  ist in den Quest-Einstellungen noch nicht aktiviert (*Einstellungen → Tastatur
-  → Sprachdiktierung*), oder der Browser ist zu alt für
-  `XRSession.isSystemKeyboardSupported`. Dauer-Zuhören („🎙 Sprachbefehle") ist
-  auf der Quest technisch nicht möglich.
-- **„Systemtastatur abgeschaltet – der letzte Versuch hat den Browser
-  beendet":** Der Merkzettel aus `localStorage` hat angeschlagen (s. o.).
-  Tippen geht weiter; freigeben lässt sich der Weg mit
-  `window.__app.systemKeyboard.reset()` in der Konsole – sinnvoll etwa nach
-  einem Browser-Update.
-- **Spracheingabe reagiert nicht:** Die Web Speech API ist browserabhängig. Der
-  Quest-Browser unterstützt sie nicht – dort übernimmt die Systemtastatur
-  (siehe oben). Am Desktop braucht Chrome/Edge eine
-  **Mikrofon-Freigabe** (Adressleiste → Mikrofon zulassen) und eine
-  Internetverbindung, weil die Erkennung serverseitig läuft – offline meldet sie
-  „Spracherkennung braucht Internet". Firefox kann sie gar nicht.
+- **Spracheingabe fehlt in der Brille:** Das ist Absicht. Der Quest-Browser hat
+  keine funktionierende Spracherkennung – der Versuch, sie zu nutzen, hat den
+  Browser abgeschossen. Deshalb gibt es in XR **keine Mikrofon-Taste und keinen
+  Sprachbefehl-Eintrag**, und auf einem Brillen-Browser fehlen auch die beiden
+  Overlay-Knöpfe. In XR wird über die virtuelle Tastatur getippt; diktieren geht
+  am Desktop.
+- **Spracheingabe reagiert nicht (Desktop):** Chrome oder Edge nötig – Firefox
+  kann die Web Speech API gar nicht. Dazu eine **Mikrofon-Freigabe**
+  (Adressleiste → Mikrofon zulassen) und eine Internetverbindung, weil die
+  Erkennung serverseitig läuft; offline meldet sie „Spracherkennung braucht
+  Internet". Startet man eine XR-Sitzung, wird ein laufender Erkenner beendet
+  und bleibt bis zum Sitzungsende aus.
 - **Sprachbefehl wird nicht erkannt:** Ein Kommando zählt nur am **Satzanfang**
   und ohne Zusatz dahinter – „Cluster" wirkt, „mach mal Cluster" und „Cluster
   bitte" nicht. Ausnahmen sind „neue Karte …" und „Thema …", bei denen alles

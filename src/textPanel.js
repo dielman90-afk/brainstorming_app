@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PANEL_FONT_FAMILY, onFontsReady, forgetFontListener } from './fonts.js';
+import { drawIcon } from './icons.js';
 
 function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -9,6 +10,44 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+// Beliebiges Vieleck mit abgerundeten Ecken. arcTo rundet die Ecke zwischen zwei
+// Kanten – dafür wird bei einem Punkt „vor" der ersten Ecke begonnen, sonst
+// hätte die erste Ecke keine eingehende Kante.
+function roundPoly(ctx, points, r) {
+  const n = points.length;
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  ctx.beginPath();
+  ctx.moveTo(...mid(points[n - 1], points[0]));
+  for (let i = 0; i < n; i++) {
+    const corner = points[i];
+    const next = points[(i + 1) % n];
+    ctx.arcTo(corner[0], corner[1], ...mid(corner, next), r);
+  }
+  ctx.closePath();
+}
+
+// Knotenformen für Flussdiagramme (siehe FLOW_TYPES in cards.js):
+//   rect    – Tätigkeit (die gewohnte Karte)
+//   stadium – Start/Ende; nichts weiter als ein Radius von h/2
+//   diamond – Entscheidung
+function shapePath(ctx, shape, w, h, r) {
+  if (shape === 'stadium') {
+    roundRect(ctx, 0, 0, w, h, h / 2);
+    return;
+  }
+  if (shape === 'diamond') {
+    roundPoly(ctx, [[w / 2, 0], [w, h / 2], [w / 2, h], [0, h / 2]], Math.min(r, h / 6));
+    return;
+  }
+  roundRect(ctx, 0, 0, w, h, r);
+}
+
+// Anteil der Fläche, in den Text gesetzt werden darf. Eine Raute läuft zu den
+// Spitzen aus – ihr eingeschriebenes Rechteck ist nur halb so breit und hoch.
+function textInset(shape) {
+  return shape === 'diamond' ? 0.52 : 1;
 }
 
 function wrapLines(ctx, text, maxWidth) {
@@ -50,9 +89,16 @@ export function createTextPanel({
   // die Untergrenze als Anteil der Basisgröße.
   shrinkToFit = true,
   minFontScale = 0.5,
+  // Umriss des Panels: 'rect' (Vorgabe), 'stadium' oder 'diamond'. Für die
+  // Knoten von Flussdiagrammen – die Form sagt, um welche Art Schritt es geht.
+  shape = 'rect',
 
   accent = null, // Farbstreifen am linken Rand (z. B. Kategorie-Farbe)
   border = null, // feiner Rahmen um das Panel
+  // Linien-Icon links vom Text (nur einzeilig). Name aus icons.js; gezeichnet
+  // wird derselbe SVG-Pfad wie im Desktop-Overlay – eine Formquelle für beide
+  // Oberflächen.
+  icon = null,
   doubleSided = true, // Rückseiten-Ebene (für rundum lesbare Karten); für
   // UI-Panels am Handgelenk unnötig und vermeidet Transparenz-Sortierprobleme
 } = {}) {
@@ -106,39 +152,66 @@ export function createTextPanel({
         fill = gradient;
       }
       ctx.fillStyle = fill;
-      roundRect(ctx, 0, 0, canvas.width, canvas.height, r);
+      shapePath(ctx, shape, canvas.width, canvas.height, r);
       ctx.fill();
       if (state.accent) {
         ctx.save();
-        roundRect(ctx, 0, 0, canvas.width, canvas.height, r);
+        shapePath(ctx, shape, canvas.width, canvas.height, r);
         ctx.clip();
         ctx.fillStyle = state.accent;
-        ctx.fillRect(0, 0, 20, canvas.height);
+        // Bei Raute und Stadion ist ein Streifen am linken Rand kaum zu sehen –
+        // dort wird stattdessen der Umriss selbst zur Akzentfarbe.
+        if (shape === 'rect') ctx.fillRect(0, 0, 20, canvas.height);
+        else {
+          ctx.lineWidth = 10;
+          ctx.strokeStyle = state.accent;
+          ctx.stroke();
+        }
         ctx.restore();
       }
       if (state.border) {
         ctx.lineWidth = 3;
         ctx.strokeStyle = state.border;
-        roundRect(ctx, 1.5, 1.5, canvas.width - 3, canvas.height - 3, r);
+        ctx.save();
+        ctx.translate(1.5, 1.5);
+        shapePath(ctx, shape, canvas.width - 3, canvas.height - 3, r);
         ctx.stroke();
+        ctx.restore();
       }
     }
 
     ctx.fillStyle = state.color;
     ctx.textAlign = align === 'left' ? 'left' : 'center';
     ctx.textBaseline = 'middle';
-    const maxWidth = canvas.width - padding;
+    const inset = textInset(shape);
+    const maxWidth = canvas.width * inset - padding;
+    const maxHeight = canvas.height * inset;
     const textX = align === 'left' ? padding / 2 : canvas.width / 2;
 
     if (singleLine) {
+      // Icon-Platz vorab abziehen, damit die Schrumpfschleife gegen die
+      // tatsächlich verfügbare Breite prüft.
+      const iconSize = icon ? Math.round(state.fontSize * 1.2) : 0;
+      const iconGap = icon ? Math.round(iconSize * 0.42) : 0;
       // Schriftgröße so weit reduzieren, bis der Text in eine Zeile passt
       let fs = state.fontSize;
       ctx.font = font(fs);
-      while (fs > 10 && ctx.measureText(state.text).width > maxWidth) {
+      while (fs > 10 && ctx.measureText(state.text).width + iconSize + iconGap > maxWidth) {
         fs -= 1;
         ctx.font = font(fs);
       }
-      ctx.fillText(state.text, textX, canvas.height / 2 + 1);
+      if (icon) {
+        // Icon + Text als ein Block zentriert; bei linksbündigen Panels
+        // beginnt der Block am Innenrand.
+        const textW = ctx.measureText(state.text).width;
+        const blockW = iconSize + iconGap + textW;
+        const x0 = align === 'left' ? padding / 2 : (canvas.width - blockW) / 2;
+        drawIcon(ctx, icon, x0, canvas.height / 2 - iconSize / 2, iconSize, state.color, 2.4);
+        ctx.textAlign = 'left';
+        ctx.fillText(state.text, x0 + iconSize + iconGap, canvas.height / 2 + 1);
+      } else {
+        ctx.fillText(state.text, textX, canvas.height / 2 + 1);
+      }
       state.renderedFontSize = fs;
       state.truncated = false; // einzeilig wird nur verkleinert, nie gekürzt
       texture.needsUpdate = true;
@@ -152,7 +225,7 @@ export function createTextPanel({
     const fits = (fs) => {
       ctx.font = font(fs);
       const lines = wrapLines(ctx, state.text, maxWidth);
-      const maxLines = Math.max(1, Math.floor((canvas.height - 24) / (fs * 1.25)));
+      const maxLines = Math.max(1, Math.floor((maxHeight - 24) / (fs * 1.25)));
       return { lines, maxLines, ok: lines.length <= maxLines };
     };
 

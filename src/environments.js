@@ -1,11 +1,50 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { createDojoEnvironment } from './dojo/index.js';
+import { heightToMaps, scaleUV } from './dojo/materials.js';
+import { mossMaterial, waterMaterial, updateWater } from './dojo/ground.js';
+import {
+  graniteMaterial,
+  mossPatina,
+  boxProjectUV,
+  weatheredWoodMaterial,
+  weatheredStoneGeometry,
+} from './dojo/stonework.js';
+import {
+  leafAtlas,
+  foliageMaterial,
+  cardCluster,
+  applyFoliageMaterial,
+  updateFoliage,
+  blobGeometry,
+  branchInto,
+} from './dojo/foliage.js';
+import { buildSkyEnvironment } from './dojo/skylight.js';
+import { applyQuality } from './dojo/quality.js';
 
-// Vier umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
+// Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
 //   🌌 Nachthimmel  – Sternenfeld, Mond und rötlicher Mars-Untergrund
 //   🪷 Zen-Garten   – ruhige Kies-/Steinlandschaft
 //   ⬜ Konstrukt    – nahtloser, komplett weißer Void („Matrix"-Ladeprogramm)
+//   ⛩ Konstrukt-Dojo – der Trainingsraum aus demselben Film (src/dojo/)
+//
+// **Die Module unter `src/dojo/` sind nicht nur fürs Dojo.** `materials.js`,
+// `ground.js`, `stonework.js` und `foliage.js` sind generisch, und seit dieser
+// Runde importieren der Zen-Garten, die Himmelsinsel und der Nachthimmel sie
+// ebenfalls: Normal- und Rauheitskarten, Granit mit Moospatina, Blattkarten mit
+// Wind und Transluzenz. Der Ordnername ist damit ein leichter Fehlname; der
+// Kommentar oben in `dojo/materials.js` hält fest, warum trotzdem nichts
+// verschoben wird.
+//
+// Der Anlass ist eine Messung, keine Stilfrage: Vor dieser Runde hatten die drei
+// Umgebungen zusammen **240 Materialien und keine einzige Normal- oder
+// Rauheitskarte**. Genau das ist der Unterschied, der sie neben dem Dojo wie
+// Spielzeug aussehen ließ – nicht die Polygonzahl.
+//
+// Das Dojo selbst bleibt der Ort mit echten Schatten und eigener
+// Environment-Map. Es liegt in eigenen Dateien unter `src/dojo/` – diese hier
+// hat schon 2600 Zeilen.
 //
 // Das frühere „🌐 Studio" (heller Verlauf mit weichem Boden) ist entfernt: Es war
 // vom Konstrukt kaum zu unterscheiden – beides eine helle, leere Kuppel – und
@@ -234,6 +273,291 @@ class GeoBucket {
     if (name) m.name = name;
     return m;
   }
+}
+
+// --- Kronen aus vielen kleinen Schöpfen -------------------------------------
+//
+// **Der Fehler, den dieser Bauer verhindert, steht seit Runde 6 als Kommentar
+// in exterior.js – und ich habe ihn trotzdem wiederholt.** Dort heißt es:
+//
+//   „Drei kleine Schöpfe je Zweigende statt eines großen. Mit 0,34–0,60 m
+//    Radius war jeder Schopf eine glatte Blase; zusammen ergaben sie einen
+//    Blumenkohl. Eine aufgelöste Kronensilhouette entsteht aus **Anzahl**,
+//    nicht aus Rauschen auf einer großen Kugel."
+//
+// Der erste Anlauf dieser Runde hat jeder Sakura-Krone **einen** Hüllkörper mit
+// bis zu 0,9 m Radius gegeben und ein paar Blattkarten davorgehängt. Aus zwei
+// Metern war das ein glatter rosa Ballon mit aufgeklebten Fetzen – genau die
+// Beschreibung oben, nur eine Umgebung weiter.
+//
+// Das Rezept, das im Dojo-Garten funktioniert und hier übernommen wird:
+//
+//   * Schopfradius 0,15–0,32 m, **drei bis vier** je Ansatzpunkt statt einem
+//   * der Hüllkörper ist Masse und Verdecker, nicht die Krone: dunkel, klein
+//   * die Karten sitzen bei 1,12× darüber und machen Kontur und Silhouette
+//   * `blobGeometry` statt `IcosahedronGeometry`: verrauscht und zusammengeführt,
+//     also weich schattiert statt facettiert
+//
+// @param ansaetze  [[x, y, z, radius], …] – die groben Kronenpositionen
+// @returns {{ blobs: THREE.InstancedMesh, karten: THREE.InstancedMesh }}
+function baueKrone({
+  ansaetze,
+  seed,
+  kartenMaterial,
+  kind,
+  farben,
+  kartenFarben,
+  cardScale,
+  // Wie weit die Kartenschale über dem Hüllkörper liegt. Zu wenig, und der
+  // Hüllkörper bildet die Silhouette; zu viel, und die Karten schweben.
+  schale = 1.2,
+  // Wie weit der Hüllkörper **innerhalb** der Kartenschale sitzt. Er ist
+  // Verdecker, nicht Silhouette: Wer ihn auf 1,0 lässt, sieht ihn.
+  kern = 0.88,
+  dichte = 70,
+}) {
+  const r = mulberry32(seed);
+  const schoepfe = [];
+  for (const [ax, ay, az, ar] of ansaetze) {
+    // Anzahl aus dem Radius: Ein großer Ansatz bekommt mehr Schöpfe, nicht
+    // größere. Genau das ist der Unterschied zwischen Krone und Blumenkohl.
+    //
+    // **Streuung und Schopfgröße hängen zusammen.** Der erste Anlauf streute
+    // über ±0,75·ar und machte Schöpfe von 0,30–0,52·ar – die Krone wurde
+    // dadurch löchrig *und* kleiner als der Ansatz, und auf der Insel
+    // schrumpften die Bäume auf grüne Punkte. Streuung und Größe zusammen
+    // müssen rund `ar` ergeben, damit die Krone die Ausdehnung behält, die die
+    // Ansatzliste beschreibt: 0,55 + 0,62 ≈ 1,17.
+    // **Weniger Schöpfe je Ansatz, seit die Ansätze an Astspitzen sitzen.**
+    //
+    // Mit `branchInto()` hat ein Laubbaum statt zwei Kronenansätzen jetzt zwölf
+    // bis vierundzwanzig – die Streuung leisten die Zweige. Bei unverändert
+    // fünf Schöpfen je Ansatz sprang die Insel von 80.052 auf 240.016 Dreiecke,
+    // also weit über das mobile Limit. Gemessen mit stufen.mjs.
+    const n = Math.max(2, Math.round(ar * 9));
+    for (let k = 0; k < n; k++) {
+      schoepfe.push({
+        x: ax + (r() - 0.5) * ar * 1.1,
+        y: ay + (r() - 0.45) * ar * 0.8,
+        z: az + (r() - 0.5) * ar * 1.1,
+        s: ar * (0.42 + r() * 0.2),
+        ton: Math.floor(r() * farben.length),
+        dreh: [r() * 0.6, r() * Math.PI * 2, r() * 0.6],
+      });
+    }
+  }
+
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const setze = (mesh, faktor, palette) => {
+    schoepfe.forEach((c, i) => {
+      const s = c.s * faktor;
+      q.setFromEuler(new THREE.Euler(...c.dreh));
+      m.compose(
+        new THREE.Vector3(c.x, c.y, c.z),
+        q,
+        new THREE.Vector3(s * 1.25, s, s * 1.15)
+      );
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, new THREE.Color(palette[c.ton % palette.length]));
+    });
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    mesh.userData.fullCount = schoepfe.length;
+  };
+
+  const blobs = new THREE.InstancedMesh(
+    // **Detailstufe 0, nicht 1.** Ein Hüllkörper ist Verdecker hinter dichten
+    // Karten; seine Facetten sieht niemand, seine Dreiecke zahlt man trotzdem.
+    // Stufe 1 sind 80 Dreiecke je Schopf, Stufe 0 sind 20 – bei rund 220
+    // Schöpfen auf der Insel ein Unterschied von 13.000 Dreiecken für nichts.
+    // Gemessen mit inselkosten.mjs.
+    blobGeometry(0, seed ^ 0x51, 0.72),
+    // Lambert statt Standard: Der Hüllkörper soll dunkle Masse sein, kein
+    // Material mit Glanzlicht. Er spart damit auch den PBR-Pfad im Shader.
+    new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }),
+    schoepfe.length
+  );
+  setze(blobs, kern, farben);
+
+  const karten = new THREE.InstancedMesh(
+    cardCluster({ count: dichte, radius: 1, seed: seed ^ 0x2f71, kind, cardScale }),
+    kartenMaterial,
+    schoepfe.length
+  );
+  applyFoliageMaterial(karten, kartenMaterial);
+  setze(karten, schale, kartenFarben);
+
+  return { blobs, karten };
+}
+
+// Materialien der Inselbäume, einmal für alle.
+//
+// Vorher legte **jeder Baum** zwei eigene an (Stamm und Laub), obwohl sie sich
+// nur in einem von zwei Grüntönen unterschieden. Bei dreißig Bäumen über
+// Haupt- und Mini-Inseln sind das sechzig Materialien für zwei Farben.
+//
+// `laubMat` heißt bewusst nicht mehr `foliageMaterial`: So hieß hier eine
+// lokale Variable, und seit dieser Datei die gleichnamige Funktion aus
+// `dojo/foliage.js` importiert, hätte der eine den anderen verdeckt.
+let _inselHolz = null;
+let _inselLaub = null;
+let _inselKarten = null;
+let _inselNadeln = null;
+function inselBaumMaterialien() {
+  if (!_inselHolz) {
+    _inselHolz = weatheredWoodMaterial({ tone: 0x8f6a48, vertexColors: false });
+    _inselLaub = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 0.9,
+      metalness: 0,
+      vertexColors: true,
+    });
+    _inselNadeln = foliageMaterial({
+      atlas: leafAtlas('nadel'),
+      // Nadeln sind steif und wachsig: wenig Wind, wenig Transluzenz. Eine
+      // Konifere im Gegenlicht leuchtet **nicht** – das ist der halbe
+      // Unterschied zu einem Laubbaum.
+      translucency: 0.35,
+      transColor: 0x9cc47a,
+      windStrength: 0.03,
+      roughness: 0.7,
+      color: 0xbfe3a8,
+    });
+    _inselKarten = foliageMaterial({
+      atlas: leafAtlas('azalea'),
+      // Aufgehellt auf das Inselgrün. Der Azaleen-Atlas ist für den schattigen
+      // Dojo-Garten gezeichnet; unverändert standen seine Blätter als dunkle
+      // Flecken vor den hellen Kronen, statt sie aufzulösen.
+      // Kräftig aufgehellt. Der Azaleen-Atlas ist mit Grundton [56 | 92 | 48]
+      // für den schattigen Dojo-Garten gezeichnet; die Insel ist eine helle
+      // Cartoon-Landschaft, und unverändert standen die Karten als dunkle
+      // Flecken auf den Kronen statt sie aufzulösen.
+      color: 0xe8ffd0,
+      translucency: 0.95,
+      transColor: 0xdcf7b0,
+      windStrength: 0.06,
+    });
+  }
+  return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten, nadeln: _inselNadeln };
+}
+
+function makeTree(rand) {
+  const tree = new THREE.Group();
+  const trunkHeight = 0.5 + rand() * 0.5;
+  const { holz, laub: laubMat, karten, nadeln } = inselBaumMaterialien();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8), holz);
+  trunk.position.y = trunkHeight / 2;
+  tree.add(trunk);
+
+  // Krone nach demselben Rezept wie im Zen-Garten: viele kleine Schöpfe, der
+  // Hüllkörper als Verdecker darunter. Der erste Anlauf dieser Runde hatte hier
+  // einen glatten Ball von 0,36 m Radius mit ein paar Karten davor – aus zwei
+  // Metern ein grüner Luftballon mit Aufklebern.
+  const hell = rand() > 0.5;
+  const ansaetze = [];
+  const nadelbaum = rand() > 0.45;
+
+  if (nadelbaum) {
+    // **Die gestapelten Kegel sind entfallen.**
+    //
+    // Sie waren die Silhouette *und* die Oberfläche zugleich: drei glatte
+    // Trichter übereinander, an denen jede Karte als Aufkleber saß. Eine
+    // Konifere hat keine glatte Mantelfläche, sie hat Etagen aus Zweigen mit
+    // Lücken dazwischen, durch die man den Stamm sieht.
+    //
+    // Jetzt ist der Baum eine **Reihe von Ansätzen mit abnehmendem Radius** –
+    // dieselbe Bauweise wie beim Laubbaum, nur als Kegel angeordnet statt als
+    // Kugel. Die Silhouette entsteht aus den Schöpfen, nicht aus einem Trichter.
+    // **Der Etagenabstand folgt dem Radius, nicht einem festen Schritt.**
+    //
+    // Vorher lagen die Etagen in gleichen Abständen von 0,29 übereinander,
+    // während ihr Radius nach oben von 0,46 auf 0,13 fiel. Oben standen die
+    // Schöpfe dadurch weiter auseinander als sie groß waren: Im Bild schwebte
+    // die oberste Etage als abgetrennter dunkler Klecks 1,6 m über der
+    // Baumspitze. Per Strahl nachgewiesen – der Treffer war `island-laub` bei
+    // y = 7,3, die Spitze darunter bei 5,7.
+    //
+    // Jetzt wächst y um den Radius der jeweiligen Etage. Damit überlappen zwei
+    // aufeinanderfolgende Etagen zwangsläufig, egal wie schnell der Radius
+    // abnimmt.
+    let ey = trunkHeight + 0.1;
+    for (let i = 0; i < 7; i++) {
+      const t = i / 6;
+      const radius = 0.46 * (1 - t * 0.78);
+      ansaetze.push([(rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05, radius]);
+      // 0,95 statt 1,0: eine Spur enger als der Radius, damit die Etagen sich
+      // sicher schneiden statt sich nur zu berühren.
+      ey += radius * 0.95;
+    }
+  } else {
+    // **Laubbaum mit echtem Astwerk.**
+    //
+    // Vorher: zwei Kronenansätze über einem nackten Kegelstumpf. Der Stamm
+    // endete abrupt, es gab keinen Übergang zur Krone, und die Krone war eine
+    // Masse auf einem Stab. Der Dojo-Garten hat denselben Fehler schon einmal
+    // gehabt, und der Kommentar dort sagt, warum es keine Farbfrage ist:
+    //
+    //   „Ein Baum wird nicht durch seine Krone glaubwürdig, sondern durch die
+    //    Zweige, die man **durch** sie sieht."
+    //
+    // `branchInto()` verzweigt rekursiv über drei Ebenen. Die Laubschöpfe
+    // sitzen auf den **Zweigenden**, nicht als Kugel über allem – dadurch löst
+    // sich die Silhouette auf und man sieht Äste durch die Krone.
+    const teile = [];
+    const oben = new THREE.Vector3(0, trunkHeight, 0);
+    const nb = 3 + Math.floor(rand() * 2);
+    for (let k = 0; k < nb; k++) {
+      const az = (k / nb) * Math.PI * 2 + rand() * 0.9;
+      const dir = new THREE.Vector3(
+        Math.cos(az) * 0.6,
+        0.74,
+        Math.sin(az) * 0.6
+      ).normalize();
+      branchInto(teile, oben, dir, 0.34 + rand() * 0.14, 0.035, 2, rand);
+    }
+    const astGeos = teile.map((t) => t.geo);
+    const aeste = new THREE.Mesh(mergeGeometries(astGeos, false), holz);
+    aeste.name = 'island-aeste';
+    tree.add(aeste);
+    for (const t of teile) {
+      if (t.depth > 0) continue;
+      ansaetze.push([t.tip.x, t.tip.y, t.tip.z, 0.17 + rand() * 0.06]);
+    }
+  }
+
+  const grundton = nadelbaum
+    // Sehr dunkel und entsättigt: Der Hüllkörper einer Konifere ist der
+      // Schatten **zwischen** den Zweigen, nicht eine zweite Grünfläche. Mit
+      // 0x24503a blitzte er als flacher türkiser Fleck durch die Nadeln.
+      ? [0x16281c, 0x1c3324, 0x101f16]
+    : // Auch beim Laubbaum ist der Hüllkörper der Schatten **zwischen** den
+      // Blättern. Die alten Werte waren die Kronenfarbe von früher, als er die
+      // Krone *war* – heller als die Karten davor, also blitzte er als
+      // hellgrüner Fleck durch. Derselbe Fehler wie beim Nadelbaum.
+      hell
+      ? [0x1f3f26, 0x27492d, 0x1a3521]
+      : [0x27482e, 0x2f5436, 0x203e27];
+  const krone = baueKrone({
+    ansaetze,
+    seed: 0x1de4 + Math.floor(rand() * 512),
+    kartenMaterial: nadelbaum ? nadeln : karten,
+    kind: nadelbaum ? 'nadel' : 'azalea',
+    // Nadelschöpfe stehen dichter und kleiner als Laubschöpfe.
+    cardScale: nadelbaum ? 0.95 : 0.85,
+    // Auch die Kartendichte sinkt: Viele kleine Schöpfe brauchen jeder für
+    // sich weniger Karten als wenige große, weil sie sich gegenseitig füllen.
+    dichte: nadelbaum ? 74 : 64,
+    farben: grundton,
+    kartenFarben: nadelbaum
+      ? [0xd8f0c0, 0xc6e4ae, 0xe4ffd0]
+      : [0xdcf5b8, 0xcbeaa4, 0xe6ffc8],
+  });
+  krone.blobs.name = 'island-krone';
+  krone.karten.name = 'island-laub';
+  tree.add(krone.blobs, krone.karten);
+
+  return tree;
 }
 
 // Zufällig, aber reproduzierbar aus einer Palette wählen.
@@ -864,6 +1188,7 @@ function addGrassDecoration(group, rand, shape) {
     54
   );
   flowers.name = 'flowers';
+  flowers.userData.fullCount = flowers.count;
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   const spot = (min, max) => {
@@ -891,6 +1216,7 @@ function addGrassDecoration(group, rand, shape) {
     70
   );
   tufts.name = 'tufts';
+  tufts.userData.fullCount = tufts.count;
   for (let i = 0; i < tufts.count; i++) {
     const [x, y, z] = spot(0.14, 0.9);
     dummy.position.set(x, y + 0.045, z);
@@ -1349,6 +1675,142 @@ function addVines(bucket, rand, shape, clusters) {
   }
 }
 
+// Hängende Ranken/Wurzeln unter dem Inselrand, zu EINEM Mesh verschmolzen.
+// `shape` ist optional und nur die Verankerung, nicht die Form: Ohne sie hängen
+// die Stränge an einem gedachten Kreis bei y = -0.3 – auf dem unrunden
+// Inselkörper aus Paket 1 steckten sie damit im Fels. Mit `shape` setzen sie an
+// der tatsächlichen Abbruchkante an; ihr Verlauf bleibt unverändert.
+function makeVines(rand, radius, count, shape = null) {
+  // **Vorher waren das gerade Spieße.**
+  //
+  // Ein Kegelstumpf, senkrecht nach unten, mit einem Ikosaeder-Knubbel am Ende.
+  // Von unter der Insel sah man ein Dutzend grüner Antennen radial aus dem Fels
+  // stehen – der auffälligste Fehler der ganzen Umgebung, weil die Unterseite
+  // der Insel das ist, was man beim Anflug zuerst sieht.
+  //
+  // Eine hängende Ranke hat drei Eigenschaften, die alle drei gefehlt haben:
+  // Sie **hängt** (also krümmt sie sich unter ihrem Gewicht), sie **schwingt**
+  // nach außen weg statt lotrecht zu fallen, und sie trägt Blätter über ihre
+  // **ganze Länge**, nicht eines am Ende.
+  const strangGeos = [];
+  const laubPunkte = [];
+  const mitte = new THREE.Vector3();
+
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * Math.PI * 2 + (rand() - 0.5) * 0.4;
+    const len = 0.9 + rand() * 2.2;
+    let rr;
+    let ansatzY = -0.3;
+    if (shape) {
+      const t0 = 0.04 + rand() * 0.08;
+      rr = shape.radius * shape.outline(a) * (shape.sideRadius(t0, a) - 0.02);
+      ansatzY = shape.edgeY(a) - shape.sideDepth(t0, a);
+    } else {
+      rr = radius * (0.72 + rand() * 0.22);
+    }
+    const ax = Math.cos(a) * rr;
+    const az = Math.sin(a) * rr;
+
+    // Kettenlinie: Der Strang verlässt den Rand fast waagerecht nach außen und
+    // richtet sich nach unten auf. Vier Stützpunkte reichen – CatmullRom macht
+    // daraus eine Kurve ohne Knick, und mehr Punkte kosten nur Dreiecke.
+    const drift = 0.18 + rand() * 0.3; // wie weit sie nach außen ausholt
+    const seite = (rand() - 0.5) * 0.5; // seitlicher Versatz, damit keine zwei gleich hängen
+    const kurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(ax, ansatzY, az),
+      new THREE.Vector3(
+        ax * (1 + drift * 0.35),
+        ansatzY - len * 0.22,
+        az * (1 + drift * 0.35) + seite * 0.3
+      ),
+      new THREE.Vector3(
+        ax * (1 + drift * 0.5),
+        ansatzY - len * 0.62,
+        az * (1 + drift * 0.5) + seite * 0.6
+      ),
+      new THREE.Vector3(
+        ax * (1 + drift * 0.52),
+        ansatzY - len,
+        az * (1 + drift * 0.52) + seite * 0.72
+      ),
+    ]);
+
+    // Zum Ende hin dünner. `TubeGeometry` kann das nicht von sich aus; die
+    // Ringe werden deshalb einzeln auf ihren Kurvenpunkt zusammengezogen –
+    // derselbe Kniff wie bei den Ikebana-Zweigen in props.js. Der Vertexindex
+    // ist ringweise: i · (radial + 1) + j.
+    const RINGE = 10;
+    const RADIAL = 4;
+    const rohr = new THREE.TubeGeometry(kurve, RINGE, 0.028, RADIAL, false);
+    const pos = rohr.attributes.position;
+    for (let ring = 0; ring <= RINGE; ring++) {
+      const f = 1 - 0.75 * (ring / RINGE);
+      kurve.getPointAt(ring / RINGE, mitte);
+      for (let jj = 0; jj <= RADIAL; jj++) {
+        const k = ring * (RADIAL + 1) + jj;
+        pos.setXYZ(
+          k,
+          mitte.x + (pos.getX(k) - mitte.x) * f,
+          mitte.y + (pos.getY(k) - mitte.y) * f,
+          mitte.z + (pos.getZ(k) - mitte.z) * f
+        );
+      }
+    }
+    rohr.computeVertexNormals();
+    strangGeos.push(rohr);
+
+    // Blattbüschel entlang des Strangs, nach unten hin kleiner. Der oberste
+    // sitzt bei 18 % – ganz am Ansatz wäre er im Fels.
+    const bueschel = 6 + Math.floor(rand() * 4);
+    for (let b = 0; b < bueschel; b++) {
+      const t = 0.14 + (b / bueschel) * 0.82 + rand() * 0.05;
+      kurve.getPointAt(Math.min(0.99, t), mitte);
+      laubPunkte.push({
+        p: mitte.clone(),
+        s: (0.17 + rand() * 0.11) * (1 - t * 0.35),
+        dreh: rand() * Math.PI * 2,
+      });
+    }
+  }
+
+  const gruppe = new THREE.Group();
+  gruppe.name = 'island-ranken';
+
+  const stiele = new THREE.Mesh(
+    mergeGeometries(strangGeos),
+    // Dunkel und holzig. Mit 0x5c7a42 stand der Strang als hellgrüner Stab vor
+    // dem Himmel und war heller als das Laub, das an ihm hängt – im Bild das
+    // Erste, was auffiel.
+    new THREE.MeshStandardMaterial({ color: 0x46512f, roughness: 0.96, metalness: 0 })
+  );
+  stiele.name = 'island-ranken-stiele';
+  gruppe.add(stiele);
+
+  const { karten } = inselBaumMaterialien();
+  const laub = new THREE.InstancedMesh(
+    cardCluster({ count: 26, radius: 1, seed: 0x9a12, kind: 'azalea', cardScale: 0.9 }),
+    karten,
+    laubPunkte.length
+  );
+  applyFoliageMaterial(laub, karten);
+  laub.name = 'island-ranken-laub';
+  laub.userData.fullCount = laubPunkte.length;
+  {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    laubPunkte.forEach((c, i) => {
+      q.setFromEuler(new THREE.Euler(0, c.dreh, 0));
+      // Nach unten gestreckt: Ein Rankenbüschel hängt, es sitzt nicht als Kugel
+      // auf dem Strang.
+      m.compose(c.p, q, new THREE.Vector3(c.s, c.s * 1.5, c.s));
+      laub.setMatrixAt(i, m);
+    });
+    laub.instanceMatrix.needsUpdate = true;
+  }
+  gruppe.add(laub);
+  return gruppe;
+}
+
 // Ein Findling: unregelmäßig verschobener Icosaeder, flach gelagert.
 function boulderGeometry(rand, size) {
   const g = new THREE.IcosahedronGeometry(size, 1);
@@ -1376,6 +1838,18 @@ function addContactShadow(bucket, shape, x, z, radius) {
   bucket.add(g, 0xffffff);
 }
 
+// --- Vorübergehender Umschalter für den Bildvergleich der Vegetation --------
+//
+// Beim Zusammenführen von PR #9 mit der Paket-1-Arbeit treffen zwei Fassungen
+// von Bäumen und Ranken aufeinander:
+//   'pr9'    – Astwerk-Bäume mit Alpha-Karten-Laub und Kettenlinien-Ranken aus
+//              PR #9, hier auf den neuen Inselkörper gesetzt
+//   'paket1' – die verschmolzenen, draw-call-sparsamen Fassungen aus Paket 1
+// Der Inselkörper (Fels, Erde, Terrain) ist in beiden Fällen der aus Paket 1.
+// Sobald entschieden ist, welche Vegetation bleibt, fliegt der Umschalter
+// zusammen mit der Verliererfassung raus.
+const ISLAND_VEGETATION = 'pr9';
+
 // Schwebende Insel: durchgehender Körper (Gras → Erde → geschichteter Fels),
 // darauf Bäume, Findlinge und Kontaktschatten – alles in wenigen Meshes.
 function buildIsland(
@@ -1390,7 +1864,11 @@ function buildIsland(
   island.add(buildIslandBody(shape, { detail }));
 
   const rootBucket = new GeoBucket();
-  addVines(rootBucket, rand, shape, vines);
+  if (ISLAND_VEGETATION === 'pr9') {
+    island.add(makeVines(rand, radius, vines + 4, shape));
+  } else {
+    addVines(rootBucket, rand, shape, vines);
+  }
 
   const trunkBucket = new GeoBucket();
   const leafBucket = new GeoBucket();
@@ -1408,7 +1886,15 @@ function buildIsland(
     if (shape.riverCurve && Math.hypot(tx - 0.1, tz - 0.2) < 0.7) continue; // nicht in die Quelle
     const y = shape.heightAt(tx, tz);
     const scale = 0.85 + rand() * 0.5;
-    addTree(rand, trunkBucket, leafBucket, { x: tx, y, z: tz, scale });
+    if (ISLAND_VEGETATION === 'pr9') {
+      const tree = makeTree(rand);
+      tree.position.set(tx, y, tz);
+      tree.rotation.y = rand() * TAU;
+      tree.scale.setScalar(scale);
+      island.add(tree);
+    } else {
+      addTree(rand, trunkBucket, leafBucket, { x: tx, y, z: tz, scale });
+    }
     addContactShadow(shadowBucket, shape, tx, tz, 0.46 * scale);
   }
 
@@ -1516,6 +2002,7 @@ function addUndergrowth(group, rand, shape) {
     10
   );
   bushes.name = 'bushes';
+  bushes.userData.fullCount = bushes.count;
   for (let i = 0; i < bushes.count; i++) {
     const [x, y, z] = spot(0.24, 0.88);
     dummy.position.set(x, y + 0.02, z);
@@ -1544,6 +2031,7 @@ function addUndergrowth(group, rand, shape) {
     6
   );
   mushrooms.name = 'mushrooms';
+  mushrooms.userData.fullCount = mushrooms.count;
   for (let i = 0; i < mushrooms.count; i++) {
     const [x, y, z] = spot(0.2, 0.9);
     dummy.position.set(x, y, z);
@@ -1682,12 +2170,35 @@ function createIslandEnvironment() {
   // und müssen den Maßstab mitgehen, sonst versinkt die Insel im Nebel.
   const fog = new THREE.Fog(0xcfe4f2, 18 * WORLD_SCALE, 46 * WORLD_SCALE);
 
+  // Was in der Brille dünner wird. Das Laub zuerst – Alpha-Test und
+  // Überzeichnung –, dann die Streudekoration: Blumen, Grasbüschel, Pilze und
+  // Büsche sind zu Hunderten da und einzeln nicht zu vermissen. Die Wolken, der
+  // Wasserfall und die Insel selbst bleiben; sie sind die Silhouette.
+  const ISLAND_QUALITAET = {
+    ausduennen: new Map([
+      // Die beiden großen Posten. Gemessen (inselkosten.mjs, volle Stufe):
+      // Kronenlaub 46.060 Dreiecke, Rankenlaub 28.764, Hüllkörper 17.360 –
+      // zusammen zwei Drittel der Insel.
+      ['island-laub', 0.5],
+      ['island-ranken-laub', 0.45],
+      ['island-krone', 0.6],
+      ['flowers', 0.45],
+      ['tufts', 0.45],
+      ['bushes', 0.7],
+      ['mushrooms', 0.6],
+    ]),
+  };
+
   return {
     id: 'island',
     name: '🏝 Himmelsinsel',
     background: new THREE.Color(0x9cc9e8),
     fog,
     group,
+    setQuality(stufe) {
+      applyQuality(group, null, stufe, ISLAND_QUALITAET);
+      return null;
+    },
     update(time) {
       for (const mini of minis) {
         mini.position.y = mini.userData.baseY + Math.sin(time * 0.4 + mini.userData.phase) * 0.5;
@@ -1743,6 +2254,85 @@ function craterProfile(t) {
 // Natürlicher, rötlicher Mars-Untergrund: sanft gewelltes Gelände mit
 // Einschlagkratern, verstreuten Felsen und weichen Hügeln am Horizont.
 // Keine kastenförmigen Strukturen, kein Raster.
+// --- Regolith: Marsboden und Marsfels ---------------------------------------
+//
+// **Warum der Nachthimmel überhaupt Karten bekommt, obwohl er von Eigenleuchten
+// lebt.** Sterne, Mond und Glühen sind unbeleuchtete Flächen und ändern sich
+// hier nicht. Der Boden aber ist die eine große beleuchtete Fläche der Szene,
+// und er hatte gar nichts: eine Farbe, Rauheit 1, fertig. Bei einem
+// Mondlicht, das flach von der Seite kommt, ist genau das der Fall, in dem eine
+// Normal-Map am meisten trägt – streifendes Licht auf feiner Körnung ist der
+// ganze Unterschied zwischen Sand und Pappe.
+//
+// Kein Himmelslicht dazu: Eine PMREM-Karte für eine Nachtszene bringt nichts,
+// was das Hemisphärenlicht nicht schon tut, und kostet eine Abtastung je
+// Fragment.
+let _marsMaps = null;
+function marsMaps() {
+  if (_marsMaps) return _marsMaps;
+  const size = 256;
+  // Regolith: feiner Staub mit eingestreuten Steinchen. Zwei Frequenzen, weil
+  // eine allein entweder Grieß (nur hoch) oder Dünen (nur tief) ergibt.
+  const rausch = (x, y, k) => {
+    const s = Math.sin(x * 12.9898 + y * 78.233 + k * 3.7) * 43758.5453;
+    return s - Math.floor(s);
+  };
+  const { normalMap, roughnessMap, field } = heightToMaps({
+    size,
+    strength: 1.9,
+    height: (x, y) => {
+      const grob = rausch(x >> 4, y >> 4, 1) * 0.5;
+      const mittel = rausch(x >> 2, y >> 2, 2) * 0.34;
+      const fein = rausch(x, y, 3) * 0.16;
+      return grob + mittel + fein;
+    },
+    // Staub ist stumpf, die freigewehten Steinchen etwas weniger. Die Streuung
+    // ist klein, aber sie ist es, die eine Fläche vor dem Plastikeindruck
+    // bewahrt.
+    roughness: (h) => Math.max(0, Math.min(255, (0.97 - h * 0.14) * 255)),
+    anisotropy: 8,
+  });
+  for (const t of [normalMap, roughnessMap]) {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(1, 1);
+  }
+  _marsMaps = { normalMap, roughnessMap, field };
+  return _marsMaps;
+}
+
+let _marsGround = null;
+function marsGroundMaterial() {
+  if (!_marsGround) {
+    const m = marsMaps();
+    _marsGround = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      normalMap: m.normalMap,
+      roughnessMap: m.roughnessMap,
+      roughness: 1, // wird von der Karte moduliert
+      metalness: 0,
+      normalScale: new THREE.Vector2(0.9, 0.9),
+    });
+  }
+  return _marsGround;
+}
+
+let _marsRock = null;
+function marsRockMaterial() {
+  if (!_marsRock) {
+    const m = marsMaps();
+    _marsRock = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      normalMap: m.normalMap,
+      roughnessMap: m.roughnessMap,
+      roughness: 1,
+      metalness: 0,
+      // Kräftiger als am Boden: Ein Brocken ist rauer als der Staub um ihn.
+      normalScale: new THREE.Vector2(1.4, 1.4),
+    });
+  }
+  return _marsRock;
+}
+
 function makeMarsGround(rand) {
   const group = new THREE.Group();
 
@@ -1789,10 +2379,12 @@ function makeMarsGround(rand) {
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
-  const ground = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 0 })
-  );
+  // **UVs in Weltmaßstab.** Eine PlaneGeometry legt ihre UVs einmal über die
+  // ganze Fläche – hier über 96 Meter. Ohne diese Skalierung wäre die
+  // Regolithkarte auf 96 m gestreckt und damit unsichtbar; derselbe Fehler wie
+  // bei der Grasnarbe der Insel, dort erst im Bild aufgefallen.
+  scaleUV(geo, SIZE / 1.6);
+  const ground = new THREE.Mesh(geo, marsGroundMaterial());
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.03;
   group.add(ground);
@@ -1813,15 +2405,13 @@ function makeMarsGround(rand) {
       rp.setXYZ(v, rp.getX(v) * f, rp.getY(v) * f, rp.getZ(v) * f);
     }
     geoR.computeVertexNormals();
-    const rock = new THREE.Mesh(
-      geoR,
-      new THREE.MeshStandardMaterial({
-        color: rockColors[Math.floor(rand() * rockColors.length)],
-        roughness: 1,
-        metalness: 0,
-        flatShading: true,
-      })
-    );
+    // Ein Material für alle dreißig Brocken; die vier Rottöne stecken in den
+    // Scheitelfarben. Kein Moos – auf dem Mars wächst nichts, und `mossPatina()`
+    // wäre hier genau die Sorte gedankenloser Wiederverwendung, die man den
+    // Werkzeugen später ansieht.
+    boxProjectUV(geoR, 0.22);
+    paintVertices(geoR, rockColors[Math.floor(rand() * rockColors.length)]);
+    const rock = new THREE.Mesh(geoR, marsRockMaterial());
     rock.position.set(bx, heightAt(bx, bz) - 0.03 + s * 0.25, bz);
     rock.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
     rock.scale.set(1 + rand() * 0.5, 0.45 + rand() * 0.4, 1 + rand() * 0.5);
@@ -1933,6 +2523,22 @@ function createNightEnvironment() {
     background: new THREE.Color(0x0a0605),
     fog: new THREE.Fog(0x1c0d09, 22, 48),
     group,
+
+    // **Hier gibt es bewusst nichts auszudünnen.** Der Nachthimmel hat keine
+    // Blattkarten, keine additiven Lagen über Bildschirmgröße und keine
+    // Instanzenwolke, deren Hälfte man nicht vermisst: Er besteht aus einer
+    // Bodenfläche, dreißig Brocken und zwei Punktwolken. Die Sterne zu halbieren
+    // spart ein paar tausend Punkte und nimmt der Szene ihr einziges Motiv.
+    //
+    // Der Aufruf steht trotzdem hier, und zwar mit leerer Konfiguration: Damit
+    // greift der materialseitige Teil von applyQuality() – doppelseitige
+    // Materialien werden in der Brille einseitig – und es ist an dieser Stelle
+    // aktenkundig, dass die Prüfung stattgefunden hat und negativ ausfiel.
+    setQuality(stufe) {
+      applyQuality(group, null, stufe, {});
+      return null;
+    },
+
     update(time) {
       starsGroup.rotation.y = time * 0.004;
     },
@@ -1942,50 +2548,161 @@ function createNightEnvironment() {
 // --- Zen-Garten ---
 
 // Sandfläche mit weichen, geharkten Wellenlinien (konzentrisch, organisch – kein Raster)
-function makeSandTexture() {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = 1024;
-  const ctx = canvas.getContext('2d');
-  const g = ctx.createLinearGradient(0, 0, 1024, 1024);
-  g.addColorStop(0, '#e7d4b0');
-  g.addColorStop(1, '#dcc59c');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, 1024, 1024);
-  // körnung
-  ctx.fillStyle = 'rgba(150,120,80,0.05)';
-  for (let i = 0; i < 2600; i++) {
-    ctx.fillRect(Math.random() * 1024, Math.random() * 1024, 2, 2);
-  }
-  // konzentrische Harkspuren um mehrere Zentren
-  ctx.strokeStyle = 'rgba(180,150,110,0.5)';
-  ctx.lineWidth = 2.5;
-  const centers = [
-    [512, 512], [250, 300], [780, 700], [720, 260],
-  ];
-  for (const [cx, cy] of centers) {
+// **Die Harkspur war bisher aufgemalt und nicht vorhanden.**
+//
+// Eine Rille im Kies ist kein hellerer Strich, sie ist eine Vertiefung: Bei
+// einer Sonne, die hier 20° über dem Horizont steht, hat sie eine beschienene
+// und eine verschattete Flanke, und genau dieser Wechsel macht aus einer Fläche
+// eine geharkte Fläche. Aufgemalt bleibt sie flach, egal wie gut die Farbe ist –
+// das ist der Grund, warum der Boden aussah wie bedruckter Karton.
+//
+// Deshalb wird dieselbe Zeichnung zweimal verwendet: einmal als Farbe und
+// einmal als **Höhenfeld**, aus dem `heightToMaps()` die Normal-Map rechnet.
+// Beide aus derselben Quelle heißt: Relief und Farbe liegen deckungsgleich.
+// Zwei getrennte Zeichnungen wären die einfachste Art, eine Rille zu bekommen,
+// die man sieht, aber nicht dort, wo sie hell ist.
+const SAND_CENTERS = [
+  [512, 512],
+  [250, 300],
+  [780, 700],
+  [720, 260],
+];
+let _sandMaps = null;
+function sandMaps() {
+  if (_sandMaps) return _sandMaps;
+  const size = 1024;
+
+  // --- Höhenfeld -------------------------------------------------------------
+  const hc = document.createElement('canvas');
+  hc.width = hc.height = size;
+  const hx = hc.getContext('2d');
+  hx.fillStyle = '#b0b0b0'; // Kammhöhe zwischen den Rillen
+  hx.fillRect(0, 0, size, size);
+  // Weichgezeichnet gestrichelt, damit der Sobel eine **Flanke** findet statt
+  // einer Stufe. Eine harte Kante ergibt in der Normal-Map einen Grat, der
+  // keinen Schatten wirft, sondern einen schwarzen Strich zeigt – derselbe
+  // Fehler, der beim Kies des Dojos einen eigenen Weichzeichner nötig machte.
+  hx.filter = 'blur(3px)';
+  hx.strokeStyle = '#3c3c3c'; // Rillengrund
+  hx.lineWidth = 5;
+  for (const [cx, cy] of SAND_CENTERS) {
     for (let r = 22; r < 220; r += 22) {
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.stroke();
+      hx.beginPath();
+      hx.arc(cx, cy, r, 0, Math.PI * 2);
+      hx.stroke();
     }
   }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
+  hx.filter = 'none';
+  const gezeichnet = hx.getImageData(0, 0, size, size).data;
+  const rille = new Float32Array(size * size);
+  for (let i = 0; i < size * size; i++) rille[i] = gezeichnet[i * 4] / 255;
+
+  // Körnung: eine feste Rauschzelle statt weißem Rauschen je Pixel. Auf einer
+  // 40-m-Fläche wäre Pixelrauschen nur Flimmern.
+  const korn = (x, y) => {
+    const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+    return s - Math.floor(s);
+  };
+
+  const { normalMap, field } = heightToMaps({
+    size,
+    strength: 2.4,
+    height: (x, y) => rille[y * size + x] * 0.82 + korn(x >> 2, y >> 2) * 0.18,
+    anisotropy: 8,
+  });
+
+  // --- Farbe, aus demselben Feld --------------------------------------------
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const bild = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x;
+      const h = field[i];
+      // Warmer Sandton mit einem Verlauf über die Diagonale, wie zuvor. Der
+      // Rillengrund sieht weniger Himmel und wird dadurch dunkler.
+      const diag = (x + y) / (size * 2);
+      const schatten = 0.66 + h * 0.5;
+      const r4 = i * 4;
+      bild.data[r4] = Math.min(255, (231 - diag * 11) * schatten);
+      bild.data[r4 + 1] = Math.min(255, (212 - diag * 15) * schatten);
+      bild.data[r4 + 2] = Math.min(255, (176 - diag * 20) * schatten);
+      bild.data[r4 + 3] = 255;
+    }
+  }
+  ctx.putImageData(bild, 0, 0);
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  for (const t of [map, normalMap]) {
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.anisotropy = 8;
+  }
+
+  _sandMaps = { map, normalMap };
+  return _sandMaps;
+}
+
+// Die Sonne des Zen-Gartens als Richtung, in die das Licht **läuft**.
+// `sun.position` ist [−12 | 9 | −6], das Licht zielt auf den Ursprung. Nötig,
+// weil `mossPatina()` sonst die Sonne des Dojos nähme und die Wetterseite jedes
+// Steins auf der falschen Seite läge.
+const ZEN_SUN = (() => {
+  const d = [12, -9, 6];
+  const len = Math.hypot(...d);
+  return d.map((v) => v / len);
+})();
+
+// Ein Material für **alle** Zen-Steine.
+//
+// Vorher legte jeder Stein sein eigenes `MeshStandardMaterial` an – bei rund
+// dreißig Steinen sind das dreißig Draw-Calls, die sich nicht zusammenfassen
+// lassen. `graniteMaterial()` mit Scheitelfarben macht daraus einen: Die
+// Unterschiede zwischen den Steinen stecken in den Farben ihrer Vertices, nicht
+// in getrennten Materialien. Genau dafür ist `vertexColors` da.
+let _zenGranit = null;
+function zenGranite() {
+  if (!_zenGranit) {
+    _zenGranit = graniteMaterial({ tone: 0xb8b2a8, vertexColors: true });
+    // Kräftiger als im Dojo. Dort steht der Stein im Streiflicht einer sehr
+    // tiefen Sonne, das die Körnung von selbst herausarbeitet; hier steht die
+    // Sonne 35° hoch, und mit der Vorgabe von 1,0 war auf dem Findling aus
+    // einem Meter Abstand schlicht nichts zu sehen.
+    _zenGranit.normalScale = new THREE.Vector2(2.2, 2.2);
+  }
+  return _zenGranit;
 }
 
 function makeZenStone(rand, size, color = 0x8b8680) {
-  const geo = new THREE.IcosahedronGeometry(size, 1);
-  const pos = geo.attributes.position;
-  for (let v = 0; v < pos.count; v++) {
-    const f = 0.82 + hashNoise(pos.getX(v) * 30, pos.getY(v) * 30, pos.getZ(v) * 30) * 0.36;
-    pos.setXYZ(v, pos.getX(v) * f, pos.getY(v) * f, pos.getZ(v) * f);
-  }
-  geo.computeVertexNormals();
-  const stone = new THREE.Mesh(
-    geo,
-    new THREE.MeshStandardMaterial({ color, roughness: 1, metalness: 0, flatShading: true })
-  );
+  // **Der verzerrte Ikosaeder ist entfallen.** Er gab einen glatten, rundlichen
+  // Kiesel mit zweiundvierzig gleich großen Facetten – aus einem Meter ein
+  // Spielstein, kein Findling. `weatheredStoneGeometry()` ist genau dafür da
+  // und steht seit Runde 6 im Werkzeugkasten: gerichtete Verwitterung,
+  // zurückgenommene Kanten, ein Knickwinkel, ab dem eine Kante scharf bleibt,
+  // und Würfelprojektion für die Körnung.
+  const geo = weatheredStoneGeometry(new THREE.IcosahedronGeometry(size, 1), rand() * 1000, {
+    amount: 0.26,
+    frequency: 2.2,
+    bevel: 0.3,
+    // Feiner als die Vorgabe von 0,4 m: Diese Steine sind 0,3 bis 0,7 m groß,
+    // eine Kachel von 40 cm liefe genau einmal über den ganzen Stein und wäre
+    // damit von einer Farbfläche nicht zu unterscheiden.
+    uv: 0.18,
+  });
+  // Grundfarbe als Scheitelfarbe, dann die Patina darüber. Beide schreiben in
+  // dasselbe Attribut, deshalb die Reihenfolge.
+  paintVertices(geo, color);
+  mossPatina(geo, {
+    y0: 0.12,
+    floor: 0,
+    height: Math.max(0.18, size * 0.9),
+    scale: Math.max(0.18, size * 0.7),
+    strength: 0.85,
+    seed: Math.floor(rand() * 1000),
+    sun: ZEN_SUN,
+  });
+
+  const stone = new THREE.Mesh(geo, zenGranite());
   stone.scale.y = 0.55 + rand() * 0.3;
   stone.rotation.set(rand(), rand() * Math.PI * 2, rand());
   return stone;
@@ -1994,14 +2711,40 @@ function makeZenStone(rand, size, color = 0x8b8680) {
 // Steinlaterne (Ishidōrō): gestapelte Steinelemente mit warmem Glimmen
 function makeLantern() {
   const group = new THREE.Group();
-  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x9a938a, roughness: 1, metalness: 0 });
-  const base = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.12, 8), stoneMat);
+  const stoneMat = zenGranite();
+  // Ein Stein, der jahrzehntelang im Garten steht: Auf jedem Absatz sammelt
+  // sich Wasser, und dort sitzt der Schmutzring, der aus gestapelten Zylindern
+  // ein Stück macht. `mossPatina()` kennt diesen `ledge`-Fall.
+  const steinTeil = (geo, y, seed) => {
+    boxProjectUV(geo, 0.16);
+    paintVertices(geo, 0xa8a199);
+    mossPatina(geo, {
+      y0: y,
+      floor: 0,
+      height: 0.22,
+      scale: 0.1,
+      strength: 0.7,
+      seed,
+      sun: ZEN_SUN,
+    });
+    return geo;
+  };
+  const base = new THREE.Mesh(
+    steinTeil(new THREE.CylinderGeometry(0.18, 0.22, 0.12, 8), 0.06, 11),
+    stoneMat
+  );
   base.position.y = 0.06;
   group.add(base);
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.07, 0.42, 8), stoneMat);
+  const post = new THREE.Mesh(
+    steinTeil(new THREE.CylinderGeometry(0.06, 0.07, 0.42, 8), 0.33, 12),
+    stoneMat
+  );
   post.position.y = 0.33;
   group.add(post);
-  const platform = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.14, 0.06, 8), stoneMat);
+  const platform = new THREE.Mesh(
+    steinTeil(new THREE.CylinderGeometry(0.16, 0.14, 0.06, 8), 0.57, 13),
+    stoneMat
+  );
   platform.position.y = 0.57;
   group.add(platform);
   // Lichtkasten mit warmem Glimmen
@@ -2011,10 +2754,16 @@ function makeLantern() {
   );
   box.position.y = 0.69;
   group.add(box);
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.16, 6), stoneMat);
+  const roof = new THREE.Mesh(
+    steinTeil(new THREE.ConeGeometry(0.22, 0.16, 6), 0.86, 14),
+    stoneMat
+  );
   roof.position.y = 0.86;
   group.add(roof);
-  const finial = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), stoneMat);
+  const finial = new THREE.Mesh(
+    steinTeil(new THREE.SphereGeometry(0.045, 8, 6), 0.96, 15),
+    stoneMat
+  );
   finial.position.y = 0.96;
   group.add(finial);
   const glow = new THREE.Sprite(
@@ -2034,7 +2783,11 @@ function makeLantern() {
 // Torii-Tor als ruhiger Landmark am Rand
 function makeTorii() {
   const group = new THREE.Group();
-  const mat = new THREE.MeshStandardMaterial({ color: 0xb23a1f, roughness: 0.85, metalness: 0 });
+  // Zinnoberrot bleibt – ein Torii ist rot –, aber jetzt auf gealtertem Holz:
+  // Die Maserung läuft bei `weatheredWoodMaterial` in **V**, also längs eines
+  // Zylinders, und genau so stehen die Pfosten. Die Farbe multipliziert die
+  // Karte, der Rotton bleibt also erhalten und bekommt Struktur dazu.
+  const mat = weatheredWoodMaterial({ tone: 0xd4553a, vertexColors: false });
   const h = 3.2;
   const span = 2.4;
   for (const sx of [-1, 1]) {
@@ -2055,8 +2808,33 @@ function makeTorii() {
   return group;
 }
 
-// Bambushalm (segmentierter Stiel + wenige Blätter), zu 1 Mesh verschmolzen.
-const BAMBOO_MAT = new THREE.MeshStandardMaterial({ color: 0x8fae55, roughness: 0.85, metalness: 0 });
+// Bambushalm (segmentierter Stiel), zu 1 Mesh verschmolzen.
+//
+// **Die drei Kegel als Blätter sind entfallen.** Ein Kegel ist ein Blatt nur
+// aus dreißig Metern; aus zwei Metern ist er ein grüner Spieß, und der Hain
+// steht mitten im Garten. An ihre Stelle treten Blattkarten aus dem
+// Bambus-Atlas – dieselben, die im Dojo-Hain hängen –, mit Wind und
+// Transluzenz. Das ist kein Zusatz, sondern ein Tausch: drei Kegel je Halm
+// (72 Dreiecke) gegen eine Karteninstanz.
+let _bambooMat = null;
+let _bambooCards = null;
+function bambooMaterials() {
+  if (!_bambooMat) {
+    _bambooMat = weatheredWoodMaterial({ tone: 0x9fbc63, vertexColors: false });
+    _bambooCards = foliageMaterial({
+      atlas: leafAtlas('bamboo'),
+      // Aufgehellt. Der Bambusatlas hat Grundton [86 | 112 | 52] und ist für
+      // den Schatten hinter einem Papierfenster gezeichnet; im offenen
+      // Gartenlicht standen die Schöpfe als fast schwarze Klumpen über den
+      // Halmen.
+      color: 0xd8ecb0,
+      translucency: 0.95,
+      transColor: 0xd8f0a0,
+      windStrength: 0.11,
+    });
+  }
+  return { culm: _bambooMat, cards: _bambooCards };
+}
 function makeBambooStalk(rand) {
   const geos = [];
   const segs = 5 + Math.floor(rand() * 4);
@@ -2072,18 +2850,7 @@ function makeBambooStalk(rand) {
     geos.push(knot);
     y += segH;
   }
-  // ein paar Blätter oben
-  for (let l = 0; l < 3; l++) {
-    const leaf = new THREE.ConeGeometry(0.05, 0.34, 4);
-    leaf.translate(0, 0.17, 0);
-    const m = new THREE.Matrix4()
-      .makeRotationZ(0.7 + rand() * 0.5)
-      .premultiply(new THREE.Matrix4().makeRotationY(rand() * Math.PI * 2));
-    leaf.applyMatrix4(m);
-    leaf.translate(0, y - 0.1 - l * 0.12, 0);
-    geos.push(leaf);
-  }
-  const stalk = new THREE.Mesh(mergeGeometries(geos), BAMBOO_MAT);
+  const stalk = new THREE.Mesh(mergeGeometries(geos), bambooMaterials().culm);
   stalk.userData.height = y;
   return stalk;
 }
@@ -2104,6 +2871,45 @@ function makeBambooGrove(rand, cx, cz) {
     group.add(stalk);
     stalks.push(stalk);
   }
+  // Laubschopf je Halm. Eine Instanz, ein Draw-Call für den ganzen Hain –
+  // deshalb hängen die Schöpfe **nicht** an den einzelnen Halmen, sondern
+  // stehen als eigene Instanzen an deren Positionen. Sie wiegen über den
+  // Windterm des Materials mit, nicht über die Halmdrehung; das reicht, weil
+  // ein Bambusschopf ohnehin stärker schwingt als sein Rohr.
+  const { cards: laubMat } = bambooMaterials();
+  // Zwei Schöpfe je Halm statt eines großen – dieselbe Begründung wie bei den
+  // Kronen: Eine aufgelöste Silhouette entsteht aus Anzahl, nicht aus Größe.
+  const schopf = new THREE.InstancedMesh(
+    cardCluster({ count: 34, radius: 1, seed: 0xba3b, kind: 'bamboo', cardScale: 0.8 }),
+    laubMat,
+    stalks.length * 2
+  );
+  applyFoliageMaterial(schopf, laubMat);
+  schopf.name = 'zen-bambus-laub';
+  schopf.userData.fullCount = stalks.length * 2;
+  {
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    stalks.forEach((s, i) => {
+      const hoehe = s.userData.height * s.scale.y;
+      for (let k = 0; k < 2; k++) {
+        q.setFromEuler(new THREE.Euler(0, i * 1.3 + k * 2.4, 0));
+        m.compose(
+          new THREE.Vector3(
+            s.position.x + (k - 0.5) * 0.16,
+            hoehe - 0.18 - k * 0.26,
+            s.position.z + (k - 0.5) * 0.13
+          ),
+          q,
+          new THREE.Vector3(0.3, 0.34, 0.3)
+        );
+        schopf.setMatrixAt(i * 2 + k, m);
+      }
+    });
+    schopf.instanceMatrix.needsUpdate = true;
+  }
+  group.add(schopf);
+
   const shadow = makeBlobShadow(1.4, 0.4, 0.02);
   group.add(shadow);
   return {
@@ -2118,29 +2924,58 @@ function makeBambooGrove(rand, cx, cz) {
 }
 
 // Ahorn (Momiji) mit roter/oranger Krone als Farbkontrast.
+// Das Blattmaterial der Ahornkronen, einmal für alle Bäume.
+//
+// Der zugehörige Hüllkörper-Werkstoff ist entfallen: Den legt `baueKrone()`
+// selbst an, als Lambert-Material mit Instanzfarben. Vorher legte **jeder
+// einzelne Blob** ein eigenes Standardmaterial an, nur um einen von vier
+// Grüntönen zu bekommen.
+let _mapleCards = null;
+function mapleMaterials() {
+  if (!_mapleCards) {
+    _mapleCards = foliageMaterial({
+      atlas: leafAtlas('maple'),
+      // Ahornlaub im Herbst ist der Fall, für den der Transluzenzterm gebaut
+      // ist – ein rotes Blatt gegen die Sonne leuchtet, statt dunkel zu werden.
+      translucency: 0.85,
+      transColor: 0xd98f45,
+      windStrength: 0.07,
+    });
+  }
+  return { cards: _mapleCards };
+}
+
 function makeMaple(rand) {
   const tree = new THREE.Group();
   const trunk = new THREE.Mesh(
     new THREE.CylinderGeometry(0.1, 0.16, 1.5, 8),
-    new THREE.MeshStandardMaterial({ color: 0x5b4636, roughness: 0.9, metalness: 0 })
+    weatheredWoodMaterial({ tone: 0x7d6552, vertexColors: false })
   );
   trunk.position.y = 0.75;
   trunk.rotation.z = -0.08;
   tree.add(trunk);
-  const leafColors = [0xd8442a, 0xe86a2a, 0xc23a2a, 0xf0913a];
-  const canopy = [
-    [0, 1.7, 0, 0.62], [0.5, 1.55, 0.15, 0.42], [-0.45, 1.6, -0.2, 0.46],
-    [0.15, 1.95, -0.15, 0.4], [-0.2, 1.85, 0.35, 0.38],
-  ];
-  for (const [x, y, z, r] of canopy) {
-    const blob = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(r, 1),
-      new THREE.MeshStandardMaterial({ color: leafColors[Math.floor(rand() * leafColors.length)], roughness: 0.85, metalness: 0 })
-    );
-    blob.position.set(x, y, z);
-    blob.scale.y = 0.9;
-    tree.add(blob);
-  }
+  const { cards } = mapleMaterials();
+  const krone = baueKrone({
+    ansaetze: [
+      [0, 1.68, 0, 0.46],
+      [0.5, 1.54, 0.15, 0.32],
+      [-0.45, 1.6, -0.2, 0.34],
+      [0.15, 1.92, -0.15, 0.3],
+      [-0.2, 1.84, 0.35, 0.28],
+    ],
+    seed: 0x71a3 + Math.floor(rand() * 64),
+    kartenMaterial: cards,
+    kind: 'maple',
+    cardScale: 0.85,
+    // Heller als die Werte des Dojo-Gartens, aus denen sie stammen: Dort steht
+    // der Ahorn im Schatten eines Vordachs, hier in der offenen
+    // Nachmittagssonne. Unverändert übernommen war er ein brauner Klumpen.
+    farben: [0x9c3f22, 0xb0512a, 0x8a3520],
+    kartenFarben: [0xf2cfa8, 0xffdcb0, 0xe6bd98, 0xf8d4a4],
+  });
+  krone.blobs.name = 'zen-ahorn-blobs';
+  krone.karten.name = 'zen-ahorn-karten';
+  tree.add(krone.blobs, krone.karten);
   return tree;
 }
 
@@ -2379,21 +3214,65 @@ function createZenEnvironment() {
   rim.position.set(16, 6, 14);
   group.add(rim);
 
-  // Sandfläche (flach, geharkt)
+  // Sandfläche (flach, geharkt) – jetzt mit echtem Relief in den Rillen.
+  const sandK = sandMaps();
   const sand = new THREE.Mesh(
     new THREE.CircleGeometry(20, 72),
-    new THREE.MeshStandardMaterial({ map: makeSandTexture(), roughness: 1, metalness: 0 })
+    new THREE.MeshStandardMaterial({
+      map: sandK.map,
+      normalMap: sandK.normalMap,
+      // Trockener Kies ist stumpf. Keine Rauheitskarte: Die Streuung zwischen
+      // Rillengrund und Kamm ist auf trockenem Sand klein, und das hier ist die
+      // größte Fläche der Szene – eine Abtastung je Pixel für fast nichts.
+      roughness: 0.95,
+      metalness: 0,
+    })
   );
+  sand.name = 'zen-sand';
   sand.rotation.x = -Math.PI / 2;
   sand.position.y = -0.02;
   group.add(sand);
 
-  // Moosinseln (leicht grüne Flecken)
-  const mossMat = new THREE.MeshStandardMaterial({ color: 0x6e8f52, roughness: 1, metalness: 0 });
+  // Moosinseln.
+  //
+  // **Zwei Fehler beim ersten Anlauf, beide erst im Bild sichtbar.**
+  //
+  // Erstens das Karomuster: `mossMaps()` setzt intern `repeat: [18, 18]`, und
+  // eine CircleGeometry spannt ihre UVs einmal über die ganze Scheibe. Auf
+  // einem Fleck von gut einem Meter lagen damit achtzehn Kacheln – aus zwei
+  // Metern ein sauber sichtbares Raster. Die UVs werden deshalb so skaliert,
+  // dass **eine** Kachel rund 55 cm bedeckt.
+  //
+  // Zweitens die Farbe: Die Farbkarte des Mooses ist dunkle, feuchte Erde mit
+  // grünen Polstern – richtig für den schattigen Dojo-Garten, falsch neben
+  // hellem Sand in der Nachmittagssonne. Wie bei der Insel bleibt das Relief
+  // und geht die Farbkarte; das Grün kommt aus `color`.
+  const mossMat = mossMaterial();
+  mossMat.map = null;
+  mossMat.color.setHex(0x7f9c55);
+  mossMat.vertexColors = true;
+  // Ohne Farbkarte **und** ohne Scheitelfarben ist die Scheibe gleichförmig
+  // grün – dieselbe Falle wie beim Inselrasen, einen Absatz weiter unten
+  // beschrieben und hier prompt wiederholt. Die Variation hängt jetzt an der
+  // Geometrie: außen ausdünnend (Moos endet nicht an einer Kante) und mit
+  // groben Flecken darin.
   for (let i = 0; i < 5; i++) {
     const a = rand() * Math.PI * 2;
     const r = 2 + rand() * 7;
-    const moss = new THREE.Mesh(new THREE.CircleGeometry(0.5 + rand() * 0.8, 20), mossMat);
+    const mossR = 0.5 + rand() * 0.8;
+    const mossGeo = new THREE.CircleGeometry(mossR, 20);
+    // Kachelgröße in Weltmetern: `repeat` der Karte ist 18, ein UV-Schritt von
+    // 1 wären also 18 Kacheln. Für 0,55 m je Kachel muss die Scheibe
+    // (2·r Meter breit) über 2·r / (18 · 0,55) UV-Einheiten laufen.
+    scaleUV(mossGeo, (2 * mossR) / (18 * 0.55));
+    bakeVertexShade(mossGeo, (x, y, z) => {
+      const rand2 = Math.min(1, Math.hypot(x, z) / mossR);
+      // Zum Rand hin heller und ausdünnend, dazu Flecken.
+      const saum = 1 + rand2 * rand2 * 0.35;
+      const fleck = 0.82 + hashNoise(x * 2.6, 0, z * 2.6) * 0.34;
+      return saum * fleck;
+    });
+    const moss = new THREE.Mesh(mossGeo, mossMat);
     moss.rotation.x = -Math.PI / 2;
     moss.position.set(Math.cos(a) * r, -0.01, Math.sin(a) * r);
     moss.scale.set(1 + rand() * 0.6, 1, 0.7 + rand() * 0.5);
@@ -2420,12 +3299,25 @@ function createZenEnvironment() {
     }
   }
 
-  // Trittstein-Pfad
+  // Trittstein-Pfad. Ein Material für alle sechs, Unterschiede über die
+  // Scheitelfarben; Moos sammelt sich am Rand, wo der Fuß nicht hintritt.
   for (let i = 0; i < 6; i++) {
-    const step = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.26, 0.26, 0.06, 12),
-      new THREE.MeshStandardMaterial({ color: 0x7f7a73, roughness: 1, metalness: 0 })
-    );
+    const geo = new THREE.CylinderGeometry(0.26, 0.26, 0.06, 12);
+    boxProjectUV(geo, 0.22);
+    paintVertices(geo, 0x8e8880);
+    mossPatina(geo, {
+      y0: 0.01,
+      floor: 0,
+      height: 0.05,
+      scale: 0.14,
+      // Schwächer als bei den Findlingen: Ein Trittstein wird betreten, auf
+      // seiner Mitte wächst nichts. `up` würde genau dort am stärksten greifen,
+      // deshalb bleibt die Stärke niedrig und das Moos steht im Rauschen am Rand.
+      strength: 0.45,
+      seed: 40 + i,
+      sun: ZEN_SUN,
+    });
+    const step = new THREE.Mesh(geo, zenGranite());
     step.position.set(-1.5 + i * 0.85, 0.01, 3.2 - i * 0.5 + Math.sin(i) * 0.2);
     step.scale.set(1 + rand() * 0.2, 1, 0.85);
     group.add(step);
@@ -2433,18 +3325,26 @@ function createZenEnvironment() {
 
   // Koi-Teich
   const pondCenter = new THREE.Vector3(3.2, 0, -1.2);
-  const waterTex = makeWaterTexture();
-  const pond = new THREE.Mesh(
-    new THREE.CircleGeometry(1.7, 40),
-    new THREE.MeshStandardMaterial({
-      map: waterTex,
-      color: 0x9fd0e0,
-      roughness: 0.2,
-      metalness: 0.1,
-      transparent: true,
-      opacity: 0.72,
-    })
-  );
+  // **Zwei gegeneinander wandernde Kräuselungslagen statt einer geschobenen
+  // Textur.** Eine einzelne Lage mit laufendem Versatz liest man sofort als
+  // verschobenes Bild; erst zwei Lagen in verschiedener Richtung und Frequenz
+  // ergeben ein Muster, das entsteht und wieder vergeht. Der Grundton ist dunkel,
+  // weil man auf Wasser fast nur die Spiegelung sieht – ein heller Grundton
+  // macht daraus graue Farbe.
+  const pondMat = waterMaterial({ repeat: 3.2 });
+  pondMat.transparent = true;
+  // **Heller und durchsichtiger als das Tsukubai-Becken im Dojo.** Der
+  // Grundton dort ist fast schwarz, weil ein Steinbecken tief und schattig ist
+  // und man darin praktisch nur die Spiegelung sieht. Ein Gartenteich mit
+  // Seerosen ist flach: Der Sand darunter gehört ins Bild. Mit dem
+  // unveränderten Wert war der Teich ein schwarzes Loch im Sand – nachgesehen,
+  // nicht überlegt.
+  pondMat.color.setHex(0x16363c);
+  pondMat.opacity = 0.8;
+  // Das Wasser braucht etwas zu spiegeln. Ohne Environment-Map bleibt bei
+  // Rauheit 0,05 nur die Grundfarbe übrig, und die ist absichtlich dunkel.
+  pondMat.userData.needsEnv = true;
+  const pond = new THREE.Mesh(new THREE.CircleGeometry(1.7, 40), pondMat);
   pond.rotation.x = -Math.PI / 2;
   pond.position.set(pondCenter.x, 0.01, pondCenter.z);
   pond.scale.set(1.2, 1, 1);
@@ -2501,25 +3401,62 @@ function createZenEnvironment() {
   }
 
   // Kirschblütenbaum (Sakura)
+  //
+  // **Der Hüllkörper bleibt, die Karten kommen dazu.** Die sechs
+  // Ikosaeder-Blobs waren die ganze Krone – aus der Nähe sechs rosa Bälle. Sie
+  // bleiben stehen, aber als *Silhouette*: Sie schließen die Krone, damit man
+  // nicht hindurchsieht, und sind nach unten abgedunkelt, damit sie zwischen
+  // den Karten als Tiefe lesen statt als Ball. Darüber liegt eine Instanz je
+  // Blob mit echten Blütenkarten samt Wind und Transluzenz.
   const sakura = new THREE.Group();
+  const trunkGeo = new THREE.CylinderGeometry(0.14, 0.2, 1.8, 8);
   const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.14, 0.2, 1.8, 8),
-    new THREE.MeshStandardMaterial({ color: 0x5b4636, roughness: 0.9, metalness: 0 })
+    trunkGeo,
+    // `vertexColors` muss **aus** sein: Die Vorgabe ist `true`, ein
+    // CylinderGeometry bringt aber kein Farbattribut mit, und three liest dann
+    // ins Leere – der Stamm wird schwarz. Genau so passiert und im Bild gesehen.
+    weatheredWoodMaterial({ tone: 0x8a6f58, vertexColors: false })
   );
   trunk.position.y = 0.9;
   trunk.rotation.z = 0.12;
   sakura.add(trunk);
-  const blossomMat = new THREE.MeshStandardMaterial({ color: 0xffc4dd, roughness: 0.85, metalness: 0 });
-  const blossomPositions = [
-    [0, 2.1, 0, 0.9], [0.6, 1.9, 0.2, 0.6], [-0.5, 2.0, -0.3, 0.7],
-    [0.3, 2.4, -0.2, 0.55], [-0.3, 2.3, 0.4, 0.5], [0.1, 1.8, 0.5, 0.45],
-  ];
-  for (const [bx, by, bz, br] of blossomPositions) {
-    const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(br, 1), blossomMat);
-    blob.position.set(bx, by, bz);
-    blob.scale.y = 0.85;
-    sakura.add(blob);
-  }
+  // Krone aus vielen kleinen Schöpfen. Die sechs groben Ansatzpunkte bleiben –
+  // sie sind die Form des Baums –, aber jeder wird jetzt in mehrere Schöpfe
+  // aufgelöst statt als eine Blase zu stehen.
+  const sakuraCards = foliageMaterial({
+    atlas: leafAtlas('sakura'),
+    // Kirschblüten im Gegenlicht sind der Lehrbuchfall für Transluzenz: Ein
+    // Blütenblatt ist dünner als jedes Laubblatt und leuchtet regelrecht.
+    translucency: 1.0,
+    transColor: 0xffdfe9,
+    windStrength: 0.085,
+    roughness: 0.88,
+  });
+  const sakuraKrone = baueKrone({
+    ansaetze: [
+      [0, 2.05, 0, 0.62],
+      [0.62, 1.88, 0.22, 0.44],
+      [-0.52, 1.98, -0.3, 0.48],
+      [0.3, 2.32, -0.2, 0.4],
+      [-0.3, 2.24, 0.4, 0.36],
+      [0.1, 1.78, 0.5, 0.34],
+    ],
+    seed: 0x5a4a,
+    kartenMaterial: sakuraCards,
+    kind: 'sakura',
+    // Große Karten, damit sie sich überlappen und den Hüllkörper zudecken.
+    cardScale: 0.85,
+    // **Der Hüllkörper liegt in derselben Farbfamilie wie die Blüten, nur
+    // dunkler.** Der erste Anlauf hatte ihn auf Pflaume gesetzt, weil „dunkel
+    // gleich Tiefe" – das Ergebnis waren dunkle Pflaumen mit rosa Sprenkeln
+    // darauf. Tiefe entsteht durch **Helligkeitsunterschied innerhalb einer
+    // Farbe**, nicht durch eine zweite Farbe.
+    farben: [0xc98fa6, 0xd6a0b4, 0xbc8398],
+    kartenFarben: [0xffe4ee, 0xffd2e2, 0xf8c6d8],
+  });
+  sakuraKrone.blobs.name = 'zen-sakura-blobs';
+  sakuraKrone.karten.name = 'zen-sakura-karten';
+  sakura.add(sakuraKrone.blobs, sakuraKrone.karten);
   sakura.position.set(-4.5, 0, 2.5);
   group.add(sakura);
   const sakuraShadow = makeBlobShadow(1.3, 0.4);
@@ -2630,15 +3567,83 @@ function createZenEnvironment() {
   petals.frustumCulled = false;
   group.add(petals);
 
+  // Die Sonne dieser Umgebung als Himmelsbeschreibung. Warmer Spätnachmittag:
+  // tiefer Zenit, sehr breiter goldener Dunst am Horizont – deutlich anders als
+  // der klare Vormittagshimmel des Dojos, und genau deshalb ein eigener Eintrag
+  // im Zwischenspeicher von `buildSkyEnvironment`.
+  const ZEN_HIMMEL = {
+    name: 'zen',
+    sun: [-12, 9, -6],
+    target: [0, 0, 0],
+    sunColor: 0xffe0b3,
+    sky: {
+      zenith: { hex: 0x7ea3cc, level: 0.36 },
+      horizon: { hex: 0xf3dcb4, level: 0.66 },
+      haze: { hex: 0xffc98a, level: 0.58 },
+      ground: { hex: 0x8d7d5e, level: 0.26 },
+    },
+  };
+  let zenSky = null;
+
+  // Die Kronen bleiben dichter als das Bodenlaub: Sie stehen auf Augenhöhe und
+  // sind das, was man zuerst sieht. Der Bambusschopf verträgt am meisten – er
+  // steht am weitesten weg und ist ohnehin ein Büschel.
+  const ZEN_QUALITAET = {
+    ausduennen: new Map([
+      ['zen-sakura-karten', 0.65],
+      ['zen-ahorn-karten', 0.65],
+      ['zen-bambus-laub', 0.45],
+    ]),
+  };
+
   return {
     id: 'zen',
     name: '🪷 Zen-Garten',
     background: new THREE.Color(0xe9d3ae),
     fog: new THREE.Fog(0xecd9bb, 20, 46),
     group,
+
+    // **Warum die Karte erst hier entsteht und nicht beim Bauen.** Der
+    // PMREM-Generator braucht einen lebenden Renderer und rechnet auf der GPU;
+    // alle Umgebungen werden aber beim Modulstart gebaut (main.js:98). Wäre der
+    // Aufbau dort, zahlte ihn jeder Nutzer beim Laden, auch wer den Zen-Garten
+    // nie aufruft. `main.js:116` ruft diesen Haken beim ersten Sichtbarwerden.
+    ensureEnvironment(renderer) {
+      if (!zenSky && renderer) {
+        zenSky = buildSkyEnvironment(renderer, ZEN_HIMMEL);
+        // Nur das Wasser bekommt die Karte, nicht die ganze Szene.
+        //
+        // `scene.environment` gälte für **jedes** Standardmaterial hier, und
+        // three kompiliert den Envmap-Pfad dann in jeden Shader – auch in den
+        // des 40-m-Sandes, der bei Rauheit 0,95 nichts davon hat. Gemessen war
+        // die IBL im Dojo mit knapp 25 % der teuerste Posten der Frame-Zeit.
+        // Der Teich ist die eine Fläche, die ohne Spiegelung nicht funktioniert.
+        pondMat.envMap = zenSky;
+        pondMat.needsUpdate = true;
+      }
+      return this.environment;
+    },
+
+    // Qualitätsstufen. Die Blattkarten sind hier das teuerste Neue: zwei
+    // Dreiecke **und** ein Alpha-Test je Blatt, und der Alpha-Test verbietet
+    // das frühe Verwerfen von Fragmenten. Ausgedünnt wird deshalb nur das Laub;
+    // Sand, Steine und Wasser bleiben in jeder Stufe vollständig, weil sie den
+    // Garten ausmachen und keine Überzeichnung erzeugen.
+    setQuality(stufe) {
+      applyQuality(group, null, stufe, ZEN_QUALITAET);
+      return null;
+    },
+
     update(time) {
-      waterTex.offset.y = -time * 0.03;
-      waterTex.offset.x = Math.sin(time * 0.1) * 0.02;
+      // Die beiden Kräuselungslagen wandern gegeneinander; updateWater() kennt
+      // Richtung und Tempo, hier steht nur noch die Zeit.
+      updateWater(pondMat, time);
+      // **Ohne diesen Aufruf steht der Wind still.** `foliageMaterial()` legt
+      // die Zeit in einem gemeinsamen Uniform-Satz ab; `updateFoliage()` ist
+      // das Einzige, was ihn hochzählt. Im Dojo tut das exterior.js – wer die
+      // Karten anderswo benutzt, muss es selbst tun, sonst hängen Blüten und
+      // Blätter reglos in der Luft und sehen aus wie aufgeklebt.
+      updateFoliage(time);
       bamboo.update(time);
       for (const koi of kois) {
         const d = koi.userData;
@@ -3472,6 +4477,11 @@ export function createEnvironments(scene) {
     createNightEnvironment(),
     createZenEnvironment(),
     createMatrixEnvironment(),
+    // **Angehängt, nicht eingeschoben.** Die Reihenfolge ist der Index, den
+    // `cycleEnvironment` durchläuft und den die Testskripte hart verdrahtet
+    // haben (Konstrukt = 3). Ein Einschub in der Mitte würde jedes davon still
+    // auf die falsche Welt zeigen lassen.
+    createDojoEnvironment(),
   ];
   for (const env of environments) {
     env.group.visible = false;
