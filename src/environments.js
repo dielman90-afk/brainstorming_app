@@ -1632,7 +1632,13 @@ function makeVines(rand, radius, count, shape = null) {
     // Kettenlinie: Der Strang verlässt den Rand fast waagerecht nach außen und
     // richtet sich nach unten auf. Vier Stützpunkte reichen – CatmullRom macht
     // daraus eine Kurve ohne Knick, und mehr Punkte kosten nur Dreiecke.
-    const drift = 0.18 + rand() * 0.3; // wie weit sie nach außen ausholt
+    // Wie weit die Ranke nach außen ausholt. Der Wert ist ein Faktor auf den
+    // Ansatzradius – und genau deshalb muss er kleiner werden, sobald der
+    // Ansatz auf der tatsächlichen Flanke sitzt statt bei 0,72–0,94 des
+    // Radius: Dort bedeuten 50 % Ausschwung mehrere Meter neben der Insel, und
+    // der Vorhang hing sichtbar frei im Himmel. Am Kreis-Ansatz landete
+    // derselbe Wert noch ungefähr an der Kante.
+    const drift = shape ? 0.04 + rand() * 0.07 : 0.18 + rand() * 0.3;
     const seite = (rand() - 0.5) * 0.5; // seitlicher Versatz, damit keine zwei gleich hängen
     const kurve = new THREE.CatmullRomCurve3([
       new THREE.Vector3(ax, ansatzY, az),
