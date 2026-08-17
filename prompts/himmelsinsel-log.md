@@ -41,6 +41,26 @@ entscheidenden Größen.
 
 ---
 
+## Stand der Arbeit
+
+| Paket | Stand |
+| --- | --- |
+| 0 Bestandsaufnahme | abgeschlossen |
+| **Zwischenschritt: Branch-Zusammenführung** | PR #9 (60 Commits) in den Default-Branch, Vegetation daraus übernommen und ins Draw-Call-Budget verschmolzen (129 → 85) |
+| 1 Silhouette & Fels | abgeschlossen, **nicht bestanden** – 5 offene Punkte |
+| 2 Licht & Atmosphäre | abgeschlossen, **nicht bestanden** – Kriterium 6 bestanden, 5 offene Punkte |
+| 3 Terrain-Material | Durchlauf 3 gebaut, zweite Prüfung läuft |
+| 4 Vegetation … 9 Performance-Pass | offen |
+
+**Budget durchgehend eingehalten:** 93 von 120 Draw-Calls, 173 667 von 350 000
+Dreiecken, 11,83 von 60 MB Texturspeicher. Konsole sauber, Build grün, die vier
+anderen Umgebungen unverändert.
+
+**Bestandene Messlatten-Kriterien: 1 von 8** (Tiefenstaffelung). Der Fortschritt
+ist real und in jeder Runde nachgemessen, aber die Messlatte ist hoch angesetzt.
+
+---
+
 ## Durchlauf 0 – Bestandsaufnahme (Ausgangswerte)
 
 Commit-Basis: `claude/himmelsinsel-optimization-2g3px8`, Stand vor der Überarbeitung.
