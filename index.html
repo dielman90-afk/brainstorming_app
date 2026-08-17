@@ -182,9 +182,104 @@
     }
     .action-list button:last-child { border-bottom: none; }
     .action-list button:hover { color: var(--accent-text); }
-    .action-list button .ic { color: #6f6a77; font-size: 15px; }
+    /* Icon-Halterungen. Die SVGs zeichnen mit stroke: currentColor – die
+       Farbe kommt also aus diesen Regeln, Hover inklusive. */
+    .action-list button .ic { display: inline-flex; color: #6f6a77; }
     .action-list button:hover .ic { color: var(--accent); }
+    .ic svg, .ic-lead svg { display: block; }
+    .ic-lead { display: inline-flex; vertical-align: -3px; margin-right: 7px; color: #9b95a4; }
+    /* In den mini-row-Knöpfen trägt das Icon die Bedeutung mit (Mikrofon,
+       Pfeil, Export) – gedimmt gegenüber der Beschriftung sackte es weg.
+       Nur die Helligkeit ans Label angeglichen, nicht die Größe: Bei 17 px
+       brach „Pfeil ziehen" zweizeilig um, die Knöpfe haben keine 2 px Reserve. */
+    .mini-row button > .ic-lead, .mini-row .file-btn > .ic-lead { color: #c2bcca; }
+    button:hover > .ic-lead, .file-btn:hover > .ic-lead { color: var(--accent); }
+    .btn-primary .ic-lead { color: #231b10; }
+    .btn-primary:hover .ic-lead { color: #231b10; }
+    .mini-row button, .chip-row button, .file-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chip-row .ic-lead { margin-right: 5px; color: #8b8593; }
 
+    /* Prozessdiagramm als abgegrenzte Gruppenbox: dünner Rahmen, leicht
+       getönte Fläche, Titel in der Oberkante. Bewusst ein echtes
+       <fieldset>/<legend>: Der Browser unterbricht den Rahmen unter dem Titel
+       selbst. Der frühere Trick – Titel absolut positioniert und mit
+       deckendem --panel-solid über den Rahmen gelegt – malte einen dunklen
+       Fleck auf das durchsichtige Milchglas-Panel. */
+    fieldset.group-box {
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 14px;
+      padding: 10px 12px 2px;
+      margin: 22px 0 16px;
+      background: rgba(255, 255, 255, 0.025);
+      /* Fieldset-Eigenheit: min-width ist min-content – die Box würde sonst
+         breiter als das Overlay, statt ihren Inhalt umbrechen zu lassen. */
+      min-width: 0;
+    }
+    .group-box > .group-title {
+      padding: 0 7px;
+      margin-left: 5px;
+      font: 600 11px/1.4 var(--body);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #9b95a4;
+    }
+    .group-box .mini-row:last-child { margin-bottom: 14px; }
+
+    .section-title {
+      font: 600 12px/1 var(--body);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #8b8593;
+      margin: 4px 0 10px;
+    }
+    /* Formauswahl: umbrechende Reihe kleiner Knöpfe. Anders als in VR wird die
+       Form hier direkt gewählt statt durchgeschaltet – am Desktop ist Platz. */
+    .chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .chip-row button {
+      flex: 1 1 auto;
+      padding: 7px 9px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      font: 12px var(--body);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .chip-row button:hover { background: rgba(255, 255, 255, 0.1); color: var(--accent-text); }
+    .chip-row button.active {
+      background: rgba(255, 180, 84, 0.16);
+      border-color: rgba(255, 180, 84, 0.45);
+      color: var(--accent);
+    }
+    /* Formleiste im Kontextmenü: `#context-menu button` (weiter unten) schlägt
+       `.chip-row button` an ID-Spezifität – ohne diesen Block standen die fünf
+       Formen als volle Zeilen untereinander statt als umbrechende Chips. Zwei
+       IDs im Selektor, damit die Regel unabhängig von der Reihenfolge im
+       Stylesheet gewinnt: mit nur einer wäre sie gleich spezifisch und die
+       später notierte Regel würde sie wieder aushebeln. */
+    #context-menu #context-flow-row button {
+      display: inline-flex;
+      width: auto;
+      flex: 1 1 auto;
+      justify-content: center;
+      padding: 7px 9px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      font: 12px var(--body);
+      text-align: center;
+      white-space: nowrap;
+    }
+    #context-menu #context-flow-row button:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--accent-text);
+    }
+    #context-flow-row .ic-lead { margin-right: 5px; color: #8b8593; }
     .mini-row { display: flex; gap: 8px; margin-bottom: 16px; }
     .mini-row button, .mini-row .file-btn {
       flex: 1;
@@ -271,6 +366,10 @@
       position: fixed;
       z-index: 30;
       min-width: 216px;
+      /* Ohne Deckel bemisst sich das schwebende Menü an seinem breitesten
+         Inhalt – die Formleiste zöge es dann auf eine einzige lange Zeile,
+         statt umzubrechen. */
+      max-width: 258px;
       padding: 7px;
       border-radius: 16px;
       background: var(--panel-solid);
@@ -343,46 +442,77 @@
     <div class="eyebrow">WebXR · Meta Quest 3</div>
     <h1>Brainstorming</h1>
     <input id="idea-input" type="text" placeholder="Idee oder Thema eingeben…" />
-    <!-- Beide über die volle Breite: „🎙 Sprachbefehle: aus" bricht nebeneinander
-         um und reißt dabei das Emoji auf eine eigene Zeile. -->
+    <!-- Eigene Überschrift wie „Ideen" und „Board": Ohne sie waren die beiden
+         Sprach-Knöpfe die einzige unbetitelte Gruppe im Menü. Seit die Emojis
+         weg sind (🎤/🎙 stachen von selbst hervor), sehen sie aus wie jeder
+         andere graue mini-row-Knopf – wer „Diktieren" sucht, findet es beim
+         Überfliegen der Abschnitte sonst nicht.
+         Beide über die volle Breite: „Sprachbefehle: aus" bricht nebeneinander
+         um und reißt dabei das Icon auf eine eigene Zeile. -->
+    <div class="section-title">Sprache</div>
     <div class="mini-row">
-      <button id="btn-dictate" title="Text ins Feld diktieren (Web Speech API)">🎤 Diktieren</button>
+      <button id="btn-dictate" data-icon="mic" title="Text ins Feld diktieren (Web Speech API)"><span class="lbl">Diktieren</span></button>
     </div>
     <div class="mini-row">
-      <button id="btn-voice" title="Sprachbefehle dauerhaft an/aus">🎙 Sprachbefehle: aus</button>
+      <button id="btn-voice" data-icon="voice" title="Sprachbefehle dauerhaft an/aus"><span class="lbl">Sprachbefehle: aus</span></button>
     </div>
-    <button id="btn-topic" class="btn-primary">🚀 Themen-Start</button>
+    <button id="btn-topic" class="btn-primary" data-icon="topic">Themen-Start</button>
 
+    <div class="section-title">Ideen</div>
     <div class="action-list">
-      <button id="btn-new">Neue Karte<span class="ic">＋</span></button>
-      <button id="btn-related">Verwandte Ideen<span class="ic">✨</span></button>
-      <button id="btn-critic">Kritiker<span class="ic">😈</span></button>
-      <button id="btn-cluster">Cluster anwenden<span class="ic">◇</span></button>
-      <button id="btn-summary">Zusammenfassen<span class="ic">≡</span></button>
-      <button id="btn-zone">Zone<span class="ic">🗂️</span></button>
-      <button id="btn-timer">Timer<span class="ic">⏱️</span></button>
-      <button id="btn-whiteboard">Whiteboard<span class="ic">📋</span></button>
-      <button id="btn-env">Umgebung<span class="ic">🌐</span></button>
+      <button id="btn-new">Neue Karte<span class="ic" data-icon="plus"></span></button>
+      <button id="btn-related">Verwandte Ideen<span class="ic" data-icon="spark"></span></button>
+      <button id="btn-critic">Kritiker<span class="ic" data-icon="critic"></span></button>
+      <button id="btn-cluster">Cluster anwenden<span class="ic" data-icon="cluster"></span></button>
+      <button id="btn-summary">Zusammenfassen<span class="ic" data-icon="summary"></span></button>
+    </div>
+
+    <div class="section-title">Board</div>
+    <div class="action-list">
+      <button id="btn-zone">Zone<span class="ic" data-icon="zone"></span></button>
+      <button id="btn-timer">Timer<span class="ic" data-icon="timer"></span></button>
+      <button id="btn-whiteboard">Whiteboard<span class="ic" data-icon="whiteboard"></span></button>
+      <button id="btn-env">Umgebung<span class="ic" data-icon="environment"></span></button>
+      <button id="btn-fontsize" title="Schriftgröße der Karten umschalten"><span class="lbl">Schrift: Normal</span><span class="ic" data-icon="fontsize"></span></button>
+    </div>
+
+    <!-- Prozessflussdiagramm. Am Desktop bewusst als eigener Block statt
+         verstreut in der Aktionsliste: Die Formen brauchen eine direkte
+         Auswahl, kein Durchschalten wie in VR – hier ist Platz dafür. -->
+    <fieldset class="group-box">
+      <legend class="group-title"><span class="ic-lead" data-icon="branch"></span>Prozessdiagramm</legend>
+      <div class="chip-row" id="flow-shapes" title="Form der ausgewählten Karte">
+        <button data-flow-type="start" data-icon="flow-start">Start</button>
+        <button data-flow-type="task" data-icon="flow-task">Schritt</button>
+        <button data-flow-type="decision" data-icon="flow-decision">Entscheidung</button>
+        <button data-flow-type="end" data-icon="flow-end">Ende</button>
+        <button data-flow-type="" data-icon="flow-none">Karte</button>
+      </div>
+      <div class="mini-row">
+        <button id="btn-flow-arrow" data-icon="arrow" title="Ausgewählte Karte als Start, dann Ziel anklicken">Pfeil ziehen</button>
+        <button id="btn-flow-label" data-icon="label" title="Zuletzt gezogenen Pfeil beschriften (Text aus dem Eingabefeld)">Zweig</button>
+      </div>
+      <!-- Zwei Reihen à zwei Knöpfe: Zu dritt nebeneinander („Anordnen · Aus
+           Text · Mermaid") liefen die Knöpfe über den Boxrand hinaus – der
+           Mermaid-Knopf wurde rechts abgeschnitten. -->
+      <div class="mini-row">
+        <button id="btn-flow-layout" data-icon="layout" title="Prozess waagerecht anordnen">Anordnen</button>
+        <button id="btn-flow" data-icon="spark" title="Ablauf im Eingabefeld beschreiben – Claude baut das Diagramm">Aus Text</button>
+      </div>
+      <div class="mini-row">
+        <button id="btn-mermaid" data-icon="export" title="Prozessdiagramm als Mermaid-Datei herunterladen">Mermaid-Export</button>
+      </div>
+    </fieldset>
+
+    <div class="mini-row">
+      <button id="btn-undo" data-icon="undo" title="Letzte Änderung rückgängig (Strg+Z)" disabled>Rückgängig</button>
+      <button id="btn-redo" data-icon="redo" title="Wiederherstellen (Strg+Umschalt+Z)" disabled>Wiederholen</button>
     </div>
 
     <div class="mini-row">
-      <button id="btn-undo" title="Letzte Änderung rückgängig (Strg+Z)" disabled>↶ Rückgängig</button>
-      <button id="btn-redo" title="Wiederherstellen (Strg+Umschalt+Z)" disabled>↷ Wiederholen</button>
-    </div>
-
-    <div class="mini-row">
-      <button id="btn-save" title="Sicherungspunkt im Browser anlegen">💾 Sichern</button>
-      <button id="btn-load" title="Letzten Sicherungspunkt laden">📂 Laden</button>
-    </div>
-
-    <div class="mini-row">
-      <button id="btn-fontsize" title="Schriftgröße der Karten umschalten">Schrift: Normal</button>
-    </div>
-
-    <div class="mini-row">
-      <button id="btn-export" title="Board als JSON-Datei herunterladen">Export</button>
-      <label class="file-btn">Import<input id="import-file" type="file" accept=".json,application/json" hidden /></label>
-      <button id="btn-clear" title="Alle Karten löschen">🧹</button>
+      <button id="btn-export" data-icon="export" title="Board als JSON-Datei herunterladen">Export</button>
+      <label class="file-btn" data-icon="import">Import<input id="import-file" type="file" accept=".json,application/json" hidden /></label>
+      <button id="btn-clear" data-icon="clear" title="Alle Karten löschen">Leeren</button>
     </div>
 
     <button id="xr-button" disabled>WebXR wird geprüft…</button>
@@ -402,12 +532,16 @@
   <div id="status-band"><span class="dot"></span><span id="status"></span></div>
 
   <div id="context-menu" hidden>
-    <button data-action="edit">✏️ Text bearbeiten</button>
-    <button data-action="related">✨ Verwandte Ideen</button>
-    <button data-action="critic">😈 Kritiker</button>
-    <button data-action="connect">🔗 Verbinden mit…</button>
+    <button data-action="edit" data-icon="edit">Text bearbeiten</button>
+    <button data-action="related" data-icon="spark">Verwandte Ideen</button>
+    <button data-action="critic" data-icon="critic">Kritiker</button>
+    <button data-action="connect" data-icon="connect">Verbinden mit…</button>
+    <button data-action="flow-arrow" data-icon="arrow">Pfeil ziehen zu…</button>
+    <!-- Formauswahl direkt an der Karte – wird aus FLOW_TYPES aufgebaut,
+         genau wie die Farbpunkte darunter. -->
+    <div class="chip-row" id="context-flow-row"></div>
     <div class="color-row" id="color-row"></div>
-    <button data-action="delete" class="danger">🗑️ Karte löschen</button>
+    <button data-action="delete" class="danger" data-icon="trash">Karte löschen</button>
   </div>
 
   <div id="edit-box" hidden>

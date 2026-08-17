@@ -30,6 +30,100 @@ gegen den tatsächlichen Code geprüft.
       (Vorhandenes prüfen und ggf. auf Datei-Download + Import erweitern, auch aus VR
       erreichbar).
       *(erledigt über PR #2, `src/boardState.js`; Haken nachgetragen am 2026-08-03)*
+- [x] **Prozessflussdiagramm** – Knotenarten mit eigener Form (Stadion, Rechteck,
+      Raute), gerichtete Pfeile mit Beschriftung, automatisches geschichtetes
+      Layout **von links nach rechts** (senkrecht ging der Platz aus),
+      Bedienung in VR *und* am Desktop (Formleiste im Overlay und im
+      Kontextmenü), Erzeugung aus einer Beschreibung durch Claude und Export als
+      Mermaid (`src/flowLayout.js`, `FLOW_TYPES` in `src/cards.js`, Aktion
+      `flow` in `server/ai-core.js`). *(erledigt am 2026-08-05)*
+      *(QA-Runde am 2026-08-05: neun Befunde behoben – u. a. schief stehende
+      Zweigbeschriftungen bei gedrehtem Player-Rig, ein gegriffener Knoten, der
+      beim Anordnen am Rig hängenblieb, ein Schild am Weltursprung nach
+      gelöschter Kante und sich stapelnde Geschwister bei vielen Zweigen.)*
+      Offen als Fortsetzung: rechtwinklige Kantenführung wie bei Miro,
+      `flowId` für mehrere Diagramme nebeneinander mit einer Zone als Rahmen,
+      Schwimmbahnen für Rollen über `src/zones.js`, Mermaid-**Import**.
+- [-] **Automatisches Mindmap-Layout** – gebaut am 2026-08-09, **auf Wunsch
+      wieder entfernt am 2026-08-12**. Ein Knopf ordnete die Karten radial nach
+      ihren Verbindungen an: Wurzel in der Mitte, Spannbaum per Breitensuche,
+      Sektor proportional zur Größe des Teilbaums, projiziert auf eine gekrümmte
+      Wand um den Nutzer.
+
+      Der Eintrag bleibt stehen, statt gelöscht zu werden: Eine Roadmap, die
+      verschweigt, dass etwas wieder herausgeflogen ist, lädt dazu ein, es ein
+      zweites Mal zu bauen. Entfernt wurden `src/mindmapLayout.js`, die Aktion
+      `mindmap`, der Knopf im Overlay und der Eintrag im Handgelenk-Menü.
+
+      **Die losen Verbindungslinien sind davon nicht betroffen** und
+      funktionieren unverändert („🔗 Verbinden", `directed: false` in
+      `src/connections.js`) – entfernt wurde das automatische Anordnen, nicht
+      das Verbinden.
+- [x] **Materialaufwertung der übrigen drei Umgebungen** – Zen-Garten,
+      Himmelsinsel und Nachthimmel bekommen die Werkzeuge, die bis dahin nur das
+      Dojo benutzte. Ausgangslage gemessen: 240 Materialien, **null** Normal-
+      und null Rauheitskarten. Danach 128 Materialien mit 25 Normal- und 23
+      Rauheitskarten – dass es *weniger* Materialien sind, liegt daran, dass
+      vorher jeder Stein und jeder Kronen-Blob ein eigenes anlegte, nur um eine
+      andere Farbe zu bekommen; die steckt jetzt in Scheitelfarben.
+
+      Dazu die Qualitätsstufen: `applyQuality()` war generisch bis auf vier fest
+      verdrahtete Namenslisten, die jetzt in einer Konfiguration je Umgebung
+      stehen. Alle vier Umgebungen haben `setQuality` – der Nachthimmel mit
+      leerer Konfiguration, weil er nichts auszudünnen hat und die Prüfung
+      aktenkundig sein soll.
+
+      Kosten bei p50 praktisch null: Zen 114,5 → 114,9 ms bei 31 % mehr
+      Dreiecken. (`src/environments.js`, `src/dojo/quality.js`)
+      *(erledigt am 2026-08-12)*
+      Offen als Fortsetzung: der Wasserfall der Insel (seine gescrollte Textur
+      ist für einen Sturz richtig, aber ohne Normal-Map), und die Seerosen im
+      Zen-Teich.
+
+- [~] **Konstrukt-Dojo als fünfte Umgebung** – Samurai-Trainingsraum im Stil des
+      Films, in eigenen Dateien unter `src/dojo/`. Erste Umgebung der App mit
+      echten Schatten, PBR-Materialien und prozeduraler Environment-Map.
+      Zeichenlast im Budget (67 Draw-Calls, 100k Dreiecke).
+      **Vier Kritik-Runden gegen die Rubrik: 0/9 → 2/9 → 6/9.**
+      **Erledigt am 2026-08-10** (die vier Rückfragen zu den Referenzbildern):
+      • Dach: offener Giebeldachstuhl durch geschlossene Decke ersetzt, dazu ein
+        Walmdach nach außen. Magenta-Lochprobe **0,0 %** (vorher 0,429 %).
+      • Schwarze Wand ins Nichts: Südseite ist eine volle Wand mit Shoji-Front;
+        der Raum ist nach Süden von 9 auf 14 m verlängert.
+      • Abstehende Fensterstäbe: Sprossen sind skalierte Einheitswürfel ohne
+        Drehung. Zusätzlich fand `windows.mjs` einen zweiten, kleineren Fall
+        derselben Art (3 mm Überstand auf Nord und Süd).
+      • Schwerter auf dem Ständer: Auflage ist jetzt eine Kerbe, Neigung und
+        Höhe werden geschlossen gelöst. Gemessen liegen alle sechs
+        Auflagepunkte innerhalb **±0,17 mm**.
+      • Fenster auf allen leeren Wänden; das Ranma hatte ein Vorzeichenproblem,
+        das in der Brille drei Wände geöffnet hätte.
+      • Außenwelt: Bambushain als Schattenwerfer auf dem Washi (25,8 % der
+        Fensterbreite, 34 Wechsel), Baumlinie, Moosfläche.
+      • Begrenzung: Der Raum lässt sich nicht mehr verlassen.
+      **Nachgezogen am 2026-08-10 (zweite Runde Nutzerkritik):**
+      • Ranma: Kumiko-Felder statt Lattenzaun, Papier warm statt himmelblau.
+      • Lichtschächte sind in der Brille wieder an. Sie waren pauschal
+        abgeschaltet, weil eine Messung auf **SwiftShader** 10,6 % ergab –
+        aus einer übertragbaren Rangfolge war ein nicht übertragbarer Faktor
+        geworden. Auf der Quest 3 war deshalb kein einziger Strahl zu sehen.
+      • Süd-Eingang: zwei Felder der Front stehen offen, dahinter der Garten.
+      • Waffenwand: Ständer mit Naginata, Yari, Bo, Jo und den beiden Bokken,
+        die vorher frei an der Wand lehnten; Wandbild in Tusche auf Goldgrund;
+        zwei Bodenvasen am Eingang.
+      **Offen:**
+      • Frame-Zeit: Desktop 7,9× Zen-Garten, XR-Stufe 3,6× – **das Gate von
+        3,5× ist knapp verfehlt.** Die Lichtschächte kommen seit dieser Runde
+        wieder dazu; neu gemessen ist das noch nicht. Nach Runde 5 lag die XR-Stufe bei 1,16×;
+        seither ist der Raum 55 % größer und hat eine Außenwelt. Die p95-
+        Referenz schwankt zwischen identischen Läufen um rund 10 %.
+        Auf der Quest 3 weiterhin **ungeprüft**.
+      • Die Sonnenseite liest sich weiter als großer heller Bereich. Geklemmt
+        ist gemessen nichts (0 % gesättigt, Spitze 228 von 255) – es ist eine
+        Frage der Komposition, nicht der Belichtung.
+      • Coderegen ist als Motiv lesbar, aber flächenmäßig noch ein Token.
+      • Tatami-Geflecht liest sich als Textil-Abziehbild statt als Binsen.
+      *(Stand 2026-08-10)*
 - [ ] **Snap-Grid** – optionales Einrasten der Karten an einem Raster zum sauberen
       Ausrichten. *(Das „Karten zu mir holen" aus diesem Punkt ist erledigt:
       `recenterOnNextFrame` in `src/main.js` ordnet beim XR-Start neu an.)*
@@ -54,12 +148,14 @@ gegen den tatsächlichen Code geprüft.
 - [x] **Hand-Tracking** *(Hardware)* – Pinch zum Anvisieren/Greifen von Karten und
       zum Zeichnen sowie Menü auf der Handfläche.
       *(erledigt über PR #4/#5; Haken nachgetragen am 2026-08-03)*
-- [x] **Sprachbefehle** *(Hardware)* – Diktat mit Live-Zwischenergebnis („🎤
-      Sprechen" auf der Tastatur, „🎤 Diktieren" am Desktop) und abschaltbare
-      Dauer-Sprachbefehle für 20 Aktionen (`src/speech.js`).
-      *(Code erledigt am 2026-08-03; ob der Quest-Browser die Web Speech API
-      inzwischen unterstützt, zeigt erst das Headset – ohne Unterstützung meldet
-      die App das im Klartext und die Tastatur bleibt der Weg.)*
+- [x] **Sprachbefehle** – Diktat mit Live-Zwischenergebnis („🎤 Diktieren") und
+      abschaltbare Dauer-Sprachbefehle für 20 Aktionen (`src/speech.js`),
+      **beides nur am Desktop** (Chrome/Edge).
+      *(Auf der Quest verworfen und am 2026-08-05 wieder ausgebaut: Der
+      Quest-Browser meldet `webkitSpeechRecognition`, hat darunter aber keinen
+      Erkennungsdienst – der Aufruf riss den Browser mit. Auch der Umweg über
+      die Systemtastatur der Brille trug auf echter Hardware nicht. In XR wird
+      getippt; die Spracherkennung ist dort doppelt gesperrt.)*
 
 ## Wenn alle Punkte erledigt sind
 

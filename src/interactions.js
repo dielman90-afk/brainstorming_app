@@ -37,6 +37,9 @@ export class InteractionManager {
     // Optionaler Interceptor: gibt true zurück, wenn ein Karten-Pick konsumiert
     // wurde (z. B. Verbindungsmodus) – dann kein Grab/Drag.
     this.onCardPick = null;
+    // Beginn einer Zieh-Geste. Eine noch laufende Layout-Animation muss dann
+    // aufhören, sonst zerren Animation und Hand an derselben Karte.
+    this.onCardGrabStart = null;
 
     this._initControllers();
     this._initPointer();
@@ -166,6 +169,7 @@ export class InteractionManager {
     this.cardManager.select(hit.card);
     this.haptics?.pulse('grab', controller);
     if (this.onCardPick?.(hit.card)) return;
+    this.onCardGrabStart?.(hit.card);
     controller.userData.grabbed = hit.card;
     controller.userData.grabStart = hit.card.group.getWorldPosition(new THREE.Vector3());
     controller.attach(hit.card.group);
@@ -314,6 +318,7 @@ export class InteractionManager {
     if (event.button === 2) return;
     this.cardManager.select(hit.card);
     if (this.onCardPick?.(hit.card)) return;
+    this.onCardGrabStart?.(hit.card);
     const normal = this.camera.getWorldDirection(new THREE.Vector3());
     this.drag = {
       card: hit.card,
