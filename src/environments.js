@@ -400,7 +400,12 @@ function baueKrone({
     blobGeometry(0, seed ^ 0x51, 0.72),
     // Lambert statt Standard: Der Hüllkörper soll dunkle Masse sein, kein
     // Material mit Glanzlicht. Er spart damit auch den PBR-Pfad im Shader.
-    new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }),
+    // Der Himmelssaum kommt dazu, weil dieser Körper an vielen Stellen die
+    // äußere Kontur gegen den Himmel bildet.
+    addSkyRim(new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }), {
+      strength: 0.5,
+      power: 2.0,
+    }),
     schoepfe.length
   );
   setze(blobs, kern, farben);
@@ -443,8 +448,8 @@ function inselBaumMaterialien() {
       // Nadeln sind steif und wachsig: wenig Wind, wenig Transluzenz. Eine
       // Konifere im Gegenlicht leuchtet **nicht** – das ist der halbe
       // Unterschied zu einem Laubbaum.
-      translucency: 0.35,
-      transColor: 0x9cc47a,
+      translucency: 0.85,
+      transColor: 0xc8e89a,
       windStrength: 0.03,
       roughness: 0.7,
       color: 0xbfe3a8,
@@ -1097,19 +1102,28 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   geo.computeBoundingSphere();
 
   const mesh = new THREE.Mesh(geo, [
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 }),
-    new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 1.0,
-      metalness: 0,
-      flatShading: true,
+    addSkyRim(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.97, metalness: 0 }), {
+      strength: 0.16,
+      power: 3.4,
     }),
-    new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.82,
-      metalness: 0,
-      flatShading: true,
-    }),
+    addSkyRim(
+      new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 1.0,
+        metalness: 0,
+        flatShading: true,
+      }),
+      { strength: 0.22, power: 3.0 }
+    ),
+    addSkyRim(
+      new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.82,
+        metalness: 0,
+        flatShading: true,
+      }),
+      { strength: 0.60, power: 2.2 }
+    ),
   ]);
   mesh.name = 'island-body';
   return mesh;
@@ -1120,6 +1134,50 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
 // gebrochener Fels darunter – mit Schichtbändern, Rissverdunklung und
 // gebackenem AO nach unten.
 const _tmpColor = new THREE.Color();
+
+// --- Himmelssaum (Rim) auf jede Silhouette ---------------------------------
+//
+// Ein gerichtetes „Rim-Light" von hinten löst das Problem nicht: Es beleuchtet
+// die RÜCKSEITE, und die sieht man nicht. Gemessen blieb die Baumkrone im
+// Gegenlicht bei (0,13,2) – praktisch schwarz, genau wie vorher.
+//
+// Was hier wirkt, ist kein zweites Licht, sondern ein Materialeffekt: Wo eine
+// Fläche vom Betrachter wegkippt (der Silhouettenrand), bekommt sie den
+// Himmelston dazu. Das ist derselbe Fresnel-Gedanke wie beim Streulicht an
+// einer Blattkante und kostet keinen Draw-Call, keine Textur und kein Licht –
+// nur ein paar Zeilen im vorhandenen Shader.
+function addSkyRim(material, { color = 0xbcdcf2, strength = 0.55, power = 2.6 } = {}) {
+  const rim = new THREE.Color(color);
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.rimColor = { value: rim };
+    shader.uniforms.rimStrength = { value: strength };
+    shader.uniforms.rimPower = { value: power };
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         uniform vec3 rimColor;
+         uniform float rimStrength;
+         uniform float rimPower;`
+      )
+      .replace(
+        '#include <dithering_fragment>',
+        `{
+           // Blickrichtung gegen die Normale. vViewPosition zeigt vom Fragment
+           // zur Kamera; normal ist in Sichtkoordinaten.
+           vec3 vDir = normalize(vViewPosition);
+           float f = 1.0 - abs(dot(normalize(normal), vDir));
+           gl_FragColor.rgb += rimColor * rimStrength * pow(f, rimPower);
+         }
+         #include <dithering_fragment>`
+      );
+    material.userData.shader = shader;
+  };
+  // Ohne eigenen Schlüssel hält three Varianten desselben Materials für
+  // austauschbar und liefert das falsche Programm aus.
+  material.customProgramCacheKey = () => `skyrim-${strength}-${power}-${rim.getHex()}`;
+  return material;
+}
 
 function bodyColor(out, zone, shape, p, t, a) {
   const [x, y, z] = p;
@@ -1890,7 +1948,15 @@ function buildIsland(
   }
 
   const stones = stoneBucket.mesh(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.78, metalness: 0, flatShading: true }),
+    addSkyRim(
+      new THREE.MeshStandardMaterial({
+        vertexColors: true,
+        roughness: 0.78,
+        metalness: 0,
+        flatShading: true,
+      }),
+      { strength: 0.45, power: 2.4 }
+    ),
     'island-stones'
   );
   if (stones) island.add(stones);
@@ -2029,7 +2095,7 @@ function createIslandEnvironment() {
   const sunPos = SUN_DIR.clone().multiplyScalar(38);
 
   group.add(
-    makeDome(0x2f6fb8, 0xd6ecf6, 0xc4e2f4, 44, {
+    makeDome(0x3d80c6, 0xdaeef8, 0xc8e4f6, 44, {
       dir: SUN_DIR,
       color: 0x4a3a1c,
       tight: 250,
@@ -2068,7 +2134,7 @@ function createIslandEnvironment() {
   // Himmelslicht. Der „Boden" ist hier kein Boden: Unter der Insel liegt heller
   // Himmel, und genau daher kommt das Bounce-Fill, das der Unterseite gefehlt
   // hat. Deshalb ist der untere Ton kühl und keineswegs dunkel.
-  const sky = new THREE.HemisphereLight(0xbcdcf2, 0xaecbe2, 0.78);
+  const sky = new THREE.HemisphereLight(0xc6e2f4, 0xbcd6ea, 1.35);
   group.add(sky);
 
   // Sonne: die klar dominierende Quelle. Sie wirft als einzige Schatten.
@@ -2087,9 +2153,15 @@ function createIslandEnvironment() {
   // Aufhellung von unten: Das Licht des Himmels unter der Insel. Ohne sie wird
   // der Kiel nach unten dunkler, obwohl dort nichts ist, was ihn beschatten
   // könnte.
-  const bounce = new THREE.DirectionalLight(0xa9cbe8, 1.15);
+  const bounce = new THREE.DirectionalLight(0xb6d4ee, 1.9);
   bounce.position.set(-8, -22, 6);
   group.add(bounce);
+  // Zweite Aufhellung von unten aus einem anderen Winkel. Mit nur einer Quelle
+  // fielen benachbarte Felsfacetten auf denselben Wert - die Unterseite hatte
+  // zuletzt nur noch 10 Luminanzstufen Spannweite und war als Form unlesbar.
+  const bounce2 = new THREE.DirectionalLight(0x9fc2e0, 0.85);
+  bounce2.position.set(16, -18, -12);
+  group.add(bounce2);
 
   // --- Schlagschatten -------------------------------------------------------
   //
@@ -2199,7 +2271,7 @@ function createIslandEnvironment() {
   // Leichter Tiefennebel (fern), damit ferne Inseln/Wolken sanft ausblenden –
   // Karten in Reichweite bleiben unberührt. Die Distanzen sind Weltkoordinaten
   // und müssen den Maßstab mitgehen, sonst versinkt die Insel im Nebel.
-  const fog = new THREE.Fog(0x9fc6e2, 20 * WORLD_SCALE, 52 * WORLD_SCALE);
+  const fog = new THREE.Fog(0xa9cee6, 9 * WORLD_SCALE, 90 * WORLD_SCALE);
 
   // Was in der Brille dünner wird. Das Laub zuerst – Alpha-Test und
   // Überzeichnung –, dann die Streudekoration: Blumen, Grasbüschel, Pilze und
