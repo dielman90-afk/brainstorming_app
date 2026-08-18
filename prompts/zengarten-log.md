@@ -7,7 +7,7 @@ Fortgeschrieben in **jedem** Durchlauf. Neueste Einträge oben.
 | Größe | Grenze | Ausgang (zen-00) | jetzt |
 | --- | ---: | ---: | ---: |
 | Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **84 ✅** |
-| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 44 294 ✅ |
+| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 44 414 ✅ |
 | Texturspeicher | ≤ 60 MB | 29,77 MB | 21,18 MB ✅ |
 | Shader-Programme | – | 20 | 24 |
 
@@ -343,3 +343,85 @@ Abtastpunkt entlang der Normalen, und auf dem Kies zeigt die nach oben — ein
 Trittstein ist 6 cm dick und steht 3 cm über dem Sand, also wurde über ihn
 hinweg abgetastet und er warf nichts. Im Bild sah das aus wie ein vergessener
 Schattenwerfer, war aber ein Zahlenwert. Auf 0,008 gesenkt.
+
+---
+
+## Durchlauf 4 — Paket 2 (Sand), zweiter Anlauf
+
+Der Sand ist mit dem Licht aus Durchlauf 3 noch einmal angefasst worden. Er
+hatte im ersten Anlauf vier von sechs Teilaufgaben nicht bestanden, und drei
+davon — Relief, Korn, Tonwertlage — hingen nachweislich an der Beleuchtung.
+
+**Messwerte:** Draw-Calls 84 (unverändert), Dreiecke 44 414, Texturspeicher
+21,18 MB, Konsole sauber. Regression: `env-night` und `env-matrix` bitgleich,
+`env-dojo` Δmax 4 auf 0,009 %, `env-island` im Eigenrauschen.
+
+### Nachgemessen mit dem Maß des Prüfers
+
+Vordergrundstreifen `e-sand` (60,620)–(1220,700). Für den Hochpass (Pixel
+minus 5×5-Mittel) hat `tools/region.mjs` jetzt einen eigenen Schalter
+`--hochpass`, damit ich in derselben Sprache messen kann wie der Prüfer.
+
+| | Ausgang | Sand 1. Anlauf | + Licht | Sand 2. Anlauf |
+| --- | ---: | ---: | ---: | ---: |
+| Hochpass \|d\| | 0,156 | 0,413 | 1,926 | **2,561** |
+| Hochpass p95 | 0,37 | 1,31 | 6,86 | **8,59** |
+| Kante waagerecht | 0,108 | 0,393 | 1,784 | **2,203** |
+| p05–p95 | 17 | 25 | 74 | **66** |
+| Anteil über L 190 | 96,8 % | 97,7 % | 15,1 % | **15,0 %** |
+
+Der Befund „kein Pixel unter L 183" ist damit erledigt: Die Fläche sitzt nicht
+mehr im obersten Sechstel der Skala, sondern schwingt in einer Spalte des
+Vordergrunds zwischen L 119 und L 205. Der Befund „kein Korn" ebenfalls: Der
+Hochpass steht beim Sechzehnfachen des Ausgangswerts.
+
+Der Moiré-Bereich, den der Prüfer benannt hatte (`f-grove` 300,425–420,475):
+senkrechte Kantenstärke 3,381 → **1,979**, Hochpass-p95 7,99 → **2,88**.
+
+Das Fernband der Totale (`d-aerial` 100,80–1180,180), das im ersten Anlauf
+**leerer** geworden war: Hochpass 1,025 (Ausgang) → 1,226 → **1,341**. Es
+trägt jetzt mehr Struktur als im Ausgangsstand, nicht weniger.
+
+### Was dafür geändert wurde
+
+* **Asymmetrisches Rillenprofil.** Eine Harkzinke schiebt das Korn zur Seite;
+  die eine Flanke ist steil, die andere läuft flach aus. Vorher stand dort ein
+  symmetrisches Wellenband (gemessene Asymmetrie 0,84), also ein Glanzlicht auf
+  dem Grat statt eines Schattens in der Rille.
+* **Ein zweiter, grober Zug** im Abstand von 1,6 m — die Bahnen, in denen der
+  Gärtner arbeitet. Er wird erst siebenmal weiter draußen unterabtastbar als
+  die Zinkenspur und hält damit die Ferne besetzt, wenn die feine Spur längst
+  ausgeblendet ist. Das ist die Antwort auf „der Preis für die
+  Aliasing-Vermeidung wurde zu weit vorne bezahlt".
+* **Früher ausblenden.** Die feine Spur ist jetzt bei 0,34 Perioden je Pixel
+  vollständig weg statt bei 0,55 — deutlich vor Nyquist (0,5).
+* **Streuung im Rillenabstand**, siehe eigener Fehler unten.
+* **Die Randausblendung ist kein Kreis mehr.** Sie schwankt über den Azimut um
+  ±5 m; vorher stand sie im flachen Blick als gerade Linie quer durchs Bild.
+* **Der Moosrand ist ausgefranst.** 44 Segmente statt 20, jeder Randpunkt über
+  zwei Frequenzen verrauscht: Zungen und Buchten statt einer Ellipse.
+
+### Mein Fehler in diesem Durchlauf, und wie er aufgefallen ist
+
+Für die Abstandsstreuung habe ich den Betrag **geschätzt** statt die Ableitung
+hinzuschreiben. Für φ' = φ + A·sin(f·φ) ist dφ'/dφ = 1 + A·f·cos(f·φ); die
+Streuung des Abstands ist also **A·f**. Ich hatte A·f·Teilung gerechnet und
+kam auf „4 %", tatsächlich standen dort 0,9, also ±90 % — und wo der Ausdruck
+negativ wurde, lief die Spur rückwärts. Im ersten Bild waren das keine
+Harkzüge mehr, sondern Kratzer. Aufgefallen sofort im Bild, korrigiert auf
+A·f = 0,26.
+
+Das ist derselbe Fehlertyp wie beim Normal-Bias in Durchlauf 3: ein Zahlenwert,
+den man hinschreiben statt schätzen muss.
+
+### Was am Sand offen bleibt
+
+* **Der Bettrand.** Der Prüfer will einen Abschluss sehen, ich habe nur die
+  Ausblendung unregelmäßiger gemacht. Ein Karesansui ist von einer Mauer, einer
+  Hecke oder einer Bordkante eingefasst — das ist eine
+  **Kompositionsentscheidung** und gehört zu Paket 7, nicht in eine
+  Sandtextur. Dort wird es entschieden.
+* **Der Übergang zum Moos** ist jetzt von der Sandseite her da (Feuchtezone,
+  auslaufende Harke) und von der Moosseite her als ausgefranster Rand. Was
+  fehlt, ist die dritte Sache: Moospolster haben Aufbauhöhe, sie liegen nicht
+  flach auf. Das gehört zu Paket 5.

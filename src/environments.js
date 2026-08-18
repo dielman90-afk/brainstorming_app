@@ -3888,7 +3888,7 @@ function sandMaterial() {
     map: k.map,
     normalMap: k.grainMap,
     // Das Korn ist eine Andeutung, kein Geröll.
-    normalScale: new THREE.Vector2(1.15, 1.15),
+    normalScale: new THREE.Vector2(1.3, 1.3),
     // Trockener Kies ist stumpf. Die Kämme sind eine Spur glatter als der
     // Rillengrund – das steht im Shader, eine eigene Rauheitskarte wäre eine
     // zweite Abtastung je Pixel auf der größten Fläche der Szene.
@@ -3961,30 +3961,89 @@ function sandMaterial() {
            }
            gSandFeucht = feucht;
 
+           // --- Abstandsstreuung ----------------------------------------------
+           //
+           // **7,0 % Streuung im Rillenabstand sind zu wenig.** Eine von Hand
+           // gezogene Harke streut 15 bis 30 %, und zwar sprunghaft: Der
+           // Gärtner setzt neu an, zieht mal enger, mal weiter. Gemessen war
+           // die Folge im Ausgangsstand monoton — reine Perspektive plus
+           // Kreiskrümmung, ohne einen einzigen Zufallsanteil. Der Term unten
+           // verzerrt die Phase langwellig; weil er von phi selbst abhängt,
+           // ändert er den **Abstand**, nicht nur die Lage.
+           //
+           // **Der erste Anlauf hat die Spur zerlegt.** Ich hatte den Betrag
+           // geschätzt statt die Ableitung hinzuschreiben. Für phi' = phi +
+           // A·sin(f·phi) ist dphi'/dphi = 1 + A·f·cos(f·phi), die Streuung des
+           // Abstands ist also **A·f** — nicht A, und nicht A·f·Teilung. Mit
+           // A=0,5 und f=1,8 stand dort A·f = 0,9, also ±90 %; wo der Ausdruck
+           // negativ wurde, lief die Spur rückwärts. Im Bild waren das keine
+           // Harkzüge mehr, sondern Kratzer. Jetzt A·f = 0,18 + 0,08 = 0,26,
+           // also die 15 bis 30 %, die eine von Hand gezogene Harke streut.
+           phi += 0.22 * sin(phi * 0.8 + p.x * 0.4) + 0.03 * sin(phi * 2.6 - p.y * 0.6);
+
            // --- Rillenprofil --------------------------------------------------
            float s = phi / uSandTeilung;
-           // **Der Ausblendeterm, ohne den das Bild flimmert.** Fällt eine
-           // Periode unter etwa zwei Pixel, kann sie nicht mehr abgetastet
-           // werden; stehen bleibt Moiré. Also wird die Rille dort flach.
+           // **Der Ausblendeterm, ohne den das Bild flimmert.** w ist die
+           // Zahl der Perioden je Pixel; ab 0,5 ist Nyquist erreicht. Der erste
+           // Anlauf blendete zwischen 0,22 und 0,55 aus und stand damit bei
+           // einer Periode von 2,7 px noch auf 64 % Amplitude — der Prüfer hat
+           // genau dort Schwebungen gefunden. Jetzt ist die feine Spur bei 0,34
+           // vollständig weg, also deutlich vor Nyquist.
            float w = fwidth(s);
-           float scharf = 1.0 - smoothstep(0.22, 0.55, w);
+           float scharf = 1.0 - smoothstep(0.10, 0.34, w);
 
-           float h = 0.5 - 0.5 * cos(6.2831853 * s);
+           // **Asymmetrisches Profil.** Eine Harkzinke schiebt das Korn zur
+           // Seite: Die eine Flanke ist steil, die andere läuft flach aus.
+           // Gemessen hatte das Profil eine Asymmetrie von 0,84 — ein
+           // symmetrisches Wellenband, also ein Glanzlicht auf dem Grat statt
+           // eines Schattens in der Rille. Die Phasenverzerrung unten macht
+           // daraus einen Sägezahn; die Ableitung zieht die Verzerrung über die
+           // Kettenregel mit.
+           float t = fract(s);
+           float tw = t + 0.24 * sin(6.2831853 * t);
+           float h = 0.5 - 0.5 * cos(6.2831853 * tw);
            float kamm = h * h * (3.0 - 2.0 * h);      // flacher Kamm, runde Rille
-           float dKamm = 6.0 * h * (1.0 - h) * 3.1415927 * sin(6.2831853 * s);
+           float dtw = 1.0 + 0.24 * 6.2831853 * cos(6.2831853 * t);
+           float dKamm = 6.0 * h * (1.0 - h) * 3.1415927 * sin(6.2831853 * tw) * dtw;
 
-           // Zum Rand hin wird seltener geharkt: Die Spur läuft aus.
-           float rand = 1.0 - smoothstep(11.0, 17.0, length(p));
+           // **Der grobe Zug, der die Ferne trägt.** Blendet die feine Spur
+           // aus, bleibt sonst eine leere Fläche zurück — der Prüfer hat den
+           // strukturlosen Anteil im Fernband von 31 % auf 60 % steigen sehen.
+           // Ein geharktes Bett hat aber zwei Maßstäbe: die Zinken und die
+           // Bahnen, in denen der Gärtner arbeitet. Die Bahn ist siebenmal so
+           // breit, wird also erst siebenmal weiter draußen unterabtastbar und
+           // hält die Ferne besetzt.
+           float sGrob = phi / (uSandTeilung * 7.0);
+           float scharfGrob = 1.0 - smoothstep(0.10, 0.34, fwidth(sGrob));
+           float hGrob = 0.5 - 0.5 * cos(6.2831853 * sGrob);
+           float kammGrob = hGrob * hGrob * (3.0 - 2.0 * hGrob);
+           float dGrob = 6.0 * hGrob * (1.0 - hGrob) * 3.1415927 * sin(6.2831853 * sGrob);
+
+           // **Zum Rand hin wird seltener geharkt — aber nicht auf einem
+           // Kreis.** Der erste Anlauf ließ die Spur zwischen 11 und 17 m
+           // auslaufen, und weil das ein exakter Kreis um den Ursprung war,
+           // stand im flachen Blick eine gerade Linie quer durchs Bild
+           // (e-sand, y rund 367 bis 372). Die Grenze schwankt jetzt ueber den Azimut
+           // um ±5 m.
+           float r = length(p);
+           float az = atan(p.y, p.x);
+           float grenze = 13.5 + 3.2 * sin(az * 2.3 + 1.1) + 1.8 * sin(az * 5.1 - 0.4);
+           float rand = 1.0 - smoothstep(grenze - 3.0, grenze + 3.0, r);
            // Der Druck auf der Harke ist nicht konstant. Zwei langwellige
            // Terme lassen die Rille stellenweise tief und stellenweise fast
            // verlaufen — die mittlere Frequenz, die zwischen Korn (Millimeter)
            // und Zug (Zentimeter) sonst fehlt.
            float druck = 0.98 + 0.30 * sin(p.x * 0.83 + p.y * 0.61) + 0.18 * sin(p.x * 0.29 - p.y * 0.44);
            // Am Moos und am Wasser hört die Harke auf.
-           float amp = scharf * naht * rand * druck * (1.0 - feucht * 0.85);
+           float gemeinsam = naht * rand * druck * (1.0 - feucht * 0.85);
+           float amp = scharf * gemeinsam;
+           // Der grobe Zug ist flacher als die Zinkenspur, aber breiter – seine
+           // Steigung bleibt deshalb in derselben Größenordnung.
+           float ampGrob = scharfGrob * gemeinsam * 0.55;
 
-           gSandSteigung = grad * (uSandTiefe / uSandTeilung) * dKamm * amp;
-           gSandKamm = mix(0.5, kamm, amp);
+           gSandSteigung =
+             grad * (uSandTiefe / uSandTeilung) * (dKamm * amp + dGrob * ampGrob / 7.0);
+           gSandKamm = mix(0.5, kamm, amp) + (kammGrob - 0.5) * ampGrob * 0.5;
          }`
       )
       .replace(
@@ -4949,7 +5008,27 @@ function createZenEnvironment() {
     const a = rand() * Math.PI * 2;
     const r = 2 + rand() * 7;
     const mossR = 0.5 + rand() * 0.8;
-    const mossGeo = new THREE.CircleGeometry(mossR, 20);
+    // **Der Rand war eine Ellipse.** Der Prüfer hat den Bereich um eine
+    // Moosinsel als „ausgestanzte grüne Ellipse auf Sand" gemeldet und
+    // nachgewiesen, dass er zwischen zwei Ständen pixelidentisch war. Moos
+    // wächst nicht auf einem Kreis: Es folgt der Feuchte, schiebt sich in
+    // Zungen vor und dünnt an anderer Stelle aus. 44 Segmente statt 20, und
+    // der Radius jedes Randpunktes wird verrauscht — zwei Frequenzen, damit
+    // Buchten und Zungen verschiedener Größe entstehen.
+    const mossGeo = new THREE.CircleGeometry(mossR, 44);
+    {
+      const pos = mossGeo.attributes.position;
+      const seed = 300 + i * 17;
+      for (let v = 1; v < pos.count; v++) {
+        const a = Math.atan2(pos.getY(v), pos.getX(v));
+        const zunge =
+          0.78 +
+          hashNoise(Math.cos(a) * 2.1, seed, Math.sin(a) * 2.1) * 0.34 +
+          hashNoise(Math.cos(a) * 6.3, seed + 1, Math.sin(a) * 6.3) * 0.16;
+        pos.setXY(v, Math.cos(a) * mossR * zunge, Math.sin(a) * mossR * zunge);
+      }
+      pos.needsUpdate = true;
+    }
     // Kachelgröße in Weltmetern: `repeat` der Karte ist 18, ein UV-Schritt von
     // 1 wären also 18 Kacheln. Für 0,55 m je Kachel muss die Scheibe
     // (2·r Meter breit) über 2·r / (18 · 0,55) UV-Einheiten laufen.
