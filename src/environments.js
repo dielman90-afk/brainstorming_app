@@ -5,6 +5,7 @@ import { heightToMaps, scaleUV } from './dojo/materials.js';
 import { mossMaterial, waterMaterial, updateWater } from './dojo/ground.js';
 import {
   graniteMaterial,
+  cliffMaterial,
   mossPatina,
   boxProjectUV,
   weatheredWoodMaterial,
@@ -59,6 +60,23 @@ function hashNoise(x, y, z) {
   return s - Math.floor(s);
 }
 
+const TAU = Math.PI * 2;
+
+// Kürzester Winkelabstand, damit Formmerkmale (Landzunge, Bucht, Höhenrücken)
+// über die 0/2π-Naht hinweg stetig bleiben.
+function angDelta(a, b) {
+  let d = (a - b) % TAU;
+  if (d > Math.PI) d -= TAU;
+  if (d < -Math.PI) d += TAU;
+  return d;
+}
+
+// Glockenkurve – weiche, lokal begrenzte Formmerkmale ohne harte Kanten.
+function gauss(d, s) {
+  const t = d / s;
+  return Math.exp(-t * t);
+}
+
 function mulberry32(seed) {
   return function () {
     seed |= 0;
@@ -70,15 +88,23 @@ function mulberry32(seed) {
 }
 
 // Himmelskuppel mit vertikalem Farbverlauf (von innen sichtbar)
-function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44) {
+function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44, sun = null) {
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
+    defines: sun ? { HAS_SUN: '' } : {},
     uniforms: {
       topColor: { value: new THREE.Color(topColor) },
       horizonColor: { value: new THREE.Color(horizonColor) },
       bottomColor: { value: new THREE.Color(bottomColor) },
+      // Sonnenhof: Ohne ihn ist die Sonne eine aufgeklebte Scheibe und der
+      // Himmel weiß nichts von ihr. Der Hof bindet beide aneinander und liefert
+      // die Grundlage für das Gegenlicht.
+      sunDir: { value: sun ? sun.dir.clone().normalize() : new THREE.Vector3(0, 1, 0) },
+      sunColor: { value: new THREE.Color(sun ? sun.color : 0xffffff) },
+      sunTight: { value: sun ? sun.tight : 60 },
+      sunBroad: { value: sun ? sun.broad : 3 },
     },
     vertexShader: `
       varying vec3 vPos;
@@ -90,12 +116,23 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
       uniform vec3 topColor;
       uniform vec3 horizonColor;
       uniform vec3 bottomColor;
+      uniform vec3 sunDir;
+      uniform vec3 sunColor;
+      uniform float sunTight;
+      uniform float sunBroad;
       varying vec3 vPos;
       void main() {
-        float h = normalize(vPos).y;
+        vec3 dir = normalize(vPos);
+        float h = dir.y;
         vec3 col = h > 0.0
           ? mix(horizonColor, topColor, pow(h, 0.8))
           : mix(horizonColor, bottomColor, pow(-h, 0.8));
+        #ifdef HAS_SUN
+          // Zwei Keulen: ein weiter, schwacher Hof über den halben Himmel und
+          // ein enger, heller Kern direkt um die Sonne.
+          float d = max(dot(dir, sunDir), 0.0);
+          col += sunColor * (0.22 * pow(d, sunBroad) + 0.75 * pow(d, sunTight));
+        #endif
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
@@ -209,6 +246,55 @@ function displaceRadial(geometry, amount, yAmount = 0, smooth = false) {
   return nonIndexed;
 }
 
+// --- Geometrie-Eimer: viele kleine Teile → EIN Mesh --------------------------
+//
+// Der Engpass der Umgebung sind nicht Dreiecke (Budget 350 000, belegt ~30 000),
+// sondern Draw-Calls (Budget 120, im Ausgangsstand 112 belegt). Alles, was sich
+// nicht bewegt, wandert deshalb in einen Eimer und wird einmal gezeichnet.
+// Farbe kommt über Vertex-Farben, damit ein Material für viele Töne reicht.
+class GeoBucket {
+  constructor() {
+    this.parts = [];
+  }
+
+  // geo wird verbraucht (nicht kopiert). color: Hex, THREE.Color oder
+  // Funktion (x, y, z) → Hex/THREE.Color.
+  add(geo, color) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    if (!g.attributes.normal) g.computeVertexNormals();
+    if (!g.attributes.uv) {
+      g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+    }
+    const pos = g.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    const c = new THREE.Color();
+    const fixed = typeof color === 'function' ? null : c.set(color);
+    for (let i = 0; i < pos.count; i++) {
+      const v = fixed ?? c.set(color(pos.getX(i), pos.getY(i), pos.getZ(i)));
+      colors[i * 3] = v.r;
+      colors[i * 3 + 1] = v.g;
+      colors[i * 3 + 2] = v.b;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    // Zusatzattribute (z.B. Tangenten) verhindern das Verschmelzen.
+    for (const key of Object.keys(g.attributes)) {
+      if (!['position', 'normal', 'uv', 'color'].includes(key)) g.deleteAttribute(key);
+    }
+    this.parts.push(g);
+    return this;
+  }
+
+  mesh(material, name) {
+    if (!this.parts.length) return null;
+    const merged = mergeGeometries(this.parts);
+    for (const p of this.parts) p.dispose();
+    this.parts.length = 0;
+    const m = new THREE.Mesh(merged, material);
+    if (name) m.name = name;
+    return m;
+  }
+}
+
 // --- Kronen aus vielen kleinen Schöpfen -------------------------------------
 //
 // **Der Fehler, den dieser Bauer verhindert, steht seit Runde 6 als Kommentar
@@ -252,7 +338,7 @@ function baueKrone({
 }) {
   const r = mulberry32(seed);
   const schoepfe = [];
-  for (const [ax, ay, az, ar] of ansaetze) {
+  for (const [ax, ay, az, ar, slice] of ansaetze) {
     // Anzahl aus dem Radius: Ein großer Ansatz bekommt mehr Schöpfe, nicht
     // größere. Genau das ist der Unterschied zwischen Krone und Blumenkohl.
     //
@@ -275,6 +361,7 @@ function baueKrone({
         y: ay + (r() - 0.45) * ar * 0.8,
         z: az + (r() - 0.5) * ar * 1.1,
         s: ar * (0.42 + r() * 0.2),
+        slice: slice ?? 0,
         ton: Math.floor(r() * farben.length),
         dreh: [r() * 0.6, r() * Math.PI * 2, r() * 0.6],
       });
@@ -293,7 +380,12 @@ function baueKrone({
         new THREE.Vector3(s * 1.25, s, s * 1.15)
       );
       mesh.setMatrixAt(i, m);
-      mesh.setColorAt(i, new THREE.Color(palette[c.ton % palette.length]));
+      // `slice` verschiebt den Griff in die Palette. Werden die Schöpfe VIELER
+      // Bäume in einem InstancedMesh gesammelt, bekäme sonst jeder Baum
+      // dieselbe Mischung – die Unterscheidung „heller/dunkler Laubbaum" ginge
+      // verloren. Mit dem Versatz zieht jeder Baum aus seinem eigenen Drittel.
+      const idx = (c.slice ?? 0) + (c.ton % 3);
+      mesh.setColorAt(i, new THREE.Color(palette[idx % palette.length]));
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -309,7 +401,12 @@ function baueKrone({
     blobGeometry(0, seed ^ 0x51, 0.72),
     // Lambert statt Standard: Der Hüllkörper soll dunkle Masse sein, kein
     // Material mit Glanzlicht. Er spart damit auch den PBR-Pfad im Shader.
-    new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }),
+    // Der Himmelssaum kommt dazu, weil dieser Körper an vielen Stellen die
+    // äußere Kontur gegen den Himmel bildet.
+    addSkyRim(new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }), {
+      strength: 0.5,
+      power: 2.0,
+    }),
     schoepfe.length
   );
   setze(blobs, kern, farben);
@@ -347,18 +444,28 @@ function inselBaumMaterialien() {
       metalness: 0,
       vertexColors: true,
     });
-    _inselNadeln = foliageMaterial({
+    _inselNadeln = addSkyRim(foliageMaterial({
       atlas: leafAtlas('nadel'),
       // Nadeln sind steif und wachsig: wenig Wind, wenig Transluzenz. Eine
       // Konifere im Gegenlicht leuchtet **nicht** – das ist der halbe
       // Unterschied zu einem Laubbaum.
-      translucency: 0.35,
-      transColor: 0x9cc47a,
+      translucency: 0.85,
+      transColor: 0xc8e89a,
       windStrength: 0.03,
       roughness: 0.7,
       color: 0xbfe3a8,
-    });
-    _inselKarten = foliageMaterial({
+      // Der Himmelssaum sitzt eng und schwach.
+      //
+      // Bei `strength 0.55, power 1.9` war er auf einer BLATTKARTE kein Saum
+      // mehr: Eine Karte ist eine ebene Fläche mit konstanter Normale, der
+      // Fresnel-Term wird darauf zur Flächenhelligkeit. Jede schräg stehende
+      // Karte wurde damit fast weiß – gemessen lagen 18,4 % der Kronenpixel
+      // über L=190. Das ist zweierlei Schaden: Die Astlage wird unlesbar, und
+      // auf der Quest kriecht so ein Salz-und-Pfeffer-Muster bei jeder
+      // Kopfbewegung. Derselbe Fehler wie seinerzeit am Fels, dieselbe
+      // Korrektur: hoher Exponent, kleiner Betrag.
+    }), { strength: 0.26, power: 4.2 });
+    _inselKarten = addSkyRim(foliageMaterial({
       atlas: leafAtlas('azalea'),
       // Aufgehellt auf das Inselgrün. Der Azaleen-Atlas ist für den schattigen
       // Dojo-Garten gezeichnet; unverändert standen seine Blätter als dunkle
@@ -371,25 +478,104 @@ function inselBaumMaterialien() {
       translucency: 0.95,
       transColor: 0xdcf7b0,
       windStrength: 0.06,
-    });
+    }), { strength: 0.24, power: 4.2 });
   }
   return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten, nadeln: _inselNadeln };
 }
 
-function makeTree(rand) {
-  const tree = new THREE.Group();
+// Sammelbehälter für die Bäume EINER Insel.
+//
+// Warum nicht ein Baum = ein Objekt: Ein Baum besteht aus Stamm/Astwerk,
+// Hüllkörpern und Blattkarten – als eigenes Objekt gebaut sind das drei
+// Draw-Calls je Baum. Neun Bäume auf der Hauptinsel waren damit 27 Draw-Calls
+// und die ganze Umgebung lag bei 129 von 120. Gemessen.
+//
+// Stämme und Äste wandern deshalb in einen Geometrie-Eimer, und die Schöpfe
+// aller Bäume werden je Laubart in EIN InstancedMesh-Paar gesammelt. Aus 27
+// werden fünf: Holz, Nadel-Hüllkörper, Nadel-Karten, Laub-Hüllkörper,
+// Laub-Karten. Die Form der Bäume bleibt dabei unangetastet.
+function makeTreeCollector() {
+  return {
+    holz: new GeoBucket(),
+    nadel: [],
+    laub: [],
+    laubSlices: 0,
+  };
+}
+
+// Baut die gesammelten Bäume zu wenigen Meshes zusammen.
+function buildCollectedTrees(ctx, seed) {
+  const { holz: holzMat, karten, nadeln } = inselBaumMaterialien();
+  const meshes = [];
+  const stamm = ctx.holz.mesh(holzMat, 'island-holz');
+  if (stamm) meshes.push(stamm);
+
+  if (ctx.nadel.length) {
+    const k = baueKrone({
+      ansaetze: ctx.nadel,
+      seed: seed ^ 0x5a11,
+      kartenMaterial: nadeln,
+      kind: 'nadel',
+      cardScale: 0.95,
+      dichte: 74,
+      farben: [0x2b4436, 0x33513e, 0x24392c],
+      kartenFarben: [0xd8f0c0, 0xc6e4ae, 0xe4ffd0],
+    });
+    k.blobs.name = 'island-krone';
+    k.karten.name = 'island-laub';
+    meshes.push(k.blobs, k.karten);
+  }
+
+  if (ctx.laub.length) {
+    const k = baueKrone({
+      ansaetze: ctx.laub,
+      seed: seed ^ 0x2c93,
+      kartenMaterial: karten,
+      kind: 'azalea',
+      cardScale: 0.85,
+      dichte: 64,
+      // Zwei Drittel: dunkle und helle Laubbäume. Jeder Baum greift über
+      // seinen `slice` in genau eines davon.
+      farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
+      kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8, 0xd3efb0, 0xc2e39c, 0xe0f8c0],
+    });
+    k.blobs.name = 'island-krone';
+    k.karten.name = 'island-laub';
+    meshes.push(k.blobs, k.karten);
+  }
+  return meshes;
+}
+
+// Ein Baum – Form unverändert aus PR #9, aber er baut keine eigenen Meshes
+// mehr, sondern schreibt in den Sammelbehälter der Insel.
+function addTree(rand, ctx, { x, y, z, scale = 1 }) {
+  const yaw = rand() * TAU;
+  const cy = Math.cos(yaw);
+  const sy = Math.sin(yaw);
+  // Baumlokale Koordinaten in Inselkoordinaten überführen.
+  const place = (geo) => {
+    geo.scale(scale, scale, scale);
+    geo.rotateY(yaw);
+    geo.translate(x, y, z);
+    return geo;
+  };
+  const punkt = (px, py, pz) => [
+    x + (px * cy + pz * sy) * scale,
+    y + py * scale,
+    z + (-px * sy + pz * cy) * scale,
+  ];
+
   const trunkHeight = 0.5 + rand() * 0.5;
-  const { holz, laub: laubMat, karten, nadeln } = inselBaumMaterialien();
-  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8), holz);
-  trunk.position.y = trunkHeight / 2;
-  tree.add(trunk);
+  ctx.holz.add(
+    place(new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8).translate(0, trunkHeight / 2, 0)),
+    0xffffff
+  );
 
   // Krone nach demselben Rezept wie im Zen-Garten: viele kleine Schöpfe, der
   // Hüllkörper als Verdecker darunter. Der erste Anlauf dieser Runde hatte hier
   // einen glatten Ball von 0,36 m Radius mit ein paar Karten davor – aus zwei
   // Metern ein grüner Luftballon mit Aufklebern.
   const hell = rand() > 0.5;
-  const ansaetze = [];
   const nadelbaum = rand() > 0.45;
 
   if (nadelbaum) {
@@ -419,7 +605,8 @@ function makeTree(rand) {
     for (let i = 0; i < 7; i++) {
       const t = i / 6;
       const radius = 0.46 * (1 - t * 0.78);
-      ansaetze.push([(rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05, radius]);
+      const p = punkt((rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05);
+      ctx.nadel.push([p[0], p[1], p[2], radius * scale, 0]);
       // 0,95 statt 1,0: eine Spur enger als der Radius, damit die Etagen sich
       // sicher schneiden statt sich nur zu berühren.
       ey += radius * 0.95;
@@ -450,93 +637,1016 @@ function makeTree(rand) {
       ).normalize();
       branchInto(teile, oben, dir, 0.34 + rand() * 0.14, 0.035, 2, rand);
     }
-    const astGeos = teile.map((t) => t.geo);
-    const aeste = new THREE.Mesh(mergeGeometries(astGeos, false), holz);
-    aeste.name = 'island-aeste';
-    tree.add(aeste);
+    for (const t of teile) ctx.holz.add(place(t.geo), 0xffffff);
+    // Heller oder dunkler Laubbaum: der Griff in die obere oder untere Hälfte
+    // der gemeinsamen Palette.
+    const slice = hell ? 3 : 0;
     for (const t of teile) {
       if (t.depth > 0) continue;
-      ansaetze.push([t.tip.x, t.tip.y, t.tip.z, 0.17 + rand() * 0.06]);
+      const p = punkt(t.tip.x, t.tip.y, t.tip.z);
+      ctx.laub.push([p[0], p[1], p[2], (0.17 + rand() * 0.06) * scale, slice]);
+    }
+  }
+}
+
+
+// Zufällig, aber reproduzierbar aus einer Palette wählen.
+const pick = (rand, list) => list[Math.floor(rand() * list.length) % list.length];
+
+// ---------------------------------------------------------------------------
+// Formbeschreibung einer schwebenden Insel
+// ---------------------------------------------------------------------------
+//
+// Grundriss, Oberflächenhöhe und Flankenprofil stecken in EINER analytischen
+// Beschreibung. Geometrie und Objektplatzierung benutzen dieselben Funktionen –
+// dadurch kann nichts schweben und nichts im Boden stecken.
+//
+// Wichtige Einschränkung: Die Fortbewegung (locomotion.js) kennt kein Gelände,
+// der Nutzer läuft immer auf y = 0. Die begehbare Innenfläche bleibt deshalb
+// bewusst eben; die Höhenentwicklung setzt erst außerhalb davon ein und geht in
+// den felsigen Randwall über, der ohnehin nicht zum Betreten einlädt.
+const ISLAND_TOP_Y = -0.02; // Höhe der ebenen Grasfläche (Bestand beibehalten)
+// Weltmaßstab der ganzen Insel-Gruppe. Steht auf Modulebene, weil auch das
+// Schattenvolumen ihn braucht – und das wird gesetzt, bevor die Gruppe skaliert
+// wird. Wer ihn ändert, bricht Fog-Distanzen, Locomotion und Kartenplatzierung.
+const WORLD_SCALE = 4;
+const ISLAND_FLAT_R = 0.58; // bis hierhin (Anteil des Radius) bleibt es eben
+
+function makeIslandShape(rand, { radius = 5, depth = 5, river = null, detail = 1 } = {}) {
+  const p0 = rand() * TAU;
+  const p1 = rand() * TAU;
+  const p2 = rand() * TAU;
+  const headland = rand() * TAU; // eine weit vorspringende Landzunge
+  const bay = headland + 2.0 + rand() * 1.2; // eine tiefe Bucht gegenüber
+  const notch = headland + 0.9 + rand() * 0.6; // ein schmaler Einschnitt daneben
+  const nx = rand() * 60;
+  const nz = rand() * 60;
+  const strataPhase = rand() * TAU;
+  const strataTilt = rand() * TAU; // die Bänke liegen schräg, nicht waagerecht
+  // Bankdicke: je Insel anders – ABER an die Ringzahl der Flanke gekoppelt.
+  //
+  // Die Schichtbänke sind ein Sägezahn über die Flankenkoordinate; die Flanke
+  // wird mit `sideRings * detail` Ringen abgetastet. Auf den Mini-Inseln
+  // (detail 0,55, also 20 Ringe) trafen bis zu neun Bänke auf 20 Ringe – knapp
+  // zwei Stützstellen je Bank. Der Sägezahn kann bei dieser Abtastung nicht
+  // als Sims lesen, er kippt in eine Treppe aus gleich hohen, waagerechten
+  // Absätzen um: genau die „gestapelten Regalbretter", die die Mini-Inseln wie
+  // eine gedrehte Kiste aussehen ließen. Es war kein Formfehler, sondern
+  // Unterabtastung. Vier bis fünf Ringe je Bank sind das Minimum; die
+  // Obergrenze fällt mit der Detailstufe, was auch inhaltlich richtig ist –
+  // was weiter weg steht, zeigt weniger, aber größere Formen.
+  const flankenRinge = Math.max(8, Math.round(36 * detail));
+  const rateMax = flankenRinge / 4.5 / 1.34;
+  const strataRate = Math.min(4.2 + rand() * 2.6, rateMax);
+  const fracPhase = rand() * 40;
+  const leanX = (rand() - 0.5) * 0.9; // der Felskeil hängt schief, nicht mittig
+  const leanZ = (rand() - 0.5) * 0.9;
+  const chimneyA = rand() * TAU; // eine durchgehende Kaminspalte
+  const ledgeA = rand() * TAU; // ein überkragendes Felsgesims
+
+  // EIN dominanter Kiel plus zwei bis drei kleinere Strebepfeiler. Ohne die
+  // Größenstaffelung („eine Großform, zwei mittlere, viele kleine") endet die
+  // Unterseite in einer Reihe gleich großer Zacken.
+  const spurs = [
+    {
+      a: rand() * TAU,
+      w: 0.62,
+      amp: 0.30 + rand() * 0.12,
+      at: 0.48,
+      deeper: 0.42 + rand() * 0.20,
+    },
+  ];
+  for (let i = 0, n = 2 + Math.floor(rand() * 2); i < n; i++) {
+    spurs.push({
+      a: rand() * TAU,
+      w: 0.20 + rand() * 0.16,
+      amp: 0.16 + rand() * 0.16,
+      at: 0.30 + rand() * 0.34,
+      deeper: 0.06 + rand() * 0.12,
+    });
+  }
+  // Der Höhenrücken liegt dem Wasserfall gegenüber: Das Wasser braucht die
+  // niedrige Seite, der Blick bekommt auf der anderen einen Abschluss.
+  const ridgeA = river != null ? river + Math.PI : rand() * TAU;
+
+  // Grundriss. Eine schwach gewellte Ellipse liest sich als schwarze Kontur
+  // immer noch als Kartoffel – es braucht echte Konkavität. Deshalb greifen
+  // Landzunge, Bucht und Einschnitt kräftig ein: der Radius schwankt zwischen
+  // rund 0,6 und 1,3.
+  const outline = (a) =>
+    1 +
+    0.090 * Math.sin(3 * a + p0) +
+    0.055 * Math.sin(5 * a + p1) +
+    0.028 * Math.sin(8 * a + p2) +
+    0.30 * gauss(angDelta(a, headland), 0.30) -
+    0.24 * gauss(angDelta(a, bay), 0.38) -
+    0.17 * gauss(angDelta(a, notch), 0.19);
+
+  // --- Flusslauf (nur Hauptinsel): eine Kurve, die Gelände UND Wasser teilen ---
+  let riverCurve = null;
+  let riverPts = null;
+  if (river != null) {
+    // Der Lauf endet GENAU auf der Abbruchkante.
+    //
+    // Vorher hörte er 0,32 Einheiten davor auf, während der Sturz 0,2 dahinter
+    // begann – dazwischen lagen gut zwei Meter, auf denen das Wasser einfach
+    // nicht da war. Genau das las sich als „hört im Nichts auf".
+    const er = radius * outline(river);
+    const dx = Math.sin(river);
+    const dz = Math.cos(river);
+    // Quer zur Laufrichtung, für die Mäander.
+    const qx = dz;
+    const qz = -dx;
+    // Ein Bach mäandert, solange er Zeit hat, und läuft gerade, sobald es
+    // steil wird. Die Auslenkung nimmt deshalb zur Kante hin auf null ab –
+    // vorher schwang der letzte Abschnitt kurz vor dem Absturz noch einmal
+    // seitlich aus, was kein Wasser tut.
+    const punkt = (t, quer) =>
+      new THREE.Vector3(dx * er * t + qx * quer, 0, dz * er * t + qz * quer);
+    riverCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(0.1, 0, 0.2),
+      punkt(0.30, 0.62),
+      punkt(0.58, -0.48),
+      punkt(0.80, 0.18),
+      punkt(1.0, 0),
+    ]);
+    riverPts = [];
+    for (let i = 0; i <= 44; i++) {
+      const p = riverCurve.getPoint(i / 44);
+      riverPts.push(p.x, p.z);
+    }
+  }
+  const riverDist = (x, z) => {
+    if (!riverPts) return 99;
+    let best = 1e9;
+    for (let i = 0; i < riverPts.length; i += 2) {
+      const dx = x - riverPts[i];
+      const dz = z - riverPts[i + 1];
+      const d = dx * dx + dz * dz;
+      if (d < best) best = d;
+    }
+    return Math.sqrt(best);
+  };
+
+  // Oberfläche: eben in der Mitte, nach außen ein weicher Wall, am Rand
+  // abgerundet nach unten (die Grasnarbe legt sich über die Kante), plus die
+  // eingeschnittene Flussrinne.
+  const relief = (x, z) => {
+    const a = Math.atan2(x, z);
+    const R = radius * outline(a);
+    const rr = Math.hypot(x, z) / R;
+    const band = smoothstep(ISLAND_FLAT_R, 0.90, rr);
+    const ridge = 0.60 * gauss(angDelta(a, ridgeA), 1.0) + 0.14;
+    const rough = fbm2(x * 0.52 + nx, z * 0.52 + nz) * 0.62;
+    // Wo der Bach zur Kante läuft, ist KEIN Randwall.
+    //
+    // Der Wall stieg bisher rundherum, auch auf der Wasserfallseite, und die
+    // Rinne schnitt weniger tief ein als er hoch war – das Wasser lief also
+    // bergauf und verschwand hinter der eigenen Kante, statt zu stürzen. Ein
+    // Abfluss schneidet sich seine Scharte; genau die fehlte.
+    const korridor = river != null ? gauss(riverDist(x, z), 1.05) : 0;
+    let h = band * (1 - 0.92 * korridor) * (ridge + rough);
+    // Abrisskante statt Rundung: Die Grasnarbe endet in ungleichmäßigen Zungen
+    // und Kerben, nicht als überall gleich dicker, rundgeschliffener Wulst.
+    const tear = valueNoise2(Math.cos(a) * 13 + 5, Math.sin(a) * 13 + 9);
+    const tear2 = valueNoise2(Math.cos(a) * 5.7 + 27, Math.sin(a) * 5.7 + 2);
+    const fineTear = valueNoise2(Math.cos(a) * 27 + 11, Math.sin(a) * 27 + 33);
+    h -= smoothstep(0.88, 1.0, rr) * (0.14 + 0.42 * tear * tear2);
+    h -= smoothstep(0.955, 1.0, rr) * 0.16 * fineTear;
+    // Die Grasnarbe endet als SCHNITTKANTE, nicht als Rundung.
+    //
+    // Vorher rollte die Oberfläche über die Kante und krümmte sich dabei nach
+    // unten. Das hatte zwei Folgen: Die Narbe hatte keine sichtbare Dicke – sie
+    // war eine Haube ohne Materialstärke –, und weil die abwärts gekrümmte
+    // Fläche das Licht von unten auffängt, lief um die ganze Insel ein
+    // gleichbreites helles Band. Beides ist an einer abgerissenen Landmasse
+    // falsch: Dort steht eine Sodenplatte über, und darunter liegt es dunkel.
+    //
+    // Deshalb bleibt die Oberfläche bis zur Kante fast waagerecht und fällt
+    // dann in einem kurzen, steilen Absatz ab. Die Dicke schwankt, damit keine
+    // umlaufende Stufe entsteht.
+    const sod = 0.055 + 0.075 * tear2;
+    h -= smoothstep(0.983, 0.998, rr) * sod;
+    h -= 0.09 * gauss(riverDist(x, z), 0.40); // Flussbett eingeschnitten
+    return h;
+  };
+  const heightAt = (x, z) => ISLAND_TOP_Y + relief(x, z);
+  const edgeY = (a) => heightAt(Math.sin(a) * radius * outline(a), Math.cos(a) * radius * outline(a));
+
+  // --- Flanke: Erdschicht, dann geschichteter, zerklüfteter Fels ---
+  const EARTH_END = 0.20; // mittlerer Anteil der Flanke, der Erdreich ist
+  // Die Dicke der Erdschicht schwankt STARK: An manchen Stellen stößt der Fels
+  // bis unter die Grasnarbe durch, an anderen läuft Erde tief in eine Spalte.
+  // Eine überall gleich dicke Schicht ergibt eine umlaufend höhengleiche Kante –
+  // der auffälligste Hinweis auf gestapelte Zylinder.
+  const earthEndAt = (a) => {
+    const broad = valueNoise2(Math.cos(a) * 2.1 + 17, Math.sin(a) * 2.1 + 5);
+    const fine = valueNoise2(Math.cos(a) * 7.5 + 41, Math.sin(a) * 7.5 + 29);
+    return EARTH_END * Math.max(0.48, 0.30 + 2.0 * broad * broad + 0.42 * (fine - 0.5));
+  };
+
+  // Wie weit die Grasnarbe an dieser Stelle über die Kante hängt. Stark
+  // schwankend, damit Gras und Erde keine umlaufende Linie bilden.
+  const drapeAt = (a) =>
+    0.004 +
+    0.014 *
+      valueNoise2(Math.cos(a) * 3.1 + 31, Math.sin(a) * 3.1 + 7) *
+      valueNoise2(Math.cos(a) * 9.5 + 3, Math.sin(a) * 9.5 + 19);
+
+  // Schichtkoordinate: Der Abstand der Bänke schwankt, die Folge liegt schräg
+  // im Raum UND ist pro Sektor verschoben. Ohne den Rauschterm laufen die Bänke
+  // als saubere Ringe um die Insel – das verrät die Drehbank sofort.
+  const strataCoord = (u, a) => {
+    const sector = Math.floor((a / TAU) * SECTORS);
+    const jump = valueNoise2(sector * 1.31 + 9, 3.7) - 0.5; // Versatz je Sektor
+    const rate = strataRate * (0.72 + 0.62 * valueNoise2(sector * 2.17 + 5, 1.3));
+    return (
+      u * rate +
+      0.42 * Math.sin(u * 7.3 + strataPhase) +
+      0.95 * Math.cos(a + strataTilt) +
+      1.9 * jump +
+      1.6 * (valueNoise2(Math.cos(a) * 2.2 + fracPhase, Math.sin(a) * 2.2 + 7) - 0.5)
+    );
+  };
+
+  // Grobe Felsplatten: Sektoren × Tiefenbänder werden blockweise radial
+  // versetzt. Das erzeugt große, ebene Wandflächen mit scharfen Kanten –
+  // Fels, statt einer gleichmäßig verrauschten Kartoffel.
+  const SECTORS = 10 + Math.floor(rand() * 5);
+  const slab = (t, a) =>
+    valueNoise2(
+      Math.floor((a / TAU) * SECTORS) * 1.73 + 3,
+      Math.floor(t * 4.5) * 2.31 + fracPhase
+    ) - 0.5;
+
+  const spurAt = (u, a) => {
+    let m = 0;
+    for (const sp of spurs) {
+      m += sp.amp * gauss(angDelta(a, sp.a), sp.w) * gauss(u - sp.at, 0.30);
+    }
+    return m;
+  };
+
+  const sideRadius = (t, a) => {
+    const ee = earthEndAt(a);
+    let rf;
+    if (t < ee) {
+      // Erdreich. Es ist im Nahbild die zweitgrößte Fläche und darf deshalb
+      // keine glatte Zylinderwand sein: senkrechte Auswaschungsrillen, eine
+      // grobe Krümelstruktur und kleine, blockweise vorspringende Simse geben
+      // ihm eine eigene Oberflächenlesung neben dem facettierten Fels.
+      const cc = Math.cos(a);
+      const ss = Math.sin(a);
+      const f = t / ee;
+      const rill =
+        0.075 * (valueNoise2(cc * 17 + 7, ss * 17 + 2) - 0.5) +
+        0.045 * (valueNoise2(cc * 33 + 3, ss * 33 + 11) - 0.5);
+      const crumb =
+        0.05 *
+        (valueNoise2(Math.floor((a / TAU) * 40) * 2.9 + 1, Math.floor(f * 7) * 3.7 + 6) - 0.5);
+      rf = (1 - 0.075 * Math.pow(f, 0.6)) * (1 + (rill + crumb) * 2.0 * smoothstep(0, 0.25, f));
+    } else {
+      const u = (t - ee) / (1 - ee);
+      // Kiel statt Kegel: breite Schulter, dann ein stumpf endender Keil.
+      // Der Exponent hält die Masse unten zusammen – mit reinem (1-u) lief das
+      // Ganze in eine Eiszapfen-Nadel aus.
+      const taper = 0.94 * Math.pow(1 - Math.pow(u, 1.45), 0.58);
+      // Bänke mit scharfer Oberkante und auslaufender Unterseite (Sägezahn,
+      // geglättet) – so entstehen echte Simse statt einer Sinuswelle.
+      const sv = strataCoord(u, a);
+      const w = sv - Math.floor(sv);
+      const shelf = Math.pow(1 - w, 2.2) - 0.32;
+      // Überkragendes Gesims: An EINER Stelle steht der Fels weiter aus als die
+      // Grasplatte darüber. Ohne so einen Undercut bleibt das Profil ein
+      // umgekehrter Ziggurat, bei dem oben immer alles am breitesten ist.
+      const ledge = 0.26 * gauss(angDelta(a, ledgeA), 0.44) * gauss(u - 0.13, 0.11);
+      // Kaminspalte: eine senkrechte Rinne über die ganze Höhe
+      const chimney = -0.20 * gauss(angDelta(a, chimneyA), 0.17) * smoothstep(0.0, 0.35, u);
+      rf =
+        taper *
+        (1 + 0.115 * shelf * (1 - 0.30 * u)) *
+        (1 + 0.105 * slab(t, a)) *
+        (1 + spurAt(u, a) + ledge + chimney);
+    }
+    // Zerklüftung. Entscheidend ist nicht die Menge, sondern die VERTEILUNG:
+    // Gleichmäßig über die ganze Wand gestreute Splitter derselben Größe lesen
+    // sich aus mittlerer Entfernung als Rauschen, nicht als Fels. Deshalb liegt
+    // eine Bruchzonen-Maske darüber – wenige zerklüftete Bereiche, dazwischen
+    // große, ruhige Wandflächen, gegen die sich der Bruch abheben kann.
+    const c = Math.cos(a);
+    const s = Math.sin(a);
+    const rugged = smoothstep(
+      0.34,
+      0.68,
+      valueNoise2(c * 1.5 + fracPhase, s * 1.5 + t * 1.1 + 4)
+    );
+    const frac =
+      0.130 * (valueNoise2(c * 3.4 + fracPhase, s * 3.4 + 3) - 0.5) +
+      0.055 * (valueNoise2(c * 9.0 + fracPhase, s * 9.0 + 21) - 0.5) +
+      0.035 * (valueNoise2(c * 6.0 + t * 2.0, s * 6.0 + fracPhase) - 0.5);
+    const amount = (0.22 + 1.45 * rugged) * (0.35 + 0.65 * Math.min(1, t * 2.2));
+    return Math.max(0, rf * (1 + frac * 2 * amount));
+  };
+
+  // Tiefe entlang der Flanke. Nicht jede Seite reicht gleich weit hinunter:
+  // Strebepfeiler ziehen ihren Sektor tiefer, dazu kommt eine Grundwelle.
+  const sideDepth = (t, a) => {
+    let extra = 0;
+    for (const sp of spurs) extra += sp.deeper * gauss(angDelta(a, sp.a), sp.w * 1.5);
+    const wave = 0.09 * (valueNoise2(Math.cos(a) * 2.6 + 5, Math.sin(a) * 2.6 + 13) - 0.5) * 2;
+    return depth * (1 + extra + wave) * (Math.pow(t, 1.10) + 0.05 * Math.sin(t * 4.1 + a * 1.7) * t);
+  };
+  const leanAt = (t) => Math.pow(t, 1.9);
+
+  return {
+    radius,
+    depth,
+    outline,
+    heightAt,
+    edgeY,
+    sideRadius,
+    sideDepth,
+    earthEndAt,
+    leanX,
+    leanZ,
+    leanAt,
+    drapeAt,
+    riverDist,
+    slab,
+    riverCurve,
+    riverAngle: river,
+    ridgeAngle: ridgeA,
+    strataCoord,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Inselkörper als EIN Mesh mit drei Materialgruppen (Gras / Erde / Fels)
+// ---------------------------------------------------------------------------
+//
+// Statt Zylinderplatte + Kegel darunter (harte Kante bei y ≈ 0, symmetrischer
+// Trichter) entsteht ein durchgehendes Gitter: begehbare Fläche, Randwall,
+// überrollende Traufkante, ausgefranste Erdschicht und darunter der
+// geschichtete, zerklüftete, schief hängende Felskeil.
+//
+// Drei Materialgruppen statt einer, weil sich Gras, Erde und Fels nicht nur im
+// Farbton unterscheiden sollen: Gras und Erde sind glatt schattiert und stumpf,
+// der Fels ist facettiert (flatShading) und etwas glänzender. Die Zuordnung
+// erfolgt pro Vierecksspalte, die Grenzen sind pro Winkel versetzt – dadurch
+// gibt es keine umlaufende Trennlinie.
+const ZONE_GRASS = 0;
+const ZONE_EARTH = 1;
+const ZONE_ROCK = 2;
+
+function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detail = 1 } = {}) {
+  const S = Math.max(24, Math.round(seg * detail));
+  const TR = Math.max(6, Math.round(topRings * detail));
+  const SR = Math.max(8, Math.round(sideRings * detail));
+  const { radius, outline, heightAt, edgeY, sideRadius, sideDepth, earthEndAt } = shape;
+
+  const rings = []; // rings[j] = { pos: Float64Array(S*3), zone(i) }
+  const ringT = [];
+
+  // --- Oberseite: Ringe von der Mitte nach außen, außen feiner aufgelöst ---
+  //
+  // Die letzten drei Ringe liegen FEST bei 98,4 / 99,2 / 100 % – unabhängig von
+  // der Detailstufe. Genau dort sitzt der Absatz der Grasnarbe, und mit der
+  // reinen Potenzverteilung fiel er auf den Mini-Inseln (halbe Detailstufe) in
+  // eine einzige Vierecksreihe: Die Narbe konnte dort gar keine Dicke zeigen,
+  // gemessen 6 px Gras auf 70 px Fels. Drei Ringe kosten pro Insel 3 × seg
+  // Vierecke – auf einem Dreiecksbudget, das zu weniger als der Hälfte belegt
+  // ist, ist das nichts.
+  const RAND_RINGE = [0.984, 0.992, 1.0];
+  const TOP_RINGE = TR + RAND_RINGE.length;
+  for (let j = 0; j <= TOP_RINGE; j++) {
+    const frac =
+      j <= TR
+        ? (1 - Math.pow(1 - j / TR, 1.35)) * RAND_RINGE[0]
+        : RAND_RINGE[j - TR - 1];
+    const pos = new Float64Array(S * 3);
+    for (let i = 0; i < S; i++) {
+      const a = (i / S) * TAU;
+      const R = radius * outline(a) * frac;
+      const x = Math.sin(a) * R;
+      const z = Math.cos(a) * R;
+      pos[i * 3] = x;
+      pos[i * 3 + 1] = j === 0 ? heightAt(0, 0) : heightAt(x, z);
+      pos[i * 3 + 2] = z;
+    }
+    rings.push(pos);
+    ringT.push(-1); // Oberseite
+  }
+
+  // --- Flanke: Erdschicht + Fels bis zur Spitze ---
+  for (let j = 1; j <= SR; j++) {
+    const t = Math.pow(j / (SR + 1), 1.06);
+    const pos = new Float64Array(S * 3);
+    for (let i = 0; i < S; i++) {
+      const a = (i / S) * TAU;
+      const R = radius * outline(a) * sideRadius(t, a);
+      const lean = shape.leanAt(t);
+      pos[i * 3] = Math.sin(a) * R + shape.leanX * lean * radius * 0.5;
+      pos[i * 3 + 1] = edgeY(a) - sideDepth(t, a);
+      pos[i * 3 + 2] = Math.cos(a) * R + shape.leanZ * lean * radius * 0.5;
+    }
+    rings.push(pos);
+    ringT.push(t);
+  }
+
+  // Spitze: ein einzelner, seitlich versetzter Punkt
+  const tipLean = shape.leanAt(1);
+  const tip = [
+    shape.leanX * tipLean * radius * 0.5,
+    edgeY(0) - sideDepth(1.02, 0),
+    shape.leanZ * tipLean * radius * 0.5,
+  ];
+
+  // --- Glatte Normalen aus dem Gitter (der Fels überschreibt sie per flatShading) ---
+  const RN = rings.length;
+  const normals = rings.map(() => new Float64Array(S * 3));
+  const get = (j, i) => {
+    const r = rings[Math.max(0, Math.min(RN - 1, j))];
+    const k = ((i % S) + S) % S;
+    return [r[k * 3], r[k * 3 + 1], r[k * 3 + 2]];
+  };
+  for (let j = 0; j < RN; j++) {
+    for (let i = 0; i < S; i++) {
+      const [ax, ay, az] = get(j, i + 1);
+      const [bx, by, bz] = get(j, i - 1);
+      let [cx, cy, cz] = get(j + 1, i);
+      const [dx, dy, dz] = get(j - 1, i);
+      if (j === RN - 1) [cx, cy, cz] = tip;
+      const u = [ax - bx, ay - by, az - bz];
+      const v = [cx - dx, cy - dy, cz - dz];
+      let nx = u[1] * v[2] - u[2] * v[1];
+      let ny = u[2] * v[0] - u[0] * v[2];
+      let nz = u[0] * v[1] - u[1] * v[0];
+      const len = Math.hypot(nx, ny, nz);
+      if (len < 1e-9) {
+        // Der innerste Ring liegt komplett im Mittelpunkt – dort ist das
+        // Kreuzprodukt null. Ohne diesen Zweig bleibt die Normale (0,0,0) und
+        // die Fläche wird stockschwarz gerendert (ein Loch mitten im Gras).
+        nx = 0;
+        ny = -1;
+        nz = 0;
+      } else {
+        nx /= len;
+        ny /= len;
+        nz /= len;
+      }
+      // Ringe laufen von der Mitte nach außen und dann nach unten – das
+      // Kreuzprodukt zeigt dabei nach innen, deshalb umgedreht.
+      normals[j][i * 3] = -nx;
+      normals[j][i * 3 + 1] = -ny;
+      normals[j][i * 3 + 2] = -nz;
     }
   }
 
-  const grundton = nadelbaum
-    // Sehr dunkel und entsättigt: Der Hüllkörper einer Konifere ist der
-      // Schatten **zwischen** den Zweigen, nicht eine zweite Grünfläche. Mit
-      // 0x24503a blitzte er als flacher türkiser Fleck durch die Nadeln.
-      ? [0x16281c, 0x1c3324, 0x101f16]
-    : // Auch beim Laubbaum ist der Hüllkörper der Schatten **zwischen** den
-      // Blättern. Die alten Werte waren die Kronenfarbe von früher, als er die
-      // Krone *war* – heller als die Karten davor, also blitzte er als
-      // hellgrüner Fleck durch. Derselbe Fehler wie beim Nadelbaum.
-      hell
-      ? [0x1f3f26, 0x27492d, 0x1a3521]
-      : [0x27482e, 0x2f5436, 0x203e27];
-  const krone = baueKrone({
-    ansaetze,
-    seed: 0x1de4 + Math.floor(rand() * 512),
-    kartenMaterial: nadelbaum ? nadeln : karten,
-    kind: nadelbaum ? 'nadel' : 'azalea',
-    // Nadelschöpfe stehen dichter und kleiner als Laubschöpfe.
-    cardScale: nadelbaum ? 0.95 : 0.85,
-    // Auch die Kartendichte sinkt: Viele kleine Schöpfe brauchen jeder für
-    // sich weniger Karten als wenige große, weil sie sich gegenseitig füllen.
-    dichte: nadelbaum ? 74 : 64,
-    farben: grundton,
-    kartenFarben: nadelbaum
-      ? [0xd8f0c0, 0xc6e4ae, 0xe4ffd0]
-      : [0xdcf5b8, 0xcbeaa4, 0xe6ffc8],
-  });
-  krone.blobs.name = 'island-krone';
-  krone.karten.name = 'island-laub';
-  tree.add(krone.blobs, krone.karten);
+  // --- Dreiecke in drei Eimer (Gras / Erde / Fels) einsortieren ---
+  const buckets = [
+    { pos: [], nor: [], col: [] },
+    { pos: [], nor: [], col: [] },
+    { pos: [], nor: [], col: [] },
+  ];
+  const c = new THREE.Color();
+  const push = (zone, j, i) => {
+    const b = buckets[zone];
+    const k = ((i % S) + S) % S;
+    const isTip = j >= RN;
+    const p = isTip ? tip : [rings[j][k * 3], rings[j][k * 3 + 1], rings[j][k * 3 + 2]];
+    const n = isTip ? [0, -1, 0] : [normals[j][k * 3], normals[j][k * 3 + 1], normals[j][k * 3 + 2]];
+    b.pos.push(p[0], p[1], p[2]);
+    b.nor.push(n[0], n[1], n[2]);
+    bodyColor(c, zone, shape, p, isTip ? 1 : Math.max(0, ringT[j]), (k / S) * TAU);
+    b.col.push(c.r, c.g, c.b);
+  };
+  const quad = (zone, j, i) => {
+    push(zone, j, i);
+    push(zone, j + 1, i);
+    push(zone, j + 1, i + 1);
+    push(zone, j, i);
+    push(zone, j + 1, i + 1);
+    push(zone, j, i + 1);
+  };
 
-  return tree;
+  for (let j = 0; j < RN - 1; j++) {
+    for (let i = 0; i < S; i++) {
+      const a = (i / S) * TAU;
+      const t = ringT[j + 1];
+      let zone;
+      if (t < 0) zone = ZONE_GRASS;
+      else if (t < earthEndAt(a)) zone = ZONE_EARTH;
+      else zone = ZONE_ROCK;
+      // Die MATERIALgrenze liegt bewusst fest und dicht unter der Kante: Eine
+      // pro Viereck ausgefranste Grenze erzeugt eine Treppe aus rechten Winkeln
+      // (ein sofort erkennbares Rasterartefakt). Der sichtbare, unregelmäßige
+      // Übergang Gras → Erde entsteht stattdessen in der Vertex-Farbe und ist
+      // dadurch stufenlos.
+      if (zone === ZONE_EARTH && t < 0.010) zone = ZONE_GRASS;
+      quad(zone, j, i);
+    }
+  }
+  // Fächer auf die Spitze
+  for (let i = 0; i < S; i++) {
+    push(ZONE_ROCK, RN - 1, i);
+    push(ZONE_ROCK, RN, i);
+    push(ZONE_ROCK, RN - 1, i + 1);
+  }
+
+  const geo = new THREE.BufferGeometry();
+  const total = buckets.reduce((s, b) => s + b.pos.length, 0);
+  const pos = new Float32Array(total);
+  const nor = new Float32Array(total);
+  const col = new Float32Array(total);
+  let write = 0;
+  let offset = 0;
+  const groups = [];
+  for (let z = 0; z < 3; z++) {
+    const b = buckets[z];
+    pos.set(b.pos, write);
+    nor.set(b.nor, write);
+    col.set(b.col, write);
+    const count = b.pos.length / 3;
+    groups.push([offset, count, z]);
+    write += b.pos.length;
+    offset += count;
+  }
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  // UVs für die Oberflächenkarten. Der Inselkörper hatte bisher gar keine – er
+  // war deshalb im Nahbereich eine glatte Fläche: In der Bodennahaufnahme lag
+  // ein Felsblock über 30 % der Bildfläche auf ±1 Tonwert konstant. Auf einer
+  // Quest steht man 1–2 m davor, das ist die eigentliche Prüfdistanz.
+  //
+  // Boxprojektion statt einer Abwicklung: Die Insel ist eine geschlossene,
+  // beliebig gekrümmte Form; jede Abwicklung liefe an der Spitze zusammen und
+  // würde die Körnung dort auf ein Vielfaches strecken. Die Projektion gibt
+  // jeder Fläche dieselbe Korngröße, Deckel wie Flanke.
+  faceBoxUV(geo, 0.28 * WORLD_SCALE);
+  for (const [start, count, mat] of groups) geo.addGroup(start, count, mat);
+  geo.computeBoundingSphere();
+
+  // Drei Materialien mit eigener Oberflächenlesung. Die Karten stammen aus dem
+  // Materialsatz, den PR #9 mitgebracht hat – sie liefern Relief und Rauheit;
+  // die Farbe kommt weiter aus den Scheitelfarben.
+  //
+  // Bei der Grasnarbe fliegt die FARBkarte des Mooses bewusst raus: Sie ist für
+  // den dunklen, feuchten Dojo-Garten gezeichnet und ergäbe mit dem Inselgrün
+  // multipliziert einen fast schwarzen, fleckigen Rasen. Gebraucht wird hier
+  // die Halmstruktur, nicht der Farbton.
+  // Die Grasnarbe bekommt KEINE Karte.
+  //
+  // Der erste Anlauf legte die Mooskarten aus dem Dojo-Satz darauf und kostete
+  // dafuer den dreifachen Texturspeicher (9,17 auf 27,83 MB). Nachgemessen
+  // aenderte sich am Bild nichts: Bildmittel 144,9 gegen 145,0, p50 identisch.
+  // Auf einer mobilen Brille ist das ein schlechter Tausch. Die Variation der
+  // Wiese kommt aus den Scheitelfarben - sie haengt an der Geometrie, ist damit
+  // im richtigen Massstab und kostet nichts.
+  const gras = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.97,
+    metalness: 0,
+  });
+
+  const mesh = new THREE.Mesh(geo, [
+    gras,
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 1.0,
+      metalness: 0,
+      flatShading: true,
+    }),
+    // Felswandkarte, NICHT die Granitkarte des Dojo-Gartens: Deren
+    // Absplitterungen sind auf einer vierzig Meter hohen Flanke ein sichtbares
+    // Raster gleicher Dellen. Begründung ausführlich bei cliffMaps().
+    addSkyRim(cliffMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
+      strength: 0.18,
+      power: 4.0,
+    }),
+  ]);
+  // cliffMaterial() liefert aus einem Cache; ohne clone() bekäme jede Insel
+  // dasselbe Objekt, und der Saum des Felses läge auch auf dem Erdreich.
+  mesh.material[2].flatShading = true;
+  mesh.name = 'island-body';
+  return mesh;
 }
 
-// Blumen und Grasbüschel auf der Hauptinsel (InstancedMesh = 2 Draw-Calls)
-function addGrassDecoration(group, rand, radius) {
-  const flowerColors = [0xfff3b0, 0xffb3c1, 0xcdb4f6, 0xf8f9fa, 0xffd166];
-  const flowers = new THREE.InstancedMesh(
-    new THREE.IcosahedronGeometry(0.025, 0),
-    new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0, emissiveIntensity: 0.2 }),
-    54
+// Vertex-Farbe des Inselkörpers. Trägt die Materialtrennung mit: warmes,
+// leicht entsättigtes Grün oben, erdiges Braun in der Abbruchkante, kühl
+// gebrochener Fels darunter – mit Schichtbändern, Rissverdunklung und
+// gebackenem AO nach unten.
+const _tmpColor = new THREE.Color();
+
+// --- Wind für Bodenbewuchs --------------------------------------------------
+//
+// Alle Materialien mit Wind teilen sich EINE Uhr. Sonst müsste die
+// Animationsschleife jedes Material einzeln fortschreiben, und ein vergessenes
+// bliebe stehen – der sichtbarste Fehler bei Vegetation überhaupt.
+//
+// Die Bewegung sitzt im Vertex-Shader und kostet damit nichts pro Bild auf der
+// CPU. Sie greift nur oben: Der Faktor ist die Höhe über dem Objektursprung,
+// ein Halm wird also am Boden gehalten und schwingt an der Spitze. Ohne das
+// verrutscht der ganze Büschel und löst sich vom Boden.
+const _windClock = { value: 0 };
+
+function addWind(material, { strength = 0.06, speed = 1.4 } = {}) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    shader.uniforms.windTime = _windClock;
+    shader.uniforms.windStrength = { value: strength };
+    shader.uniforms.windSpeed = { value: speed };
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         uniform float windTime;
+         uniform float windStrength;
+         uniform float windSpeed;`
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+         {
+           // Weltposition der Instanz bestimmt die Phase – benachbarte Horste
+           // schwingen dadurch leicht versetzt statt im Gleichtakt.
+           #ifdef USE_INSTANCING
+             vec3 wOrigin = instanceMatrix[3].xyz;
+           #else
+             vec3 wOrigin = vec3(0.0);
+           #endif
+           float phase = wOrigin.x * 0.7 + wOrigin.z * 0.5;
+           float h = max(transformed.y, 0.0);
+           // Zwei Frequenzen: eine tragende Böe und ein schnelleres Zittern.
+           float sway =
+             sin(windTime * windSpeed + phase) * 0.75 +
+             sin(windTime * windSpeed * 2.7 + phase * 1.9) * 0.25;
+           transformed.x += sway * windStrength * h;
+           transformed.z += sway * windStrength * h * 0.45;
+         }`
+      );
+  };
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () =>
+    `${vorherKey ? vorherKey() : ''}|wind-${strength}-${speed}`;
+  return material;
+}
+
+// --- Himmelssaum (Rim) auf jede Silhouette ---------------------------------
+//
+// Ein gerichtetes „Rim-Light" von hinten löst das Problem nicht: Es beleuchtet
+// die RÜCKSEITE, und die sieht man nicht. Gemessen blieb die Baumkrone im
+// Gegenlicht bei (0,13,2) – praktisch schwarz, genau wie vorher.
+//
+// Was hier wirkt, ist kein zweites Licht, sondern ein Materialeffekt: Wo eine
+// Fläche vom Betrachter wegkippt (der Silhouettenrand), bekommt sie den
+// Himmelston dazu. Das ist derselbe Fresnel-Gedanke wie beim Streulicht an
+// einer Blattkante und kostet keinen Draw-Call, keine Textur und kein Licht –
+// nur ein paar Zeilen im vorhandenen Shader.
+function addSkyRim(material, { color = 0xbcdcf2, strength = 0.55, power = 2.6 } = {}) {
+  const rim = new THREE.Color(color);
+  // Vorhandene Shader-Eingriffe bleiben erhalten. Das Blattwerk aus PR #9
+  // bringt eigene mit (Wind, Blattdurchsicht); sie einfach zu überschreiben
+  // hieße, den halben Baum kaputtzumachen, um seine Kante zu retten.
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    // Der Anker muss noch da sein – ein vorheriger Eingriff könnte ihn ersetzt
+    // haben. Ohne diese Prüfung fiele der Saum still aus.
+    if (!shader.fragmentShader.includes('#include <dithering_fragment>')) return;
+    shader.uniforms.rimColor = { value: rim };
+    shader.uniforms.rimStrength = { value: strength };
+    shader.uniforms.rimPower = { value: power };
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         uniform vec3 rimColor;
+         uniform float rimStrength;
+         uniform float rimPower;`
+      )
+      .replace(
+        '#include <dithering_fragment>',
+        `{
+           // Blickrichtung gegen die Normale. vViewPosition zeigt vom Fragment
+           // zur Kamera; normal ist in Sichtkoordinaten.
+           vec3 vDir = normalize(vViewPosition);
+           float f = 1.0 - abs(dot(normalize(normal), vDir));
+           gl_FragColor.rgb += rimColor * rimStrength * pow(f, rimPower);
+         }
+         #include <dithering_fragment>`
+      );
+    material.userData.shader = shader;
+  };
+  // Ohne eigenen Schlüssel hält three Varianten desselben Materials für
+  // austauschbar und liefert das falsche Programm aus. Ein bereits gesetzter
+  // Schlüssel wird ergänzt, nicht ersetzt.
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () =>
+    `${vorherKey ? vorherKey() : ''}|skyrim-${strength}-${power}-${rim.getHex()}`;
+  return material;
+}
+
+function bodyColor(out, zone, shape, p, t, a) {
+  const [x, y, z] = p;
+  const mott = valueNoise2(x * 1.7 + 40, z * 1.7 + 12);
+  if (zone === ZONE_GRASS) {
+    const R = shape.radius * shape.outline(a);
+    const rr = Math.min(1, Math.hypot(x, z) / R);
+    const high = smoothstep(0.05, 0.55, y - ISLAND_TOP_Y); // Wallrücken heller
+
+    // --- Feuchte bestimmt die Farbe, nicht Zufall -------------------------
+    //
+    // Gemessen war die Wiese über rund 40 % der Bildfläche EINE Farbe: zehn
+    // weit verteilte Punkte lagen zwischen 181,4 und 185,6, der Farbton auf
+    // ±2 pro Kanal konstant. Ein Fleckenrauschen allein behebt das nicht – es
+    // ergibt gesprenkelten Teppich. Was fehlt, ist ein Grund für die
+    // Variation.
+    //
+    // Der Grund ist Wasser. Es sammelt sich in den Senken und am Bach, es
+    // läuft vom Höhenrücken ab. Danach richtet sich alles: Moos in den
+    // Mulden (dunkel, blaustichig, satt), ausgedörrtes Gras auf dem Rücken
+    // (hell, gelblich, blass), Normalgrün dazwischen.
+    const rel = y - ISLAND_TOP_Y; // Höhe über der ebenen Fläche
+    const bach = 1 - smoothstep(0.15, 1.6, shape.riverDist(x, z));
+    // Die begehbare Fläche ist bewusst EBEN. Feuchte aus der absoluten Höhe
+    // abzuleiten ergibt dort deshalb überall denselben Wert – gemessen war der
+    // Rot-Blau-Abstand über die ganze Wiese konstant 26–27, die Feuchte kam
+    // ausschließlich als Helligkeit an. Sie braucht auf der Ebene eine eigene
+    // Quelle: zusammenhängende Senken, in denen Wasser stehen bleibt.
+    const mulde = smoothstep(0.42, 0.72, valueNoise2(x * 0.42 + 61, z * 0.42 + 17));
+    const feucht = Math.min(1, Math.max(mulde * 0.85, bach) * (1 - smoothstep(0.1, 0.5, rel)));
+    const trocken = smoothstep(0.12, 0.55, rel) * 0.7 + 0.5 * smoothstep(0.55, 0.25, valueNoise2(x * 0.5 + 3, z * 0.5 + 41));
+
+    // Drei Ortsfrequenzen: breite Flächen, mittlere Flecken, feines Korn.
+    const gross = fbm2(x * 0.34 + 11, z * 0.34 + 7);
+    const mittel = valueNoise2(x * 1.15 + 3, z * 1.15 + 19) - 0.5;
+    const fein = valueNoise2(x * 4.3 + 29, z * 4.3 + 5) - 0.5;
+    const variation = gross * 1.15 + mittel * 0.45 + fein * 0.22;
+
+    out.setHSL(
+      // Moos zieht ins Blaugrüne, dürres Gras ins Gelbe. Die Ausschläge sind
+      // bewusst groß: Bei der halben Stärke blieb der Rot-Blau-Abstand über
+      // die ganze Wiese konstant, und die Feuchte war nur als Helligkeit da.
+      0.268 + 0.072 * feucht - 0.098 * trocken + 0.024 * variation,
+      0.40 + 0.24 * feucht - 0.20 * trocken + 0.10 * variation,
+      0.34 - 0.13 * feucht + 0.12 * trocken + 0.115 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
+    );
+    // Zur Kante hin reißt die Narbe auf: Erde und Fels kommen durch. Ohne das
+    // liegt das Gras als geschlossene, gleichmäßig dicke Zuckergussschicht auf
+    // der Insel. Der Aufriss läuft über die Farbe – eine pro Viereck gesetzte
+    // Materialgrenze ergäbe wieder eine Treppe aus rechten Winkeln.
+    const bare = valueNoise2(Math.cos(a) * 5.5 + 61, Math.sin(a) * 5.5 + 13);
+    const patch = valueNoise2(x * 1.1 + 7, z * 1.1 + 23);
+    const wear = smoothstep(0.70, 0.99, rr) * smoothstep(0.42, 0.78, bare * 0.5 + patch * 0.5);
+    if (wear > 0) {
+      const soil = _tmpColor.setHSL(0.072, 0.30, 0.19 + 0.05 * (patch - 0.5));
+      out.lerp(soil, Math.min(0.85, wear));
+    }
+    return out;
+  }
+  if (zone === ZONE_EARTH) {
+    // Erdreich: oben feucht-dunkel unter der Grasnarbe, nach unten staubiger,
+    // mit senkrechten Auswaschungsstreifen.
+    const d = Math.min(1, t / 0.22);
+    const streak = valueNoise2(Math.cos(a) * 16, Math.sin(a) * 16 + t * 2);
+    const grit = valueNoise2(Math.cos(a) * 44 + 5, Math.sin(a) * 44 + t * 9);
+    // Wurzelfilz direkt unter der Narbe: dunkel, feucht, faserig. Er ist der
+    // sichtbare Beleg dafuer, dass die Grasplatte Dicke hat – ohne ihn geht
+    // Gruen ohne Zwischenschritt in Sandbraun ueber und die Narbe wirkt
+    // aufgemalt.
+    const wurzel = 1 - smoothstep(0, 0.16, d);
+    const faser = valueNoise2(Math.cos(a) * 62 + 9, Math.sin(a) * 62 + t * 14);
+    out.setHSL(
+      0.075 + 0.014 * (streak - 0.5) + 0.020 * wurzel,
+      0.34 - 0.08 * d + 0.10 * wurzel,
+      0.20 +
+        0.055 * d +
+        0.05 * (mott - 0.5) +
+        0.045 * (streak - 0.5) +
+        0.055 * (grit - 0.5) -
+        0.115 * wurzel +
+        0.05 * wurzel * (faser - 0.5)
+    );
+    // Die Grasnarbe hängt unterschiedlich weit über die Kante. Der Übergang
+    // läuft über die Farbe (stufenlos) statt über die Materialgrenze (Treppe).
+    const drape = shape.drapeAt(a);
+    const g2e = smoothstep(drape * 0.30, drape * 1.15, t);
+    if (g2e < 1) {
+      const grass = _tmpColor.setHSL(0.272, 0.42, 0.30 + 0.05 * (mott - 0.5));
+      out.lerp(grass, 1 - g2e);
+    }
+    return out;
+  }
+  // Fels: Schichtbänke (dieselbe Koordinate wie die Geometrie, damit Farbe und
+  // Form zusammenfallen), senkrechte Risse und Verdunklung zur Spitze.
+  const sv = shape.strataCoord(t, a);
+  const w = sv - Math.floor(sv);
+  const shelf = Math.pow(1 - w, 2.0); // 1 an der Oberkante einer Bank … 0 darunter
+  const fissure = valueNoise2(Math.cos(a) * 11, Math.sin(a) * 11 + t * 3);
+  const face = shape.slab(t, a); // -0.5 … 0.5, konstant je Felsplatte
+  // Deutlich dunkler und kühler als das Erdreich darüber: Vorher lagen Fels und
+  // Erde im gleichen Hellwert und im gleichen warmen Bereich – die Flanke las
+  // sich als ein einziges beiges Volumen mit einer eingeritzten Linie.
+  const depthShade = 1 - smoothstep(0.10, 1.0, t) * 0.46;
+  out.setHSL(
+    0.095 + 0.022 * shelf - 0.018 * face,
+    0.045 + 0.045 * shelf + 0.025 * (mott - 0.5),
+    (0.095 + 0.060 * shelf + 0.045 * (fissure - 0.5) + 0.070 * face + 0.025 * (mott - 0.5)) *
+      depthShade +
+      0.010
   );
-  flowers.name = 'flowers';
-  flowers.userData.fullCount = flowers.count;
+  return out;
+}
+
+
+// Blumen und Grasbüschel auf der Hauptinsel (InstancedMesh = 2 Draw-Calls).
+// Alle Instanzen sitzen auf der tatsächlichen Geländehöhe (shape.heightAt) und
+// bleiben innerhalb des tatsächlichen, unrunden Umrisses.
+// Ein Grashorst: mehrere schmale, gebogene Halme aus einem Punkt.
+//
+// Vorher war jeder „Büschel" EIN Kegel. Aus zwei Metern liest sich das als
+// grüner Zapfen, und weil alle gleich groß waren und gleichmäßig gestreut,
+// entstand das Raster, das die Messlatte ausschließt. Ein Horst aus fünf
+// Halmen kostet 60 Dreiecke statt 12 – bei einem Budget, das zur Hälfte frei
+// ist, ist das der richtige Tausch.
+function tuftGeometry(rand) {
+  const halme = [];
+  const n = 4 + Math.floor(rand() * 3);
+  for (let i = 0; i < n; i++) {
+    const h = 0.075 + rand() * 0.075;
+    const g = new THREE.CylinderGeometry(0.002, 0.011, h, 3, 3);
+    const p = g.attributes.position;
+    // Neigung nach außen, mit Krümmung: ein Halm steht nicht senkrecht.
+    const a = (i / n) * TAU + rand() * 0.8;
+    const lean = 0.35 + rand() * 0.5;
+    for (let v = 0; v < p.count; v++) {
+      const f = 0.5 + p.getY(v) / h; // 0 unten … 1 Spitze
+      const bow = f * f * lean * h;
+      p.setX(v, p.getX(v) + Math.cos(a) * bow);
+      p.setZ(v, p.getZ(v) + Math.sin(a) * bow);
+    }
+    g.computeVertexNormals();
+    g.translate(0, h / 2, 0);
+    halme.push(g);
+  }
+  return mergeGeometries(halme);
+}
+
+// Streudekoration der Wiese: Grashorste und Blumen.
+//
+// Beides steht jetzt in Horsten und Nestern statt gleichmäßig gestreut, und
+// beides richtet sich nach der Feuchte – Gras wächst dichter am Bach, Blumen
+// auf den trockenen Rücken. Damit ist die Verteilung kein Rauschen mehr,
+// sondern folgt derselben Regel wie die Farbe des Bodens.
+function addGrassDecoration(group, rand, shape) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
-  for (let i = 0; i < flowers.count; i++) {
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.2 + rand() * 0.72);
-    dummy.position.set(Math.sin(angle) * r, 0.02, Math.cos(angle) * r);
-    dummy.scale.setScalar(0.8 + rand() * 0.7);
+  // Kontaktverdunklung für die Horste. Bäume, Findlinge, Büsche und Pilze
+  // hatten sie; die Grasbüschel als einzige nicht – und sie sind das, was im
+  // Nahbild direkt vor dem Nutzer steht. Gemessen lag der Boden 15 px neben
+  // einem Büschelfuß eine einzige Luminanzstufe unter der freien Fläche, der
+  // Horst saß also mit haarscharfer Kante auf vollwertig hellem Gras. Alle
+  // Verdunklungen zusammen sind EIN Draw-Call.
+  const horstSchatten = new GeoBucket();
+
+  // Nester statt Gleichverteilung: erst ein Zentrum würfeln, dann darum streuen.
+  const nester = [];
+  for (let i = 0; i < 26; i++) {
+    const angle = rand() * TAU;
+    const r = shape.radius * shape.outline(angle) * (0.10 + rand() * 0.80);
+    nester.push({ x: Math.sin(angle) * r, z: Math.cos(angle) * r, s: 0.35 + rand() * 0.9 });
+  }
+  // Belegte Plätze (Findlinge) und der steil abfallende Rand sind tabu; beides
+  // steckt in shape.frei, das buildIsland aufbaut.
+  const frei = (x, z) => !shape.frei || shape.frei(x, z);
+  // Gibt null zurueck, wenn der Platz belegt ist - der Aufrufer ueberspringt
+  // die Instanz dann, statt sie irgendwohin zu setzen.
+  const imNest = (nest) => {
+    for (let versuch = 0; versuch < 6; versuch++) {
+      const a = rand() * TAU;
+      const d = Math.sqrt(rand()) * nest.s;
+      const x = nest.x + Math.cos(a) * d;
+      const z = nest.z + Math.sin(a) * d;
+      if (frei(x, z)) return [x, shape.heightAt(x, z), z];
+    }
+    return null;
+  };
+
+  // --- Grashorste ---------------------------------------------------------
+  const HORSTE = 240;
+  const tufts = new THREE.InstancedMesh(
+    tuftGeometry(rand),
+    addWind(new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }), {
+      strength: 0.055,
+      speed: 1.35,
+    }),
+    HORSTE
+  );
+  tufts.name = 'tufts';
+  tufts.userData.fullCount = HORSTE;
+  tufts.castShadow = false;
+  tufts.receiveShadow = true;
+  const halmTon = [0x5c9a44, 0x6aa84f, 0x4e8b3c, 0x74ad57, 0x568f40];
+  for (let i = 0; i < HORSTE; i++) {
+    const nest = nester[Math.floor(rand() * nester.length)];
+    const platz = imNest(nest);
+    if (!platz) {
+      dummy.position.set(0, -999, 0);
+      dummy.scale.setScalar(0);
+      dummy.updateMatrix();
+      tufts.setMatrixAt(i, dummy.matrix);
+      dummy.scale.setScalar(1);
+      continue;
+    }
+    const [x, y, z] = platz;
+    // Am Bach steht das Gras höher und satter.
+    const nass = 1 - smoothstep(0, 1.6, shape.riverDist(x, z));
+    dummy.position.set(x, y - 0.012, z);
+    dummy.rotation.set((rand() - 0.5) * 0.22, rand() * TAU, (rand() - 0.5) * 0.22);
+    dummy.scale.setScalar((0.6 + rand() * 0.9) * (1 + 0.45 * nass));
+    dummy.updateMatrix();
+    tufts.setMatrixAt(i, dummy.matrix);
+    color.setHex(pick(rand, halmTon));
+    if (nass > 0) color.offsetHSL(0.015 * nass, 0.10 * nass, -0.05 * nass);
+    tufts.setColorAt(i, color);
+    addContactShadow(horstSchatten, shape, x, z, 0.115 * dummy.scale.x, true);
+  }
+  tufts.instanceMatrix.needsUpdate = true;
+  if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
+  group.add(tufts);
+
+  const horstSchattenMesh = horstSchatten.mesh(
+    new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      // Schwächer als unter Büschen und Findlingen: Ein Grasbüschel verdeckt
+      // wenig Himmel, und dreihundert kräftige Flecken würden die Wiese
+      // scheckig machen.
+      opacity: 0.32,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+    'tuft-shade'
+  );
+  if (horstSchattenMesh) {
+    horstSchattenMesh.renderOrder = 1;
+    group.add(horstSchattenMesh);
+  }
+
+  // --- Blumen -------------------------------------------------------------
+  //
+  // Vorher waren es freischwebende Ikosaeder in Rosa, Violett, Gelb und Creme –
+  // gesättigte Primärfarben nebeneinander, ohne Stiel, ohne Bezug zur Wiese.
+  // Jetzt: kleine Dolden auf einem Halm, in nur zwei zur Palette passenden
+  // Tönen, und in Nestern statt einzeln gestreut.
+  const stiel = new THREE.CylinderGeometry(0.0025, 0.004, 0.055, 3);
+  stiel.translate(0, 0.0275, 0);
+  paintVertices(stiel, 0x5f8f45);
+  const dolde = new THREE.IcosahedronGeometry(0.016, 0);
+  dolde.scale(1, 0.75, 1);
+  dolde.translate(0, 0.062, 0);
+  paintVertices(dolde, 0xffffff);
+  const blumeGeo = mergeGeometries([stiel, dolde].map((g) => (g.index ? g.toNonIndexed() : g)));
+
+  const BLUMEN = 90;
+  const flowers = new THREE.InstancedMesh(
+    blumeGeo,
+    addWind(
+      new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0, vertexColors: true }),
+      { strength: 0.075, speed: 1.9 }
+    ),
+    BLUMEN
+  );
+  flowers.name = 'flowers';
+  flowers.userData.fullCount = BLUMEN;
+  flowers.receiveShadow = true;
+  // Zwei Töne, beide aus der Umgebungspalette: ein warmes Cremegelb und ein
+  // blasses Rosé. Kein Violett, kein Reinweiß.
+  const bluetenTon = [0xf2e2a8, 0xead7b6, 0xe8c7bd, 0xf0e6c4];
+  for (let i = 0; i < BLUMEN; i++) {
+    const nest = nester[Math.floor(rand() * nester.length)];
+    const platz = imNest(nest);
+    if (!platz) {
+      dummy.position.set(0, -999, 0);
+      dummy.scale.setScalar(0);
+      dummy.updateMatrix();
+      flowers.setMatrixAt(i, dummy.matrix);
+      dummy.scale.setScalar(1);
+      continue;
+    }
+    const [x, y, z] = platz;
+    dummy.position.set(x, y, z);
+    dummy.rotation.set((rand() - 0.5) * 0.3, rand() * TAU, (rand() - 0.5) * 0.3);
+    dummy.scale.setScalar(0.75 + rand() * 0.6);
     dummy.updateMatrix();
     flowers.setMatrixAt(i, dummy.matrix);
-    flowers.setColorAt(i, color.setHex(flowerColors[Math.floor(rand() * flowerColors.length)]));
+    flowers.setColorAt(i, color.setHex(pick(rand, bluetenTon)));
   }
   flowers.instanceMatrix.needsUpdate = true;
   if (flowers.instanceColor) flowers.instanceColor.needsUpdate = true;
   group.add(flowers);
-
-  const tufts = new THREE.InstancedMesh(
-    new THREE.ConeGeometry(0.024, 0.09, 6),
-    new THREE.MeshStandardMaterial({ color: 0x4c9a4a, roughness: 0.9, metalness: 0 }),
-    70
-  );
-  tufts.name = 'tufts';
-  tufts.userData.fullCount = tufts.count;
-  for (let i = 0; i < tufts.count; i++) {
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.15 + rand() * 0.78);
-    dummy.position.set(Math.sin(angle) * r, 0.045, Math.cos(angle) * r);
-    dummy.rotation.set((rand() - 0.5) * 0.4, rand() * Math.PI, (rand() - 0.5) * 0.4);
-    dummy.scale.setScalar(0.8 + rand() * 0.8);
-    dummy.updateMatrix();
-    tufts.setMatrixAt(i, dummy.matrix);
-  }
-  tufts.instanceMatrix.needsUpdate = true;
-  group.add(tufts);
 }
 
 // Sanft animiertes Wasser: hellblaue Fläche mit fließenden Strähnen (Canvas-Textur,
@@ -574,12 +1684,14 @@ function makeWaterTexture() {
 // Kleiner Fluss von der Inselmitte zur Kante + Wasserfall über den Rand.
 // Ursprung: eine Quelle in der Mitte, aus der ein schmaler Bach zur Klippe läuft
 // und dort als Partikelstrom in die Tiefe stürzt.
-function makeWaterfall(rand, islandRadius) {
+function makeWaterfall(rand, shape) {
   const group = new THREE.Group();
   group.name = 'waterfall';
-  const angle = 2.1;
-  const edgeX = Math.sin(angle) * (islandRadius - 0.5);
-  const edgeZ = Math.cos(angle) * (islandRadius - 0.5);
+  const angle = shape.riverAngle;
+  const curve = shape.riverCurve;
+  const end = curve.getPoint(1);
+  const edgeX = end.x;
+  const edgeZ = end.z;
   const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
 
   const waterTex = makeWaterTexture();
@@ -592,29 +1704,34 @@ function makeWaterfall(rand, islandRadius) {
     opacity: 0.9,
   });
 
-  // --- Quelle in der Inselmitte ---
+  // --- Quelle in der Inselmitte, in die eingeschnittene Rinne gelegt ---
+  const springY = shape.heightAt(0.1, 0.2) + 0.035;
   const spring = new THREE.Mesh(new THREE.CircleGeometry(0.32, 24), waterMat);
   spring.rotation.x = -Math.PI / 2;
-  spring.position.set(0.1, 0.02, 0.2);
+  spring.position.set(0.1, springY, 0.2);
   group.add(spring);
-  // Kleiner Steinkranz um die Quelle
-  const ringMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 1, metalness: 0 });
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2 + rand();
-    const stone = new THREE.Mesh(new THREE.IcosahedronGeometry(0.07 + rand() * 0.05, 0), ringMat);
-    stone.position.set(0.1 + Math.cos(a) * 0.34, 0.03, 0.2 + Math.sin(a) * 0.34);
-    stone.rotation.set(rand(), rand(), rand());
-    group.add(stone);
+  // Steinkranz um die Quelle – ein verschmolzenes Mesh statt sieben Draw-Calls
+  const springStones = new GeoBucket();
+  for (let i = 0; i < 9; i++) {
+    const a = (i / 9) * TAU + rand() * 0.4;
+    const rr = 0.32 + rand() * 0.08;
+    const sx = 0.1 + Math.cos(a) * rr;
+    const sz = 0.2 + Math.sin(a) * rr;
+    const g = boulderGeometry(rand, 0.08 + rand() * 0.06);
+    g.translate(sx, shape.heightAt(sx, sz) + 0.03, sz);
+    springStones.add(g, (vx, vy, vz) =>
+      new THREE.Color().setHSL(0.094, 0.05, 0.125 + 0.07 * valueNoise2(vx * 6, vz * 6))
+    );
   }
+  const stones = springStones.mesh(
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, flatShading: true }),
+    'spring-stones'
+  );
+  if (stones) group.add(stones);
 
-  // --- Flussbett als Band entlang einer weichen Kurve (Mitte → Klippe) ---
-  const curve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0.1, 0.02, 0.2),
-    new THREE.Vector3(edgeX * 0.35 + 0.3, 0.02, edgeZ * 0.35 - 0.2),
-    new THREE.Vector3(edgeX * 0.7 - 0.2, 0.02, edgeZ * 0.7 + 0.3),
-    new THREE.Vector3(edgeX, 0.02, edgeZ),
-  ]);
-  const SEG = 60;
+  // --- Flussbett als Band entlang der geteilten Kurve: Es folgt exakt der
+  // Rinne, die auch ins Gelände eingeschnitten ist, und liegt knapp darüber. ---
+  const SEG = 64;
   const up = new THREE.Vector3(0, 1, 0);
   const riverPos = [];
   const riverUv = [];
@@ -625,9 +1742,12 @@ function makeWaterfall(rand, islandRadius) {
     const tan = curve.getTangent(t);
     const side = new THREE.Vector3().crossVectors(tan, up).normalize();
     const halfW = 0.14 + t * 0.34; // schmal an der Quelle, breiter zur Klippe
+    const yl = shape.heightAt(p.x - side.x * halfW, p.z - side.z * halfW) + 0.03;
+    const yr = shape.heightAt(p.x + side.x * halfW, p.z + side.z * halfW) + 0.03;
+    const yc = Math.min(yl, yr);
     riverPos.push(
-      p.x - side.x * halfW, 0.022, p.z - side.z * halfW,
-      p.x + side.x * halfW, 0.022, p.z + side.z * halfW
+      p.x - side.x * halfW, yc, p.z - side.z * halfW,
+      p.x + side.x * halfW, yc, p.z + side.z * halfW
     );
     const v = t * 8;
     riverUv.push(0, v, 1, v);
@@ -645,13 +1765,110 @@ function makeWaterfall(rand, islandRadius) {
   group.add(river);
 
   // --- Auffangbecken an der Kante, kurz bevor das Wasser stürzt ---
+  const edgeY = shape.heightAt(edgeX, edgeZ) + 0.03;
   const pond = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), waterMat);
   pond.rotation.x = -Math.PI / 2;
-  pond.position.set(edgeX, 0.02, edgeZ);
+  pond.position.set(edgeX, edgeY, edgeZ);
   pond.scale.x = 1.4;
   group.add(pond);
 
-  // --- Sturz: Partikelstrom über die Klippe ---
+  // --- Der Sturz selbst: eine fallende Wasserfläche ------------------------
+  //
+  // Bisher bestand der „Wasserfall" nur aus 150 Punkten. Von außen betrachtet
+  // war das eine dünne Reihe weißer Tupfen – und sie fielen dazu INNERHALB des
+  // Felsens, weil sie senkrecht von der Kante starteten, während sich die Wand
+  // darunter einzieht. Was fehlt, ist der Strahl.
+  //
+  // Er wird deshalb als Band gebaut, das der Wand folgt: An jedem Punkt der
+  // Fallhöhe wird der tatsächliche Flankenradius abgetastet und das Band knapp
+  // davor gesetzt. Es verbreitert sich nach unten (der Strahl fächert auf) und
+  // wird durchsichtiger, bis es im Dunst verschwindet.
+  {
+    const FALL_H = 7.5;
+    const SEGV = 22;
+    const pos = [];
+    const uv = [];
+    const idx = [];
+    const alpha = [];
+    for (let i = 0; i <= SEGV; i++) {
+      const f = i / SEGV;
+      // Tiefe entlang der Flanke, dieselbe Parametrisierung wie der Fels.
+      const t = Math.min(0.85, 0.02 + f * 0.42);
+      const rf = shape.sideRadius(t, angle) + 0.035;
+      const rr = shape.radius * shape.outline(angle) * rf;
+      const cx = Math.sin(angle) * rr;
+      const cz = Math.cos(angle) * rr;
+      const y = edgeY - 0.02 - FALL_H * (f * 0.55 + f * f * 0.45); // beschleunigt
+      const halfW = 0.17 + f * 0.17;
+      pos.push(
+        cx - tangent.x * halfW, y, cz - tangent.z * halfW,
+        cx + tangent.x * halfW, y, cz + tangent.z * halfW
+      );
+      const v = f * 5;
+      uv.push(0, v, 1, v);
+      // Oben satt, unten aufgehellt – das ist HELLIGKEIT, nicht Deckkraft.
+      const a = 0.85 + 0.25 * f;
+      alpha.push(a, a);
+      if (i < SEGV) {
+        const k = i * 2;
+        idx.push(k, k + 1, k + 2, k + 1, k + 3, k + 2);
+      }
+    }
+    const fallGeo = new THREE.BufferGeometry();
+    fallGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    fallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    // Die Aufhellung nach unten steckt in den Scheitelfarben.
+    //
+    // Die AUSBLENDUNG darf dagegen nicht dort stehen: Scheitelfarben
+    // multiplizieren die Farbe, nicht die Deckkraft – ein Wert gegen null
+    // ergibt Schwarz statt Durchsichtigkeit, und der Strahl endete in einem
+    // harten dunklen Rechteck. Dafür gibt es die Alpha-Karte unten.
+    const cols = new Float32Array(alpha.length * 3);
+    for (let i = 0; i < alpha.length; i++) {
+      cols[i * 3] = cols[i * 3 + 1] = cols[i * 3 + 2] = alpha[i];
+    }
+    fallGeo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    fallGeo.setIndex(idx);
+    fallGeo.computeVertexNormals();
+    // Senkrechter Alphaverlauf: oben deckend, unten löst sich der Strahl in
+    // Gischt auf. Eine 4x64-Karte reicht dafür.
+    const fadeCanvas = document.createElement('canvas');
+    fadeCanvas.width = 4;
+    fadeCanvas.height = 64;
+    const fc = fadeCanvas.getContext('2d');
+    const grad = fc.createLinearGradient(0, 0, 0, 64);
+    grad.addColorStop(0, '#ffffff');
+    grad.addColorStop(0.55, '#cccccc');
+    grad.addColorStop(1, '#000000');
+    fc.fillStyle = grad;
+    fc.fillRect(0, 0, 4, 64);
+    const fadeTex = new THREE.CanvasTexture(fadeCanvas);
+    fadeTex.wrapS = THREE.RepeatWrapping;
+    fadeTex.wrapT = THREE.ClampToEdgeWrapping;
+    // Die UV-Koordinate v läuft über den Strahl von 0 bis 5 (fünf Kacheln der
+    // Wassertextur); die Alpha-Karte muss über dieselbe Strecke EINmal laufen.
+    fadeTex.repeat.set(1, 1 / 5);
+
+    const fall = new THREE.Mesh(
+      fallGeo,
+      new THREE.MeshStandardMaterial({
+        map: waterTex,
+        alphaMap: fadeTex,
+        vertexColors: true,
+        color: 0xffffff,
+        roughness: 0.2,
+        metalness: 0.05,
+        transparent: true,
+        opacity: 0.95,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      })
+    );
+    fall.name = 'waterfall-sheet';
+    group.add(fall);
+  }
+
+  // --- Gischt: Partikelstrom vor dem Strahl ---
   const count = 150;
   const fallLength = 6;
   const positions = new Float32Array(count * 3);
@@ -688,9 +1905,11 @@ function makeWaterfall(rand, islandRadius) {
       opacity: 0.55,
     })
   );
-  const outX = Math.sin(angle) * (islandRadius + 0.15);
-  const outZ = Math.cos(angle) * (islandRadius + 0.15);
-  mist.position.set(outX, -1.2, outZ);
+  // Fußpunkt des Sturzes: knapp außerhalb der tatsächlichen Abbruchkante
+  const outR = shape.radius * shape.outline(angle) * (shape.sideRadius(0.16, angle) + 0.06);
+  const outX = Math.sin(angle) * outR;
+  const outZ = Math.cos(angle) * outR;
+  mist.position.set(outX, edgeY - 1.4, outZ);
   mist.scale.set(2.4, 2.4, 1);
   group.add(mist);
 
@@ -704,46 +1923,15 @@ function makeWaterfall(rand, islandRadius) {
       fog: false,
     })
   );
-  foam.position.set(edgeX, 0.03, edgeZ);
+  foam.position.set(edgeX, edgeY + 0.02, edgeZ);
   foam.scale.set(1.3, 0.5, 1);
   group.add(foam);
-
-  // Regenbogen im Sprühnebel: halber Ring, radial über Vertex-Farben eingefärbt
-  const rainbowGeo = new THREE.RingGeometry(1.0, 1.42, 48, 6, 0, Math.PI);
-  const rp = rainbowGeo.attributes.position;
-  const rColors = new Float32Array(rp.count * 3);
-  const rc = new THREE.Color();
-  for (let i = 0; i < rp.count; i++) {
-    const rr = Math.hypot(rp.getX(i), rp.getY(i));
-    const t = THREE.MathUtils.clamp((rr - 1.0) / 0.42, 0, 1); // innen 0 … außen 1
-    rc.setHSL((270 * (1 - t)) / 360, 0.9, 0.6); // violett innen → rot außen
-    rColors[i * 3] = rc.r;
-    rColors[i * 3 + 1] = rc.g;
-    rColors[i * 3 + 2] = rc.b;
-  }
-  rainbowGeo.setAttribute('color', new THREE.BufferAttribute(rColors, 3));
-  const rainbow = new THREE.Mesh(
-    rainbowGeo,
-    new THREE.MeshBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.42,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-      fog: false,
-    })
-  );
-  rainbow.position.set(outX, -1.4, outZ);
-  rainbow.lookAt(0, -0.4, 0); // zum Inselzentrum ausrichten
-  group.add(rainbow);
 
   return {
     group,
     update(time) {
       waterTex.offset.y = -time * 0.35;
       foam.material.opacity = 0.65 + Math.sin(time * 4) * 0.2;
-      rainbow.material.opacity = 0.38 + Math.sin(time * 0.7) * 0.08;
       const pos = geometry.attributes.position;
       for (let i = 0; i < count; i++) {
         const m = meta[i];
@@ -751,7 +1939,7 @@ function makeWaterfall(rand, islandRadius) {
         pos.setXYZ(
           i,
           outX + tangent.x * m.side + m.jitter * Math.sin(time * 3 + i),
-          -0.05 - fall,
+          edgeY - 0.05 - fall,
           outZ + tangent.z * m.side + m.jitter * Math.cos(time * 3 + i)
         );
       }
@@ -761,140 +1949,363 @@ function makeWaterfall(rand, islandRadius) {
   };
 }
 
-// Vögel: einfache Zwei-Flügel-Silhouetten, die in der Ferne kreisen
-function makeBirds(rand) {
-  const group = new THREE.Group();
-  group.name = 'birds';
-  const material = new THREE.MeshBasicMaterial({ color: 0x33404d, side: THREE.DoubleSide });
-  const birds = [];
-  for (let i = 0; i < 4; i++) {
-    const bird = new THREE.Group();
-    const wings = [];
-    for (const dir of [-1, 1]) {
-      const pivot = new THREE.Group();
-      const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.09), material);
-      wing.position.x = dir * 0.13;
-      wing.rotation.x = -Math.PI / 2;
-      pivot.add(wing);
-      bird.add(pivot);
-      wings.push({ pivot, dir });
+// Flügelumriss.
+//
+// Vorher war ein Flügel ein PlaneGeometry – ein Rechteck. Am Himmel ergab das
+// einen schwarzen Balken, und ein schwarzer Balken ist genau die Art von
+// „das hat jemand hingerechnet", die die Messlatte ausschließt. Ein Vogelflügel
+// von oben ist eine Sichel: die Vorderkante fast gerade, die Hinterkante nach
+// innen gebogen, die Spitze ausgezogen. Fünf Dreiecke je Flügel genügen dafür.
+//
+// Der Umriss sitzt mit der Wurzel im Ursprung und zeigt nach +X; der zweite
+// Flügel entsteht daraus durch Spiegeln (Skalierung x = -1), nicht durch eine
+// zweite Geometrie.
+function wingGeometry(len, chord) {
+  // Der Umriss beginnt bei negativem x, greift also über die Körperachse
+  // hinweg. Weil der zweite Flügel die Spiegelung des ersten ist, überlappen
+  // sich die beiden Wurzeln in der Mitte und bilden dort einen Rumpf – ohne
+  // das klafft zwischen den Flügeln eine Lücke, und das Tier zerfällt in zwei
+  // Splitter.
+  const punkte = [
+    [-0.11, -0.09], [0.00, -0.42], [0.45, -0.46], [0.80, -0.30],
+    [1.00, -0.05], [0.72, 0.16], [0.35, 0.34], [0.00, 0.42], [-0.11, 0.13],
+  ];
+  const pos = [];
+  for (let i = 1; i < punkte.length - 1; i++) {
+    for (const k of [0, i, i + 1]) {
+      pos.push(punkte[k][0] * len, 0, punkte[k][1] * chord);
     }
-    bird.userData = {
-      radius: 8 + rand() * 8,
-      height: 3.5 + rand() * 3.5,
-      speed: (0.12 + rand() * 0.1) * (rand() > 0.5 ? 1 : -1),
-      phase: rand() * Math.PI * 2,
-      wings,
-    };
-    group.add(bird);
-    birds.push(bird);
   }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+// --- Fliegendes Leben: Vögel und Schmetterlinge ----------------------------
+//
+// Beide waren zuvor je EIN Group-Objekt pro Tier mit zwei Flügel-Meshes darin:
+// vier Vögel und fünf Falter kosteten zusammen achtzehn Draw-Calls für achtzehn
+// Rechtecke. Jetzt sitzen alle Flügel einer Art in EINEM InstancedMesh, dessen
+// Matrizen pro Bild neu gesetzt werden – zwei Draw-Calls statt achtzehn.
+//
+// Die Bewegung bleibt CPU-seitig, und das ist hier richtig: Es sind achtzehn
+// Matrizen, kein Vertex-Strom, und die Flugbahn muss ohnehin je Tier bekannt
+// sein.
+function makeFlyers(rand, {
+  count,
+  wingGeo,
+  material,
+  name,
+  radius,
+  height,
+  speed,
+  flap,
+  flapAmp = 0.85,
+  dihedral = 0,
+  bob,
+  bobAmp = 0.45,
+  bank = 0,
+  spread = 0,
+  spanX,
+}) {
+  const mesh = new THREE.InstancedMesh(wingGeo, material, count * 2);
+  mesh.name = name;
+  mesh.frustumCulled = false; // die Tiere wandern weit, die Hülle stimmt nie
+  mesh.userData.fullCount = count * 2;
+  const tiere = [];
+  for (let i = 0; i < count; i++) {
+    tiere.push({
+      radius: radius[0] + rand() * (radius[1] - radius[0]),
+      height: height[0] + rand() * (height[1] - height[0]),
+      speed: (speed[0] + rand() * (speed[1] - speed[0])) * (rand() > 0.5 ? 1 : -1),
+      phase: rand() * TAU,
+      bob: rand() * TAU,
+      // Zweite Schwingung, die aus dem Kreis eine Schleife macht.
+      wob: rand() * TAU,
+      // Eigener Kreismittelpunkt je Tier.
+      //
+      // Vorher kreisten alle um den Inselnullpunkt. Das hatte zwei Folgen:
+      // Die Bahnen lagen konzentrisch ineinander – für sich schon verräterisch –
+      // und die Flügel zeigen bei einer Kreisbahn immer radial, also genau in
+      // die Blickachse einer Kamera, die zur Inselmitte schaut. Aus jedem Vogel
+      // nahe der Bildmitte wurde dadurch ein senkrechter Strich statt einer
+      // Silhouette.
+      cx: (rand() - 0.5) * spread,
+      cz: (rand() - 0.5) * spread,
+    });
+  }
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const p = new THREE.Vector3();
+  // Vorgehaltene Hilfsvektoren: update() laeuft zweiundsiebzig Mal je Sekunde
+  // und darf dabei nichts anlegen, was der Sammler wieder einsammeln muss.
+  const off = new THREE.Vector3();
+  const vor = new THREE.Vector3();
+  // Der zweite Flügel ist der erste, an der Körperachse gespiegelt.
+  const scl = new THREE.Vector3(1, 1, 1);
+
+  // Grundriss der Flugbahn.
+  //
+  // Ein reiner Kreis war messbar falsch, nicht nur langweilig: Bei einer
+  // Kreisbahn steht die Spannweite immer radial zum Bahnmittelpunkt. Die
+  // Bahnmittelpunkte liegen alle in der Nähe der Inselmitte, und die Kamera
+  // schaut auf die Inselmitte – also zeigt JEDER Vogel, der in der Bildmitte
+  // auftaucht, seine Flügel genau in die Blickachse und wird zum senkrechten
+  // Strich. Zwei überlagerte Oberschwingungen machen daraus eine Schleife;
+  // die Blickrichtung wird danach aus der tatsächlichen Bewegung abgeleitet,
+  // nicht mehr aus dem Bahnwinkel.
+  const bahn = (d, a, out) =>
+    out.set(
+      d.cx + Math.sin(a) * d.radius + Math.sin(2 * a + d.wob) * d.radius * 0.34,
+      0,
+      d.cz + Math.cos(a) * d.radius + Math.cos(3 * a + d.wob) * d.radius * 0.22
+    );
   return {
-    group,
+    group: mesh,
     update(time) {
-      for (const bird of birds) {
-        const d = bird.userData;
+      for (let i = 0; i < tiere.length; i++) {
+        const d = tiere[i];
         const a = time * d.speed + d.phase;
-        bird.position.set(
-          Math.sin(a) * d.radius,
-          d.height + Math.sin(time * 1.3 + d.phase) * 0.35,
-          Math.cos(a) * d.radius
-        );
-        bird.rotation.y = a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
-        const flap = Math.sin(time * 9 + d.phase) * 0.55;
-        for (const { pivot, dir } of d.wings) pivot.rotation.z = flap * dir;
+        bahn(d, a, p);
+        p.y = d.height + Math.sin(time * bob + d.bob) * bobAmp;
+        // Blickrichtung aus der Bahn ablesen statt aus dem Winkel rechnen.
+        bahn(d, a + (d.speed > 0 ? 0.03 : -0.03), vor);
+        const yaw = Math.atan2(vor.x - p.x, vor.z - p.z);
+        // Schlagwinkel. Je Tier eine eigene Phase – sonst schlagen alle im
+        // Gleichtakt, und genau das verbietet die Messlatte.
+        const w = Math.sin(time * flap + d.phase * 2.3);
+        // Schräglage in der Kurve: beide Flügel kippen um denselben Betrag in
+        // dieselbe Richtung. Ohne sie kreist der Vogel brettflach.
+        const lage = d.speed > 0 ? bank : -bank;
+        for (let k = 0; k < 2; k++) {
+          const dir = k === 0 ? -1 : 1;
+          // V-Stellung plus Schlag. Der Sockel ist wichtiger als die Amplitude:
+          // Ein segelnder Greifvogel hält die Flügel fast waagerecht in
+          // leichtem V und schlägt nur gelegentlich. Mit großem Ausschlag steht
+          // er im Standbild regelmäßig hochkant und wird zum senkrechten Strich.
+          e.set(0, yaw, (dihedral + w * flapAmp) * dir + lage);
+          q.setFromEuler(e);
+          // Der Flügel sitzt seitlich am Körper; die Verschiebung muss die
+          // Drehung mitmachen, sonst klappt er um seinen eigenen Mittelpunkt.
+          off.set(dir * spanX, 0, 0).applyQuaternion(q).add(p);
+          scl.x = dir;
+          m.compose(off, q, scl);
+          mesh.setMatrixAt(i * 2 + k, m);
+        }
       }
+      mesh.instanceMatrix.needsUpdate = true;
     },
   };
 }
 
-// Bunte Schmetterlinge, die nah über der Insel gaukeln (Vögel-Muster, kleiner
-// und schneller flatternd).
+// Vögel: dunkle Silhouetten, die in der Ferne kreisen. Sie sind bewusst klein
+// und dunkel – ein Vogel am Himmel ist eine Andeutung, kein Modell.
+function makeBirds(rand) {
+  // Spannweite 0,30 x Weltmaßstab vier = 1,2 m je Flügel, also gut zwei Meter
+  // insgesamt – ein Greifvogel, und genau das soll es in dieser Höhe sein.
+  return makeFlyers(rand, {
+    count: 5,
+    wingGeo: wingGeometry(0.30, 0.11),
+    material: new THREE.MeshBasicMaterial({ color: 0x3a4753, side: THREE.DoubleSide }),
+    name: 'birds',
+    // Gemessen standen die Vögel bis zu sechzig Meter neben und zweiundzwanzig
+    // Meter über der Insel – dort sind sie ein Punkt und tragen nichts bei.
+    // Jetzt kreisen sie über der Insel statt daneben.
+    radius: [4.5, 8.5],
+    height: [3.0, 5.5],
+    speed: [0.12, 0.22],
+    spread: 9,
+    flap: 5.0,
+    flapAmp: 0.30,
+    dihedral: 0.16,
+    bob: 1.3,
+    bobAmp: 0.45,
+    bank: 0.20,
+    spanX: 0,
+  });
+}
+
+// Schmetterlinge nah über der Wiese.
+//
+// Sie waren 0,07 Einheiten groß – mal Weltmaßstab vier sind das
+// Flügel von 35 cm, also Falter mit siebzig Zentimetern Spannweite. Dazu
+// gesättigtes Rosa, Violett, Gelb und Hellblau, die als einzige Farben der
+// Szene außerhalb der Palette standen. Beides ist korrigiert: Spannweite rund
+// neun Zentimeter, Töne aus der Umgebungspalette.
 function makeButterflies(rand) {
-  const group = new THREE.Group();
-  group.name = 'butterflies';
-  const colors = [0xff7aa2, 0xffd166, 0x8ec7ff, 0xc4a2ff, 0xff9e6b];
-  const items = [];
-  for (let i = 0; i < 5; i++) {
-    const b = new THREE.Group();
-    const mat = new THREE.MeshBasicMaterial({
-      color: colors[i % colors.length],
+  // Runder, breiter Umriss statt der Vogelsichel – und mit der Wurzel im
+  // Ursprung, damit die Spiegelung des zweiten Flügels greift.
+  const wing = new THREE.CircleGeometry(0.011, 8);
+  wing.rotateX(-Math.PI / 2);
+  wing.scale(1.0, 1, 1.35);
+  wing.translate(0.010, 0, 0);
+  const flyer = makeFlyers(rand, {
+    count: 7,
+    wingGeo: wing,
+    material: new THREE.MeshStandardMaterial({
       side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.95,
-    });
-    const wings = [];
-    for (const dir of [-1, 1]) {
-      const pivot = new THREE.Group();
-      const wing = new THREE.Mesh(new THREE.CircleGeometry(0.07, 10), mat);
-      wing.position.x = dir * 0.05;
-      wing.rotation.x = -Math.PI / 2;
-      wing.scale.set(0.8, 1, 1.25);
-      pivot.add(wing);
-      b.add(pivot);
-      wings.push({ pivot, dir });
-    }
-    b.userData = {
-      radius: 2 + rand() * 4,
-      height: 0.7 + rand() * 1.6,
-      speed: (0.3 + rand() * 0.3) * (rand() > 0.5 ? 1 : -1),
-      phase: rand() * Math.PI * 2,
-      bob: rand() * Math.PI * 2,
-      wings,
-    };
-    group.add(b);
-    items.push(b);
+      roughness: 0.75,
+      metalness: 0,
+    }),
+    name: 'butterflies',
+    // Ein Falter gaukelt kniehoch über der Wiese, nicht in Baumhöhe. Vorher
+    // stand er bis 2,2 Einheiten hoch – mal vier sind das knapp neun Meter,
+    // und damit stand er im Bild ÜBER dem Horizont.
+    radius: [1.2, 3.2],
+    // Knapp über der Grasnarbe. Vorher standen sie bis auf Augenhöhe und
+    // darüber – dort sieht man sie gegen den Himmel, und ein cremefarbener
+    // Fleck gegen Hellblau ist kein Falter, sondern ein Fussel auf der Linse.
+    height: [0.05, 0.24],
+    speed: [0.3, 0.6],
+    spread: 7,
+    flap: 13,
+    flapAmp: 0.70,
+    dihedral: 0.18,
+    bob: 1.6,
+    bobAmp: 0.07,
+    spanX: 0.002,
+  });
+  // Töne aus der Umgebungspalette statt gesättigter Primärfarben.
+  const toene = [0xf0e2b4, 0xe8d0a8, 0xdcc9b0, 0xefe6cf, 0xe6cbb2];
+  const c = new THREE.Color();
+  for (let i = 0; i < flyer.group.count; i++) {
+    flyer.group.setColorAt(i, c.setHex(toene[Math.floor(i / 2) % toene.length]));
   }
-  return {
-    group,
-    update(time) {
-      for (const b of items) {
-        const d = b.userData;
-        const a = time * d.speed + d.phase;
-        b.position.set(
-          Math.sin(a) * d.radius,
-          d.height + Math.sin(time * 1.6 + d.bob) * 0.5,
-          Math.cos(a) * d.radius
-        );
-        b.rotation.y = a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
-        const flap = Math.sin(time * 14 + d.phase) * 0.9 + 0.35;
-        for (const { pivot, dir } of d.wings) pivot.rotation.z = flap * dir;
-      }
-    },
-  };
+  if (flyer.group.instanceColor) flyer.group.instanceColor.needsUpdate = true;
+  return flyer;
 }
 
 // Volumetrisch wirkende Wolke: Cluster weicher Kugeln zu EINEM Mesh verschmolzen.
 // Als echtes 3D-Objekt (kein Billboard-Sprite) dreht sie sich NICHT mit der
 // Kopfbewegung – sie bleibt fest im Raum stehen.
-const CLOUD_MATERIAL = new THREE.MeshStandardMaterial({
+// UNBELEUCHTET, mit Absicht.
+//
+// Vorher war das ein MeshStandardMaterial. Damit lag über den einbebackenen
+// Scheitelfarben noch die volle Szenenbeleuchtung – einschließlich der starken
+// Aufhellung von unten, die für den Inselkiel eingeführt wurde. Gemessen wurde
+// dadurch die UNTERSEITE jeder Wolke als ihre hellste Fläche (5-backlight
+// x=450: oben L=191, innen L=174, unten L=203; zwei weitere Bilder gleich).
+// Die flache Haufenwolken-Unterkante war geometrisch da, wurde aber als
+// Leuchtfläche gerendert und kippte damit genau die Lesart, für die sie gebaut
+// war. Eine Wolke ist ohnehin kein Lambert-Körper – ihre Helligkeit kommt aus
+// Streuung. Mit MeshBasicMaterial ist der Bake die ganze Wahrheit, und die
+// Richtung kann nicht mehr von einem Licht überstimmt werden.
+const CLOUD_MATERIAL = new THREE.MeshBasicMaterial({
   color: 0xffffff,
-  roughness: 1,
-  metalness: 0,
-  flatShading: false,
+  vertexColors: true,
 });
 
-function makeCloud(rand, size = 1) {
+function makeCloud(rand, size = 1, sunDir = null) {
+  // Form: wenige große Ballen, viele kleine Knospen.
+  //
+  // Vorher waren es fünf bis acht gleich große Kugeln – die Konstruktion war
+  // als solche lesbar, weil jede einzelne Kugel groß genug war, um ihre
+  // Rundung zu zeigen. Eine Haufenwolke entsteht aus ANZAHL: Ein paar Ballen
+  // tragen die Masse, ein Dutzend Knospen brechen die Silhouette auf. Derselbe
+  // Gedanke wie bei den Baumkronen.
   const geos = [];
-  const puffs = 5 + Math.floor(rand() * 4);
-  for (let i = 0; i < puffs; i++) {
-    const s = (0.7 + rand() * 1.0) * size;
-    const g = new THREE.SphereGeometry(s, 12, 10);
+  const ballen = 3 + Math.floor(rand() * 2);
+  const knospen = 7 + Math.floor(rand() * 6);
+  // Wolken sind breit und flach, nicht kugelig.
+  const spanX = 3.6 * size;
+  const spanZ = 2.0 * size;
+  for (let i = 0; i < ballen + knospen; i++) {
+    const gross = i < ballen;
+    const s = (gross ? 0.85 + rand() * 0.55 : 0.30 + rand() * 0.32) * size;
+    // Kleine Knospen brauchen keine 12x10 Segmente – sie sind auf dem Schirm
+    // ein paar Pixel groß, kosten aber dieselben Dreiecke.
+    const g = new THREE.SphereGeometry(s, gross ? 12 : 7, gross ? 10 : 6);
+    // Knospen sitzen bevorzugt oben und außen auf den Ballen.
+    const f = gross ? 0.55 : 1.0;
     g.translate(
-      (rand() - 0.5) * 3.4 * size,
-      (rand() - 0.5) * 0.7 * size,
-      (rand() - 0.5) * 1.8 * size
+      (rand() - 0.5) * spanX * f,
+      (gross ? (rand() - 0.5) * 0.5 : (rand() - 0.15) * 0.85) * size,
+      (rand() - 0.5) * spanZ * f
     );
     geos.push(g);
   }
   const merged = mergeGeometries(geos);
+
+  // Flache Unterkante. Eine Haufenwolke schwimmt auf einer Höhe, an der der
+  // Wasserdampf kondensiert – ihr Boden ist deshalb eine waagerechte Ebene,
+  // ihr Oberteil aufgetürmt. Ohne das bleibt es ein Traubenhaufen.
+  {
+    const pp = merged.attributes.position;
+    const basis = -0.34 * size;
+    for (let i = 0; i < pp.count; i++) {
+      const y = pp.getY(i);
+      if (y < basis) pp.setY(i, basis + (y - basis) * 0.18);
+    }
+    merged.computeVertexNormals();
+  }
+
+  // Lichtrichtung in die Scheitelfarben backen.
+  //
+  // Gemessen war die Unterseite der Wolken HELLER als ihr Körper, und die
+  // Gesamtmodulation lag unter 23 Luminanzstufen: Sie waren die größte Fläche
+  // des Himmels und die einzige ohne jede Lichtinformation – in dem Bild, das
+  // die Sonnenposition eindeutig benennt, standen sie 300 px neben der Scheibe
+  // ohne Silberrand.
+  //
+  // Das Licht der Szene allein bringt das nicht in Ordnung: Die Aufhellung von
+  // unten, die der Inselunterseite gilt, trifft die Wolken genauso und hebt
+  // ausgerechnet ihre Schattenseite an. Deshalb steht die Richtung hier fest in
+  // der Geometrie – eine Wolke ist ohnehin kein Lambert-Körper, ihre Helligkeit
+  // kommt aus Streuung, nicht aus N·L.
+  const dir = sunDir ? sunDir.clone().normalize() : new THREE.Vector3(0, 1, 0);
+  const pos = merged.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Color();
+  let maxY = 0;
+  for (let i = 0; i < pos.count; i++) maxY = Math.max(maxY, Math.abs(pos.getY(i)));
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const len = Math.hypot(x, y, z) || 1;
+    // Wie stark diese Stelle der Sonne zugewandt ist (−1 … 1)
+    const facing = (x * dir.x + y * dir.y + z * dir.z) / len;
+    // Und wie weit oben sie liegt – Wolken sind unten grundsätzlich dichter.
+    const up = maxY > 0 ? y / maxY : 0;
+    // Grundhelligkeit: sonnenzugewandt heller, oben heller, Schattenseite tiefer.
+    // Die Beträge gelten seit der Umstellung auf ein unbeleuchtetes Material
+    // ALLEIN – vorher kam die Szenenbeleuchtung als Faktor obendrauf.
+    //
+    // Und sie müssen UNTER der Kompressionsschwelle des Tonemappers bleiben. Mit
+    // Grundwert 0,92 lag schon der Körper der Wolke im flachen Ast der
+    // ACES-Kurve; gemessen hatte eine nahe Wolke dadurch (242,242,241) mit
+    // dreizehn Luminanzstufen Gesamtspanne – ein weißes Blatt Papier. Der Gipfel
+    // ohne Silberrand liegt jetzt bei 1,14, der Schatten bei 0,34, und dazwischen
+    // bleibt die Kurve steil genug, dass die Form sichtbar wird.
+    let f = 0.62 + 0.34 * Math.max(0, facing) + 0.18 * up - 0.28 * Math.max(0, -facing);
+    // SILBERRAND. Der schmale, sehr helle Saum genau dort, wo die Sonne die
+    // Wolke streift, ist das Erkennungszeichen einer Haufenwolke im Gegenlicht –
+    // und er fehlte vollständig. Er sitzt eng (hoher Exponent), damit er ein
+    // Saum bleibt und nicht die halbe Wolke aufhellt.
+    f += 1.00 * Math.pow(Math.max(0, facing), 7);
+    // Die Schattenseite ist kühl, die Sonnenseite eine Spur warm.
+    c.setRGB(f * (1 + 0.06 * facing), f * (1 + 0.015 * facing), f * (1 - 0.05 * facing));
+    colors[i * 3] = c.r;
+    colors[i * 3 + 1] = c.g;
+    colors[i * 3 + 2] = c.b;
+  }
+  merged.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
   const cloud = new THREE.Mesh(merged, CLOUD_MATERIAL);
   cloud.scale.y = 0.62; // flach drücken → Wolkenform
   return cloud;
 }
 
+// Hängende Ranken/Wurzeln unter dem Inselrand. Sie setzen jetzt an der
+// tatsächlichen, unrunden Abbruchkante an (shape.outline/edgeY) statt an einem
 // Hängende Ranken/Wurzeln unter dem Inselrand, zu EINEM Mesh verschmolzen.
-function makeVines(rand, radius, count) {
+// `shape` ist optional und nur die Verankerung, nicht die Form: Ohne sie hängen
+// die Stränge an einem gedachten Kreis bei y = -0.3 – auf dem unrunden
+// Inselkörper aus Paket 1 steckten sie damit im Fels. Mit `shape` setzen sie an
+// der tatsächlichen Abbruchkante an; ihr Verlauf bleibt unverändert.
+function makeVines(rand, radius, count, shape = null) {
   // **Vorher waren das gerade Spieße.**
   //
   // Ein Kegelstumpf, senkrecht nach unten, mit einem Ikosaeder-Knubbel am Ende.
@@ -912,29 +2323,84 @@ function makeVines(rand, radius, count) {
 
   for (let i = 0; i < count; i++) {
     const a = (i / count) * Math.PI * 2 + (rand() - 0.5) * 0.4;
-    const rr = radius * (0.72 + rand() * 0.22);
     const len = 0.9 + rand() * 2.2;
-    const ax = Math.cos(a) * rr;
-    const az = Math.sin(a) * rr;
+    let rr;
+    let ansatzY = -0.3;
+    if (shape) {
+      const t0 = 0.04 + rand() * 0.08;
+      // Der Strang hängt senkrecht, die Felswand zieht sich nach unten aber
+      // ein. Wird der Radius nur am Ansatzpunkt bestimmt, steht der untere Teil
+      // frei in der Luft. Deshalb wird die Flanke über die ganze Stranglänge
+      // abgetastet und der ENGSTE Radius genommen – derselbe Fehler war schon
+      // einmal an den Wurzelvorhängen zu beheben.
+      const tEnd = Math.min(0.7, t0 + len / Math.max(0.001, shape.depth));
+      let engste = Infinity;
+      for (let k = 0; k <= 6; k++) {
+        engste = Math.min(engste, shape.sideRadius(t0 + ((tEnd - t0) * k) / 6, a));
+      }
+      rr = shape.radius * shape.outline(a) * (engste - 0.02);
+      ansatzY = shape.edgeY(a) - shape.sideDepth(t0, a);
+    } else {
+      rr = radius * (0.72 + rand() * 0.22);
+    }
+    // ACHSENKONVENTION. Die gesamte Formbeschreibung rechnet x = sin(a),
+    // z = cos(a). Dieser Bauer stammt aus PR #9 und rechnete x = cos(a),
+    // z = sin(a) – der Strang wurde also an einem ANDEREN Winkel abgesetzt, als
+    // der Radius bestimmt wurde. Auf einem Umriss, der zwischen 0,6 und 1,3
+    // schwankt, sind das mehrere Meter neben der Wand. Das war die Ursache der
+    // Ranken, die frei in der Luft hingen – nicht der Ausschwung, an dem ich
+    // zweimal erfolglos gedreht habe.
+    const ax = Math.sin(a) * rr;
+    const az = Math.cos(a) * rr;
 
     // Kettenlinie: Der Strang verlässt den Rand fast waagerecht nach außen und
     // richtet sich nach unten auf. Vier Stützpunkte reichen – CatmullRom macht
     // daraus eine Kurve ohne Knick, und mehr Punkte kosten nur Dreiecke.
-    const drift = 0.18 + rand() * 0.3; // wie weit sie nach außen ausholt
-    const seite = (rand() - 0.5) * 0.5; // seitlicher Versatz, damit keine zwei gleich hängen
+    // Wie weit die Ranke nach außen ausholt. Der Wert ist ein Faktor auf den
+    // Ansatzradius – und genau deshalb muss er kleiner werden, sobald der
+    // Ansatz auf der tatsächlichen Flanke sitzt statt bei 0,72–0,94 des
+    // Radius: Dort bedeuten 50 % Ausschwung mehrere Meter neben der Insel, und
+    // der Vorhang hing sichtbar frei im Himmel. Am Kreis-Ansatz landete
+    // derselbe Wert noch ungefähr an der Kante.
+    const drift = shape ? 0.04 + rand() * 0.07 : 0.18 + rand() * 0.3;
+    // Seitlicher Versatz TANGENTIAL zur Wand, nicht entlang der Z-Achse.
+    //
+    // Vorher wurde er stur auf z addiert. An einem Ansatzpunkt, der zufällig
+    // schon auf der Z-Achse lag, schob er den Strang damit in die Wand oder von
+    // ihr weg statt an ihr entlang – und an allen anderen wirkte er
+    // unterschiedlich stark. Übrig blieb ein Strang, der praktisch lotrecht
+    // fiel: eine senkrechte Kette gleicher Kugeln, „wie eine grüne Raupe".
+    const tx = Math.cos(a);
+    const tz = -Math.sin(a);
+    const seite = (rand() - 0.5) * 0.34;
+    // Zwei Auslenkungen mit verschiedenem Vorzeichen ergeben eine S-Krümmung
+    // statt einer schrägen Geraden.
+    const bauch = (rand() - 0.5) * 0.18;
+    // Wer seitlich ausschert, muss zugleich nach AUSSEN. Der Ansatzradius liegt
+    // bei `engste - 0,02`, also praktisch auf der Wand; eine reine
+    // Seitwärtsbewegung an einer konvexen Flanke führt damit ins Gestein. Beim
+    // ersten Versuch mit ±0,45 verschwand der halbe Strang im Fels und tauchte
+    // weiter unten wieder auf.
+    const raus = Math.abs(seite) * 0.75;
+    const rx = Math.sin(a) * raus;
+    const rz = Math.cos(a) * raus;
     const kurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(ax, -0.3, az),
+      new THREE.Vector3(ax, ansatzY, az),
       new THREE.Vector3(
-        ax * (1 + drift * 0.35),
-        -0.3 - len * 0.22,
-        az * (1 + drift * 0.35) + seite * 0.3
+        ax * (1 + drift * 0.35) + tx * (seite * 0.22 + bauch) + rx * 0.3,
+        ansatzY - len * 0.22,
+        az * (1 + drift * 0.35) + tz * (seite * 0.22 + bauch) + rz * 0.3
       ),
       new THREE.Vector3(
-        ax * (1 + drift * 0.5),
-        -0.3 - len * 0.62,
-        az * (1 + drift * 0.5) + seite * 0.6
+        ax * (1 + drift * 0.5) + tx * seite * 0.62 + rx * 0.75,
+        ansatzY - len * 0.62,
+        az * (1 + drift * 0.5) + tz * seite * 0.62 + rz * 0.75
       ),
-      new THREE.Vector3(ax * (1 + drift * 0.52), -0.3 - len, az * (1 + drift * 0.52) + seite * 0.72),
+      new THREE.Vector3(
+        ax * (1 + drift * 0.52) + tx * seite + rx,
+        ansatzY - len,
+        az * (1 + drift * 0.52) + tz * seite + rz
+      ),
     ]);
 
     // Zum Ende hin dünner. `TubeGeometry` kann das nicht von sich aus; die
@@ -963,15 +2429,35 @@ function makeVines(rand, radius, count) {
 
     // Blattbüschel entlang des Strangs, nach unten hin kleiner. Der oberste
     // sitzt bei 18 % – ganz am Ansatz wäre er im Fels.
+    // Blattbüschel in UNGLEICHEN Abständen und mit ungleicher Größe.
+    //
+    // Vorher: `t = 0.14 + (b / bueschel) * 0.82` – ein festes Raster mit ±0,05
+    // Wackeln. Gleich große Kugeln in gleichem Abstand auf einer Geraden sind
+    // die Definition einer Perlenkette. Jetzt wächst t in zufälligen Schritten,
+    // sodass sich Büschel stellenweise zu Trauben ballen und dazwischen ein
+    // Stück nackter Strang sichtbar bleibt; dazu ein kleiner Querversatz, damit
+    // sie nicht alle auf der Achse aufgefädelt sind.
     const bueschel = 6 + Math.floor(rand() * 4);
-    for (let b = 0; b < bueschel; b++) {
-      const t = 0.14 + (b / bueschel) * 0.82 + rand() * 0.05;
+    let t = 0.12 + rand() * 0.08;
+    for (let b = 0; b < bueschel && t < 0.99; b++) {
       kurve.getPointAt(Math.min(0.99, t), mitte);
+      const quer = 0.045;
       laubPunkte.push({
-        p: mitte.clone(),
-        s: (0.17 + rand() * 0.11) * (1 - t * 0.35),
+        p: mitte
+          .clone()
+          .add(
+            new THREE.Vector3(
+              (rand() - 0.5) * quer,
+              (rand() - 0.5) * quer * 0.5,
+              (rand() - 0.5) * quer
+            )
+          ),
+        // Größenspanne 0,09 … 0,30 statt 0,17 … 0,28: wenige große Polster,
+        // viele kleine Blattgruppen.
+        s: (0.09 + Math.pow(rand(), 1.8) * 0.21) * (1 - t * 0.35),
         dreh: rand() * Math.PI * 2,
       });
+      t += 0.05 + Math.pow(rand(), 1.6) * 0.20;
     }
   }
 
@@ -1013,149 +2499,353 @@ function makeVines(rand, radius, count) {
   return gruppe;
 }
 
-// Schwebende Insel: Grasplatte mit Erdrand + felsige, zerklüftete Unterseite
-function buildIsland(rand, { radius = 5, depth = 4, trees = 3, rocks = 4, vines = 9 } = {}) {
-  const island = new THREE.Group();
-
-  // Grasfläche + Erdrand glatt schattiert (smooth=true) → weniger facettiert.
-  // Gebackenes Vertex-Shading: Rand/Unterseite dezent dunkler + leichtes Mottling.
-  const capGeometry = bakeVertexShade(
-    displaceRadial(new THREE.CylinderGeometry(radius, radius * 0.94, 0.32, 48, 1), 0.08, 0, true),
-    (x, y, z) => {
-      const edge = Math.min(1, Math.hypot(x, z) / radius); // 0 Mitte … 1 Rand
-      const low = y < 0 ? 0.82 : 1; // Erdrand unten leicht abdunkeln
-      const mott = 0.94 + hashNoise(x * 3, y, z * 3) * 0.12;
-      return Math.min(1.05, (1 - edge * 0.12) * low * mott);
-    }
-  );
-  // **Die Grasfläche bekommt das Moosmaterial, der Erdrand die Granitkarten.**
-  // Beide behalten ihre Farbe: Die Karten liefern Relief und Rauheit, der
-  // `color`-Wert multipliziert sie. Aus dem hellen Inselgrün wird damit kein
-  // Dojo-Moos, es bekommt nur endlich eine Oberfläche.
-  // **Ohne eigene UVs bleibt jede Karte hier wirkungslos.** Die UVs eines
-  // Zylinders spannen einmal über die ganze Fläche – bei 5 m Radius liegt eine
-  // Mooskachel über zehn Metern, und man sieht sie schlicht nicht. Erst im Bild
-  // aufgefallen: Relief vorhanden, Wirkung null. `boxProjectUV()` projiziert
-  // je Vertex aus der dominanten Normalenachse und gibt jeder Fläche dieselbe
-  // Korngröße – Deckel wie Flanke.
-  boxProjectUV(capGeometry, 0.5);
-  const erdMat = graniteMaterial({ tone: 0x8a6844, vertexColors: true });
-  const grasMat = mossMaterial();
-  grasMat.vertexColors = true;
-  // **Die Farbkarte des Mooses fliegt raus, Relief und Rauheit bleiben.**
-  // `mossMaterial()` ist für den dunklen, feuchten Dojo-Garten gebaut; ihre
-  // Farbe multipliziert mit dem Inselgrün ergab einen fast schwarzen,
-  // fleckigen Rasen – im Bild gesehen. Was die Insel braucht, ist die
-  // Halmstruktur, nicht der Farbton: Normal- und Rauheitskarte machen aus der
-  // Fläche eine Wiese, die Farbe kommt weiter aus `color` und den
-  // Scheitelfarben.
-  grasMat.map = null;
-  grasMat.color.setHex(0x6cbb5c);
-  // **Ohne Farbkarte ist die Fläche völlig gleichförmig, und das war der
-  // zweite Fehler.** Das Relief allein trägt nur bei streifendem Licht; die
-  // Sonne der Insel steht hoch, also blieb ein makellos ebener Kunstrasen.
-  // Die Variation kommt jetzt aus den Scheitelfarben – gratis, weil das
-  // Attribut ohnehin da ist, und im richtigen Maßstab, weil sie an der
-  // Geometrie hängt statt an einer Kachel.
-  {
-    const pos = capGeometry.attributes.position;
-    const col = capGeometry.attributes.color;
-    for (let i = 0; i < pos.count; i++) {
+// Boxprojektion je DREIECK statt je Vertex.
+//
+// `boxProjectUV()` wählt die Projektionsachse pro Vertex. Auf einer facettierten
+// Form wählen die drei Ecken eines Dreiecks nahe einer Achsengrenze
+// unterschiedlich – die UVs des Dreiecks stammen dann aus zwei verschiedenen
+// Ebenen und die Textur wird darüber gestreckt. Sichtbar war das als Naht
+// mitten auf einem einzelnen Findling: zwei Texeldichten auf demselben Stein.
+//
+// Hier entscheidet die Facettennormale, und alle drei Ecken bekommen dieselbe
+// Ebene. Setzt eine nicht-indizierte Geometrie voraus.
+function faceBoxUV(geometry, metersPerTile = 0.4) {
+  const geo = geometry.index ? geometry.toNonIndexed() : geometry;
+  const pos = geo.attributes.position;
+  const uv = new Float32Array(pos.count * 2);
+  const s = 1 / Math.max(metersPerTile, 1e-3);
+  const ax = new THREE.Vector3();
+  const bx = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  for (let f = 0; f < pos.count; f += 3) {
+    ax.set(
+      pos.getX(f + 1) - pos.getX(f),
+      pos.getY(f + 1) - pos.getY(f),
+      pos.getZ(f + 1) - pos.getZ(f)
+    );
+    bx.set(
+      pos.getX(f + 2) - pos.getX(f),
+      pos.getY(f + 2) - pos.getY(f),
+      pos.getZ(f + 2) - pos.getZ(f)
+    );
+    n.crossVectors(ax, bx);
+    const nx = Math.abs(n.x);
+    const ny = Math.abs(n.y);
+    const nz = Math.abs(n.z);
+    for (let k = 0; k < 3; k++) {
+      const i = f + k;
       const x = pos.getX(i);
       const y = pos.getY(i);
       const z = pos.getZ(i);
-      // Zwei Frequenzen: breite Flecken (trockener/satter) und feines Korn.
-      const breit = hashNoise(x * 0.55, y * 0.3, z * 0.55);
-      const fein = hashNoise(x * 4.1, y * 2, z * 4.1);
-      const f = 0.86 + breit * 0.2 + fein * 0.08;
-      col.setXYZ(i, col.getX(i) * f, col.getY(i) * (f + breit * 0.05), col.getZ(i) * f);
+      let u;
+      let v;
+      if (ny >= nx && ny >= nz) {
+        u = x;
+        v = z;
+      } else if (nx >= nz) {
+        u = z;
+        v = y;
+      } else {
+        u = x;
+        v = y;
+      }
+      uv[i * 2] = u * s;
+      uv[i * 2 + 1] = v * s;
     }
-    col.needsUpdate = true;
   }
-  const untenMat = graniteMaterial({ tone: 0x6b4f34, vertexColors: true });
-  const cap = new THREE.Mesh(capGeometry, [erdMat, grasMat, untenMat]);
-  cap.position.y = -0.18; // Grasfläche liegt bei y ≈ -0.02
-  island.add(cap);
+  geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  return geo;
+}
 
-  // Fels-Unterseite mit gebackenem AO (dunkler zur Spitze) für mehr Tiefe
-  const rockGeometry = bakeVertexShade(
-    displaceRadial(new THREE.ConeGeometry(radius * 0.92, depth, 32, 6), 0.3, 0.25),
-    (x, y) => 0.7 + ((y + depth / 2) / depth) * 0.4 // Basis heller, Spitze dunkler
-  );
-  // Die Felsspitze ist die größte zusammenhängende Fläche der Insel und war
-  // eine einzige Farbe. `boxProjectUV()` legt die Granitkörnung in gleicher
-  // Größe über alle Facetten – ohne UVs bliebe die Normal-Map wirkungslos, und
-  // eine Kegelabwicklung liefe an der Spitze zusammen.
-  boxProjectUV(rockGeometry, 0.55);
-  const rock = new THREE.Mesh(rockGeometry, graniteMaterial({ tone: 0x9d8a72 }));
-  rock.rotation.x = Math.PI; // Spitze nach unten
-  rock.position.y = -0.3 - depth / 2;
-  island.add(rock);
+// Ein Findling: unregelmäßig verschobener Icosaeder, flach gelagert.
+function boulderGeometry(rand, size, detail = 1) {
+  const g = new THREE.IcosahedronGeometry(size, detail);
+  const p = g.attributes.position;
+  for (let v = 0; v < p.count; v++) {
+    const x = p.getX(v);
+    const y = p.getY(v);
+    const z = p.getZ(v);
+    // Zwei Ortsfrequenzen: eine grobe, die den Block kippt und staucht, und
+    // eine feine für die Unregelmäßigkeit der Einzelfacette.
+    const grob = hashNoise(x * 6, y * 6, z * 6) - 0.5;
+    const fein = hashNoise(x * 27, y * 27, z * 27) - 0.5;
+    const f = 1 + grob * 0.62 + fein * 0.30;
+    p.setXYZ(v, x * f, y * f * 0.72, z * f);
+  }
+  g.computeVertexNormals();
+  g.rotateY(rand() * TAU);
+  g.rotateX((rand() - 0.5) * 0.5);
+  // Eigene UVs: Die des Ikosaeders sind nach dem Verschieben verzerrt, und die
+  // Granitkarte braucht überall dieselbe Korngröße.
+  return faceBoxUV(g, 0.17 * WORLD_SCALE);
+}
 
-  island.add(makeVines(rand, radius, vines));
+// Kontaktschatten als EIN verschmolzenes Mesh statt eines Draw-Calls je Objekt.
+// Die Quads liegen auf der tatsächlichen Geländehöhe – auf dem Wall kippen sie
+// nicht in den Hang, weil sie knapp darüber schweben und weich auslaufen.
+function addContactShadow(bucket, shape, x, z, radius, tight = false) {
+  const g = new THREE.PlaneGeometry(radius * (tight ? 1.25 : 2), radius * (tight ? 1.25 : 2));
+  g.rotateX(-Math.PI / 2);
+  g.translate(x, shape.heightAt(x, z) + 0.012, z);
+  bucket.add(g, 0xffffff);
+}
 
+// Schwebende Insel: durchgehender Körper (Gras → Erde → geschichteter Fels),
+// darauf Bäume, Findlinge und Kontaktschatten – alles in wenigen Meshes.
+function buildIsland(
+  rand,
+  {
+    radius = 5,
+    depth = 5,
+    trees = 3,
+    rocks = 4,
+    vines = 9,
+    river = null,
+    detail = 1,
+    // Echte Schlagschatten nur auf der Hauptinsel; siehe Begruendung beim
+    // Schattenvolumen in createIslandEnvironment().
+    shadows = false,
+  } = {}
+) {
+  const island = new THREE.Group();
+  island.name = 'island';
+  const shape = makeIslandShape(rand, { radius, depth, river, detail });
+  island.userData.shape = shape;
+  // Wo Findlinge liegen, darf kein Gras stehen. Die Streudekoration sitzt auf
+  // der GELAENDEhoehe, die Bloecke liegen darueber - ein Horst an derselben
+  // Stelle waechst sichtbar aus dem Stein heraus oder schwebt davor.
+  shape.blocked = [];
+  shape.frei = (x, z) => {
+    for (const b of shape.blocked) {
+      if ((x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r) return false;
+    }
+    // 0,96 statt 0,90: Bei 0,90 endete JEDER Bewuchs schlagartig entlang einer
+    // Linie, und darunter lag bis zur Abbruchkante ein völlig glatter, kahler
+    // Streifen – ein Streuradius, den man ansehen kann. Die steile Kante selbst
+    // hält shape.frei ohnehin frei, weil dort die Grasnarbe abfällt.
+    return Math.hypot(x, z) < shape.radius * shape.outline(Math.atan2(x, z)) * 0.96;
+  };
+
+  island.add(buildIslandBody(shape, { detail }));
+
+  island.add(makeVines(rand, radius, vines + 4, shape));
+
+  const trees_ = makeTreeCollector();
+  const stoneBucket = new GeoBucket();
+  const shadowBucket = new GeoBucket();
+
+  // Bäume: gehäuft am Höhenrücken, einzeln im offenen Feld – das staffelt den
+  // Blick in Vorder-, Mittel- und Hintergrund, statt gleichmäßig zu streuen.
   for (let i = 0; i < trees; i++) {
-    const tree = makeTree(rand);
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.55 + rand() * 0.3);
+    const clustered = i > 0 && rand() > 0.35;
+    const angle = clustered ? shape.ridgeAngle + (rand() - 0.5) * 1.5 : rand() * TAU;
+    // Die Inselmitte bleibt frei. Dort steht der Nutzer, und dort landen die
+    // Karten im Halbkreis – ein Baum an dieser Stelle verstellt nicht nur die
+    // Sicht, er steht mitten im Arbeitsbereich.
+    const r = radius * (clustered ? 0.70 + rand() * 0.20 : 0.60 + rand() * 0.28);
     const tx = Math.sin(angle) * r;
     const tz = Math.cos(angle) * r;
-    tree.position.set(tx, -0.02, tz);
-    tree.rotation.y = rand() * Math.PI * 2;
-    island.add(tree);
-    const shadow = makeBlobShadow(0.45, 0.6, -0.005);
-    shadow.position.set(tx, -0.005, tz);
-    island.add(shadow);
+    if (shape.riverCurve && Math.hypot(tx - 0.1, tz - 0.2) < 0.7) continue; // nicht in die Quelle
+    const y = shape.heightAt(tx, tz);
+    const scale = 0.85 + rand() * 0.5;
+    addTree(rand, trees_, { x: tx, y, z: tz, scale });
+    addContactShadow(shadowBucket, shape, tx, tz, 0.46 * scale, shadows);
+  }
+  for (const m of buildCollectedTrees(trees_, 0x1de4 ^ Math.floor(rand() * 4096))) {
+    island.add(m);
   }
 
+  // Felsknöchel am Kantensaum: teils versenkte Blöcke, die durch die Grasnarbe
+  // stoßen. Sie lösen den durchgehenden grünen Wulst auf und verzahnen
+  // Grasplatte und Fels – ohne sie liegt das Gras wie Glasur auf einer Torte.
+  const knuckles = Math.round(rocks * 1.8);
+  for (let i = 0; i < knuckles; i++) {
+    const a = rand() * TAU;
+    const rf = 0.92 + rand() * 0.12;
+    const kx = Math.sin(a) * radius * shape.outline(a) * rf;
+    const kz = Math.cos(a) * radius * shape.outline(a) * rf;
+    const s = 0.11 + rand() * 0.20;
+    const g = boulderGeometry(rand, s);
+    g.scale(1.0 + rand() * 0.45, 0.55 + rand() * 0.45, 1.0 + rand() * 0.45);
+    // Tief eingesenkt: nur die Kuppe schaut heraus, wie anstehendes Gestein
+    shape.blocked.push({ x: kx, z: kz, r: s * 1.7 });
+    const ky = shape.heightAt(kx, kz) - s * (0.15 + rand() * 0.3);
+    g.translate(kx, ky, kz);
+    // Der Fuß geht in Erdreich über: Ohne den Farbverlauf schneidet der Block
+    // mit einer harten, geraden Linie durch die Wiese und wirkt wie eingeclippt.
+    stoneBucket.add(g, (vx, vy, vz) => {
+      const n = valueNoise2(vx * 4 + 13, vz * 4 + 2);
+      const rock = new THREE.Color().setHSL(0.095, 0.045 + 0.02 * n, 0.115 + 0.055 * n);
+      const soil = _tmpColor.setHSL(0.075, 0.28, 0.16 + 0.04 * n);
+      // unten (nahe der Grasnarbe) erdig, oben blanker Fels
+      return rock.lerp(soil, 0.55 * smoothstep(ky - s * 0.05, ky - s * 0.55, vy));
+    });
+  }
+
+  // Findlinge: bevorzugt am Wall und an der Abbruchkante, wo sie die
+  // Silhouette brechen.
   for (let i = 0; i < rocks; i++) {
-    const s = 0.12 + rand() * 0.2;
-    const steinGeo = new THREE.IcosahedronGeometry(s, 0);
-    boxProjectUV(steinGeo, 0.2);
-    paintVertices(steinGeo, 0x9aa0a8);
-    const stone = new THREE.Mesh(steinGeo, graniteMaterial({ tone: 0xffffff }));
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.5 + rand() * 0.4);
+    const s = 0.14 + rand() * 0.30;
+    const angle = rand() * TAU;
+    // ARBEITSBEREICH BLEIBT FREI. Bis ISLAND_FLAT_R (0,58 des Radius) ist die
+    // Fläche bewusst eben: Dort steht der Nutzer, dort legt die App die Karten
+    // im Halbkreis ab. Vorher landete gut jeder dritte Findling bei 0,30…0,60 –
+    // also mitten darin. Im Prüfbild „Nahaufnahme Bodenvegetation" füllte ein
+    // einzelner Block dadurch 69,8 % des Rahmens, und in der Anwendung stünde
+    // er zwischen Nutzer und Karten.
+    const r = radius * (rand() > 0.4 ? 0.72 + rand() * 0.20 : 0.62 + rand() * 0.10);
     const sx = Math.sin(angle) * r;
     const sz = Math.cos(angle) * r;
-    stone.position.set(sx, 0.03, sz);
-    stone.scale.y = 0.6 + rand() * 0.5;
-    stone.rotation.set(rand(), rand(), rand());
-    island.add(stone);
-    const shadow = makeBlobShadow(s * 1.6, 0.5, -0.005);
-    shadow.position.set(sx, -0.005, sz);
-    island.add(shadow);
+    shape.blocked.push({ x: sx, z: sz, r: s * 1.9 });
+    const g = boulderGeometry(rand, s);
+    g.translate(sx, shape.heightAt(sx, sz) + s * 0.30, sz);
+    stoneBucket.add(g, (vx, vy, vz) => {
+      const n = valueNoise2(vx * 5 + 3, vz * 5 + 9);
+      return new THREE.Color().setHSL(0.094, 0.05 + 0.025 * n, 0.20 + 0.10 * n + 0.03 * vy);
+    });
+    addContactShadow(shadowBucket, shape, sx, sz, s * 1.7, shadows);
+  }
+
+  // Dieselbe Karte wie die Flanke. Vorher trug der Findling die Granitkarte mit
+  // ihren Einschlüssen, die Wand aber nicht – zwei Gesteinsarten in einem Bild,
+  // was der Prüfer zu Recht als LOD-Fehler gelesen hat.
+  const steinMat = addSkyRim(cliffMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
+    strength: 0.16,
+    power: 3.8,
+  });
+  steinMat.flatShading = true;
+  // Die Granitkarte traegt runde Einschluesse. Bei kleiner Kachel kehren sie
+  // sichtbar wieder und lesen sich als Muster statt als Gestein; die Kachel ist
+  // deshalb groesser und das Relief flacher.
+  steinMat.normalScale = new THREE.Vector2(0.55, 0.55);
+  const stones = stoneBucket.mesh(steinMat, 'island-stones');
+  if (stones) island.add(stones);
+
+  // Kontaktverdunklung. Beim Einführen der echten Schlagschatten habe ich sie
+  // ganz entfernt, weil zwei Schatten je Objekt falsch wären – das war zu
+  // grob gedacht: Ein Schlagschatten sagt, wo die Sonne NICHT hinkommt, eine
+  // Kontaktverdunklung sagt, wo das Umgebungslicht nicht hinkommt. Ohne sie
+  // sitzt jeder Busch, jeder Findling und jeder Grasbüschel mit einer
+  // haarscharfen Kante auf vollwertig hellem Gras (gemessen: weniger als drei
+  // Luminanzstufen Abweichung am Fuß).
+  //
+  // Wo echte Schatten fallen, wird sie deshalb nicht weggelassen, sondern eng
+  // und schwach gehalten: ein kurzer Saum am Fuß statt eines Flecks daneben.
+  const blob = shadowBucket.mesh(
+    new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      opacity: shadows ? 0.34 : 0.55,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+    'island-shadows'
+  );
+  if (blob) {
+    blob.renderOrder = 1;
+    island.add(blob);
+  }
+  if (shadows) {
+    // Werfer und Empfänger. Das Gras empfängt, wirft aber nicht: Es ist die
+    // Fläche, auf der die Schatten liegen, und ein Deckel, der sich selbst
+    // beschattet, erzeugt bei streifendem Licht nur Schattenakne.
+    island.traverse((o) => {
+      if (!o.isMesh) return;
+      if (o.name === 'island-body') {
+        o.receiveShadow = true;
+        o.castShadow = true;
+      } else if (o.name === 'island-krone' || o.name === 'island-laub' || o.name === 'island-holz') {
+        o.castShadow = true;
+      } else if (o.name === 'island-stones') {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
   }
 
   return island;
 }
 
 // Unterwuchs: instanzierte Büsche + Pilze (wenige Draw-Calls) auf der Hauptinsel.
-function addUndergrowth(group, rand, radius) {
+function addUndergrowth(group, rand, shape) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
+  const shadowBucket = new GeoBucket();
+  const spot = (min, max) => {
+    for (let versuch = 0; versuch < 8; versuch++) {
+      const angle = rand() * TAU;
+      const r = shape.radius * shape.outline(angle) * (min + rand() * (max - min));
+      const x = Math.sin(angle) * r;
+      const z = Math.cos(angle) * r;
+      // Findlinge liegen ueber der Gelaendehoehe; ein Busch oder Pilz an
+      // derselben Stelle waechst sichtbar aus dem Stein.
+      if (!shape.frei || shape.frei(x, z)) return [x, shape.heightAt(x, z), z];
+    }
+    return [0, shape.heightAt(0, 0), 0];
+  };
 
-  const bushColors = [0x4f9a4a, 0x3e8e4f, 0x5fb069, 0x6cbb5c];
-  const bushes = new THREE.InstancedMesh(
-    new THREE.IcosahedronGeometry(0.16, 1),
-    new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0, vertexColors: false }),
-    10
-  );
-  bushes.name = 'bushes';
-  bushes.userData.fullCount = bushes.count;
-  for (let i = 0; i < bushes.count; i++) {
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.25 + rand() * 0.72);
-    dummy.position.set(Math.sin(angle) * r, 0.02, Math.cos(angle) * r);
-    dummy.scale.set(0.7 + rand() * 0.9, 0.55 + rand() * 0.5, 0.7 + rand() * 0.9);
-    dummy.rotation.y = rand() * Math.PI;
-    dummy.updateMatrix();
-    bushes.setMatrixAt(i, dummy.matrix);
-    bushes.setColorAt(i, color.setHex(bushColors[Math.floor(rand() * bushColors.length)]));
+  // --- Büsche ---------------------------------------------------------------
+  //
+  // Vorher: glatt schattierte Ikosaeder mit erkennbar sphärischer Silhouette –
+  // grüne Halbkugeln, die sich vom Gras nur in der Sättigung unterschieden.
+  // Ihr Grün hatte dazu einen auf null geklemmten Rotkanal und stand damit in
+  // einer völlig anderen Farbfamilie als die Wiese.
+  //
+  // Jetzt tragen sie dasselbe Blattwerk wie die Bäume: dunkler Hüllkörper als
+  // Verdecker, Blattkarten davor. Damit lösen sie sich in der Silhouette auf,
+  // bewegen sich im selben Wind und gehören farblich zur selben Familie.
+  const buschAnsaetze = [];
+  const BUESCHE = 14;
+  for (let i = 0; i < BUESCHE; i++) {
+    const [x, y, z] = spot(0.24, 0.90);
+    const s = 0.085 + rand() * 0.075;
+    // Zwei bis drei Ansätze je Busch: ein Strauch ist kein Ball.
+    const n = 2 + Math.floor(rand() * 2);
+    for (let k = 0; k < n; k++) {
+      buschAnsaetze.push([
+        x + (rand() - 0.5) * s * 1.7,
+        y + s * (0.5 + rand() * 0.5),
+        z + (rand() - 0.5) * s * 1.7,
+        s * (0.72 + rand() * 0.4),
+        rand() > 0.5 ? 3 : 0,
+      ]);
+    }
+    addContactShadow(shadowBucket, shape, x, z, s * 1.5, true);
   }
-  bushes.instanceMatrix.needsUpdate = true;
-  if (bushes.instanceColor) bushes.instanceColor.needsUpdate = true;
-  group.add(bushes);
+  const busch = baueKrone({
+    ansaetze: buschAnsaetze,
+    seed: 0x6b21,
+    kartenMaterial: inselBaumMaterialien().karten,
+    kind: 'azalea',
+    cardScale: 0.78,
+    dichte: 82,
+    kern: 0.52,
+    schale: 1.35,
+    farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
+    kartenFarben: [0xd2eaa8, 0xc3dd99, 0xdcf2b4, 0xcae4a0, 0xd8eeae, 0xbfd894],
+  });
+  busch.blobs.name = 'bushes';
+  busch.karten.name = 'bush-leaves';
+  busch.karten.receiveShadow = true;
+  group.add(busch.blobs, busch.karten);
+
+  // Kontaktverdunklung unter Büschen und Pilzen. Ohne sie sitzen sie mit einer
+  // haarscharfen Kante auf vollwertig hellem Gras – gemessen lag die Abweichung
+  // am Buschfuß unter drei Luminanzstufen. Alle zusammen ein Draw-Call.
+  const shade = shadowBucket.mesh(
+    new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      opacity: 0.30,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+    'undergrowth-shade'
+  );
+  if (shade) {
+    shade.renderOrder = 1;
+    group.add(shade);
+  }
 
   // Pilz: verschmolzene Geometrie mit Vertex-Farben (weißer Stiel, roter Hut)
   const stem = new THREE.CylinderGeometry(0.02, 0.028, 0.09, 6);
@@ -1164,7 +2854,7 @@ function addUndergrowth(group, rand, radius) {
   const cap = new THREE.SphereGeometry(0.06, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2);
   cap.scale(1, 0.7, 1);
   cap.translate(0, 0.09, 0);
-  paintVertices(cap, 0xd7402f);
+  paintVertices(cap, 0x9d5a4a);
   const mushGeo = mergeGeometries([stem, cap]);
   const mushrooms = new THREE.InstancedMesh(
     mushGeo,
@@ -1174,10 +2864,9 @@ function addUndergrowth(group, rand, radius) {
   mushrooms.name = 'mushrooms';
   mushrooms.userData.fullCount = mushrooms.count;
   for (let i = 0; i < mushrooms.count; i++) {
-    const angle = rand() * Math.PI * 2;
-    const r = radius * (0.2 + rand() * 0.75);
-    dummy.position.set(Math.sin(angle) * r, 0.0, Math.cos(angle) * r);
-    dummy.scale.setScalar(0.7 + rand() * 0.8);
+    const [x, y, z] = spot(0.2, 0.9);
+    dummy.position.set(x, y, z);
+    dummy.scale.setScalar(0.45 + rand() * 0.4);
     dummy.rotation.set(0, rand() * Math.PI, 0);
     dummy.updateMatrix();
     mushrooms.setMatrixAt(i, dummy.matrix);
@@ -1191,53 +2880,152 @@ function createIslandEnvironment() {
   const group = new THREE.Group();
   group.name = 'env-island';
 
-  group.add(makeDome(0x3f83c9, 0xdceff7, 0xcfe8f7));
+  // --- Lichtführung ---------------------------------------------------------
+  //
+  // Der Ausgangszustand hatte kein gerichtetes Licht im Wortsinn: Zwei
+  // Hemisphärenlichter (das globale aus main.js mit 1,4 plus ein eigenes mit
+  // 1,15) summierten sich auf mehr Umgebungslicht, als die Sonne mit 1,9
+  // beisteuerte. Gemessen an den Bildern: die Baumkrone im Gegenlicht lag bei
+  // (0,19,5) – absolut schwarz, ohne Rim –, die Sonne war eine flache Scheibe
+  // ohne Hof, und der Felskiel wurde nach unten immer dunkler statt heller,
+  // obwohl die Insel frei im hellen Himmel hängt.
+  //
+  // Deshalb wird hier nicht nachjustiert, sondern von vorne aufgebaut. Der
+  // erste Schritt ist, das globale Hemisphärenlicht **inselintern**
+  // zurückzunehmen. Das ist derselbe Kniff, den die Dojo-Umgebung schon
+  // benutzt, und er wirkt nur, solange diese Gruppe sichtbar ist: three sammelt
+  // Lichter unter unsichtbaren Elternteilen nicht ein. Karten, Whiteboard,
+  // Zonen und Wrist-Menü sind davon nicht betroffen – die benutzen
+  // ausnahmslos MeshBasicMaterial und werden gar nicht beleuchtet.
+  const hemiKomp = new THREE.HemisphereLight(0xffffff, 0x334455, -1.4);
+  hemiKomp.name = 'global-hemi-compensation';
+  group.add(hemiKomp);
+
+  // Sonnenstand. EINE Quelle für Sprite, Sonnenhof im Himmel, gerichtetes Licht
+  // und Schattenrichtung – vorher stand die sichtbare Sonne bei (18, 24, -24)
+  // und das Licht kam aus (10, 18, -8), die Schatten hätten also aus einer
+  // anderen Richtung kommen müssen als das Leuchten am Himmel.
+  const SUN_DIR = new THREE.Vector3(18, 24, -24).normalize();
+  const sunPos = SUN_DIR.clone().multiplyScalar(38);
+
+  group.add(
+    makeDome(0x3d80c6, 0xdaeef8, 0xc8e4f6, 44, {
+      dir: SUN_DIR,
+      color: 0x4a3a1c,
+      tight: 250,
+      broad: 2.2,
+    })
+  );
+
+  // Sonnenscheibe plus weiter Korona-Schleier. Zwei Sprites, weil ein einzelner
+  // Verlauf entweder einen harten Kern oder einen weiten Hof ergibt, nie beides.
+  const corona = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: makeGlowTexture('rgba(255,244,214,0.55)', 'rgba(255,226,160,0.20)'),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+    })
+  );
+  corona.position.copy(sunPos);
+  corona.scale.set(30, 30, 1);
+  group.add(corona);
 
   const sun = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(255,250,225,1)', 'rgba(255,238,180,0.55)'),
+      // Warmer Kern. Gemessen war die Scheibe über neunzig Pixel hinweg reines
+      // (255,255,255) bei Sättigung null – die einzige Lichtquelle des Bildes
+      // hatte keine Farbtemperatur.
+      map: makeGlowTexture('rgba(255,247,222,1)', 'rgba(255,232,168,0.7)'),
       transparent: true,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
       fog: false,
     })
   );
-  sun.position.set(18, 24, -24);
-  sun.scale.set(11, 11, 1);
+  sun.position.copy(sunPos);
+  sun.scale.set(9, 9, 1);
   group.add(sun);
 
-  group.add(new THREE.HemisphereLight(0xdcefff, 0x8f9b7a, 1.15));
-  const sunlight = new THREE.DirectionalLight(0xfff2d9, 1.9);
-  sunlight.position.set(10, 18, -8);
-  group.add(sunlight);
-  // Sanftes Fülllicht von unten, damit Wolken- und Inselunterseiten nicht absaufen
-  const fill = new THREE.DirectionalLight(0xbfd4e8, 0.35);
-  fill.position.set(-6, -10, 4);
-  group.add(fill);
+  // Himmelslicht. Der „Boden" ist hier kein Boden: Unter der Insel liegt heller
+  // Himmel, und genau daher kommt das Bounce-Fill, das der Unterseite gefehlt
+  // hat. Deshalb ist der untere Ton kühl und keineswegs dunkel.
+  const sky = new THREE.HemisphereLight(0xc6e2f4, 0xbcd6ea, 1.35);
+  group.add(sky);
 
-  // Warmes Rim-/Backlight zum Abheben der Silhouetten (billiger Realismus-Boost)
-  const rim = new THREE.DirectionalLight(0xfff0d6, 0.5);
-  rim.position.set(-14, 8, 18);
+  // Sonne: die klar dominierende Quelle. Sie wirft als einzige Schatten.
+  const sunlight = new THREE.DirectionalLight(0xfff1d4, 2.5);
+  sunlight.position.copy(sunPos);
+  group.add(sunlight);
+  group.add(sunlight.target);
+
+  // Rückwärtiges Streiflicht gegenüber der Sonne, kühl und schwach: Es zieht
+  // eine helle Kante auf die sonnenabgewandte Seite und verhindert, dass
+  // Silhouetten im Gegenlicht in eine tote schwarze Fläche kippen.
+  const rim = new THREE.DirectionalLight(0xcfe6ff, 0.75);
+  rim.position.set(-sunPos.x * 0.9, sunPos.y * 0.35, -sunPos.z * 0.9);
   group.add(rim);
 
-  // Weiche Horizont-Dunstschicht für Tiefe
-  const haze = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(226,240,250,0.55)', 'rgba(210,230,245,0.22)'),
-      transparent: true,
-      depthWrite: false,
-      opacity: 0.6,
-      fog: false,
-    })
-  );
-  haze.position.set(0, 3, -30);
-  haze.scale.set(90, 22, 1);
-  group.add(haze);
+  // Aufhellung von unten: Das Licht des Himmels unter der Insel. Ohne sie wird
+  // der Kiel nach unten dunkler, obwohl dort nichts ist, was ihn beschatten
+  // könnte.
+  const bounce = new THREE.DirectionalLight(0xb6d4ee, 1.9);
+  bounce.position.set(-8, -22, 6);
+  group.add(bounce);
+  // Zweite Aufhellung von unten aus einem anderen Winkel. Mit nur einer Quelle
+  // fielen benachbarte Felsfacetten auf denselben Wert - die Unterseite hatte
+  // zuletzt nur noch 10 Luminanzstufen Spannweite und war als Form unlesbar.
+  const bounce2 = new THREE.DirectionalLight(0x9fc2e0, 0.85);
+  bounce2.position.set(16, -18, -12);
+  group.add(bounce2);
+
+  // --- Schlagschatten -------------------------------------------------------
+  //
+  // In keinem der sechs Prüfbilder gab es einen einzigen. Das Gras unter jedem
+  // Baum, jedem Findling und jedem Busch hatte exakt denselben Wert wie das
+  // Gras daneben – deshalb *stand* nichts, alles *lag auf*.
+  //
+  // Das Schattenvolumen umfasst bewusst nur die Hauptinsel. Die Mini-Inseln
+  // liegen bis zu 26 Einheiten entfernt; sie mit einzuschließen hieße, dieselbe
+  // Kartenauflösung über die sechsfache Fläche zu strecken – aus scharfen
+  // Baumschatten würden Flecken. Sie sind weit genug weg, dass ihr fehlender
+  // Schlagschatten nicht auffällt.
+  sunlight.castShadow = true;
+  const sh = sunlight.shadow;
+  sh.mapSize.set(1024, 1024);
+  // Inselradius 5 lokal, Umriss bis 1,3 davon, mal WORLD_SCALE = 4.
+  const HALF = 6.6 * WORLD_SCALE;
+  sh.camera.left = -HALF;
+  sh.camera.right = HALF;
+  sh.camera.top = HALF;
+  sh.camera.bottom = -HALF;
+  // Die Lichtquelle steht 38 lokale Einheiten vom Ursprung entfernt, also 152
+  // in Weltkoordinaten; die Insel reicht von dort aus grob 100 bis 200.
+  sh.camera.near = 95;
+  sh.camera.far = 215;
+  // Normal-Bias statt großem Tiefen-Bias: Er verschiebt den Abtastpunkt entlang
+  // der Normalen und erzeugt deshalb kein Peter-Panning (den sichtbaren Spalt
+  // zwischen Objekt und Schattenansatz).
+  sh.bias = -0.0006;
+  sh.normalBias = 0.035;
+  sh.camera.updateProjectionMatrix();
 
   // Hauptinsel, auf der der Nutzer steht – mit Blumen, Gras, Fluss und Wasserfall
-  group.add(buildIsland(rand, { radius: 5, depth: 4.5, trees: 3, rocks: 5, vines: 11 }));
-  addGrassDecoration(group, rand, 4.4);
-  addUndergrowth(group, rand, 4.4);
-  const waterfall = makeWaterfall(rand, 5);
+  const main = buildIsland(rand, {
+    radius: 5,
+    depth: 8.2,
+    trees: 9,
+    shadows: true,
+    rocks: 9,
+    vines: 9,
+    river: 2.1,
+  });
+  group.add(main);
+  const shape = main.userData.shape;
+  addGrassDecoration(group, rand, shape);
+  addUndergrowth(group, rand, shape);
+  const waterfall = makeWaterfall(rand, shape);
   group.add(waterfall.group);
   const birds = makeBirds(rand);
   group.add(birds.group);
@@ -1246,17 +3034,35 @@ function createIslandEnvironment() {
 
   // Entfernte Mini-Inseln, die sanft auf und ab schweben
   const minis = [];
+  // Tiefe je Insel verschieden. Vorher hatten alle fünf dasselbe Verhältnis
+  // von Radius zu Tiefe (5 zu 6,4) – und weil die Hauptinsel bei 5 zu 8,2
+  // liegt, waren die kleinen im Vergleich flache Scheiben. Fünf gleich
+  // proportionierte Scheiben nebeneinander lesen sich als Serienteil.
   const miniConfigs = [
-    { angle: 0.6, dist: 14, y: -1.5, scale: 0.35 },
-    { angle: 2.4, dist: 19, y: 2.0, scale: 0.5 },
-    { angle: 3.9, dist: 23, y: -3.0, scale: 0.65 },
-    { angle: 5.2, dist: 16, y: 3.5, scale: 0.3 },
-    { angle: 1.5, dist: 26, y: -5.5, scale: 0.55 },
+    { angle: 0.6, dist: 14, y: -1.5, scale: 0.35, depth: 8.8 },
+    { angle: 2.4, dist: 19, y: 2.0, scale: 0.5, depth: 7.2 },
+    { angle: 3.9, dist: 23, y: -3.0, scale: 0.65, depth: 9.6 },
+    { angle: 5.2, dist: 16, y: 3.5, scale: 0.3, depth: 7.8 },
+    { angle: 1.5, dist: 26, y: -5.5, scale: 0.55, depth: 8.4 },
   ];
   miniConfigs.forEach((cfg, i) => {
-    const mini = buildIsland(rand, { radius: 5, depth: 4, trees: 2, rocks: 2 });
+    // Geringere Auflösung: Die Mini-Inseln stehen 14–26 m entfernt, dort fällt
+    // die halbe Gitterdichte nicht auf, spart aber Dreiecke und Bauzeit.
+    const mini = buildIsland(rand, {
+      radius: 5,
+      depth: cfg.depth,
+      trees: 3,
+      rocks: 2,
+      vines: 5,
+      detail: 0.55,
+    });
     mini.scale.setScalar(cfg.scale);
     mini.position.set(Math.sin(cfg.angle) * cfg.dist, cfg.y, Math.cos(cfg.angle) * cfg.dist);
+    // SCHIEFLAGE. Fünf Inseln, deren Deckel alle exakt waagerecht liegen, sind
+    // die auffälligste Regelmäßigkeit am Horizont – nichts, was frei im Raum
+    // treibt, richtet sich von selbst nach der Weltachse aus. Der Betrag bleibt
+    // klein genug, dass die Grasfläche als Grasfläche liest.
+    mini.rotation.set((rand() - 0.5) * 0.30, rand() * TAU, (rand() - 0.5) * 0.30);
     mini.userData.baseY = cfg.y;
     mini.userData.phase = i * 1.7;
     group.add(mini);
@@ -1270,14 +3076,50 @@ function createIslandEnvironment() {
     { count: 7, yMin: -2, yMax: 3.5, rMin: 16, rMax: 32, size: 1.0 }, // auf Augenhöhe
     { count: 9, yMin: -13, yMax: -4, rMin: 8, rMax: 28, size: 1.35 }, // tief unter den Inseln
   ];
+  // Kein Wolkenkörper darf in einer Mini-Insel stecken. Die mittlere Schicht
+  // (y −2 … 3,5, Radius 16 … 32) überlappt die Inselplätze exakt, und in drei
+  // von sechs Prüfbildern schnitt eine weiße Ellipse mit harter Kante durch
+  // einen grünen Plateaurand. Das liest als Fehler, nicht als Gestaltung.
+  const steckInInsel = (x, y, z) =>
+    miniConfigs.some(
+      (cfg) =>
+        Math.abs(y - cfg.y) < 4.5 &&
+        Math.hypot(x - Math.sin(cfg.angle) * cfg.dist, z - Math.cos(cfg.angle) * cfg.dist) <
+          5.5 + 6 * cfg.scale
+    );
+
   for (const layer of cloudLayers) {
     for (let i = 0; i < layer.count; i++) {
-      const cloud = makeCloud(rand, layer.size);
-      const a = rand() * Math.PI * 2;
-      const r = layer.rMin + rand() * (layer.rMax - layer.rMin);
-      const y = layer.yMin + rand() * (layer.yMax - layer.yMin);
+      const cloud = makeCloud(rand, layer.size, SUN_DIR);
+      let a = 0;
+      let r = 0;
+      let y = 0;
+      for (let versuch = 0; versuch < 14; versuch++) {
+        a = rand() * Math.PI * 2;
+        r = layer.rMin + rand() * (layer.rMax - layer.rMin);
+        y = layer.yMin + rand() * (layer.yMax - layer.yMin);
+        if (!steckInInsel(Math.cos(a) * r, y, Math.sin(a) * r)) break;
+      }
       cloud.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
       cloud.rotation.y = rand() * Math.PI * 2;
+      // GRÖSSENSTAFFELUNG. Gemessen hatte der Himmel nach dem Wolkenumbau zehn
+      // Ballen zwischen 1129 und 3672 Pixeln – Faktor 3,3, also praktisch alle
+      // gleich groß. Der Stand davor hatte einen Faktor von 18. Die Struktur
+      // INNERHALB der Wolke war besser geworden, die Verteilung ZWISCHEN den
+      // Wolken schlechter: keine Heldenwolke, keine Schleier, nur Mittelmaß.
+      // Dieselbe Regel wie überall sonst – eine Großform, zwei mittlere, viele
+      // kleine.
+      const rang = rand();
+      if (rang > 0.86) {
+        const k = 1.7 + rand() * 0.7;
+        cloud.scale.set(k, k * 0.85, k);
+      } else if (rang < 0.38) {
+        const k = 0.5 + rand() * 0.35;
+        cloud.scale.set(k * 2.0, k * 0.28, k * 1.5);
+      } else {
+        const k = 0.7 + rand() * 0.5;
+        cloud.scale.set(k, k, k);
+      }
       cloud.userData.baseX = cloud.position.x;
       cloud.userData.baseZ = cloud.position.z;
       cloud.userData.speed = 0.1 + rand() * 0.22;
@@ -1293,13 +3135,28 @@ function createIslandEnvironment() {
   // deshalb hochskaliert; Bäume erreichen so gut 6 m, die Insel rund 40 m, und
   // die Komposition (Lichtrichtungen, Winkel, Silhouetten) bleibt exakt
   // erhalten, weil alles denselben Faktor bekommt.
-  const WORLD_SCALE = 4;
   group.scale.setScalar(WORLD_SCALE);
 
   // Leichter Tiefennebel (fern), damit ferne Inseln/Wolken sanft ausblenden –
   // Karten in Reichweite bleiben unberührt. Die Distanzen sind Weltkoordinaten
   // und müssen den Maßstab mitgehen, sonst versinkt die Insel im Nebel.
-  const fog = new THREE.Fog(0xcfe4f2, 18 * WORLD_SCALE, 46 * WORLD_SCALE);
+  // Gemessen war die Tiefenstaffelung wirkungslos: Der nahe Findling lag bei
+  // L=106,8, der Fels der fernen Mini-Insel bei L=105,0 – 1,8 Stufen Unterschied
+  // über zig Meter. Der Grund war die Reichweite: Bei `near = 10 * WORLD_SCALE`
+  // beginnt der Dunst erst 40 m vor der Kamera, und dort ist der interessante
+  // Teil der Szene längst zu Ende. Die nahen Mini-Inseln stehen 48 m entfernt
+  // und bekamen dadurch 6 % Dunst. Jetzt setzt er bei 20 m an; die Hauptinsel,
+  // auf der der Nutzer steht und auf der die Karten liegen, bleibt mit unter
+  // 25 m Abstand nahezu unberührt.
+  //
+  // Nachgemessen: Bei `far = 34 * WORLD_SCALE` blieb der Unterschied zwischen
+  // nahem Findling und ferner Mini-Insel bei 2 Luminanzstufen. Der Grund ist
+  // `vFogDepth = -mvPosition.z` – der Nebel rechnet mit der Tiefe ENTLANG der
+  // Blickachse, nicht mit dem Abstand. Eine Insel, die 46° seitlich steht, hat
+  // bei 82 m Abstand nur 57 m Tiefe und verliert damit ein Drittel des Dunstes.
+  // Die Reichweite ist ein Kompromiss: Stärker gesetzt löste sich die
+  // Hauptinsel in der Totale (Kamera 57 m entfernt) selbst in Milch auf.
+  const fog = new THREE.Fog(0xb2d6ea, 6 * WORLD_SCALE, 32 * WORLD_SCALE);
 
   // Was in der Brille dünner wird. Das Laub zuerst – Alpha-Test und
   // Überzeichnung –, dann die Streudekoration: Blumen, Grasbüschel, Pilze und
@@ -1323,7 +3180,7 @@ function createIslandEnvironment() {
   return {
     id: 'island',
     name: '🏝 Himmelsinsel',
-    background: new THREE.Color(0x9cc9e8),
+    background: new THREE.Color(0x9fc6e2),
     fog,
     group,
     setQuality(stufe) {
@@ -1339,6 +3196,7 @@ function createIslandEnvironment() {
         const x = cloud.userData.baseX + time * cloud.userData.speed;
         cloud.position.x = ((x + range) % (range * 2) + range * 2) % (range * 2) - range;
       }
+      _windClock.value = time;
       waterfall.update(time);
       birds.update(time);
       butterflies.update(time);
@@ -3360,7 +5218,9 @@ function makeRadiolaConsole() {
   // langsam durchlaufenden Bildstrich – der typische Eindruck einer alten
   // Übertragung. Neu gezeichnet wird bewusst nur ~12×/s: Der Canvas-Upload pro
   // Frame wäre auf der Quest teurer als das ganze Möbelstück.
-  const ctx = screenCanvas.getContext('2d');
+  // willReadFrequently: Das Bildrauschen liest den Canvas per getImageData
+  // zurück; ohne das Flag warnt Chromium bei jedem Bild.
+  const ctx = screenCanvas.getContext('2d', { willReadFrequently: true });
   const { width: sw, height: sh } = screenCanvas;
   let lastDraw = -1;
 

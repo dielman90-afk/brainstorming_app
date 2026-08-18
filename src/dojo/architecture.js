@@ -1172,15 +1172,53 @@ export function buildArchitecture() {
   // Sicherung: Nichts darf in die Freizone ragen, in der die Ideenkarten
   // erscheinen (cards.js:256, Radius 1,15–1,5 m). Der Boden ist ausgenommen.
   if (import.meta.env?.DEV) {
-    const box = new THREE.Box3();
+    const local = new THREE.Box3();
+    const mat = new THREE.Matrix4();
+
+    const pruefe = (name, b) => {
+      if (b.min.y > 0.2 || b.max.y < 0.2) return;
+      const nearest = Math.hypot(
+        Math.max(b.min.x, 0, -b.max.x),
+        Math.max(b.min.z, 0, -b.max.z)
+      );
+      if (nearest < FREE_RADIUS) {
+        console.warn(`[dojo] "${name}" ragt in die Kartenzone (${nearest.toFixed(2)} m)`);
+      }
+    };
+
     group.traverse((o) => {
       if (!o.isMesh || o.name === 'dojo-floor' || o.name.startsWith('dojo-tatami')) return;
-      box.setFromObject(o);
-      if (box.min.y > 0.2 || box.max.y < 0.2) return;
-      const nearest = Math.hypot(
-        Math.max(box.min.x, 0, -box.max.x),
-        Math.max(box.min.z, 0, -box.max.z)
-      );
+      // Bei einem InstancedMesh ist die Hülle ALLER Instanzen zu prüfen sinnlos:
+      // Wände, die einen Raum umschließen, enthalten zwangsläufig dessen Mitte,
+      // und die Prüfung meldete deshalb "dojo-walls" und "dojo-frames" mit
+      // 0,00 m – obwohl dort nichts steht. Jede Instanz wird einzeln geprüft.
+      if (o.isInstancedMesh) {
+        o.updateWorldMatrix(true, false);
+        if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        for (let i = 0; i < o.count; i++) {
+          o.getMatrixAt(i, mat);
+          mat.premultiply(o.matrixWorld);
+          local.copy(o.geometry.boundingBox).applyMatrix4(mat);
+          pruefe(`${o.name || o.type}[${i}]`, local);
+        }
+        return;
+      }
+      // Bei einem VERSCHMOLZENEN Mesh gilt dasselbe: Die Hülle der zu einem
+      // Ring zusammengefassten Wandsegmente enthält die Raummitte, obwohl dort
+      // nichts steht. Deshalb werden hier die Vertices abgetastet statt der
+      // Hüllquader – die Wände bestehen aus Quadern, ein Eckpunkt liegt also
+      // zwangsläufig in der Nähe, wenn tatsächlich etwas hineinragt.
+      o.updateWorldMatrix(true, false);
+      const pos = o.geometry.attributes.position;
+      if (!pos) return;
+      const v = new THREE.Vector3();
+      let nearest = Infinity;
+      for (let i = 0; i < pos.count; i++) {
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
+        if (v.y < 0.05 || v.y > 2.2) continue; // nur die Höhe, in der Karten stehen
+        const d = Math.hypot(v.x, v.z);
+        if (d < nearest) nearest = d;
+      }
       if (nearest < FREE_RADIUS) {
         console.warn(
           `[dojo] "${o.name || o.type}" ragt in die Kartenzone (${nearest.toFixed(2)} m)`

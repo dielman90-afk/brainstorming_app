@@ -4,3 +4,6 @@ dist/
 .env
 *.local
 .DS_Store
+tools/metrics/
+tools/shots/run-*/
+tools/shots/debug/
