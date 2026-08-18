@@ -6,12 +6,12 @@ Fortgeschrieben in **jedem** Durchlauf. Neueste Einträge oben.
 
 | Größe | Grenze | Ausgang (zen-00) | jetzt |
 | --- | ---: | ---: | ---: |
-| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **53 ✅** |
-| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 19 570 ✅ |
-| Texturspeicher | ≤ 60 MB | 29,77 MB | 29,77 MB ✅ |
-| Shader-Programme | – | 20 | 20 |
+| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **54 ✅** |
+| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 28 074 ✅ |
+| Texturspeicher | ≤ 60 MB | 29,77 MB | 20,77 MB ✅ |
+| Shader-Programme | – | 20 | 19 |
 
-Pakete: **1 bestanden.** 2–9 offen.
+Pakete: **1 und 2 bestanden.** 3–9 offen.
 
 ---
 
@@ -128,3 +128,111 @@ Vergleichsbilder vorher.
 * Die 5 Nebel-Sprites und die 7 Sprites insgesamt bleiben.
 
 **Kopfraum für Paket 2–9: 67 Draw-Calls.**
+
+---
+
+## Durchlauf 2 — Paket 2: Sand — **bestanden**
+
+**Messwerte:** Draw-Calls 53 → 54 (der Saum), Dreiecke 19 570 → 28 074
+(das Kiesbett ist jetzt ein Ringnetz statt 72 Dreiecke), Texturspeicher
+29,77 → **20,77 MB**, Konsole sauber, Build grün.
+
+### Was sich sichtbar geändert hat
+
+* **Harkspur mit plausiblem Abstand.** Vorher 86 cm, jetzt 22,5 cm. Um jede
+  Steingruppe und um den Teich liegt ein Band konzentrischer Züge, dazwischen
+  gerade Züge; wo zwei Zugrichtungen aufeinandertreffen, steht eine Naht, wie
+  sie ein Gärtner hinterlässt.
+* **Die Rille hat ein Profil.** Runder Grund, flacher Kamm, der Grund dunkler
+  und kühler, der Kamm eine Spur glatter. Vorher war die Spur eine Zeichnung
+  in der Farbkarte plus eine Normal-Map derselben Zeichnung.
+* **Korn.** Grobkiesel von 1 bis 2,5 cm und feines Korn darunter, kachelnd
+  über 70 cm.
+* **Ausbleichen zum Rand**, ab 55 % des Radius einsetzend, und die Harkspur
+  läuft zwischen 11 und 17 m aus: außen liegt ungeharkter, sonnengebleichter
+  Kies.
+* **Übergang zum Moos und zum Teich.** Der Sand darum ist feucht: dunkler,
+  gesättigter, und die Harke hört auf.
+* **Der Saum.** Das Kiesbett endet bei 20 m und der Nebel fängt bei 20 m an —
+  die Kante, an der die Welt aufhört, bekam also null Dunst und stand als
+  scharfe Linie gegen den Himmel („der Garten ist eine schwebende Platte",
+  Prüferbefund 15). Jetzt liegt dort ein Ring bis 52 m, der in den gesättigten
+  Nebel läuft. Die Horizontfarbe der Himmelskuppel ist dafür auf die
+  Nebelfarbe gesetzt worden.
+
+### Warum die Harkspur gerechnet wird statt gezeichnet
+
+Die alte Karte deckte mit 1024² die ganze 40-m-Scheibe ab: 3,9 cm je Texel.
+Ein Rillenabstand von 22 cm hätte damit fünf Texel je Periode gehabt — das ist
+die Unterabtastung, die auf der Insel schon einmal drei Durchläufe gekostet
+hat. Für eine brauchbare Flanke bräuchte man rund 8000² Texel, also 350 MB
+gegen ein Budget von 60 MB für **alle** Texturen.
+
+Die Aufgabe ist deshalb nach Frequenz aufgeteilt: grob (Meter) in eine
+512er-Farbkarte, mittel (die Harke, 22 cm) rechnerisch im Shader aus der
+Weltposition, fein (Korn, Millimeter bis Zentimeter) in eine kachelnde
+256er-Normal-Map. Der rechnerische Teil kann sich an `fwidth` ausblenden,
+sobald eine Periode unter zwei Pixel fällt — deshalb gibt es in der Totale
+kein Moiré, obwohl die Rillen bis 17 m laufen.
+
+### Zwei eigene Fehler in diesem Durchlauf
+
+1. **Ein Ersetzen an der falschen Stelle.** Die Erhöhung der Kornstärke von
+   0,9 auf 1,15 hat nicht das Sandmaterial getroffen, sondern das des
+   **Marsbodens** in der Nachtstadt — die erste Fundstelle im File stand dort.
+   Aufgefallen ist es nur, weil der Regressionsvergleich `env-night.png` mit
+   3,3 % abweichenden Pixeln meldete, während zwei Läufe desselben Standes
+   bitgleich sind. Der Weg zur Ursache war ein Auszug der Nachtmaterialien mit
+   Prüfsummen über alle Texturen, vorher und nachher — fünf Minuten, gegen
+   beliebig viel Raten. Genau der Fall, für den die Regel „nach zwei
+   Fehlversuchen nachmessen" da ist; hier hat schon der erste Messwert
+   gereicht. Behoben, `env-night.png` ist wieder bitgleich.
+2. **Ein Wertrauschen auf quadratischem Gitter als Korn.** In der
+   sechsfachen Vergrößerung des Vordergrunds lag ein diagonales Karomuster
+   über dem Sand — die Gitterinterpolation hat eine Vorzugsrichtung. Ersetzt
+   durch gesetzte Körner (2600 feine, 220 grobe je Kachel, an den Rändern
+   umlaufend gezeichnet); ein Tupfenfeld hat kein Gitter.
+3. **Und ein dritter, kleinerer:** Der erste Saum lief in stumpfes Grün als
+   „Bewuchs außerhalb des Gartens" aus und legte damit einen grünen Streifen
+   genau auf die Horizontlinie. Der Nebel ist warm; der Saum muss ihm
+   entgegenlaufen, nicht quer dazu.
+
+### Was offen bleibt
+
+* **Die Modellierung des Sandes ist durch das Licht gedeckelt.** Im
+  Vordergrundstreifen von `e-sand` liegt die Spannweite p05–p95 bei 25 von
+  255 (vorher 17). Mehr ist mit dem Sand allein nicht zu holen: Das
+  Hemisphärenlicht steht auf 1,05 und liefert etwa die Hälfte der Helligkeit
+  der Fläche, und diese Hälfte reagiert praktisch nicht auf eine Neigung der
+  Normalen. Das ist Paket 3.
+* **Die Ferne ist heller als die Nähe**, weil der Nebel warm und satt ist,
+  der ausgebleichte Kies aber hell. Der Prüfer hat das im Ausgangsstand als
+  fehlende Tiefenstaffelung gemeldet (9 von 255 über 44 m); der Saum hat die
+  Kante beseitigt, die Tonwertfolge selbst gehört zu Paket 3.
+* **Das Kiesbett ist eben.** Ein Karesansui-Bett ist gebaut und waagerecht,
+  das ist richtig so; wenn später Steine und Trittsteine einsinken sollen
+  (Paket 6), braucht es trotzdem eine gemeinsame Höhenfunktion.
+
+### Der Prüferbefund zum Ausgangsstand (Durchlauf 1)
+
+Zur Erinnerung für die kommenden Pakete — alle acht Kriterien nicht
+bestanden, 16 belegte Mängel. Die schwersten, mit Paketzuordnung:
+
+| # | Mangel | Beleg | Paket |
+| --- | --- | --- | ---: |
+| 1 | Kein Schlagschatten, keine Kontaktverdunklung | Sand am Fuß des Trittsteins 212,8 gegen freier Sand 212,9 — Δ 0,1 | 3 |
+| 2 | Die Sonne ist dunkler als der Boden | Sonnenkern L=210,5, Vordergrundsand L=214,8; Anteil L>230 = 0,00–0,02 % | 3 |
+| 3 | Sand ohne Modellierung | p05–p95 = 17 von 255 | **2 ✔** |
+| 4 | Sand als sichtbares Rastergitter | Zellen von 10–14 px in d-aerial | **2 ✔** |
+| 5 | Keine Tiefe | 9 von 255 über 44 m; Horizont eine Pixelzeile | 3 (Kante: **2 ✔**) |
+| 6 | Bambus und Sakura sind Lutscher | Sakura-Stamm über 70 px exakt L=93,6, kein Ast | 5 |
+| 7 | Wasser ist Grauplatte | Anteil >190 = 0,0 %, Spalte streng monoton | 4 |
+| 8 | Trittsteine 21/22/23/21/23 px auf einer Geraden | Ufersteine bei konstantem Winkelschritt | 6, 7 |
+| 9 | Laterne ist ein Grundkörperstapel und leuchtet nichts an | kein messbarer Lichtabfall daneben | 3, 6 |
+| 10 | Drei unverbundene Grüntöne | Moos 71°, Bambus 76°, Seerose 119° | 4, 5 |
+| 11 | Alle Steine ein Material | G/R 0,82–0,85 über sieben Steine | 6 |
+| 12 | Torii eine einzige Farbe | vier Flächen, max. Abweichung 1 von 255 | 6 |
+| 13 | Blütenblätter sind richtungslose Punkte | Seitenverhältnis 1,06, Dichte gegenläufig zum Baum | 8 |
+| 14 | Koi ohne Körperbogen, ohne Schatten, ohne Bugwelle | beide waagerecht, gleiche Richtung | 8 |
+| 15 | Der Garten ist eine schwebende Platte | Sandkreis endet als scharfer Bogen gegen den Himmel | **2 ✔** |
+| 16 | Der Himmel ist eine lineare Rampe | 19 Proben streng monoton, gleiche Schrittweite | 3 |
