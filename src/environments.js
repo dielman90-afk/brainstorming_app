@@ -4369,8 +4369,8 @@ function makeTeichbecken(rx, rz, { tiefe = 0.42, seed = 4242, umriss } = {}) {
   // Wasserlinie am dunkelsten (dauerhaft nass), der Wulst trockener Kies.
   const grund = new THREE.Color(0x4a4736);
   const flach = new THREE.Color(0x958b64);
-  const linie = new THREE.Color(0x5f5644);
-  const nass = new THREE.Color(0x9c8a68);
+  const linie = new THREE.Color(0x7a6f58);
+  const nass = new THREE.Color(0x8d7c5c);
   const trocken = new THREE.Color(0xd6c6a2);
   const farbe = (t) => {
     const c = new THREE.Color();
@@ -4559,7 +4559,10 @@ function zenNassGranite() {
   if (!_zenNassGranit) {
     _zenNassGranit = graniteMaterial({ tone: 0xa9a49b, vertexColors: true });
     _zenNassGranit.normalScale = new THREE.Vector2(1.4, 1.4);
-    _zenNassGranit.roughness = 0.24;
+    // 0,24 zusammen mit 45 % Verdunklung ergab schwarze, glänzende Kiesel —
+    // Obsidian, nicht nasser Granit. Nasser Stein ist dunkler und glatter als
+    // trockener, aber er bleibt Stein.
+    _zenNassGranit.roughness = 0.34;
     addSkyRim(_zenNassGranit, { color: 0xbcd6f0, strength: 0.18, power: 4.2 });
   }
   return _zenNassGranit;
@@ -5629,7 +5632,10 @@ function createZenEnvironment() {
              diffuseColor.rgb = mix(uWasserFlach, uWasserTief, deckung);
              // Der Saum unmittelbar an der Wasserlinie
              float saum = smoothstep(0.86, 1.0, rand);
-             diffuseColor.rgb = mix(diffuseColor.rgb, uWasserSaum, saum * 0.65);
+             // 0,65 war zu viel: Zusammen mit der dunkelsten Zone des Beckens
+             // stand an der Wasserlinie eine schwarze Naht, 43 bis 61 L unter
+             // beiden Nachbarn.
+             diffuseColor.rgb = mix(diffuseColor.rgb, uWasserSaum, saum * 0.38);
              // Flach ist durchsichtig, tief nicht. Am äußersten Rand läuft die
              // Fläche aus, damit die Wasserlinie kein Schnitt ist.
              diffuseColor.a = mix(0.34, 0.94, deckung) * (1.0 - smoothstep(0.955, 1.0, rand) * 0.75);
@@ -5654,15 +5660,21 @@ function createZenEnvironment() {
   // wenigen Pixeln und im Bild nicht vorhanden. Leicht bewegtes Wasser zieht
   // sie zu einer Bahn auseinander — das ist die Lichtspitze, die dem Teich
   // gefehlt hat.
-  pondMat.roughness = 0.14;
+  // 0,09 statt 0,14: Je schärfer die Keule, desto mehr vom hellen
+  // Horizontband und von der Sonnenscheibe kommt zurück. Die Kräuselungskarten
+  // brechen die Spiegelung ohnehin in wandernde Lichter auf — das ist der
+  // Unterschied zwischen Wasser und poliertem Blech.
+  pondMat.roughness = 0.09;
   pondMat.normalScale.set(0.5, 0.5);
-  pondMat.envMapIntensity = 2.0;
+  pondMat.envMapIntensity = 1.5;
   // Das Wasser braucht etwas zu spiegeln. Ohne Environment-Map bleibt bei
   // Rauheit 0,05 nur die Grundfarbe übrig, und die ist absichtlich dunkel.
   pondMat.userData.needsEnv = true;
   // Die Wasserfläche folgt demselben verrauschten Umriss wie das Becken — eine
   // exakte Ellipse als Wasserlinie ist der schnellste Weg zu „gerechnet".
-  const wasserGeo = new THREE.CircleGeometry(1, 96);
+  // 160 statt 96 Segmente: Bei 2 m Radius sind 96 Segmente 13 cm je Kante, und
+  // die Wasserlinie war aus zwei Metern sichtbar facettiert.
+  const wasserGeo = new THREE.CircleGeometry(1, 160);
   {
     const wp = wasserGeo.attributes.position;
     for (let v = 1; v < wp.count; v++) {
@@ -5707,7 +5719,7 @@ function createZenEnvironment() {
       for (let k = 0; k < pos.count; k++) {
         v.fromBufferAttribute(pos, k).applyMatrix4(s.matrix);
         const nass = 1 - smoothstep(-0.019, 0.065, v.y);
-        const f = 1 - nass * 0.45;
+        const f = 1 - nass * 0.26;
         col.setXYZ(k, col.getX(k) * f, col.getY(k) * f * 0.99, col.getZ(k) * f * 0.97);
       }
       col.needsUpdate = true;
@@ -5987,11 +5999,20 @@ function createZenEnvironment() {
     sun: ZEN_SONNE,
     target: [0, 0, 0],
     sunColor: 0xffd9a0,
+    // **Die Pegel waren zu niedrig für eine sichtbare Spiegelung.** Der Prüfer
+    // hat auf der ganzen Wasserfläche keinen einzigen Pixel über L 190
+    // gefunden, obwohl die Laterne unmittelbar daneben mit L 202 leuchtet.
+    // Nachgerechnet: Bei einem Blick von 1,5 m auf einen Teich in 3,5 m
+    // Abstand trifft man die Fläche unter 67° zur Normalen; der
+    // Fresnel-Anteil ist dort rund 12 %. Zwölf Prozent von 0,66 sind 0,08
+    // linear — und das ist nach der ACES-Kurve etwa L 90, genau der gemessene
+    // Wert. Der Rechenweg stimmte also, nur die Quelle war zu dunkel. Die
+    // Pegel liegen jetzt dort, wo die sichtbare Kuppel steht.
     sky: {
-      zenith: { hex: 0x7ea3cc, level: 0.36 },
-      horizon: { hex: 0xf3dcb4, level: 0.66 },
-      haze: { hex: 0xffc98a, level: 0.58 },
-      ground: { hex: 0x8d7d5e, level: 0.26 },
+      zenith: { hex: 0x7ea3cc, level: 0.48 },
+      horizon: { hex: 0xf3dcb4, level: 0.98 },
+      haze: { hex: 0xffc98a, level: 0.88 },
+      ground: { hex: 0x8d7d5e, level: 0.34 },
     },
   };
   let zenSky = null;
