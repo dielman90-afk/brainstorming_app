@@ -1,9 +1,9 @@
 // Mess-Harness: Draw-Calls, Dreiecke, Shader-Programme, Texturspeicher und
-// mittlere Frame-/Renderzeit für die Himmelsinsel.
+// mittlere Frame-/Renderzeit einer Umgebung.
 //
-//   node tools/measure.mjs --out tools/metrics/run-00.json
+//   node tools/measure.mjs --out tools/metrics/run-00.json [--env zen|island]
 //
-// Gemessen wird an denselben sechs Kamerapositionen wie die Screenshots, weil
+// Gemessen wird an denselben Kamerapositionen wie die Screenshots, weil
 // Draw-Calls durch Frustum-Culling blickabhängig sind. Berichtet werden der
 // Höchstwert (das ist die Budgetgrenze) und die Einzelwerte.
 //
@@ -15,7 +15,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {
   ROOT,
-  SHOTS,
+  shotsFor,
+  envArg,
   startServer,
   launchBrowser,
   openApp,
@@ -26,6 +27,8 @@ import {
 const argv = process.argv.slice(2);
 const outArg = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : 'tools/metrics/latest.json';
 const outFile = path.resolve(ROOT, outArg);
+const envId = envArg(argv);
+const SHOTS = shotsFor(envId);
 // 60 statt 300 Frames je Kamera. Der Container hat keine GPU; seit die Insel
 // das Alpha-Karten-Laub trägt, kostet ein Bild im Software-Rasterizer bis zu
 // einer Sekunde – 300 Frames × 6 Kameras wären über eine halbe Stunde für eine
@@ -39,12 +42,13 @@ const browser = await launchBrowser({ perf: true });
 const result = { generatedAt: new Date().toISOString(), viewport: '1280x720 (SwiftShader)', shots: {} };
 try {
   const { page, messages } = await openApp(browser);
-  await selectEnv(page, 'island');
+  await selectEnv(page, envId);
 
-  // --- Statik: Texturspeicher & Geometrie der Insel-Gruppe ---
-  result.static = await page.evaluate(() => {
+  // --- Statik: Texturspeicher & Geometrie der Umgebungsgruppe ---
+  result.env = envId;
+  result.static = await page.evaluate((envId) => {
     const { scene } = window.__app;
-    const group = scene.children.find((c) => c.name === 'env-island');
+    const group = scene.children.find((c) => c.name === `env-${envId}`);
     const textures = new Map();
     let triangles = 0;
     let meshes = 0;
@@ -75,13 +79,13 @@ try {
     let bytes = 0;
     for (const b of textures.values()) bytes += b;
     return {
-      islandTriangles: Math.round(triangles),
-      islandNodes: meshes,
+      envTriangles: Math.round(triangles),
+      envNodes: meshes,
       textureCount: textures.size,
       textureBytes: bytes,
       textureMB: +(bytes / 1048576).toFixed(2),
     };
-  });
+  }, envId);
 
   // --- Pro Kameraposition: Draw-Calls, Dreiecke, Programme, Frame-Zeit ---
   for (const shot of SHOTS) {
