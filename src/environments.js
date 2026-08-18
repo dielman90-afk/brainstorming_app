@@ -181,12 +181,15 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
             vec2 uvW = vec2(az * cloudScale.x, h * cloudScale.y);
             float n =
               texture2D(cloudMap, uvW).r * 0.62 +
-              texture2D(cloudMap, uvW * 2.31 + vec2(0.37, 0.11)).r * 0.38;
+              // **Der Faktor muss ganzzahlig sein.** 2,31 mal die 4 Umläufe
+              // der Grundoktave ergibt 9,24 — kein ganzer Umlauf, und genau
+              // dort stand eine senkrechte Naht im Himmel. 3,0 mal 4 ist 12.
+              texture2D(cloudMap, uvW * 3.0 + vec2(0.37, 0.11)).r * 0.38;
             // Nur ein Band über dem Horizont: Zenitnah läuft die
             // Azimut-Abbildung in den Pol und würde die Kachel verraten.
             float band = smoothstep(cloudBand.x, cloudBand.y, h) *
                          (1.0 - smoothstep(cloudBand.z, cloudBand.w, h));
-            float wolke = smoothstep(0.26, 0.72, n) * band * cloudStrength;
+            float wolke = smoothstep(0.18, 0.62, n) * band * cloudStrength;
             #ifdef HAS_SUN
               float zurSonne = max(dot(dir, sunDir), 0.0);
             #else
@@ -3840,8 +3843,13 @@ function sandMaps() {
       // Sonne steht links hinten, die ihr zugewandte Hälfte ist wärmer.
       const diag = (nx - nz) * 0.5;
 
-      const grund = [231, 212, 176];
-      const blass = [236, 226, 205];
+      // **Dunkler als vorher.** Mit einer Sonne, die dreimal so stark ist wie
+      // bei Mittagsstand, stand der Kies bei einem Albedo von 0,90 als
+      // gebleichte Fläche im Bild (Anteil über L 190: 51,6 %). Kies ist kein
+      // Papier; ein Albedo um 0,78 lässt die Lichtseite oben und gibt der
+      // Fläche ihre Farbe zurück.
+      const grund = [212, 191, 155];
+      const blass = [224, 211, 186];
       const r4 = i * 4;
       for (let k = 0; k < 3; k++) {
         const basis = grund[k] * (1 - bleich) + blass[k] * bleich;
@@ -4091,6 +4099,29 @@ function sandMaterial() {
         '#include <roughnessmap_fragment>',
         `#include <roughnessmap_fragment>
          // Der Kamm ist glattgestrichen, im Rillengrund liegt loses Korn.
+         // **Die Lichtspitze kann nicht aus dem diffusen Anteil kommen.**
+         // Nachgerechnet: Bei Sonnenstärke 4,6, Einfallswinkel 71° und
+         // Albedo 0,77 liegt der diffuse Anteil einer waagerechten Fläche bei
+         // rund 0,72 linear; mit Belichtung 1,1 durch die ACES-Kurve sind das
+         // etwa L 210. Für L 230 bräuchte es das Doppelte, also eine Sonne um
+         // 9 — und die würde jede senkrechte Fläche ausfressen.
+         //
+         // Spitzen kommen deshalb aus dem **Glanz**. Bei Rauheit 0,58 ist die
+         // Keule so breit, dass ihr Maximum unter 5 % des diffusen Anteils
+         // bleibt; bei 0,25 ist sie rund zwanzigmal höher. Auf einem Kamm, der
+         // quer zur streifenden Sonne steht, zieht das eine helle Linie — und
+         // genau das ist die Lichtkante, die einem geharkten Kies bei tiefer
+         // Sonne das Leben gibt. Der Rillengrund bleibt stumpf.
+         // **Und 0,42 war immer noch zu viel.** Bei streifendem Blick auf
+         // eine waagerechte Fläche ist die Glanzkeule ohnehin breit; senkt man
+         // dann auch noch die Rauheit, leuchtet nicht eine Kante auf, sondern
+         // der halbe Vordergrund — im Bild sah der Kies aus wie lackiert, und
+         // der Schatten in der Rille war wieder weg.
+         //
+         // Der Kies bleibt also stumpf, wie trockener Kies es ist. Die
+         // Lichtspitzen dieser Szene kommen von den Dingen, die welche haben
+         // dürfen: der Sonnenscheibe, dem Lichtkasten der Laterne und dem
+         // nassen Stein am Wasser.
          roughnessFactor *= mix(1.0, 0.86, gSandKamm);`
       )
       .replace(
@@ -4427,6 +4458,24 @@ const ZEN_SUN = (() => {
 // lassen. `graniteMaterial()` mit Scheitelfarben macht daraus einen: Die
 // Unterschiede zwischen den Steinen stecken in den Farben ihrer Vertices, nicht
 // in getrennten Materialien. Genau dafür ist `vertexColors` da.
+// Der nasse Stein am Wasser als **eigenes** Material.
+//
+// Nass ist nicht nur dunkler: Ein Wasserfilm füllt die Mikrorauheit auf, die
+// Oberfläche spiegelt. Die Verdunklung steckt in den Scheitelfarben und kostet
+// nichts; die Rauheit steht im Material und braucht deshalb ein zweites. Das
+// ist der eine Draw-Call, der in dieser Szene eine echte Lichtspitze liefert —
+// nasser Granit im Streiflicht einer tief stehenden Sonne.
+let _zenNassGranit = null;
+function zenNassGranite() {
+  if (!_zenNassGranit) {
+    _zenNassGranit = graniteMaterial({ tone: 0xa9a49b, vertexColors: true });
+    _zenNassGranit.normalScale = new THREE.Vector2(1.4, 1.4);
+    _zenNassGranit.roughness = 0.24;
+    addSkyRim(_zenNassGranit, { color: 0xbcd6f0, strength: 0.18, power: 4.2 });
+  }
+  return _zenNassGranit;
+}
+
 let _zenGranit = null;
 function zenGranite() {
   if (!_zenGranit) {
@@ -4442,7 +4491,7 @@ function zenGranite() {
     // Streiflicht einer tief stehenden Sonne hat auf seinen oberen Rundungen
     // sehr wohl einen breiten, stumpfen Glanz. Der Wert skaliert die
     // Rauheitskarte, die Streuung zwischen matt und glatt bleibt also erhalten.
-    _zenGranit.roughness = 0.76;
+    _zenGranit.roughness = 0.66;
     // Ein schmaler Himmelssaum an der Silhouettenkante. Kleiner Betrag, hoher
     // Exponent: Auf einer flach schattierten Fläche wird ein weicher
     // Fresnel-Saum sonst zur **Flächen**helligkeit statt zur Kante, und alles
@@ -4532,7 +4581,10 @@ function makeLantern() {
   // Lichtkasten mit warmem Glimmen
   const box = new THREE.Mesh(
     new THREE.CylinderGeometry(0.13, 0.13, 0.18, 6),
-    new THREE.MeshStandardMaterial({ color: 0xffcf8a, emissive: 0xff9e3d, emissiveIntensity: 0.9, roughness: 0.7 })
+    // Die einzige eigene Lichtquelle im Garten. `toneMapped: false` hält sie
+    // aus der ACES-Kurve heraus — sonst ist ein Lichtkasten am späten
+    // Nachmittag genauso hell wie der Kies daneben.
+    new THREE.MeshBasicMaterial({ color: 0xffd79a, toneMapped: false })
   );
   box.position.y = 0.69;
   group.add(box);
@@ -5022,7 +5074,7 @@ function createZenEnvironment() {
       // gehört in die Tonart der Umgebung: warm mit kühlem Gegenpol.
       color: 0xc9bfc4,
       lit: 0xffe3b4,
-      strength: 0.85,
+      strength: 1.0,
       // Ganzzahliger Umlauf, sonst steht eine senkrechte Naht am Himmel.
       scale: [4, 3.1],
       // Kein Zirrus unter 3° und keiner über 45°: unten frisst ihn der Dunst,
@@ -5050,9 +5102,22 @@ function createZenEnvironment() {
   // Helligkeit, sondern im Farbton. Vorher war beides warm, und der Schatten
   // war schlicht ein dunklerer Sand. Die Bodenfarbe der Hemisphäre ist das
   // Rücklicht des Kieses und bleibt warm.
-  group.add(new THREE.HemisphereLight(0xbcd2ee, 0xa8875f, 0.85));
+  // **Zweiter Anlauf: Der erste hat abgedunkelt statt Licht zu geben.**
+  // Gemessen fiel der Anteil über L 200 von 31,2 % auf 1,7 %, und die
+  // Schattenseiten der Findlinge sackten unter L 30 (Anteil 1,6 % → 21,4 %).
+  // Der Fehler war, die Grundhelligkeit zu senken **und** die Sonne nur
+  // moderat anzuheben: Bei 19,4° trifft sie eine waagerechte Fläche mit
+  // cos 71° = 0,33, sie muss also rund dreimal so stark sein wie bei
+  // Mittagsstand, um dieselbe Flächenhelligkeit zu erreichen.
+  //
+  // Die Hemisphäre trägt jetzt mehr, damit der Schatten Form behält statt
+  // abzusaufen — sie ist die einzige Quelle dort. Kühl bleibt sie: Der
+  // Farbunterschied zwischen besonnt und verschattet ist die halbe Tiefe.
+  group.add(new THREE.HemisphereLight(0xb3cdf0, 0xa8875f, 1.05));
 
-  const sun = new THREE.DirectionalLight(0xffd9a0, 3.1);
+  // 4,6 waren zu viel: Der Kies stand danach als gebleichte Fläche im Bild.
+  // 4,1 hält die Lichtseite oben, ohne die Zeichnung zu verlieren.
+  const sun = new THREE.DirectionalLight(0xffd9a0, 4.1);
   sun.position.set(...ZEN_SONNE);
   group.add(sun);
 
@@ -5086,7 +5151,12 @@ function createZenEnvironment() {
     // und steht 3 cm über dem Sand — bei 3 cm Versatz wird also über ihn
     // hinweg abgetastet, und er wirft nichts. Im Bild sah das aus wie ein
     // vergessener Schattenwerfer, war aber ein Zahlenwert.
-    sh.normalBias = 0.008;
+    // 0,008 waren immer noch zu viel: Am Bambusfuß stand ein 2 bis 4 Pixel
+    // breiter heller Spalt zwischen Halm und Schattenansatz. Ein Halm ist
+    // 7 cm dick; der Versatz entlang der Normalen darf nicht in die
+    // Größenordnung des Objekts kommen. Schattenakne hat der Prüfer im selben
+    // Durchlauf ausdrücklich nicht gefunden, es ist also Luft nach unten.
+    sh.normalBias = 0.0025;
     sh.camera.updateProjectionMatrix();
   }
 
@@ -5102,9 +5172,15 @@ function createZenEnvironment() {
   // Insel. Der erste Anlauf hatte einen Verlauf mit Skalierung 11 auf 38 m
   // Abstand: 16° am Himmel, mit sichtbar hartem Rand. Das war keine Sonne,
   // sondern eine Scheibe.
+  // **Additiv plus voller Kern ergibt reines Weiß.** Der erste Anlauf hatte
+  // den Kern auf Alpha 1,0 und additive Mischung: 20,7 % der Scheibenfläche
+  // standen danach auf exakt (255,255,255). Eine Sonne bei 19,4° ist nicht
+  // weiß, sie ist golden — und ausgefressen ist sie erst recht nicht, weil
+  // dann die Farbe verschwindet, die sie tragen soll. Kern jetzt gedeckelt und
+  // wärmer, dafür der Hof kräftiger.
   for (const [scale, innen, aussen] of [
-    [1.9, 'rgba(255,253,246,1)', 'rgba(255,238,200,0.85)'],
-    [13.0, 'rgba(255,228,178,0.30)', 'rgba(255,198,132,0.10)'],
+    [2.2, 'rgba(255,240,205,0.78)', 'rgba(255,214,150,0.6)'],
+    [15.0, 'rgba(255,222,168,0.34)', 'rgba(255,192,124,0.12)'],
   ]) {
     const sprite = new THREE.Sprite(
       new THREE.SpriteMaterial({
@@ -5128,7 +5204,7 @@ function createZenEnvironment() {
   // Warmes Gegenlicht aus der Gegenrichtung, das die Silhouetten von der
   // Schattenseite her ablöst. Schwächer als zuvor: Es soll die Kante zeigen,
   // nicht die Fläche aufhellen.
-  const rim = new THREE.DirectionalLight(0xffcf9c, 0.3);
+  const rim = new THREE.DirectionalLight(0xffcf9c, 0.5);
   rim.position.set(15, 3.5, 13);
   group.add(rim);
 
@@ -5450,6 +5526,7 @@ function createZenEnvironment() {
   pond.name = 'zen-wasser';
   group.add(pond);
   // Steinrand um den Teich
+  const uferSteine = [];
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2;
     const s = makeZenStone(rand, 0.12 + rand() * 0.08, 0x8f8880);
@@ -5481,9 +5558,10 @@ function createZenEnvironment() {
       }
       col.needsUpdate = true;
     }
-    // Derselbe Granit wie die Findlinge, also derselbe Sammler.
-    findlinge.push(s);
+    s.material = zenNassGranite();
+    uferSteine.push(s);
   }
+  group.add(...verschmelzeObjekte(uferSteine, 'zen-ufersteine'));
   group.add(...verschmelzeObjekte(findlinge, 'zen-findlinge'));
   // Seerosenblätter + Lotusblüten auf der Wasseroberfläche
   const seerosen = [];
@@ -5632,10 +5710,19 @@ function createZenEnvironment() {
   torii.position.set(-2, 0, -9);
   torii.rotation.y = 0.35;
   group.add(torii);
-  const toriiShadow = makeBlobShadow(0.85, 0.45);
-  toriiShadow.position.set(-2, 0.015, -9);
-  toriiShadow.scale.x *= 2; // länglich unter dem Tor
-  kontaktschatten.push(toriiShadow);
+  // **Ein Fleck in der Mitte des Tors verdunkelt nichts.** Der Prüfer hat am
+  // Torii gemessen: Der Pfosten endet bei L 48, zwei Pixel weiter steht der
+  // volle Sonnensand mit 181 — kein Ansatz, das Tor schwebt. Der Grund war die
+  // Lage: Der Fleck saß in der Mitte des Tors, die Pfosten stehen aber 1,2 m
+  // links und rechts davon und damit außerhalb. Kontaktverdunklung gehört an
+  // den **Fuß**, nicht in den Schwerpunkt.
+  for (const sx of [-1, 1]) {
+    const fuss = makeBlobShadow(0.42, 0.6);
+    const wx = -2 + Math.cos(0.35) * sx * 1.2;
+    const wz = -9 - Math.sin(0.35) * sx * 1.2;
+    fuss.position.set(wx, 0.015, wz);
+    kontaktschatten.push(fuss);
+  }
 
   // Dreizehn Kontaktschatten, ein Draw-Call. Sie liegen alle flach auf dem
   // Sand, tragen dieselbe Textur und unterscheiden sich nur in Größe, Ort und
@@ -5759,20 +5846,20 @@ function createZenEnvironment() {
     // Der Kies, der Saum und das Moos liegen flach auf dem Boden – sie können
     // nichts beschatten außer sich selbst, kosten in der Schattenkarte aber
     // denselben Zeichenaufruf wie ein Baum.
-    // **Streulicht durch das Laub.** Die Hüllkörper der Kronen sind
-    // undurchsichtige Blasen; wirft die Krone mit ihnen, fällt ein
-    // geschlossener dunkler Fleck auf den Kies. Wirft nur das Blattwerk — die
-    // Karten mit Alpha-Test, für die `foliageMaterial()` ein eigenes
-    // Tiefenmaterial mitbringt —, entsteht das gesprenkelte Licht unter einem
-    // Baum. Die Hüllkörper bleiben sichtbar und verdecken weiterhin die
-    // Durchsicht; sie stehen nur nicht mehr in der Schattenkarte.
-    const nurEmpfangen = new Set([
-      'zen-sand',
-      'zen-saum',
-      'zen-moos',
-      'zen-sakura-blobs',
-      'zen-ahorn-blobs',
-    ]);
+    // **Streulicht durch das Laub — zweiter Anlauf.**
+    //
+    // Der erste nahm die Hüllkörper der Kronen aus der Schattenkarte, damit nur
+    // die alphageprüften Blattkarten werfen. Gedacht war gesprenkeltes Licht;
+    // gemessen kam ein Kronenschatten von Δ 18 L heraus, während der bloße
+    // Stamm danebén Δ 68 warf — die Krone warf **schwächer als ihr eigener
+    // Stamm**, also genau verkehrt herum. Die Karten decken aus Sonnenrichtung
+    // schlicht zu wenig Fläche, um allein einen Baumschatten zu tragen.
+    //
+    // Der Hüllkörper wirft deshalb wieder mit. Was dabei entsteht, ist der
+    // Schatten eines Baumes: ein dichter Kern und ein aufgelöster Saum aus den
+    // Karten. Der Kern ist keine Blase, weil die Hüllkörper mehrere kleine
+    // Schöpfe sind und nicht eine Kugel.
+    const nurEmpfangen = new Set(['zen-sand', 'zen-saum', 'zen-moos']);
     const garnicht = new Set(['zen-kontaktschatten']);
     for (const kind of group.children) {
       kind.traverse((o) => {
