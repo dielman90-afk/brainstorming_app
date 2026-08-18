@@ -55,7 +55,7 @@ entscheidenden Größen.
 | 5 Wasser | gebaut, auf direkte Anweisung statt als förmlicher Paketdurchlauf |
 | 6 Wolken & Tiefe | abgeschlossen |
 | 7 Leben | abgeschlossen, **sieben Durchläufe statt der zulässigen vier** – Begründung unten |
-| 8 Mini-Inseln | in Arbeit |
+| 8 Mini-Inseln (+ Nacharbeit aus der Prüfung zu 6/7) | abgeschlossen, **nicht bestanden** – 8 offene Punkte |
 | 9 Performance-Pass | offen |
 
 **Budget durchgehend eingehalten:** 93 von 120 Draw-Calls, 173 667 von 350 000
@@ -660,3 +660,168 @@ Promille der Bildfläche bedecken.
 1280×720; ein Vogel darin ist fünfzehn Pixel groß. Ob seine Silhouette liest
 oder ob er ein schwarzer Strich ist, war ohne dieses Werkzeug nicht
 entscheidbar.
+
+---
+
+## Prüfung nach Paket 6/7: 1 von 8 Kriterien bestanden
+
+Bestanden: **Farbharmonie**. Der Prüfer hat belegt, dass die Umstellung der
+Schmetterlinge die richtige war – im Stand davor lag in `5-backlight` ein
+gelber Fleck von 61 × 40 px bei (278,84), der einzige echte Farbausreißer der
+Szene; er ist weg.
+
+Nicht bestanden: Silhouette, Komposition, Licht, Materialtrennung,
+Tiefenstaffelung, Bewegung, Kein-Programmierer-Tell.
+
+### Zwei echte Fehler, die ich ausgeliefert hatte
+
+**1. Die Wolken wurden von unten beleuchtet.** Drei unabhängige Messungen bei
+jeweils oben stehender Sonne:
+
+| Bild | Spalte | Oberkante | Inneres | Unterkante |
+| --- | --- | ---: | ---: | ---: |
+| `5-backlight` | x=450 | 191,2 | 174–180 | **203,3** |
+| `2-waterfall` | x=180 | 192,5 | 166,1 | **200,4** |
+| `1-eyelevel` | x=1070 | 194,9 | 184,4 | **213,0** |
+
+Ursache: `CLOUD_MATERIAL` war ein `MeshStandardMaterial`. Über den
+einbebackenen Scheitelfarben lag damit die volle Szenenbeleuchtung –
+einschließlich der starken Aufhellung von unten, die in Paket 2 für den
+Inselkiel eingeführt wurde. Der Kommentar in `makeCloud` beschrieb genau diese
+Gefahr; das Material wurde trotzdem nie umgestellt. Die flache
+Haufenwolken-Unterkante war geometrisch korrekt gebaut (Abweichung 7 px auf
+65 px Breite, vom Prüfer nachgemessen) und wurde als Leuchtfläche gerendert.
+
+Behoben: `MeshBasicMaterial`. Eine Wolke ist kein Lambert-Körper; ihre
+Helligkeit kommt aus Streuung. Jetzt ist der Bake die ganze Wahrheit und keine
+Lichtquelle kann die Richtung mehr überstimmen.
+
+**2. Die Tiefenstaffelung war wirkungslos.** Gemessen: naher Findling L=106,8
+gegen Fels der fernen Mini-Insel L=105,0 – 1,8 Stufen über zig Meter. In
+`1-eyelevel` war der ferne Körper mit L=83,2 sogar *dunkler* als der nahe mit
+L=102,7.
+
+Ursache: `Fog(near = 10 * WORLD_SCALE)` – der Dunst begann 40 m vor der Kamera,
+und dort ist der interessante Teil der Szene zu Ende. Die nahen Mini-Inseln
+stehen 48 m entfernt und bekamen 6 %. Zusätzlich rechnet three mit
+`vFogDepth = -mvPosition.z`, also der Tiefe ENTLANG DER BLICKACHSE: Eine Insel,
+die 46° seitlich steht, hat bei 82 m Abstand nur 57 m Tiefe.
+
+Behoben: `Fog(6 * WORLD_SCALE, 32 * WORLD_SCALE)`.
+Messwert danach: 101,8 gegen **129,3** – der ferne Körper ist jetzt heller und
+kühler als der nahe.
+
+### Ein Befund, dem ich nach Messung widerspreche
+
+Der Prüfer führte als Mangel 13: „Kronen-Sprenkel als Flimmerquelle –
+6,8 % der Kronenpixel über L=190, auf der Quest ein Kriechen."
+
+Ich habe die hellen Pixel in genau seinem Bereich (540,100)–(670,360)
+ausgelesen. Die hellsten sind **(211,227,236)** bei mittlerer Sättigung 0,186 –
+das ist **Himmel**, der zwischen den Ästen durchscheint, nicht leuchtendes
+Laub. Pixel mit L > 150, bei denen Blau *nicht* der stärkste Kanal ist, gibt es
+**325 von 34 191**, also 0,95 %.
+
+Eine offene Koniferenkrone SOLL Himmel durchlassen. Der Messbereich enthielt
+den Hintergrund; die Kennzahl misst ihn mit. Der Mangel besteht in dieser Form
+nicht.
+
+**Aber:** Bei der Prüfung dieser Behauptung ist ein anderer Fehler aufgefallen.
+Der Himmelssaum stand auf den Blattkarten bei `strength 0,55, power 1,9`. Eine
+Blattkarte ist eine ebene Fläche mit konstanter Normale – der Fresnel-Term wird
+darauf zur Flächenhelligkeit statt zur Kante, derselbe Fehler wie seinerzeit am
+Fels. Im Bildvergleich lag über der ganzen Krone ein milchig-blauer Schleier.
+Auf `0,26 / 4,2` reduziert; die Grüntöne sind sichtbar klarer. **Richtige
+Änderung, falsche Begründung** – das gehört so ins Protokoll.
+
+---
+
+## Paket 8 – Mini-Inseln (mit Nacharbeit aus der Prüfung)
+
+### Mini-Inseln
+
+- **Die Treppe war Unterabtastung, kein Formfehler.** Die Flanken bestanden aus
+  acht bis zehn gleich hohen, waagerechten Absätzen – „gestapelte Regalbretter",
+  eine gedrehte Kiste. Die Schichtbänke sind ein Sägezahn über die
+  Flankenkoordinate, abgetastet mit `sideRings * detail` Ringen. Bei
+  `detail 0,55` sind das 20 Ringe für bis zu neun Bänke: knapp zwei Stützstellen
+  je Bank. Bei dieser Abtastung KANN der Sägezahn nicht als Sims lesen, er
+  kippt in eine Treppe um. `strataRate` ist jetzt an die Ringzahl gekoppelt
+  (mindestens 4,5 Ringe je Bank), was inhaltlich ebenfalls richtig ist: Was
+  weiter weg steht, zeigt weniger, aber größere Formen.
+- **Schieflage.** Fünf Inseln, deren Deckel alle exakt waagerecht liegen, sind
+  die auffälligste Regelmäßigkeit am Horizont. Nichts, was frei im Raum treibt,
+  richtet sich nach der Weltachse aus.
+- **Tiefe je Insel verschieden** (7,2 … 9,6 statt einheitlich 6,4). Vorher
+  hatten alle fünf dasselbe Verhältnis und lasen sich als Serienteil.
+
+### Nacharbeit aus der Prüfung
+
+| Mangel (Rang des Prüfers) | Behebung | Messwert |
+| --- | --- | --- |
+| **1** Identische Dellen als Raster über allen Felskörpern | Eigene Felskarte `cliffMaps()` **ohne Absplitterungen**. Die Granitkarte des Dojo-Gartens ist für 40-cm-Kacheln auf Gartensteinen gezeichnet; auf einer 40-m-Flanke kehren ihre Muschelabplatzer dutzendfach wieder. Ein Rauschfeld wiederholt sich auch, aber unauffällig – eine erkennbare Form wiederholt sich auffällig. Stattdessen zwei sich kreuzende Rissscharen aus geriffeltem Rauschen; das füllt zugleich die seit Paket 3 offene Spektrallücke zwischen 4-px-Korn und Facettenmaßstab. | Raster im Bild nicht mehr auffindbar |
+| **2/3** Wolken von unten beleuchtet, kein Silberrand | unbeleuchtetes Material, siehe oben | – |
+| **4** `6-groundcover` zeigt keinen Bodenbewuchs (69,8 % Fels) | Findlinge fallen nicht mehr in den Arbeitsbereich. Bis `ISLAND_FLAT_R` (0,58 des Radius) ist die Fläche bewusst eben – dort steht der Nutzer und dort legt die App die Karten ab. Vorher landete gut jeder dritte Findling bei 0,30…0,60, also mitten darin. **Das war nicht nur ein Bildfehler, sondern hätte in der Anwendung zwischen Nutzer und Karten gestanden.** | Der Block ist aus dem Bild verschwunden; Gräser, Blüten, Pilze, Büsche, Bach und Bäume sind sichtbar |
+| **7** Wolken durchdringen Mini-Inseln (3 von 6 Bildern) | Rückweisung beim Platzieren: bis zu 14 Versuche gegen die Inselplätze | keine Durchdringung mehr |
+| **8** Kein atmosphärischer Dunst | Nebelreichweite, siehe oben | 89,0 → **129,3** gegen nahen Fels bei 101,8 |
+| **9** Kein Kontaktschatten unter Grasbüscheln | `addGrassDecoration` hatte als einziger Streuer keine Kontaktverdunklung – und die Horste stehen dem Nutzer am nächsten. Alle zusammen ein Draw-Call. | Boden am Horstfuß 162,0 gegen 177,3 daneben (vorher 181,1 gegen 180,1, also **1,0**) |
+| **11** Zwei unvereinbare Felsmaterialien in einem Bild | Findlinge und Flanke tragen jetzt dieselbe Karte | – |
+| **14** Kahler Randstreifen am Inselrand | Streuradius von 0,90 auf 0,96 der Kontur; die steile Kante hält `shape.frei` ohnehin frei | Bewuchs reicht bis an die Abbruchkante |
+| **16** Ranke als senkrechte Kette identischer Kugeln | Der seitliche Versatz wirkte stur auf die Z-Achse statt tangential zur Wand, und die Blattbüschel saßen in einem festen Raster. Jetzt tangentialer Versatz mit S-Krümmung, Büschelabstände in Zufallsschritten (Trauben statt Perlenkette), Größenspanne 0,09…0,30 statt 0,17…0,28. | – |
+| **19** Wolkengrößen uniform (Faktor 3,3 statt 18) | Rangverteilung: 14 % Heldenwolken, 38 % flache Schleier, Rest Mittelmaß | – |
+| **20** Sonne neutralweiß | warmer Kern `rgba(255,247,222)` statt `rgba(255,253,240)` | – |
+
+### Eigener Fehler beim Nachkalibrieren
+
+Nach der Umstellung auf ein unbeleuchtetes Wolkenmaterial habe ich die
+Grundhelligkeit auf 0,92 gesetzt. Damit lag schon der Körper der Wolke im
+flachen Ast der ACES-Kurve: Eine nahe Wolke maß **(242,242,241) mit dreizehn
+Luminanzstufen Gesamtspanne** – ein weißes Blatt Papier. Auf 0,62 zurück; der
+Gipfel ohne Silberrand liegt jetzt bei 1,14, der Schatten bei 0,34.
+
+### Offene Punkte aus der Prüfung, die nicht behoben sind
+
+| Punkt | Befund des Prüfers | Weitergabe |
+| --- | --- | --- |
+| `4-aerial` zu 77,1 % leerer Himmel | p50 = 197,2, p99 = 211,2 – der Median liegt fast auf dem Maximum | Kadrierung; die Kameras sind laut Auftrag unveränderlich |
+| Vordergrundwiese leer | Region (0,470)–(700,720): Detailanteil nur 8,70 %, 6 Luminanzstufen über 550 px | Schlusspass |
+| Wasser ohne Ufer, ohne Tiefe, ohne Nässe | Bach als flaches Band mit messerscharfer konstanter Kante; Stein bei (390,455) exakt horizontal abgeschnitten | Paket 5 erneut |
+| Büsche als Konfetti gleich großer Ellipsen | kein Umriss, keine Masse, keine obere Kante | Paket 4 erneut |
+| Insel-Silhouette am Horizont schnurgerade | `5-backlight` x=384…1216 durchgehend y=527…546 | schwierig: die Innenfläche muss eben bleiben, weil `locomotion.js` keine Geländeabfrage hat |
+| Schmetterlinge nicht auffindbar | ~10 × 9 px, farblich identisch mit Wiesenblüten | die Korrektur von 70 cm auf 9 cm ist maßstäblich richtig und über das Wirkungsziel hinausgeschossen |
+| Vögel ohne Innenzeichnung | einfarbig (48,65,81) über die ganze Ausdehnung | bewusst: eine Silhouette in 20 m Höhe |
+| Halbschattenbreite inkonsistent | 5 px gegen 20 px, Auflösungsgrenze der Schattenkarte | Schlusspass |
+
+### Messwerte Paket 8
+
+| | vor Paket 8 (`run-p7-07`) | Paket 8 (`run-p8-10`) | Budget |
+| --- | ---: | ---: | ---: |
+| Draw-Calls env-island | 76 | **77** | 120 |
+| Dreiecke Szene | 206 390 | 219 419 | 350 000 |
+| Texturspeicher | 11,83 MB | **11,83 MB** | 60 MB |
+| Shader-Programme | 29 | 30 | – |
+| Konsole | sauber | sauber | – |
+| Build | grün | grün | – |
+| Andere vier Umgebungen | – | unverändert | – |
+
+Die Felskarte kostet **keinen** zusätzlichen Texturspeicher: Sie ersetzt die
+Granitkarte auf den Inselobjekten, und die Granitkarte bleibt ohnehin für das
+Dojo geladen.
+
+### Harness
+
+`tools/screenshots.mjs`: Zeitgrenze für Einzelbilder auf 120 s. Das Dojo ist
+die teuerste der fünf Umgebungen und hat unter SwiftShader die Vorgabe von 30 s
+gerissen, was einen ganzen Durchlauf abgebrochen hat. Reine Harness-Geduld,
+ohne Aussage über die Laufzeit auf der Quest.
+
+`tools/crop.mjs` und `tools/region.mjs`: Ausschnittsvergrößerung ohne Glättung
+und Kennzahlen eines Bildbereichs. Ohne das zweite wäre der Kronen-Befund nicht
+zu widerlegen gewesen.
+
+### Eigener Verfahrensfehler
+
+Ich habe während eines laufenden Messdurchlaufs an `src/` gearbeitet. Vite hat
+neu geladen, der Durchlauf war wertlos und musste verworfen werden. Derselbe
+Fehler ist in diesem Projekt schon einmal protokolliert. Betroffene Artefakte
+(`run-p8-06`) wurden gelöscht statt ausgewertet.
