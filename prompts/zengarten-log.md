@@ -7,7 +7,7 @@ Fortgeschrieben in **jedem** Durchlauf. Neueste Einträge oben.
 | Größe | Grenze | Ausgang (zen-00) | jetzt |
 | --- | ---: | ---: | ---: |
 | Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **90 ✅** |
-| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 60 514 ✅ |
+| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 67 970 ✅ |
 | Texturspeicher | ≤ 60 MB | 29,77 MB | 21,52 MB ✅ |
 | Shader-Programme | – | 20 | 30 |
 
@@ -606,3 +606,81 @@ Die Lichtspitzen kommen jetzt von den Dingen, die welche haben dürfen:
 * **Himmel.** Wolkenschwelle gesenkt, Stärke auf 1,0 — und eine **senkrechte
   Naht** beseitigt: Die zweite Wolkenoktave lief mit Faktor 2,31 über 4 Umläufe,
   also 9,24 — kein ganzer Umlauf. Jetzt 3,0 mal 4 gleich 12.
+
+---
+
+## Prüferbefund zu Paket 4 (Wasser) und Paket 2 (Sand, 2. Anlauf)
+
+**Paket 4 „Wasser": nicht bestanden (2 von 5).**
+
+| Teilaufgabe | Urteil | Beleg |
+| --- | --- | --- |
+| Ufer | teilweise | Nassstreifen 25–45 px, klar vom Sand getrennt (L 100–112 / Sättigung 0,45–0,51 gegen 150–180 / 0,20–0,25), aber ohne Nässegefälle: an der Wasserlinie L 106,1, 14 px landeinwärts 112,2 — außen **heller** statt dunkler |
+| Tiefenton | **nein** | Wasserkörper x 450–690: 11 L Spannweite auf 240 px; radial ist die Mitte 4,2 L **heller** als das ufernahe Wasser |
+| Nässe an den Steinen | **nein** | Uferstein Krone L 42,6 gegen Fuß 36,2 — 6 L, kein Sättigungsanstieg, keine Wasserlinienmarke |
+| Wasserlinie | halb | links/fern eine Rampe über 10–14 px, aber bei x 640–710 eine **harte schwarze Naht**, 43–61 L unter beiden Nachbarn, facettiert |
+| Spiegelung | **nein** | Anteil über L 190 auf der ganzen Fläche 0,0 %; die Laterne steht mit L 202,3 unmittelbar daneben, das Wasser darunter misst 107 |
+
+Deutlich besser: die Koi. Spitzensättigung 0,878 → 0,299, Spitzenhelligkeit
+210,0 → 141,4, und die Spalte durch den Teich ist nicht mehr monoton.
+
+**Paket 2 „Sand", zweiter Anlauf: nicht bestanden (3 von 6).**
+
+Bestanden: **Sägezahnprofil** (Flankenverhältnis 1,5 : 1 mit scharfem Grat,
+vorher eine gerundete Welle), **Moiré** (Streifen-RMS 7,89 → 6,24, das
+Flimmergewebe ist weg), **Rillenabstand** (Streuung 7,4 / 1,9 / 3,0 % →
+62,6 / 16,3 / 22,9 %).
+
+Nicht bestanden: **Musterabbruch** (6-facher Struktursprung über 4 px mit
+dunkler Naht — jetzt ein Bogen statt einer Geraden, aber unverändert hart),
+**tote Fernzone** (strukturloser Anteil 23,9 % → **35,1 %**, also schlechter),
+**Moosrand** (2-px-Kante, unangetastet — der Moosrand ist erst in Durchlauf 7
+angefasst worden).
+
+Neu und schlechter: eine **schwarze Naht** an der vorderen rechten Wasserlinie,
+**Treppenstufen** auf den dünnen Rillen der Mitteldistanz, und der **Rücken
+zwischen den Rillen** ist im Nahfeld eine tote Ebene (185–190 L, ±5 L über
+50 px).
+
+---
+
+## Durchlauf 7 — Paket 5: Bepflanzung
+
+**Messwerte:** Draw-Calls 90 unverändert, Dreiecke 60 514 → 67 970,
+Texturspeicher 21,52 MB unverändert, Konsole sauber. Regression: `env-night`
+bitgleich, `env-dojo` Δmax 4 auf 0,010 %, `env-matrix` Δmax 2, `env-island` im
+Eigenrauschen.
+
+### Was sich sichtbar geändert hat
+
+* **Die Bäume haben Astwerk.** Der Prüfer hatte gemessen: Der Sakura-Stamm
+  zeigte über 70 px Höhe exakt denselben Wert, und zwischen Stamm und Krone lag
+  nichts — „Brokkoli auf Stiel ohne einen einzigen Ast". Jetzt führt ein
+  verjüngter Ast zu **jedem** Kronenansatz, dazu je ein Nebenzweig; alles im
+  selben Mesh wie der Stamm, also ohne einen einzigen Draw-Call mehr.
+* **Die Krone ist um einen halben Meter gestiegen.** Ohne das wäre vom Astwerk
+  nichts zu sehen: Die Blattmasse begann bei 1,78 m, der Stamm endete bei 1,80.
+  Ein Baum liest sich über die Lücke zwischen Stamm und Krone.
+* **Bambus mit Verjüngung und Bogen.** Ein Halm ist unten doppelt so dick wie
+  oben, neigt sich und biegt sich unter dem eigenen Schopf; die Internodien
+  sind unten kurz, in der Mitte lang, oben wieder kürzer. Die Schöpfe sitzen an
+  der **gebogenen** Spitze und gestaffelt über das obere Drittel — vorher hingen
+  sie senkrecht über dem Fuß und damit neben dem Halm in der Luft.
+* **Moos als Polster.** Fünfeinhalb Zentimeter Aufbauhöhe mit Buckeln, am Rand
+  auf null auslaufend. Vorher eine Scheibe mit zwei Pixeln Kante.
+* **Farbharmonie der Grüntöne.** Die Seerose stand bei Farbton 119° und
+  Sättigung 0,51, während das übrige Spektrum der Szene zwischen 9° und 41°
+  liegt — ein Fremdkörper. Sie bekommt jetzt denselben olivgetönten Grundton wie
+  das Moos.
+
+### Mein Fehler in diesem Durchlauf
+
+Der erste Anlauf am Astwerk hat den Baum **schweben** lassen: Ich habe die
+Stammgeometrie auf 0…1,8 verschoben, die Äste um −0,9 versetzt und dann das
+Ganze noch einmal um +0,9 — der Stammfuß stand danach auf 0,9 m. Sofort im
+Bild gesehen und behoben; die Astkoordinaten sind jetzt durchweg
+Baum-Weltkoordinaten ohne Zwischenversatz.
+
+Und ein zweiter: Die Astabschnitte waren offene Zylinder ohne Deckel. Die
+Innenwand wird rückseitig weggeschnitten, und die Astspitzen sahen aus wie
+abgesägte Rohre, durch die man den Himmel sieht.

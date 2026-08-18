@@ -366,6 +366,95 @@ class GeoBucket {
   }
 }
 
+// --- Astwerk ----------------------------------------------------------------
+//
+// **Der Prüfer hat es so beschrieben: „Sakura als Brokkoli auf Stiel ohne einen
+// einzigen Ast".** Nachgemessen war der Stamm über 70 Pixel Höhe und über die
+// volle Breite exakt derselbe Wert — ein Keil, keine Röhre, und zwischen ihm
+// und der Krone lag nichts.
+//
+// Ein Baum liest sich als Silhouette über die **Astlage**: wo die Krone
+// ansetzt, muss ein Ast hinführen, und er muss sich verjüngen und teilen. Die
+// Ansatzpunkte der Krone stehen ohnehin schon fest (`baueKrone`), also führt
+// von der Stammgabel ein Ast zu jedem von ihnen.
+//
+// Gebaut wird aus drei geraden Abschnitten je Ast statt aus einer Röhre entlang
+// einer Kurve: Der Unterschied ist bei zwei Metern Astlänge nicht zu sehen, und
+// eine Röhre mit gleichbleibendem Durchmesser wäre falscher als drei
+// verjüngte Zylinder. Alles wird mit dem Stamm zu einem Mesh verschmolzen,
+// kostet also keinen Draw-Call.
+function astAbschnitt(von, nach, r0, r1, seiten = 6) {
+  const richtung = new THREE.Vector3().subVectors(nach, von);
+  const laenge = richtung.length();
+  // **Nicht offen.** Der erste Anlauf ließ die Zylinder ohne Deckel; die
+  // Rückseite der Innenwand wird weggeschnitten, und die Astspitzen sahen aus
+  // wie abgesägte Rohre, durch die man den Himmel sieht.
+  const geo = new THREE.CylinderGeometry(r1, r0, laenge, seiten, 1, false);
+  geo.translate(0, laenge / 2, 0);
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    richtung.clone().normalize()
+  );
+  geo.applyQuaternion(q);
+  geo.translate(von.x, von.y, von.z);
+  return geo;
+}
+
+// Ein Ast von `von` nach `nach`, in drei Abschnitten mit einer Ausbuchtung zur
+// Seite. `bogen` ist der seitliche Ausschlag in Metern.
+function ast(von, nach, r0, r1, bogen, achse) {
+  const teile = [];
+  const p = (t) => {
+    const q = new THREE.Vector3().lerpVectors(von, nach, t);
+    // Sinus über die Länge: null an beiden Enden, größter Ausschlag in der Mitte
+    q.addScaledVector(achse, Math.sin(t * Math.PI) * bogen);
+    return q;
+  };
+  const stufen = [0, 1 / 3, 2 / 3, 1];
+  for (let i = 0; i < 3; i++) {
+    const t0 = stufen[i];
+    const t1 = stufen[i + 1];
+    teile.push(astAbschnitt(p(t0), p(t1), r0 + (r1 - r0) * t0, r0 + (r1 - r0) * t1));
+  }
+  return teile;
+}
+
+// Astwerk zu einer Liste von Kronenansätzen. `gabel` ist der Punkt am Stamm, an
+// dem sich der Baum teilt.
+function astwerk(gabel, ansaetze, { seed = 7, stammR = 0.09, spitzeR = 0.028 } = {}) {
+  const rand = mulberry32(seed);
+  const teile = [];
+  const g = new THREE.Vector3(...gabel);
+  for (const [x, y, z, r] of ansaetze) {
+    const ziel = new THREE.Vector3(x, y, z);
+    // Der Ast endet etwas unterhalb der Schopfmitte, sonst steckt sein Ende
+    // sichtbar in der Blattmasse.
+    // Der Ast endet **innerhalb** des Schopfes, nicht davor: Ein Ast, der vor
+    // der Blattmasse aufhört, liest als abgebrochener Stumpf.
+    ziel.addScaledVector(new THREE.Vector3().subVectors(ziel, g).normalize(), r * 0.25);
+    // Ausbuchtung senkrecht zur Astrichtung und zur Senkrechten: Ein Ast wächst
+    // nicht auf der kürzesten Verbindung.
+    const richtung = new THREE.Vector3().subVectors(ziel, g).normalize();
+    const achse = new THREE.Vector3().crossVectors(richtung, new THREE.Vector3(0, 1, 0));
+    if (achse.lengthSq() < 1e-4) achse.set(1, 0, 0);
+    achse.normalize().applyAxisAngle(richtung, rand() * Math.PI * 2);
+    const dick = stammR * (0.6 + r);
+    teile.push(...ast(g, ziel, dick, spitzeR * (0.45 + rand() * 0.4), 0.1 + rand() * 0.18, achse));
+    // Ein Nebenzweig je Ast, der vor dem Schopf abgeht — er macht die
+    // Silhouette unregelmäßig, ohne dass man ihn einzeln liest.
+    const abzweig = new THREE.Vector3().lerpVectors(g, ziel, 0.55 + rand() * 0.2);
+    // Der Nebenzweig läuft ebenfalls in die Krone hinein, nicht daneben ins
+    // Leere, und endet spitz.
+    const nebenZiel = abzweig
+      .clone()
+      .addScaledVector(richtung, 0.5 + rand() * 0.35)
+      .addScaledVector(achse, (rand() - 0.5) * 0.45)
+      .add(new THREE.Vector3(0, 0.2 + rand() * 0.25, 0));
+    teile.push(...ast(abzweig, nebenZiel, dick * 0.4, spitzeR * 0.25, 0.06, achse));
+  }
+  return teile;
+}
+
 // --- Fertige Meshes verschmelzen -------------------------------------------
 //
 // `GeoBucket` schreibt beim Hinzufügen die Scheitelfarben neu. Genau die tragen
@@ -4674,23 +4763,53 @@ function bambooMaterials() {
   }
   return { culm: _bambooMat, cards: _bambooCards };
 }
+// **Der Prüfer las den Hain als „acht gerade Stäbe mit Pom-Pom oben".** Drei
+// Dinge fehlten, und alle drei sind an einem Halm sofort zu sehen:
+//
+//   * **Verjüngung.** Ein Bambushalm ist unten doppelt so dick wie oben. Die
+//     alte Fassung hatte über die ganze Länge denselben Radius — das ist ein
+//     Rohr, kein Halm.
+//   * **Bogen.** Bambus steht nicht senkrecht, er neigt sich und biegt sich
+//     unter dem eigenen Schopf. Der Bogen wird über die Segmente aufsummiert,
+//     die Halme sind deshalb auch untereinander verschieden gekrümmt.
+//   * **Nodien in wechselndem Abstand.** Unten kurz, in der Mitte lang, oben
+//     wieder kürzer — bei gleichmäßigem Abstand liest man das Gitter.
 function makeBambooStalk(rand) {
   const geos = [];
-  const segs = 5 + Math.floor(rand() * 4);
-  const rad = 0.035 + rand() * 0.02;
+  const segs = 7 + Math.floor(rand() * 4);
+  const radUnten = 0.036 + rand() * 0.016;
+  // Neigungsrichtung und -stärke je Halm
+  const neigA = rand() * Math.PI * 2;
+  const neig = 0.05 + rand() * 0.13;
   let y = 0;
-  for (let s = 0; s < segs; s++) {
-    const segH = 0.34 + rand() * 0.14;
-    const c = new THREE.CylinderGeometry(rad * 0.96, rad, segH, 7);
-    c.translate(0, y + segH / 2, 0);
+  let x = 0;
+  let z = 0;
+  for (let i = 0; i < segs; i++) {
+    const t = i / segs;
+    // Internodien: kurz, lang, kurz
+    const segH = 0.2 + Math.sin(Math.min(1, t * 1.15) * Math.PI) * 0.3 + rand() * 0.06;
+    const r0 = radUnten * (1 - t * 0.5);
+    const r1 = radUnten * (1 - (t + 1 / segs) * 0.5);
+    // Der Bogen wächst quadratisch mit der Höhe — so hängt die Spitze, nicht
+    // der Fuß.
+    const versatz = neig * t * t * segH * 3.2;
+    const dx = Math.cos(neigA) * versatz;
+    const dz = Math.sin(neigA) * versatz;
+    const c = new THREE.CylinderGeometry(r1, r0, segH, 7);
+    c.rotateZ(-Math.cos(neigA) * neig * t * 1.3);
+    c.rotateX(Math.sin(neigA) * neig * t * 1.3);
+    c.translate(x + dx / 2, y + segH / 2, z + dz / 2);
     geos.push(c);
-    const knot = new THREE.CylinderGeometry(rad * 1.15, rad * 1.15, 0.03, 7);
-    knot.translate(0, y + segH, 0);
-    geos.push(knot);
+    x += dx;
+    z += dz;
     y += segH;
+    const knot = new THREE.CylinderGeometry(r1 * 1.16, r1 * 1.16, 0.026, 7);
+    knot.translate(x, y, z);
+    geos.push(knot);
   }
   const stalk = new THREE.Mesh(mergeGeometries(geos), bambooMaterials().culm);
   stalk.userData.height = y;
+  stalk.userData.spitze = new THREE.Vector3(x, y, z);
   return stalk;
 }
 
@@ -4729,18 +4848,23 @@ function makeBambooGrove(rand, cx, cz) {
   {
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
+    // Die Schöpfe sitzen an der **gebogenen** Spitze, nicht senkrecht über dem
+    // Fuß — sonst hängt das Laub neben dem Halm in der Luft. Und sie sitzen
+    // gestaffelt: Ein Bambusschopf ist keine Kugel obendrauf, sondern Laub, das
+    // über das obere Drittel verteilt ansetzt.
     stalks.forEach((s, i) => {
-      const hoehe = s.userData.height * s.scale.y;
+      const sp = s.userData.spitze;
       for (let k = 0; k < 2; k++) {
+        const t = 1 - k * 0.22;
         q.setFromEuler(new THREE.Euler(0, i * 1.3 + k * 2.4, 0));
         m.compose(
           new THREE.Vector3(
-            s.position.x + (k - 0.5) * 0.16,
-            hoehe - 0.18 - k * 0.26,
-            s.position.z + (k - 0.5) * 0.13
+            s.position.x + sp.x * s.scale.x * t + (k - 0.5) * 0.13,
+            sp.y * s.scale.y * t - 0.1,
+            s.position.z + sp.z * s.scale.z * t + (k - 0.5) * 0.11
           ),
           q,
-          new THREE.Vector3(0.3, 0.34, 0.3)
+          new THREE.Vector3(0.28, 0.3, 0.28)
         );
         schopf.setMatrixAt(i * 2 + k, m);
       }
@@ -4789,24 +4913,28 @@ function mapleMaterials() {
   return { cards: _mapleCards };
 }
 
+const MAPLE_ANSAETZE = [
+  [0, 2.14, 0, 0.46],
+  [0.58, 1.98, 0.18, 0.32],
+  [-0.52, 2.05, -0.24, 0.34],
+  [0.18, 2.38, -0.18, 0.3],
+  [-0.24, 2.3, 0.4, 0.28],
+];
 function makeMaple(rand) {
   const tree = new THREE.Group();
   const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.16, 1.5, 8),
+    mergeGeometries([
+      scaleUV(new THREE.CylinderGeometry(0.075, 0.17, 1.62, 10), 4.5).translate(0, 0.81, 0),
+      ...astwerk([0, 1.28, 0], MAPLE_ANSAETZE, { seed: 0x71a3, stammR: 0.07 }),
+    ]),
     weatheredWoodMaterial({ tone: 0x7d6552, vertexColors: false })
   );
-  trunk.position.y = 0.75;
-  trunk.rotation.z = -0.08;
+  trunk.position.y = 0;
+  trunk.rotation.z = -0.04;
   tree.add(trunk);
   const { cards } = mapleMaterials();
   const krone = baueKrone({
-    ansaetze: [
-      [0, 1.68, 0, 0.46],
-      [0.5, 1.54, 0.15, 0.32],
-      [-0.45, 1.6, -0.2, 0.34],
-      [0.15, 1.92, -0.15, 0.3],
-      [-0.2, 1.84, 0.35, 0.28],
-    ],
+    ansaetze: MAPLE_ANSAETZE,
     seed: 0x71a3 + Math.floor(rand() * 64),
     kartenMaterial: cards,
     kind: 'maple',
@@ -4824,7 +4952,13 @@ function makeMaple(rand) {
 }
 
 // Seerosenblatt (flache Scheibe mit Kerbe) + optional Lotusblüte.
-const LILY_MAT = new THREE.MeshStandardMaterial({ color: 0x3f8f4d, roughness: 0.8, metalness: 0, side: THREE.DoubleSide });
+// **Drei unverbundene Grüntöne waren im Bild.** Der Prüfer hat sie gemessen:
+// Moos bei Farbton 71°, Bambuslaub 76°, Seerose 119° bei Sättigung 0,51 — und
+// das übrige Spektrum der Szene liegt zwischen 9° und 41°. Ein Grün mit 119°
+// und halber Sättigung ist in dieser Tonart ein Fremdkörper. Die Seerose
+// bekommt denselben olivgetönten Grundton wie das Moos und wird nur heller
+// gehalten, weil sie auf dem Wasser liegt und mehr Himmel sieht.
+const LILY_MAT = new THREE.MeshStandardMaterial({ color: 0x5d7a44, roughness: 0.72, metalness: 0, side: THREE.DoubleSide });
 // Blüten- und Kernmaterial der Lotusblüten **modulweit**, nicht je Blüte. Elf
 // Kegel und eine Kugel je Blüte mal drei Blüten waren sechsunddreißig
 // Draw-Calls für ein Detail von zehn Zentimetern; mit geteiltem Material lassen
@@ -5268,7 +5402,7 @@ function createZenEnvironment() {
   // und geht die Farbkarte; das Grün kommt aus `color`.
   const mossMat = mossMaterial();
   mossMat.map = null;
-  mossMat.color.setHex(0x7f9c55);
+  mossMat.color.setHex(0x77894e);
   mossMat.vertexColors = true;
   // Ohne Farbkarte **und** ohne Scheitelfarben ist die Scheibe gleichförmig
   // grün – dieselbe Falle wie beim Inselrasen, einen Absatz weiter unten
@@ -5305,6 +5439,26 @@ function createZenEnvironment() {
     // 1 wären also 18 Kacheln. Für 0,55 m je Kachel muss die Scheibe
     // (2·r Meter breit) über 2·r / (18 · 0,55) UV-Einheiten laufen.
     scaleUV(mossGeo, (2 * mossR) / (18 * 0.55));
+    // **Moos hat Aufbauhöhe.** Der Prüfer hat die Kante gemessen: zwei Pixel
+    // vom Moos zum Sand, keine Höhe, kein Saum — ein flaches Abziehbild. Ein
+    // Moospolster ist ein Kissen von drei bis sechs Zentimetern, das am Rand
+    // ausläuft. Die Scheibe liegt in der XY-Ebene und wird später um −90° um X
+    // gedreht; lokales +Z wird damit zu Welt-+Y.
+    {
+      const pos = mossGeo.attributes.position;
+      const kissen = welligerUmriss(700 + i * 13, 0.5, 5);
+      for (let v = 0; v < pos.count; v++) {
+        const px = pos.getX(v);
+        const py = pos.getY(v);
+        const t = Math.min(1, Math.hypot(px, py) / mossR);
+        const a = Math.atan2(py, px);
+        // Kuppel, am Rand auf null, mit Buckeln darin
+        const hoehe = 0.055 * Math.pow(1 - t * t, 0.65) * kissen(a * 1.7);
+        pos.setZ(v, hoehe);
+      }
+      pos.needsUpdate = true;
+      mossGeo.computeVertexNormals();
+    }
     bakeVertexShade(mossGeo, (x, y, z) => {
       const rand2 = Math.min(1, Math.hypot(x, z) / mossR);
       // Zum Rand hin heller und ausdünnend, dazu Flecken.
@@ -5632,7 +5786,32 @@ function createZenEnvironment() {
   // den Karten als Tiefe lesen statt als Ball. Darüber liegt eine Instanz je
   // Blob mit echten Blütenkarten samt Wind und Transluzenz.
   const sakura = new THREE.Group();
-  const trunkGeo = new THREE.CylinderGeometry(0.14, 0.2, 1.8, 8);
+  // **Die Krone ist um einen halben Meter gestiegen.** Vorher saß sie direkt
+  // auf dem Stamm — selbst mit Astwerk wäre davon nichts zu sehen gewesen,
+  // weil die Blattmasse bei y = 1,78 anfing und der Stamm bei 1,8 endete. Ein
+  // Baum liest sich aber über die Lücke zwischen Stamm und Krone: Dort steht
+  // das Astwerk, und dort sieht man den Himmel hindurch.
+  const SAKURA_ANSAETZE = [
+    [0, 2.62, 0, 0.62],
+    [0.72, 2.42, 0.26, 0.44],
+    [-0.6, 2.54, -0.35, 0.48],
+    [0.35, 2.92, -0.23, 0.4],
+    [-0.35, 2.82, 0.46, 0.36],
+    [0.12, 2.3, 0.58, 0.34],
+  ];
+  // Stamm und Astwerk in **einem** Mesh: ein Ast zu jedem Kronenansatz plus je
+  // ein Nebenzweig. Alle Koordinaten sind Weltkoordinaten des Baums, der Stamm
+  // steht also von 0 bis 1,95 und die Äste setzen bei 1,55 an. Der erste
+  // Anlauf hatte die Geometrie zusätzlich um 0,9 verschoben und den Baum damit
+  // schweben lassen.
+  // Die Maserung von `weatheredWoodMaterial` läuft in V, also längs des
+  // Zylinders. Über 1,95 m Stamm liegt sonst **eine** Kachel — aus zwei Metern
+  // ist das eine glatte Fläche. Fünf Umläufe ergeben Rindenstruktur in der
+  // Größenordnung, in der man sie sieht.
+  const trunkGeo = mergeGeometries([
+    scaleUV(new THREE.CylinderGeometry(0.105, 0.21, 1.95, 10), 5).translate(0, 0.975, 0),
+    ...astwerk([0, 1.55, 0], SAKURA_ANSAETZE, { seed: 0x5a11, stammR: 0.085 }),
+  ]);
   const trunk = new THREE.Mesh(
     trunkGeo,
     // `vertexColors` muss **aus** sein: Die Vorgabe ist `true`, ein
@@ -5640,8 +5819,8 @@ function createZenEnvironment() {
     // ins Leere – der Stamm wird schwarz. Genau so passiert und im Bild gesehen.
     weatheredWoodMaterial({ tone: 0x8a6f58, vertexColors: false })
   );
-  trunk.position.y = 0.9;
-  trunk.rotation.z = 0.12;
+  trunk.position.y = 0;
+  trunk.rotation.z = 0.05;
   sakura.add(trunk);
   // Krone aus vielen kleinen Schöpfen. Die sechs groben Ansatzpunkte bleiben –
   // sie sind die Form des Baums –, aber jeder wird jetzt in mehrere Schöpfe
@@ -5656,14 +5835,7 @@ function createZenEnvironment() {
     roughness: 0.88,
   });
   const sakuraKrone = baueKrone({
-    ansaetze: [
-      [0, 2.05, 0, 0.62],
-      [0.62, 1.88, 0.22, 0.44],
-      [-0.52, 1.98, -0.3, 0.48],
-      [0.3, 2.32, -0.2, 0.4],
-      [-0.3, 2.24, 0.4, 0.36],
-      [0.1, 1.78, 0.5, 0.34],
-    ],
+    ansaetze: SAKURA_ANSAETZE,
     seed: 0x5a4a,
     kartenMaterial: sakuraCards,
     kind: 'sakura',
