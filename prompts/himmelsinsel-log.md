@@ -50,7 +50,13 @@ entscheidenden Größen.
 | 1 Silhouette & Fels | abgeschlossen, **nicht bestanden** – 5 offene Punkte |
 | 2 Licht & Atmosphäre | abgeschlossen, **nicht bestanden** – Kriterium 6 bestanden, 5 offene Punkte |
 | 3 Terrain-Material | abgeschlossen, **nicht bestanden** – 4 offene Punkte |
-| 4 Vegetation … 9 Performance-Pass | offen |
+| 4 Vegetation | gebaut, **ohne förmliche Prüfung abgeschlossen** (Variantenentscheid durch den Nutzer) |
+| Zwischenschritt: Aufräumliste des Nutzers | Wasserfall, schwebende Ranken, schwebende Gräser, Wasserlauf, Regenbogen – erledigt |
+| 5 Wasser | gebaut, auf direkte Anweisung statt als förmlicher Paketdurchlauf |
+| 6 Wolken & Tiefe | abgeschlossen |
+| 7 Leben | abgeschlossen, **sieben Durchläufe statt der zulässigen vier** – Begründung unten |
+| 8 Mini-Inseln | in Arbeit |
+| 9 Performance-Pass | offen |
 
 **Budget durchgehend eingehalten:** 93 von 120 Draw-Calls, 173 667 von 350 000
 Dreiecken, 11,83 von 60 MB Texturspeicher. Konsole sauber, Build grün, die vier
@@ -525,3 +531,132 @@ verschenkt."
 | Konsole | sauber | sauber | – |
 | Build | grün | grün | – |
 | Andere drei Umgebungen | – | unverändert | – |
+
+---
+
+## Zwischenschritt – Aufräumliste des Nutzers
+
+Vier Punkte, direkt benannt, außerhalb der Paketreihenfolge erledigt.
+
+| Punkt | Ursache | Behebung |
+| --- | --- | --- |
+| Ranken schweben in der Luft | **Achsenkonvention.** Die gesamte Formbeschreibung rechnet `x = sin(a)`, `z = cos(a)`. Der Rankenbauer aus PR #9 rechnete `x = cos(a)`, `z = sin(a)` – der Strang wurde also an einem ANDEREN Winkel abgesetzt, als sein Radius bestimmt wurde. Zwei frühere Versuche, das über den Ausschwung zu korrigieren, sind gescheitert, weil sie am falschen Ort ansetzten. | Konvention angeglichen |
+| Gräser schweben in der Luft | Die Streudekoration sitzt auf der **Geländehöhe**, die Findlinge liegen darüber. Ein Horst an derselben Stelle wächst aus dem Stein oder schwebt davor. | `shape.blocked` / `shape.frei(x,z)`: Sperrkreise um jeden Findling, zusätzlich Begrenzung auf 90 % der Kontur |
+| Wasserlauf am Ende komisch geführt | Der Randwall stieg auch auf der Wasserfallseite an, und die Rinne schnitt dort flacher ein – das Wasser lief bergauf. | Entwässerungskerbe in `relief()`: `h = band * (1 - 0.92 * korridor) * (ridge + rough)`, dazu ein Absatz der Grasnarbe zum Rand hin |
+| Wasserfall | Er fiel senkrecht von der Lippe, während die Wand zurückweicht – die Bahn lag also **im Fels**. Der Ausblendbereich war zusätzlich als Scheitelfarbe kodiert; Scheitelfarbe multipliziert die FARBE, nicht die Deckkraft, und endete deshalb in einem schwarzen Rechteck. | Das Fallblatt tastet je Fallhöhe `shape.sideRadius(t, angle) + 0.035` ab und folgt der Wand; die Ausblendung läuft über eine `alphaMap` |
+| Regenbogen | – | vollständig entfernt |
+
+---
+
+## Paket 6 – Wolken & Tiefe
+
+### Was gebaut wurde
+
+- **Form aus Anzahl statt aus Größe.** Vorher fünf bis acht gleich große
+  Kugeln; jede war groß genug, ihre eigene Rundung zu zeigen, und die
+  Konstruktion war als solche lesbar. Jetzt tragen 3–4 große Ballen die Masse
+  und 7–12 kleine Knospen brechen die Silhouette auf – derselbe Gedanke wie bei
+  den Baumkronen. Die Knospen bekommen 7×6 statt 12×10 Kugelsegmente: Sie sind
+  auf dem Schirm wenige Pixel groß und kosteten sonst dieselben Dreiecke.
+- **Flache Unterkante.** Eine Haufenwolke schwimmt auf der Höhe, in der der
+  Wasserdampf kondensiert; ihr Boden ist deshalb eine waagerechte Ebene, ihr
+  Oberteil aufgetürmt. Ohne diese Klemmung bleibt es ein Traubenhaufen.
+- **Silberrand.** `f += 0.85 * pow(max(0, facing), 7)` – der schmale, sehr helle
+  Saum genau dort, wo die Sonne die Wolke streift, ist das Erkennungszeichen
+  einer Haufenwolke im Gegenlicht und fehlte vollständig. Der hohe Exponent
+  hält ihn als Saum, statt die halbe Wolke aufzuhellen.
+- Grundhelligkeit neu gestaffelt (sonnenzugewandt heller, oben heller,
+  Schattenseite tiefer und kühler).
+
+### Messwerte
+
+| | vor Paket 6 (`run-p5-03`) | Paket 6 (`run-p6-01`) | Budget |
+| --- | ---: | ---: | ---: |
+| Draw-Calls env-island | 97 | 97 | 120 |
+| Dreiecke Szene | 199 866 | 199 700 | 350 000 |
+| Texturspeicher | 11,83 MB | 11,83 MB | 60 MB |
+| Konsole | sauber | sauber | – |
+
+---
+
+## Paket 7 – Leben
+
+### Was gebaut wurde
+
+- **Ein `InstancedMesh` je Art statt einer Gruppe je Tier.** Vorher war jedes
+  Tier ein `Group`-Objekt mit zwei Flügel-Meshes: vier Vögel und fünf Falter
+  kosteten zusammen **achtzehn Draw-Calls für achtzehn Rechtecke**. Jetzt
+  sitzen alle Flügel einer Art in einem `InstancedMesh`, dessen Matrizen je
+  Bild neu gesetzt werden – **zwei Draw-Calls**. Die Bewegung bleibt CPU-seitig,
+  und das ist hier richtig: Es sind achtzehn Matrizen, kein Vertex-Strom, und
+  die Flugbahn muss ohnehin je Tier bekannt sein.
+- **Flügelumriss statt Rechteck** (`wingGeometry`). Fünf Dreiecke je Flügel,
+  Sichelform mit ausgezogener Spitze. Der Umriss beginnt bei negativem `x`,
+  greift also über die Körperachse; weil der zweite Flügel die Spiegelung des
+  ersten ist (Skalierung `x = -1`), überlappen sich die Wurzeln in der Mitte
+  und bilden dort einen Rumpf. Ohne das klafft zwischen den Flügeln eine Lücke
+  und das Tier zerfällt im Bild in zwei Splitter.
+- **Segelnde Haltung.** Flacher V-Sockel (`dihedral 0,16`) plus kleiner
+  Ausschlag (`flapAmp 0,30`) statt eines Ausschlags von 49°, dazu Schräglage in
+  der Kurve. Ein Greifvogel hält die Flügel fast waagerecht und schlägt selten.
+- **Schmetterlinge maßstäblich.** Sie waren 0,07 Einheiten groß – mal
+  Weltmaßstab vier sind das Flügel von 35 cm, also Falter mit siebzig
+  Zentimetern Spannweite. Dazu gesättigtes Rosa, Violett, Gelb und Hellblau als
+  einzige Farben außerhalb der Palette. Jetzt rund neun Zentimeter Spannweite,
+  Cremetöne aus der Umgebungspalette, und sie gaukeln knapp über der Grasnarbe
+  statt in Baumhöhe.
+- **Keine Allokation in `update()`.** Die Schleife läuft 72-mal je Sekunde;
+  vorgehaltene Hilfsvektoren statt `new THREE.Vector3()` je Flügel und Bild.
+
+### Der eigentliche Befund: Kreisbahnen waren geometrisch falsch
+
+Nach zwei erfolglosen Anläufen habe ich die Instanzmatrizen zur Laufzeit
+ausgelesen statt weiter zu raten. Ergebnis: Bei einer **Kreisbahn** steht die
+Spannweite immer **radial** zum Bahnmittelpunkt. Alle Bahnmittelpunkte lagen im
+Inselnullpunkt, und die Prüfkameras schauen auf den Inselnullpunkt. Damit zeigte
+**jeder Vogel, der in der Bildmitte auftauchte, seine Flügel genau in die
+Blickachse** und wurde zum senkrechten schwarzen Strich. Das war kein Zufall
+einzelner Standbilder, sondern ein systematischer Zusammenhang.
+
+Behoben durch zwei überlagerte Oberschwingungen (aus dem Kreis wird eine
+Schleife) und durch Ableitung der Blickrichtung aus der **tatsächlichen
+Bewegung** (`atan2` über eine Vorwärtsdifferenz) statt aus dem Bahnwinkel.
+Zusätzlich hat jedes Tier einen eigenen Bahnmittelpunkt.
+
+Gemessen wurde dabei auch, dass die Vögel bis zu **sechzig Meter neben und
+zweiundzwanzig Meter über** der Insel kreisten – dort sind sie ein Punkt. Die
+Bahnen liegen jetzt über der Insel.
+
+### Durchläufe: sieben statt vier – ehrliche Einordnung
+
+Die Obergrenze von vier Durchläufen je Paket wurde überschritten. Die ersten
+drei Durchläufe waren verschwendet, weil ich die Ursache **geraten** statt
+gemessen habe: erst die Flügelform, dann die Schlagamplitude, dann die
+Flughöhe – alles Symptomkuren an einem Problem, das in der Bahnkonstruktion
+saß. Erst der Laufzeit-Auszug der Instanzmatrizen im vierten Durchlauf hat den
+Zusammenhang gezeigt. Das ist derselbe Fehler wie beim Schattenvolumen in
+Paket 2, und dieselbe Lehre: bei zwei erfolglosen Anläufen aufhören zu raten
+und nachmessen.
+
+### Messwerte
+
+| | vor Paket 7 (`run-p6-01`) | Paket 7 (`run-p7-07`) | Budget |
+| --- | ---: | ---: | ---: |
+| Draw-Calls env-island | 97 | **76** | 120 |
+| Dreiecke Szene | 199 700 | 206 390 | 350 000 |
+| Texturspeicher | 11,83 MB | 11,83 MB | 60 MB |
+| Shader-Programme | 30 | 29 | – |
+| Konsole | sauber | sauber | – |
+| Build | grün | grün | – |
+| Andere vier Umgebungen | – | unverändert | – |
+
+Die 21 eingesparten Draw-Calls sind der größte Einzelgewinn seit der
+Paket-1-Verschmelzung – für neun Rechtecke, die zusammen weniger als ein
+Promille der Bildfläche bedecken.
+
+### Neues Werkzeug
+
+`tools/crop.mjs` – Bildausschnitt ohne Glättung vergrößern. Die Prüfbilder sind
+1280×720; ein Vogel darin ist fünfzehn Pixel groß. Ob seine Silhouette liest
+oder ob er ein schwarzer Strich ist, war ohne dieses Werkzeug nicht
+entscheidbar.

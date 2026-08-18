@@ -1895,107 +1895,232 @@ function makeWaterfall(rand, shape) {
   };
 }
 
-// Vögel: einfache Zwei-Flügel-Silhouetten, die in der Ferne kreisen
-function makeBirds(rand) {
-  const group = new THREE.Group();
-  group.name = 'birds';
-  const material = new THREE.MeshBasicMaterial({ color: 0x33404d, side: THREE.DoubleSide });
-  const birds = [];
-  for (let i = 0; i < 4; i++) {
-    const bird = new THREE.Group();
-    const wings = [];
-    for (const dir of [-1, 1]) {
-      const pivot = new THREE.Group();
-      const wing = new THREE.Mesh(new THREE.PlaneGeometry(0.26, 0.09), material);
-      wing.position.x = dir * 0.13;
-      wing.rotation.x = -Math.PI / 2;
-      pivot.add(wing);
-      bird.add(pivot);
-      wings.push({ pivot, dir });
+// Flügelumriss.
+//
+// Vorher war ein Flügel ein PlaneGeometry – ein Rechteck. Am Himmel ergab das
+// einen schwarzen Balken, und ein schwarzer Balken ist genau die Art von
+// „das hat jemand hingerechnet", die die Messlatte ausschließt. Ein Vogelflügel
+// von oben ist eine Sichel: die Vorderkante fast gerade, die Hinterkante nach
+// innen gebogen, die Spitze ausgezogen. Fünf Dreiecke je Flügel genügen dafür.
+//
+// Der Umriss sitzt mit der Wurzel im Ursprung und zeigt nach +X; der zweite
+// Flügel entsteht daraus durch Spiegeln (Skalierung x = -1), nicht durch eine
+// zweite Geometrie.
+function wingGeometry(len, chord) {
+  // Der Umriss beginnt bei negativem x, greift also über die Körperachse
+  // hinweg. Weil der zweite Flügel die Spiegelung des ersten ist, überlappen
+  // sich die beiden Wurzeln in der Mitte und bilden dort einen Rumpf – ohne
+  // das klafft zwischen den Flügeln eine Lücke, und das Tier zerfällt in zwei
+  // Splitter.
+  const punkte = [
+    [-0.11, -0.09], [0.00, -0.42], [0.45, -0.46], [0.80, -0.30],
+    [1.00, -0.05], [0.72, 0.16], [0.35, 0.34], [0.00, 0.42], [-0.11, 0.13],
+  ];
+  const pos = [];
+  for (let i = 1; i < punkte.length - 1; i++) {
+    for (const k of [0, i, i + 1]) {
+      pos.push(punkte[k][0] * len, 0, punkte[k][1] * chord);
     }
-    bird.userData = {
-      radius: 8 + rand() * 8,
-      height: 3.5 + rand() * 3.5,
-      speed: (0.12 + rand() * 0.1) * (rand() > 0.5 ? 1 : -1),
-      phase: rand() * Math.PI * 2,
-      wings,
-    };
-    group.add(bird);
-    birds.push(bird);
   }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+// --- Fliegendes Leben: Vögel und Schmetterlinge ----------------------------
+//
+// Beide waren zuvor je EIN Group-Objekt pro Tier mit zwei Flügel-Meshes darin:
+// vier Vögel und fünf Falter kosteten zusammen achtzehn Draw-Calls für achtzehn
+// Rechtecke. Jetzt sitzen alle Flügel einer Art in EINEM InstancedMesh, dessen
+// Matrizen pro Bild neu gesetzt werden – zwei Draw-Calls statt achtzehn.
+//
+// Die Bewegung bleibt CPU-seitig, und das ist hier richtig: Es sind achtzehn
+// Matrizen, kein Vertex-Strom, und die Flugbahn muss ohnehin je Tier bekannt
+// sein.
+function makeFlyers(rand, {
+  count,
+  wingGeo,
+  material,
+  name,
+  radius,
+  height,
+  speed,
+  flap,
+  flapAmp = 0.85,
+  dihedral = 0,
+  bob,
+  bobAmp = 0.45,
+  bank = 0,
+  spread = 0,
+  spanX,
+}) {
+  const mesh = new THREE.InstancedMesh(wingGeo, material, count * 2);
+  mesh.name = name;
+  mesh.frustumCulled = false; // die Tiere wandern weit, die Hülle stimmt nie
+  mesh.userData.fullCount = count * 2;
+  const tiere = [];
+  for (let i = 0; i < count; i++) {
+    tiere.push({
+      radius: radius[0] + rand() * (radius[1] - radius[0]),
+      height: height[0] + rand() * (height[1] - height[0]),
+      speed: (speed[0] + rand() * (speed[1] - speed[0])) * (rand() > 0.5 ? 1 : -1),
+      phase: rand() * TAU,
+      bob: rand() * TAU,
+      // Zweite Schwingung, die aus dem Kreis eine Schleife macht.
+      wob: rand() * TAU,
+      // Eigener Kreismittelpunkt je Tier.
+      //
+      // Vorher kreisten alle um den Inselnullpunkt. Das hatte zwei Folgen:
+      // Die Bahnen lagen konzentrisch ineinander – für sich schon verräterisch –
+      // und die Flügel zeigen bei einer Kreisbahn immer radial, also genau in
+      // die Blickachse einer Kamera, die zur Inselmitte schaut. Aus jedem Vogel
+      // nahe der Bildmitte wurde dadurch ein senkrechter Strich statt einer
+      // Silhouette.
+      cx: (rand() - 0.5) * spread,
+      cz: (rand() - 0.5) * spread,
+    });
+  }
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const p = new THREE.Vector3();
+  // Vorgehaltene Hilfsvektoren: update() laeuft zweiundsiebzig Mal je Sekunde
+  // und darf dabei nichts anlegen, was der Sammler wieder einsammeln muss.
+  const off = new THREE.Vector3();
+  const vor = new THREE.Vector3();
+  // Der zweite Flügel ist der erste, an der Körperachse gespiegelt.
+  const scl = new THREE.Vector3(1, 1, 1);
+
+  // Grundriss der Flugbahn.
+  //
+  // Ein reiner Kreis war messbar falsch, nicht nur langweilig: Bei einer
+  // Kreisbahn steht die Spannweite immer radial zum Bahnmittelpunkt. Die
+  // Bahnmittelpunkte liegen alle in der Nähe der Inselmitte, und die Kamera
+  // schaut auf die Inselmitte – also zeigt JEDER Vogel, der in der Bildmitte
+  // auftaucht, seine Flügel genau in die Blickachse und wird zum senkrechten
+  // Strich. Zwei überlagerte Oberschwingungen machen daraus eine Schleife;
+  // die Blickrichtung wird danach aus der tatsächlichen Bewegung abgeleitet,
+  // nicht mehr aus dem Bahnwinkel.
+  const bahn = (d, a, out) =>
+    out.set(
+      d.cx + Math.sin(a) * d.radius + Math.sin(2 * a + d.wob) * d.radius * 0.34,
+      0,
+      d.cz + Math.cos(a) * d.radius + Math.cos(3 * a + d.wob) * d.radius * 0.22
+    );
   return {
-    group,
+    group: mesh,
     update(time) {
-      for (const bird of birds) {
-        const d = bird.userData;
+      for (let i = 0; i < tiere.length; i++) {
+        const d = tiere[i];
         const a = time * d.speed + d.phase;
-        bird.position.set(
-          Math.sin(a) * d.radius,
-          d.height + Math.sin(time * 1.3 + d.phase) * 0.35,
-          Math.cos(a) * d.radius
-        );
-        bird.rotation.y = a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
-        const flap = Math.sin(time * 9 + d.phase) * 0.55;
-        for (const { pivot, dir } of d.wings) pivot.rotation.z = flap * dir;
+        bahn(d, a, p);
+        p.y = d.height + Math.sin(time * bob + d.bob) * bobAmp;
+        // Blickrichtung aus der Bahn ablesen statt aus dem Winkel rechnen.
+        bahn(d, a + (d.speed > 0 ? 0.03 : -0.03), vor);
+        const yaw = Math.atan2(vor.x - p.x, vor.z - p.z);
+        // Schlagwinkel. Je Tier eine eigene Phase – sonst schlagen alle im
+        // Gleichtakt, und genau das verbietet die Messlatte.
+        const w = Math.sin(time * flap + d.phase * 2.3);
+        // Schräglage in der Kurve: beide Flügel kippen um denselben Betrag in
+        // dieselbe Richtung. Ohne sie kreist der Vogel brettflach.
+        const lage = d.speed > 0 ? bank : -bank;
+        for (let k = 0; k < 2; k++) {
+          const dir = k === 0 ? -1 : 1;
+          // V-Stellung plus Schlag. Der Sockel ist wichtiger als die Amplitude:
+          // Ein segelnder Greifvogel hält die Flügel fast waagerecht in
+          // leichtem V und schlägt nur gelegentlich. Mit großem Ausschlag steht
+          // er im Standbild regelmäßig hochkant und wird zum senkrechten Strich.
+          e.set(0, yaw, (dihedral + w * flapAmp) * dir + lage);
+          q.setFromEuler(e);
+          // Der Flügel sitzt seitlich am Körper; die Verschiebung muss die
+          // Drehung mitmachen, sonst klappt er um seinen eigenen Mittelpunkt.
+          off.set(dir * spanX, 0, 0).applyQuaternion(q).add(p);
+          scl.x = dir;
+          m.compose(off, q, scl);
+          mesh.setMatrixAt(i * 2 + k, m);
+        }
       }
+      mesh.instanceMatrix.needsUpdate = true;
     },
   };
 }
 
-// Bunte Schmetterlinge, die nah über der Insel gaukeln (Vögel-Muster, kleiner
-// und schneller flatternd).
+// Vögel: dunkle Silhouetten, die in der Ferne kreisen. Sie sind bewusst klein
+// und dunkel – ein Vogel am Himmel ist eine Andeutung, kein Modell.
+function makeBirds(rand) {
+  // Spannweite 0,30 x Weltmaßstab vier = 1,2 m je Flügel, also gut zwei Meter
+  // insgesamt – ein Greifvogel, und genau das soll es in dieser Höhe sein.
+  return makeFlyers(rand, {
+    count: 5,
+    wingGeo: wingGeometry(0.30, 0.11),
+    material: new THREE.MeshBasicMaterial({ color: 0x3a4753, side: THREE.DoubleSide }),
+    name: 'birds',
+    // Gemessen standen die Vögel bis zu sechzig Meter neben und zweiundzwanzig
+    // Meter über der Insel – dort sind sie ein Punkt und tragen nichts bei.
+    // Jetzt kreisen sie über der Insel statt daneben.
+    radius: [4.5, 8.5],
+    height: [3.0, 5.5],
+    speed: [0.12, 0.22],
+    spread: 9,
+    flap: 5.0,
+    flapAmp: 0.30,
+    dihedral: 0.16,
+    bob: 1.3,
+    bobAmp: 0.45,
+    bank: 0.20,
+    spanX: 0,
+  });
+}
+
+// Schmetterlinge nah über der Wiese.
+//
+// Sie waren 0,07 Einheiten groß – mal Weltmaßstab vier sind das
+// Flügel von 35 cm, also Falter mit siebzig Zentimetern Spannweite. Dazu
+// gesättigtes Rosa, Violett, Gelb und Hellblau, die als einzige Farben der
+// Szene außerhalb der Palette standen. Beides ist korrigiert: Spannweite rund
+// neun Zentimeter, Töne aus der Umgebungspalette.
 function makeButterflies(rand) {
-  const group = new THREE.Group();
-  group.name = 'butterflies';
-  const colors = [0xff7aa2, 0xffd166, 0x8ec7ff, 0xc4a2ff, 0xff9e6b];
-  const items = [];
-  for (let i = 0; i < 5; i++) {
-    const b = new THREE.Group();
-    const mat = new THREE.MeshBasicMaterial({
-      color: colors[i % colors.length],
+  // Runder, breiter Umriss statt der Vogelsichel – und mit der Wurzel im
+  // Ursprung, damit die Spiegelung des zweiten Flügels greift.
+  const wing = new THREE.CircleGeometry(0.011, 8);
+  wing.rotateX(-Math.PI / 2);
+  wing.scale(1.0, 1, 1.35);
+  wing.translate(0.010, 0, 0);
+  const flyer = makeFlyers(rand, {
+    count: 7,
+    wingGeo: wing,
+    material: new THREE.MeshStandardMaterial({
       side: THREE.DoubleSide,
-      transparent: true,
-      opacity: 0.95,
-    });
-    const wings = [];
-    for (const dir of [-1, 1]) {
-      const pivot = new THREE.Group();
-      const wing = new THREE.Mesh(new THREE.CircleGeometry(0.07, 10), mat);
-      wing.position.x = dir * 0.05;
-      wing.rotation.x = -Math.PI / 2;
-      wing.scale.set(0.8, 1, 1.25);
-      pivot.add(wing);
-      b.add(pivot);
-      wings.push({ pivot, dir });
-    }
-    b.userData = {
-      radius: 2 + rand() * 4,
-      height: 0.7 + rand() * 1.6,
-      speed: (0.3 + rand() * 0.3) * (rand() > 0.5 ? 1 : -1),
-      phase: rand() * Math.PI * 2,
-      bob: rand() * Math.PI * 2,
-      wings,
-    };
-    group.add(b);
-    items.push(b);
+      roughness: 0.75,
+      metalness: 0,
+    }),
+    name: 'butterflies',
+    // Ein Falter gaukelt kniehoch über der Wiese, nicht in Baumhöhe. Vorher
+    // stand er bis 2,2 Einheiten hoch – mal vier sind das knapp neun Meter,
+    // und damit stand er im Bild ÜBER dem Horizont.
+    radius: [1.2, 3.2],
+    // Knapp über der Grasnarbe. Vorher standen sie bis auf Augenhöhe und
+    // darüber – dort sieht man sie gegen den Himmel, und ein cremefarbener
+    // Fleck gegen Hellblau ist kein Falter, sondern ein Fussel auf der Linse.
+    height: [0.05, 0.24],
+    speed: [0.3, 0.6],
+    spread: 7,
+    flap: 13,
+    flapAmp: 0.70,
+    dihedral: 0.18,
+    bob: 1.6,
+    bobAmp: 0.07,
+    spanX: 0.002,
+  });
+  // Töne aus der Umgebungspalette statt gesättigter Primärfarben.
+  const toene = [0xf0e2b4, 0xe8d0a8, 0xdcc9b0, 0xefe6cf, 0xe6cbb2];
+  const c = new THREE.Color();
+  for (let i = 0; i < flyer.group.count; i++) {
+    flyer.group.setColorAt(i, c.setHex(toene[Math.floor(i / 2) % toene.length]));
   }
-  return {
-    group,
-    update(time) {
-      for (const b of items) {
-        const d = b.userData;
-        const a = time * d.speed + d.phase;
-        b.position.set(
-          Math.sin(a) * d.radius,
-          d.height + Math.sin(time * 1.6 + d.bob) * 0.5,
-          Math.cos(a) * d.radius
-        );
-        b.rotation.y = a + (d.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
-        const flap = Math.sin(time * 14 + d.phase) * 0.9 + 0.35;
-        for (const { pivot, dir } of d.wings) pivot.rotation.z = flap * dir;
-      }
-    },
-  };
+  if (flyer.group.instanceColor) flyer.group.instanceColor.needsUpdate = true;
+  return flyer;
 }
 
 // Volumetrisch wirkende Wolke: Cluster weicher Kugeln zu EINEM Mesh verschmolzen.
@@ -2011,19 +2136,48 @@ const CLOUD_MATERIAL = new THREE.MeshStandardMaterial({
 });
 
 function makeCloud(rand, size = 1, sunDir = null) {
+  // Form: wenige große Ballen, viele kleine Knospen.
+  //
+  // Vorher waren es fünf bis acht gleich große Kugeln – die Konstruktion war
+  // als solche lesbar, weil jede einzelne Kugel groß genug war, um ihre
+  // Rundung zu zeigen. Eine Haufenwolke entsteht aus ANZAHL: Ein paar Ballen
+  // tragen die Masse, ein Dutzend Knospen brechen die Silhouette auf. Derselbe
+  // Gedanke wie bei den Baumkronen.
   const geos = [];
-  const puffs = 5 + Math.floor(rand() * 4);
-  for (let i = 0; i < puffs; i++) {
-    const s = (0.7 + rand() * 1.0) * size;
-    const g = new THREE.SphereGeometry(s, 12, 10);
+  const ballen = 3 + Math.floor(rand() * 2);
+  const knospen = 7 + Math.floor(rand() * 6);
+  // Wolken sind breit und flach, nicht kugelig.
+  const spanX = 3.6 * size;
+  const spanZ = 2.0 * size;
+  for (let i = 0; i < ballen + knospen; i++) {
+    const gross = i < ballen;
+    const s = (gross ? 0.85 + rand() * 0.55 : 0.30 + rand() * 0.32) * size;
+    // Kleine Knospen brauchen keine 12x10 Segmente – sie sind auf dem Schirm
+    // ein paar Pixel groß, kosten aber dieselben Dreiecke.
+    const g = new THREE.SphereGeometry(s, gross ? 12 : 7, gross ? 10 : 6);
+    // Knospen sitzen bevorzugt oben und außen auf den Ballen.
+    const f = gross ? 0.55 : 1.0;
     g.translate(
-      (rand() - 0.5) * 3.4 * size,
-      (rand() - 0.5) * 0.7 * size,
-      (rand() - 0.5) * 1.8 * size
+      (rand() - 0.5) * spanX * f,
+      (gross ? (rand() - 0.5) * 0.5 : (rand() - 0.15) * 0.85) * size,
+      (rand() - 0.5) * spanZ * f
     );
     geos.push(g);
   }
   const merged = mergeGeometries(geos);
+
+  // Flache Unterkante. Eine Haufenwolke schwimmt auf einer Höhe, an der der
+  // Wasserdampf kondensiert – ihr Boden ist deshalb eine waagerechte Ebene,
+  // ihr Oberteil aufgetürmt. Ohne das bleibt es ein Traubenhaufen.
+  {
+    const pp = merged.attributes.position;
+    const basis = -0.34 * size;
+    for (let i = 0; i < pp.count; i++) {
+      const y = pp.getY(i);
+      if (y < basis) pp.setY(i, basis + (y - basis) * 0.18);
+    }
+    merged.computeVertexNormals();
+  }
 
   // Lichtrichtung in die Scheitelfarben backen.
   //
@@ -2053,9 +2207,15 @@ function makeCloud(rand, size = 1, sunDir = null) {
     const facing = (x * dir.x + y * dir.y + z * dir.z) / len;
     // Und wie weit oben sie liegt – Wolken sind unten grundsätzlich dichter.
     const up = maxY > 0 ? y / maxY : 0;
-    const f = 0.74 + 0.46 * Math.max(0, facing) + 0.20 * up - 0.18 * Math.max(0, -facing);
+    // Grundhelligkeit: sonnenzugewandt heller, oben heller, Schattenseite tiefer.
+    let f = 0.62 + 0.40 * Math.max(0, facing) + 0.22 * up - 0.26 * Math.max(0, -facing);
+    // SILBERRAND. Der schmale, sehr helle Saum genau dort, wo die Sonne die
+    // Wolke streift, ist das Erkennungszeichen einer Haufenwolke im Gegenlicht –
+    // und er fehlte vollständig. Er sitzt eng (hoher Exponent), damit er ein
+    // Saum bleibt und nicht die halbe Wolke aufhellt.
+    f += 0.85 * Math.pow(Math.max(0, facing), 7);
     // Die Schattenseite ist kühl, die Sonnenseite eine Spur warm.
-    c.setRGB(f * (1 + 0.05 * facing), f * (1 + 0.01 * facing), f * (1 - 0.04 * facing));
+    c.setRGB(f * (1 + 0.06 * facing), f * (1 + 0.015 * facing), f * (1 - 0.05 * facing));
     colors[i * 3] = c.r;
     colors[i * 3 + 1] = c.g;
     colors[i * 3 + 2] = c.b;
