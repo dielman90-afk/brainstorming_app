@@ -295,6 +295,112 @@ class GeoBucket {
   }
 }
 
+// --- Fertige Meshes verschmelzen -------------------------------------------
+//
+// `GeoBucket` schreibt beim Hinzufügen die Scheitelfarben neu. Genau die tragen
+// bei den Zen-Steinen aber die Unterschiede – Grundton, Moospatina, gebackenes
+// Licht –, und die Objekte sind zum Zeitpunkt des Verschmelzens längst fertig
+// gebaut und platziert. Diese Hilfe nimmt sie, wie sie sind: Weltmatrix in die
+// Geometrie backen, Attribute angleichen, verschmelzen.
+//
+// Erst bauen, dann verschmelzen – und nicht umgekehrt – ist Absicht. Wer schon
+// beim Bauen in einen Puffer schreibt, muss die Reihenfolge der Zufallszahlen
+// mitdenken; `mulberry32` ist gesät, ein verschobener Aufruf verschiebt alles
+// danach. So bleibt die Bildkomposition Zeichen für Zeichen dieselbe.
+function backeMatrix(mesh) {
+  const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+  g.applyMatrix4(mesh.matrixWorld);
+  return g;
+}
+
+// `mergeGeometries` verlangt in allen Teilen denselben Attributsatz.
+function angleichen(g, brauchtFarbe) {
+  if (!g.attributes.normal) g.computeVertexNormals();
+  if (!g.attributes.uv) {
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+  }
+  if (brauchtFarbe && !g.attributes.color) {
+    g.setAttribute(
+      'color',
+      new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3)
+    );
+  }
+  for (const key of Object.keys(g.attributes)) {
+    if (!['position', 'normal', 'uv', 'color'].includes(key)) g.deleteAttribute(key);
+  }
+  if (!brauchtFarbe && g.attributes.color) g.deleteAttribute('color');
+  return g;
+}
+
+// Objekte (einzelne Meshes oder ganze Gruppen) zu je **einem** Mesh pro
+// vorkommendem Material. Rückgabe ist eine Liste, damit der Aufrufer sie ohne
+// Fallunterscheidung mit `group.add(...)` einhängen kann.
+function verschmelzeObjekte(objekte, name) {
+  if (!objekte.length) return [];
+  const halter = new THREE.Group();
+  for (const o of objekte) halter.add(o);
+  halter.updateMatrixWorld(true);
+  const nachMaterial = new Map();
+  halter.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh) return;
+    if (!nachMaterial.has(o.material)) nachMaterial.set(o.material, []);
+    nachMaterial.get(o.material).push(o);
+  });
+  const raus = [];
+  for (const [material, liste] of nachMaterial) {
+    const geos = liste.map((m) => angleichen(backeMatrix(m), material.vertexColors === true));
+    const mesh = new THREE.Mesh(mergeGeometries(geos), material);
+    for (const g of geos) g.dispose();
+    mesh.name = raus.length ? `${name}-${raus.length}` : name;
+    raus.push(mesh);
+  }
+  return raus;
+}
+
+// Alle Kontaktschatten einer Umgebung in **ein** Mesh.
+//
+// Sie sind sich bis auf Ort, Größe und Deckkraft gleich – nur legt
+// `makeBlobShadow` je Schatten ein eigenes Material an, weil die Deckkraft dort
+// steht. Scheitelfarben multiplizieren die Farbe, nicht die Deckkraft; der
+// übliche Ausweg wäre eine alphaMap je Schatten und damit wieder ein Material
+// je Schatten. three kennt aber einen zweiten Fall: Hat das Farbattribut
+// **vier** Komponenten, setzt der Renderer `USE_COLOR_ALPHA`
+// (WebGLPrograms, Feld `vertexAlphas`), und die vierte Komponente multipliziert
+// die Deckkraft mit. Damit stehen dreizehn Schatten in einem Draw-Call.
+let _schattenMaterial = null;
+function verschmelzeSchatten(schatten, name = 'kontaktschatten') {
+  if (!_schattenMaterial) {
+    _schattenMaterial = new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      vertexColors: true,
+    });
+  }
+  const halter = new THREE.Group();
+  for (const s of schatten) halter.add(s);
+  halter.updateMatrixWorld(true);
+  const geos = schatten.map((s) => {
+    const g = angleichen(backeMatrix(s), false);
+    const n = g.attributes.position.count;
+    const farben = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      farben[i * 4] = 1;
+      farben[i * 4 + 1] = 1;
+      farben[i * 4 + 2] = 1;
+      farben[i * 4 + 3] = s.material.opacity;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(farben, 4));
+    return g;
+  });
+  const mesh = new THREE.Mesh(mergeGeometries(geos), _schattenMaterial);
+  for (const g of geos) g.dispose();
+  mesh.name = name;
+  mesh.renderOrder = 1; // knapp über dem opaken Boden, wie die Einzelschatten
+  return mesh;
+}
+
 // --- Kronen aus vielen kleinen Schöpfen -------------------------------------
 //
 // **Der Fehler, den dieser Bauer verhindert, steht seit Runde 6 als Kommentar
@@ -3718,24 +3824,27 @@ function makeLantern() {
     });
     return geo;
   };
+  // Die fünf Steinteile stehen fest aufeinander – ein Mesh. Der Lichtkasten
+  // bleibt eigenständig, er hat ein leuchtendes Material.
+  const steine = [];
   const base = new THREE.Mesh(
     steinTeil(new THREE.CylinderGeometry(0.18, 0.22, 0.12, 8), 0.06, 11),
     stoneMat
   );
   base.position.y = 0.06;
-  group.add(base);
+  steine.push(base);
   const post = new THREE.Mesh(
     steinTeil(new THREE.CylinderGeometry(0.06, 0.07, 0.42, 8), 0.33, 12),
     stoneMat
   );
   post.position.y = 0.33;
-  group.add(post);
+  steine.push(post);
   const platform = new THREE.Mesh(
     steinTeil(new THREE.CylinderGeometry(0.16, 0.14, 0.06, 8), 0.57, 13),
     stoneMat
   );
   platform.position.y = 0.57;
-  group.add(platform);
+  steine.push(platform);
   // Lichtkasten mit warmem Glimmen
   const box = new THREE.Mesh(
     new THREE.CylinderGeometry(0.13, 0.13, 0.18, 6),
@@ -3748,13 +3857,14 @@ function makeLantern() {
     stoneMat
   );
   roof.position.y = 0.86;
-  group.add(roof);
+  steine.push(roof);
   const finial = new THREE.Mesh(
     steinTeil(new THREE.SphereGeometry(0.045, 8, 6), 0.96, 15),
     stoneMat
   );
   finial.position.y = 0.96;
-  group.add(finial);
+  steine.push(finial);
+  group.add(...verschmelzeObjekte(steine, 'zen-laterne-stein'));
   const glow = new THREE.Sprite(
     new THREE.SpriteMaterial({
       map: makeGlowTexture('rgba(255,200,120,0.9)', 'rgba(255,150,60,0.35)'),
@@ -3779,21 +3889,25 @@ function makeTorii() {
   const mat = weatheredWoodMaterial({ tone: 0xd4553a, vertexColors: false });
   const h = 3.2;
   const span = 2.4;
+  // Fünf Teile, ein Material, nichts davon bewegt sich gegeneinander: Das Tor
+  // ist ein Stück Holzwerk und wird auch als eines gezeichnet.
+  const teile = [];
   for (const sx of [-1, 1]) {
     const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, h, 12), mat);
     pillar.position.set(sx * span * 0.5, h / 2, 0);
-    group.add(pillar);
+    teile.push(pillar);
   }
   const topBeam = new THREE.Mesh(new THREE.BoxGeometry(span + 1.1, 0.3, 0.42), mat);
   topBeam.position.y = h - 0.05;
   topBeam.rotation.z = 0.02;
-  group.add(topBeam);
+  teile.push(topBeam);
   const lintel = new THREE.Mesh(new THREE.BoxGeometry(span + 0.2, 0.22, 0.34), mat);
   lintel.position.y = h - 0.6;
-  group.add(lintel);
+  teile.push(lintel);
   const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.5, 0.3), mat);
   ridge.position.y = h - 0.32;
-  group.add(ridge);
+  teile.push(ridge);
+  group.add(...verschmelzeObjekte(teile, 'zen-torii'));
   return group;
 }
 
@@ -3899,10 +4013,15 @@ function makeBambooGrove(rand, cx, cz) {
   }
   group.add(schopf);
 
+  // Der Kontaktschatten des Hains wird **nicht** hier eingehängt, sondern
+  // zurückgegeben: Die Umgebung sammelt alle Schatten ein und zeichnet sie in
+  // einem Draw-Call (siehe `verschmelzeSchatten`). Dafür muss er in
+  // Weltkoordinaten stehen, nicht relativ zum Hain.
   const shadow = makeBlobShadow(1.4, 0.4, 0.02);
-  group.add(shadow);
+  shadow.position.set(cx, 0.02, cz);
   return {
     group,
+    shadow,
     update(time) {
       for (const s of stalks) {
         s.rotation.z = Math.sin(time * 0.9 + s.userData.phase) * s.userData.sway;
@@ -3970,6 +4089,12 @@ function makeMaple(rand) {
 
 // Seerosenblatt (flache Scheibe mit Kerbe) + optional Lotusblüte.
 const LILY_MAT = new THREE.MeshStandardMaterial({ color: 0x3f8f4d, roughness: 0.8, metalness: 0, side: THREE.DoubleSide });
+// Blüten- und Kernmaterial der Lotusblüten **modulweit**, nicht je Blüte. Elf
+// Kegel und eine Kugel je Blüte mal drei Blüten waren sechsunddreißig
+// Draw-Calls für ein Detail von zehn Zentimetern; mit geteiltem Material lassen
+// sich alle drei Blüten zu zwei Meshes verschmelzen.
+const LOTUS_BLATT_MAT = new THREE.MeshStandardMaterial({ color: 0xff9dc2, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
+const LOTUS_KERN_MAT = new THREE.MeshStandardMaterial({ color: 0xffe066, roughness: 0.6 });
 function makeLilyPad(rand) {
   const pad = new THREE.Mesh(new THREE.CircleGeometry(0.16 + rand() * 0.1, 20, 0.5, Math.PI * 1.85), LILY_MAT);
   pad.rotation.x = -Math.PI / 2;
@@ -3978,7 +4103,7 @@ function makeLilyPad(rand) {
 }
 function makeLotus() {
   const g = new THREE.Group();
-  const petalMat = new THREE.MeshStandardMaterial({ color: 0xff9dc2, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
+  const petalMat = LOTUS_BLATT_MAT;
   for (let ring = 0; ring < 2; ring++) {
     const n = ring === 0 ? 6 : 5;
     for (let i = 0; i < n; i++) {
@@ -3989,10 +4114,7 @@ function makeLotus() {
       g.add(petal);
     }
   }
-  const center = new THREE.Mesh(
-    new THREE.SphereGeometry(0.04, 8, 6),
-    new THREE.MeshStandardMaterial({ color: 0xffe066, roughness: 0.6 })
-  );
+  const center = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), LOTUS_KERN_MAT);
   center.position.y = 0.07;
   g.add(center);
   return g;
@@ -4119,6 +4241,13 @@ function makeKoi(variant) {
     transparent: true,
     opacity: 0.82,
     side: THREE.DoubleSide,
+    // **Durchsichtig plus doppelseitig kostet in three zwei Draw-Calls**, nicht
+    // einen: `renderObject` zeichnet erst die Rück-, dann die Vorderseiten,
+    // damit sich gekrümmte Hüllen richtig überlagern. Eine Flosse ist aber eine
+    // ebene Fläche – sie überlagert sich nie mit sich selbst, die zweite
+    // Zeichnung bringt kein Pixel Unterschied. Gemessen waren das zehn Flossen
+    // mal zwei Fische mal zwei Durchgänge: zwanzig Calls für zehn Flächen.
+    forceSinglePass: true,
   });
 
   // Schwanz mit eigenem Pivot (wedelt) – zweilappig, nicht spitz
@@ -4134,18 +4263,23 @@ function makeKoi(variant) {
   tailPivot.add(tail);
   koi.add(tailPivot);
 
+  // Die vier festen Flossen bewegen sich nicht gegeneinander – nur der Schwanz
+  // wedelt. Sie werden deshalb zu einem Mesh verschmolzen; vier Flächen von je
+  // fünf Zentimetern rechtfertigen keine vier Draw-Calls.
+  const flossen = [];
+
   // Rückenflosse
   const dorsal = makeKoiFin(
     [[0, 0], [0.05, 0.045], [0.11, 0.05], [0.15, 0.01], [0.08, 0]],
     finMat
   );
   dorsal.position.set(0, 0.048, 0.03);
-  koi.add(dorsal);
+  flossen.push(dorsal);
 
   // Afterflosse
   const anal = makeKoiFin([[0, 0], [0.04, -0.03], [0.08, -0.035], [0.1, -0.005]], finMat);
   anal.position.set(0, -0.042, -0.05);
-  koi.add(anal);
+  flossen.push(anal);
 
   // Brustflossen, leicht nach hinten und unten gestellt
   for (const side of [-1, 1]) {
@@ -4154,17 +4288,20 @@ function makeKoi(variant) {
     // Um die Längsachse gekippt, damit die Flosse seitlich absteht statt
     // senkrecht wie ein zweites Segel am Bauch zu stehen
     pec.rotation.z = side * 1.05;
-    koi.add(pec);
+    flossen.push(pec);
   }
+  koi.add(...verschmelzeObjekte(flossen, 'koi-flossen'));
 
   // Augen
   const eyeGeo = new THREE.SphereGeometry(0.0085, 8, 6);
   const eyeMat = new THREE.MeshStandardMaterial({ color: 0x16110d, roughness: 0.25 });
+  const augen = [];
   for (const side of [-1, 1]) {
     const eye = new THREE.Mesh(eyeGeo, eyeMat);
     eye.position.set(side * 0.024, 0.012, L / 2 - 0.055);
-    koi.add(eye);
+    augen.push(eye);
   }
+  koi.add(...verschmelzeObjekte(augen, 'koi-augen'));
 
   // Gieren (y) vor Nicken (x) auswerten – sonst kippt der Fisch beim Auf- und
   // Abtauchen je nach Kurs zusätzlich zur Seite.
@@ -4245,6 +4382,10 @@ function createZenEnvironment() {
   // beschrieben und hier prompt wiederholt. Die Variation hängt jetzt an der
   // Geometrie: außen ausdünnend (Moos endet nicht an einer Kante) und mit
   // groben Flecken darin.
+  // Alle fünf Flecken tragen dasselbe Material und bewegen sich nicht – sie
+  // werden nach dem Bauen zu einem Mesh verschmolzen. Gebaut wird trotzdem
+  // einzeln, damit die Reihenfolge der Zufallszahlen unangetastet bleibt.
+  const moosTeile = [];
   for (let i = 0; i < 5; i++) {
     const a = rand() * Math.PI * 2;
     const r = 2 + rand() * 7;
@@ -4265,8 +4406,9 @@ function createZenEnvironment() {
     moss.rotation.x = -Math.PI / 2;
     moss.position.set(Math.cos(a) * r, -0.01, Math.sin(a) * r);
     moss.scale.set(1 + rand() * 0.6, 1, 0.7 + rand() * 0.5);
-    group.add(moss);
+    moosTeile.push(moss);
   }
+  group.add(...verschmelzeObjekte(moosTeile, 'zen-moos'));
 
   // Stein-Arrangements (klassisch asymmetrische Gruppen)
   const stoneGroups = [
@@ -4274,6 +4416,10 @@ function createZenEnvironment() {
     { x: 4, z: 1.5, n: 2 },
     { x: 1, z: -4.5, n: 3 },
   ];
+  // Zwei Sammler für den ganzen Garten: alles aus Zen-Granit in ein Mesh, alle
+  // Kontaktschatten in ein zweites. Beide werden erst am Ende eingehängt.
+  const findlinge = [];
+  const kontaktschatten = [];
   for (const sg of stoneGroups) {
     for (let i = 0; i < sg.n; i++) {
       const size = 0.28 + rand() * 0.45;
@@ -4281,15 +4427,16 @@ function createZenEnvironment() {
       const px = sg.x + (rand() - 0.5) * 0.9;
       const pz = sg.z + (rand() - 0.5) * 0.9;
       s.position.set(px, 0.12 + rand() * 0.1, pz);
-      group.add(s);
+      findlinge.push(s);
       const sh = makeBlobShadow(size * 1.5, 0.5);
       sh.position.set(px, 0.015, pz);
-      group.add(sh);
+      kontaktschatten.push(sh);
     }
   }
 
   // Trittstein-Pfad. Ein Material für alle sechs, Unterschiede über die
   // Scheitelfarben; Moos sammelt sich am Rand, wo der Fuß nicht hintritt.
+  const trittsteine = [];
   for (let i = 0; i < 6; i++) {
     const geo = new THREE.CylinderGeometry(0.26, 0.26, 0.06, 12);
     boxProjectUV(geo, 0.22);
@@ -4309,8 +4456,9 @@ function createZenEnvironment() {
     const step = new THREE.Mesh(geo, zenGranite());
     step.position.set(-1.5 + i * 0.85, 0.01, 3.2 - i * 0.5 + Math.sin(i) * 0.2);
     step.scale.set(1 + rand() * 0.2, 1, 0.85);
-    group.add(step);
+    trittsteine.push(step);
   }
+  group.add(...verschmelzeObjekte(trittsteine, 'zen-trittsteine'));
 
   // Koi-Teich
   const pondCenter = new THREE.Vector3(3.2, 0, -1.2);
@@ -4343,23 +4491,30 @@ function createZenEnvironment() {
     const a = (i / 16) * Math.PI * 2;
     const s = makeZenStone(rand, 0.12 + rand() * 0.08, 0x8f8880);
     s.position.set(pondCenter.x + Math.cos(a) * 2.0, 0.05, pondCenter.z + Math.sin(a) * 1.7);
-    group.add(s);
+    // Derselbe Granit wie die Findlinge, also derselbe Sammler.
+    findlinge.push(s);
   }
+  group.add(...verschmelzeObjekte(findlinge, 'zen-findlinge'));
   // Seerosenblätter + Lotusblüten auf der Wasseroberfläche
+  const seerosen = [];
   for (let i = 0; i < 7; i++) {
     const pad = makeLilyPad(rand);
     const a = rand() * Math.PI * 2;
     const r = rand() * 1.5;
     pad.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.03, pondCenter.z + Math.sin(a) * r);
-    group.add(pad);
+    seerosen.push(pad);
   }
+  group.add(...verschmelzeObjekte(seerosen, 'zen-seerosen'));
+  const lotusse = [];
   for (let i = 0; i < 3; i++) {
     const lotus = makeLotus();
     const a = rand() * Math.PI * 2;
     const r = 0.3 + rand() * 1.1;
     lotus.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.04, pondCenter.z + Math.sin(a) * r);
-    group.add(lotus);
+    lotusse.push(lotus);
   }
+  // Zwei Meshes: Blütenblätter und Kerne haben verschiedene Materialien.
+  group.add(...verschmelzeObjekte(lotusse, 'zen-lotus'));
   // Wasser-Ringe: wachsen & blenden aus (dort, wo Koi auftauchen)
   const ripples = [];
   const rippleMat = new THREE.MeshBasicMaterial({
@@ -4369,6 +4524,9 @@ function createZenEnvironment() {
     depthWrite: false,
     toneMapped: false,
     side: THREE.DoubleSide,
+    // Wie bei den Koi-Flossen: Ein Ring ist eine ebene Fläche, der zweite
+    // Durchgang für die Rückseiten zeichnet dieselben Pixel noch einmal.
+    forceSinglePass: true,
   });
   for (let i = 0; i < 3; i++) {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 28), rippleMat.clone());
@@ -4450,7 +4608,7 @@ function createZenEnvironment() {
   group.add(sakura);
   const sakuraShadow = makeBlobShadow(1.3, 0.4);
   sakuraShadow.position.set(-4.4, 0.015, 2.5);
-  group.add(sakuraShadow);
+  kontaktschatten.push(sakuraShadow);
 
   // Ahorn (Momiji) als Farbkontrast gegenüber der Sakura
   const maple = makeMaple(rand);
@@ -4458,11 +4616,12 @@ function createZenEnvironment() {
   group.add(maple);
   const mapleShadow = makeBlobShadow(1.0, 0.4);
   mapleShadow.position.set(4.8, 0.015, 3.2);
-  group.add(mapleShadow);
+  kontaktschatten.push(mapleShadow);
 
   // Bambushain (wiegt in update)
   const bamboo = makeBambooGrove(rand, -6.5, -3.5);
   group.add(bamboo.group);
+  kontaktschatten.push(bamboo.shadow);
 
   // Steinlaterne + Torii (mit Kontaktschatten)
   const lantern = makeLantern();
@@ -4470,7 +4629,7 @@ function createZenEnvironment() {
   group.add(lantern);
   const lanternShadow = makeBlobShadow(0.4, 0.5);
   lanternShadow.position.set(1.6, 0.015, -1.8);
-  group.add(lanternShadow);
+  kontaktschatten.push(lanternShadow);
   const torii = makeTorii();
   torii.position.set(-2, 0, -9);
   torii.rotation.y = 0.35;
@@ -4478,7 +4637,13 @@ function createZenEnvironment() {
   const toriiShadow = makeBlobShadow(1.8, 0.35);
   toriiShadow.position.set(-2, 0.015, -9);
   toriiShadow.scale.x *= 2; // länglich unter dem Tor
-  group.add(toriiShadow);
+  kontaktschatten.push(toriiShadow);
+
+  // Dreizehn Kontaktschatten, ein Draw-Call. Sie liegen alle flach auf dem
+  // Sand, tragen dieselbe Textur und unterscheiden sich nur in Größe, Ort und
+  // Deckkraft – Letztere steckt jetzt in der vierten Komponente der
+  // Scheitelfarbe statt in dreizehn Materialien.
+  group.add(verschmelzeSchatten(kontaktschatten, 'zen-kontaktschatten'));
 
   // Warm glühende Staubpartikel im tiefen Sonnenlicht
   const DUST = 70;
