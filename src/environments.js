@@ -62,6 +62,33 @@ function hashNoise(x, y, z) {
 
 const TAU = Math.PI * 2;
 
+// **Ein glatter, periodischer Umriss — und warum `hashNoise` dafür falsch ist.**
+//
+// `hashNoise` ist ein Hash, kein Rauschen: Zwei benachbarte Eingaben liefern
+// unabhängige Werte. Als Streuung je Scheitelpunkt ist das genau richtig (die
+// Flecken auf Saum und Becken benutzen es so), als **Umriss** ergibt es einen
+// Zackenstern. Genau das stand im Bild: Der Uferwulst des Teichs lief nicht in
+// Zungen und Buchten aus, sondern in helle Dreiecke, die wie Kartenfehler
+// aussahen — und dieselbe Ursache hatte der Rand der Moosinseln.
+//
+// Was hier gebraucht wird, ist eine Funktion des Winkels, die stetig ist **und**
+// sich bei 2π schließt. Eine Summe von Sinus-Termen mit ganzzahliger Frequenz
+// erfüllt beides von selbst. Die Amplituden fallen mit 1/f, damit die groben
+// Buchten die Form bestimmen und die feinen nur die Kante beleben.
+function welligerUmriss(seed, staerke = 0.16, terme = 5) {
+  const rnd = mulberry32(seed);
+  const glieder = [];
+  for (let k = 0; k < terme; k++) {
+    glieder.push({ f: k + 2, a: (rnd() * 2 - 1) / (k + 2), p: rnd() * TAU });
+  }
+  const norm = glieder.reduce((sum, g) => sum + Math.abs(g.a), 0) || 1;
+  return (winkel) => {
+    let v = 0;
+    for (const g of glieder) v += g.a * Math.sin(g.f * winkel + g.p);
+    return 1 + (v / norm) * staerke;
+  };
+}
+
 // Kürzester Winkelabstand, damit Formmerkmale (Landzunge, Bucht, Höhenrücken)
 // über die 0/2π-Naht hinweg stetig bleiben.
 function angDelta(a, b) {
@@ -4089,36 +4116,187 @@ function sandMaterial() {
 // für eine Fläche mit Nebel und Scheitelfarben zu grob, und ihr Rand wäre ein
 // sichtbares 72-Eck. Die Ringe stehen außen weiter auseinander als innen: Wo
 // man steht, zählt jeder Zentimeter, am Rand nimmt der Nebel ohnehin alles.
-function makeSandBett(radius, ringe = 26, segmente = 128) {
+// `aussparung` = { x, z, rx, rz, umriss(azimut) }: Wo das Teichbecken steht,
+// muss die Kiesfläche weichen — sonst schneidet sie als waagerechte Platte
+// durch das Becken, und man sieht Sand auf halber Wassertiefe.
+//
+// **Vierecke wegzulassen reicht nicht.** Der erste Anlauf verwarf jedes
+// Viereck, dessen Ecken innerhalb lagen; der Rand des Lochs folgte damit der
+// Ringauflösung von rund 40 cm und stand als Zackenkranz aus dem Uferwulst
+// heraus. Stattdessen werden die Punkte im Inneren **radial auf die Kontur
+// gezogen**. Vierecke, die ganz innen lagen, kollabieren dabei auf die Kontur
+// und haben keine Fläche mehr; Vierecke am Rand werden zu schmalen Streifen,
+// die exakt an der Kontur enden. Der Rand des Lochs ist danach glatt, und weil
+// dieselbe Umrissfunktion wie beim Becken benutzt wird, läuft er parallel zu
+// dessen Ufer statt quer dazu.
+function makeSandBett(radius, ringe = 44, segmente = 160, aussparung = null) {
   const pos = [];
   const uv = [];
   const idx = [];
-  pos.push(0, 0, 0);
-  uv.push(0.5, 0.5);
+  // Punkt innerhalb der Aussparung radial auf deren Kontur ziehen. `innen`
+  // merkt sich, welche Punkte das betraf.
+  const innen = [];
+  const setze = (x, z) => {
+    let drin = false;
+    if (aussparung) {
+      const dx = x - aussparung.x;
+      const dz = z - aussparung.z;
+      const a = Math.atan2(dz, dx);
+      const f = aussparung.umriss ? aussparung.umriss(a) : 1;
+      const nx = dx / (aussparung.rx * f);
+      const nz = dz / (aussparung.rz * f);
+      const len = Math.hypot(nx, nz);
+      if (len < 1 && len > 1e-6) {
+        x = aussparung.x + dx / len;
+        z = aussparung.z + dz / len;
+        drin = true;
+      } else if (len <= 1e-6) {
+        x = aussparung.x + aussparung.rx * f;
+        z = aussparung.z;
+        drin = true;
+      }
+    }
+    innen.push(drin);
+    pos.push(x, 0, z);
+    uv.push(x / (radius * 2) + 0.5, z / (radius * 2) + 0.5);
+  };
+  setze(0, 0);
   for (let j = 1; j <= ringe; j++) {
     const r = radius * Math.pow(j / ringe, 1.45);
     for (let i = 0; i < segmente; i++) {
       const a = (i / segmente) * Math.PI * 2;
-      const x = Math.cos(a) * r;
-      const z = Math.sin(a) * r;
-      pos.push(x, 0, z);
-      uv.push(x / (radius * 2) + 0.5, z / (radius * 2) + 0.5);
+      setze(Math.cos(a) * r, Math.sin(a) * r);
     }
   }
   const ring = (j, i) => 1 + (j - 1) * segmente + (i % segmente);
-  for (let i = 0; i < segmente; i++) idx.push(0, ring(1, i + 1), ring(1, i));
+  // **Aufziehen allein reicht nicht.** Ein Viereck, dessen vier Ecken alle im
+  // Inneren lagen, landet danach mit allen vier Ecken auf der Kontur — aber an
+  // vier verschiedenen Winkeln. Es spannt damit eine Sehne quer durch das
+  // Becken auf, und genau das stand im Bild: helle Zacken, die vom Ufer aus
+  // über das Wasser liefen. Solche Vierecke entfallen; übrig bleiben die am
+  // Rand, deren äußere Ecken unberührt sind und deren innere jetzt exakt auf
+  // der Kontur sitzen.
+  const ganzInnen = (...v) => v.every((k) => innen[k]);
+  for (let i = 0; i < segmente; i++) {
+    const a = ring(1, i + 1);
+    const b = ring(1, i);
+    if (ganzInnen(0, a, b)) continue;
+    idx.push(0, a, b);
+  }
   for (let j = 1; j < ringe; j++) {
     for (let i = 0; i < segmente; i++) {
       const a = ring(j, i);
       const b = ring(j, i + 1);
       const c = ring(j + 1, i + 1);
       const d = ring(j + 1, i);
+      if (ganzInnen(a, b, c, d)) continue;
       idx.push(a, b, d, b, c, d);
     }
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// --- Das Teichbecken --------------------------------------------------------
+//
+// **Der Teich war eine Scheibe, kein Gewässer.** Die Wasserfläche lag bei
+// y = 0,01 auf einem Kiesbett bei y = −0,02: drei Zentimeter „Tiefe". Gemessen
+// hatte die offene Fläche einen Mittelwert von 114 bei einer Spannweite von 26
+// und keinem einzigen Pixel über 190 — kein Tiefenton, keine Spiegelung, keine
+// Uferzone, und die Wasserlinie ein sauberer Schnitt. Und die Koi schwammen
+// nicht darin: Ihr Körper ist 11 cm hoch und ihre Bahn lag bei y = 0, also
+// ragten sie viereinhalb Zentimeter aus dem Wasser.
+//
+// Das Becken hier ist eine echte Mulde: 34 cm tief in der Mitte, mit einem
+// Uferwulst, der über die Wasserlinie steigt und außen wieder in den Kies
+// läuft. Der Umriss ist verrauscht — eine exakte Ellipse ist der schnellste
+// Weg zu „gerechnet".
+//
+// Ein Mesh, ein Draw-Call. Die Zonen — Grund, Flachwasser, Wasserlinie,
+// nasses Ufer, trockener Wulst — stecken in den Scheitelfarben.
+function makeTeichbecken(rx, rz, { tiefe = 0.42, seed = 4242, umriss } = {}) {
+  const RINGE = 22;
+  const SEG = 96;
+  // **Die Wasserlinie liegt bei 0,95, nicht bei 0,86.** Im ersten Anlauf war
+  // der Uferwulst einen vollen Meter breit und legte sich als brauner Ring um
+  // eine kleine Wasserfläche — im Bild eine Pfütze in einer Baugrube. Ein
+  // Gartenteich hat einen schmalen Uferstreifen.
+  const WL = 0.95;
+  // Radiusfaktor (0…1,30) auf Höhe.
+  const profil = (t) => {
+    if (t < WL) {
+      // Der Grund fällt am Ufer zügig ab und läuft dann flach aus — ein
+      // Gartenteich ist keine Halbkugel. Bei 42 cm Tiefe und diesem Profil
+      // bleiben unter der Koi-Bahn (t bis 0,57) noch 18 cm Wasser unter dem
+      // Fisch; mit dem ursprünglichen Profil wäre er durch den Grund gefahren.
+      const u = 1 - t / WL;
+      return -tiefe * u * (1.4 - 0.4 * u);
+    }
+    if (t < 1.06) {
+      // Ufer: steigt aus dem Wasser bis zum Wulst
+      const u = (t - WL) / (1.06 - WL);
+      return u * u * (3 - 2 * u) * 0.07;
+    }
+    // Außen wieder auf Kiesniveau
+    const u = (t - 1.06) / 0.1;
+    return 0.07 - u * u * (3 - 2 * u) * 0.09;
+  };
+  // Zonenfarben. Der Grund ist Schlick, das Flachwasser sandig, die
+  // Wasserlinie am dunkelsten (dauerhaft nass), der Wulst trockener Kies.
+  const grund = new THREE.Color(0x4a4736);
+  const flach = new THREE.Color(0x958b64);
+  const linie = new THREE.Color(0x5f5644);
+  const nass = new THREE.Color(0x9c8a68);
+  const trocken = new THREE.Color(0xd6c6a2);
+  const farbe = (t) => {
+    const c = new THREE.Color();
+    if (t < 0.6) return c.copy(grund).lerp(flach, smoothstep(0.0, 0.6, t));
+    if (t < WL) return c.copy(flach).lerp(linie, smoothstep(0.6, WL, t));
+    if (t < 1.02) return c.copy(linie).lerp(nass, smoothstep(WL, 1.02, t));
+    return c.copy(nass).lerp(trocken, smoothstep(1.02, 1.16, t));
+  };
+
+  const pos = [];
+  const uv = [];
+  const col = [];
+  const idx = [];
+  const setze = (x, y, z, t) => {
+    pos.push(x, y, z);
+    // UVs in Weltmetern, damit die Kornkarte auf dem Ufer dieselbe Körnung
+    // zeigt wie der Kies daneben.
+    uv.push(x / 0.7, z / 0.7);
+    const c = farbe(t);
+    // Flecken, damit die Zonen keine Farbringe sind
+    const f = 0.86 + hashNoise(x * 3.1, seed, z * 3.1) * 0.3;
+    col.push(c.r * f, c.g * f, c.b * f);
+  };
+  setze(0, profil(0), 0, 0);
+  for (let j = 1; j <= RINGE; j++) {
+    const t = 1.16 * (j / RINGE);
+    for (let i = 0; i < SEG; i++) {
+      const a = (i / SEG) * Math.PI * 2;
+      // Umriss verrauscht: Zungen und Buchten wie an einem gewachsenen Ufer.
+      // Dieselbe Funktion benutzen die Wasserfläche und die Aussparung im
+      // Kiesbett — sonst laufen die drei Ränder auseinander.
+      const r = t * umriss(a);
+      setze(Math.cos(a) * r * rx, profil(t), Math.sin(a) * r * rz, t);
+    }
+  }
+  const ring = (j, i) => 1 + (j - 1) * SEG + (i % SEG);
+  for (let i = 0; i < SEG; i++) idx.push(0, ring(1, i + 1), ring(1, i));
+  for (let j = 1; j < RINGE; j++) {
+    for (let i = 0; i < SEG; i++) {
+      idx.push(ring(j, i), ring(j, i + 1), ring(j + 1, i), ring(j, i + 1), ring(j + 1, i + 1), ring(j + 1, i));
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return geo;
@@ -4959,8 +5137,29 @@ function createZenEnvironment() {
 
   // Das Kiesbett. Radius unverändert 20 m; die Harkspur entsteht jetzt
   // rechnerisch aus der Weltposition, siehe `sandMaterial()`.
+  // Lage und Größe des Teichs stehen hier oben, weil das Kiesbett eine
+  // Aussparung dafür braucht — es darf nicht als waagerechte Platte durch das
+  // Becken schneiden.
+  // Der Umriss des Teichs, einmal definiert: Becken, Wasserfläche und die
+  // Aussparung im Kiesbett benutzen dieselbe Funktion. Eine exakte Ellipse ist
+  // der schnellste Weg zu „gerechnet"; und drei Stellen, die denselben Umriss
+  // getrennt nachbilden, sind der schnellste Weg zu einem Spalt.
+  const teichUmriss = welligerUmriss(4242, 0.13);
+  const TEICH = { x: 3.2, z: -1.2, rx: 2.04, rz: 1.7 };
   const sandMat = sandMaterial();
-  const sand = new THREE.Mesh(makeSandBett(SAND_RADIUS), sandMat);
+  const sand = new THREE.Mesh(
+    makeSandBett(SAND_RADIUS, 44, 160, {
+      x: TEICH.x,
+      z: TEICH.z,
+      // Zwischen Wasserlinie (0,95) und Uferwulst-Außenkante (1,30): Das Loch
+      // liegt sicher außerhalb des Wassers und wird vom Ufer mit gut 45 cm
+      // überdeckt.
+      rx: TEICH.rx * 1.02,
+      rz: TEICH.rz * 1.02,
+      umriss: teichUmriss,
+    }),
+    sandMat
+  );
   sand.name = 'zen-sand';
   sand.position.y = -0.02;
   group.add(sand);
@@ -5018,14 +5217,11 @@ function createZenEnvironment() {
     const mossGeo = new THREE.CircleGeometry(mossR, 44);
     {
       const pos = mossGeo.attributes.position;
-      const seed = 300 + i * 17;
+      const zunge = welligerUmriss(300 + i * 17, 0.24, 6);
       for (let v = 1; v < pos.count; v++) {
         const a = Math.atan2(pos.getY(v), pos.getX(v));
-        const zunge =
-          0.78 +
-          hashNoise(Math.cos(a) * 2.1, seed, Math.sin(a) * 2.1) * 0.34 +
-          hashNoise(Math.cos(a) * 6.3, seed + 1, Math.sin(a) * 6.3) * 0.16;
-        pos.setXY(v, Math.cos(a) * mossR * zunge, Math.sin(a) * mossR * zunge);
+        const f = zunge(a);
+        pos.setXY(v, Math.cos(a) * mossR * f, Math.sin(a) * mossR * f);
       }
       pos.needsUpdate = true;
     }
@@ -5113,7 +5309,26 @@ function createZenEnvironment() {
   group.add(...verschmelzeObjekte(trittsteine, 'zen-trittsteine'));
 
   // Koi-Teich
-  const pondCenter = new THREE.Vector3(3.2, 0, -1.2);
+  const pondCenter = new THREE.Vector3(TEICH.x, 0, TEICH.z);
+  // Das Becken zuerst: Mulde, Uferwulst, Übergang in den Kies. Es trägt die
+  // Kornkarte des Sandes, damit Ufer und Kies dieselbe Körnung zeigen.
+  const beckenGeo = makeTeichbecken(TEICH.rx, TEICH.rz, { umriss: teichUmriss });
+  const becken = new THREE.Mesh(
+    beckenGeo,
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      color: 0xffffff,
+      normalMap: sandMaps().grainMap.clone(),
+      normalScale: new THREE.Vector2(1.0, 1.0),
+      roughness: 0.92,
+      metalness: 0,
+    })
+  );
+  becken.material.normalMap.needsUpdate = true;
+  becken.material.normalMap.repeat.set(1, 1); // UVs stehen schon in Metern
+  becken.name = 'zen-teichbecken';
+  becken.position.set(TEICH.x, -0.02, TEICH.z);
+  group.add(becken);
   // **Zwei gegeneinander wandernde Kräuselungslagen statt einer geschobenen
   // Textur.** Eine einzelne Lage mit laufendem Versatz liest man sofort als
   // verschobenes Bild; erst zwei Lagen in verschiedener Richtung und Frequenz
@@ -5122,27 +5337,150 @@ function createZenEnvironment() {
   // macht daraus graue Farbe.
   const pondMat = waterMaterial({ repeat: 3.2 });
   pondMat.transparent = true;
+  // **Tiefenton, Uferzone und Glanzbahn — im Shader, nicht als Farbe.**
+  //
+  // Gemessen war die offene Fläche: Mittel 114, Spannweite 26, kein Pixel über
+  // 190, Farbton praktisch gesättigungsfrei, und eine Spalte durch den Teich
+  // fiel streng monoton. Das ist keine Wasserfläche, das ist eine Platte mit
+  // Verlauf. Drei Dinge fehlten:
+  //
+  //   * **Tiefe.** Am Ufer sieht man den sandigen Grund, in der Mitte nicht
+  //     mehr. Das ist kein Helligkeitsverlauf, sondern ein Wechsel der
+  //     **Deckkraft**: flach durchsichtig, tief undurchsichtig. Genau das
+  //     trennt Wasser von eingefärbtem Glas.
+  //   * **Die Wasserlinie.** Ein Saum, wo das Wasser den Grund benetzt —
+  //     dunkler und dann zum Ufer hin auslaufend, statt ein sauberer Schnitt.
+  //   * **Die Glanzbahn.** Eine tief stehende Sonne zieht auf leicht bewegtem
+  //     Wasser einen langen Streifen. Ohne ihn hat der Teich keinen einzigen
+  //     hellen Punkt.
+  //
+  // Die Tiefe kommt aus den UVs der Wasserscheibe (Mittelpunkt 0,5|0,5), nicht
+  // aus einer zweiten Textur: Die Scheibe ist ein Kreis, ihr normierter Radius
+  // ist der Abstand zum Ufer.
+  {
+    const tiefUniforms = {
+      uWasserFlach: { value: new THREE.Color(0x6d7c62) },
+      uWasserTief: { value: new THREE.Color(0x11302f) },
+      uWasserSaum: { value: new THREE.Color(0x2f3a30) },
+    };
+    const vorher = pondMat.onBeforeCompile;
+    pondMat.onBeforeCompile = (shader, renderer) => {
+      if (vorher) vorher.call(pondMat, shader, renderer);
+      Object.assign(shader.uniforms, tiefUniforms);
+      // **`vMapUv` gibt es hier nicht.** three legt die UV-Varianten je
+      // Kartenslot an, und die Wasserfläche hat gar keine Farbkarte — nur
+      // Normal- und Clearcoat-Normalkarte, also `vNormalMapUv` mit deren
+      // Kachelung. Der erste Anlauf griff auf `vMapUv` zu, der Shader
+      // kompilierte nicht, und die Konsole war voll mit
+      // „useProgram: program not valid". Also eine eigene Varying mit den
+      // ungekachelten UVs der Scheibe.
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n varying vec2 vTeichUv;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\n vTeichUv = uv;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           varying vec2 vTeichUv;
+           uniform vec3 uWasserFlach;
+           uniform vec3 uWasserTief;
+           uniform vec3 uWasserSaum;`
+        )
+        .replace(
+          '#include <map_fragment>',
+          `#include <map_fragment>
+           {
+             // Normierter Abstand zur Mitte der Scheibe: 0 = Mitte, 1 = Ufer.
+             float rand = clamp(length(vTeichUv - 0.5) * 2.0, 0.0, 1.0);
+             float tief = 1.0 - rand;
+             // Der Grund verschwindet nicht linear, sondern nach Beer-Lambert:
+             // in den ersten Zentimetern viel, danach kaum noch.
+             float deckung = 1.0 - exp(-3.4 * tief);
+             diffuseColor.rgb = mix(uWasserFlach, uWasserTief, deckung);
+             // Der Saum unmittelbar an der Wasserlinie
+             float saum = smoothstep(0.86, 1.0, rand);
+             diffuseColor.rgb = mix(diffuseColor.rgb, uWasserSaum, saum * 0.65);
+             // Flach ist durchsichtig, tief nicht. Am äußersten Rand läuft die
+             // Fläche aus, damit die Wasserlinie kein Schnitt ist.
+             diffuseColor.a = mix(0.34, 0.94, deckung) * (1.0 - smoothstep(0.955, 1.0, rand) * 0.75);
+           }`
+        );
+    };
+    const vorherKey = pondMat.customProgramCacheKey?.bind(pondMat);
+    pondMat.customProgramCacheKey = () => `${vorherKey ? vorherKey() : ''}|zen-wasser`;
+  }
   // **Heller und durchsichtiger als das Tsukubai-Becken im Dojo.** Der
   // Grundton dort ist fast schwarz, weil ein Steinbecken tief und schattig ist
   // und man darin praktisch nur die Spiegelung sieht. Ein Gartenteich mit
   // Seerosen ist flach: Der Sand darunter gehört ins Bild. Mit dem
   // unveränderten Wert war der Teich ein schwarzes Loch im Sand – nachgesehen,
   // nicht überlegt.
-  pondMat.color.setHex(0x16363c);
-  pondMat.opacity = 0.8;
+  // Grundfarbe und Deckkraft stehen jetzt im Shader oben (tiefenabhängig).
+  // `opacity` bleibt 1, damit der dortige Alphawert nicht ein zweites Mal
+  // multipliziert wird.
+  pondMat.color.setHex(0xffffff);
+  pondMat.opacity = 1;
+  // Rauheit von 0,05 auf 0,14: Bei 0,05 ist die Sonnenspiegelung ein Punkt von
+  // wenigen Pixeln und im Bild nicht vorhanden. Leicht bewegtes Wasser zieht
+  // sie zu einer Bahn auseinander — das ist die Lichtspitze, die dem Teich
+  // gefehlt hat.
+  pondMat.roughness = 0.14;
+  pondMat.normalScale.set(0.5, 0.5);
+  pondMat.envMapIntensity = 2.0;
   // Das Wasser braucht etwas zu spiegeln. Ohne Environment-Map bleibt bei
   // Rauheit 0,05 nur die Grundfarbe übrig, und die ist absichtlich dunkel.
   pondMat.userData.needsEnv = true;
-  const pond = new THREE.Mesh(new THREE.CircleGeometry(1.7, 40), pondMat);
+  // Die Wasserfläche folgt demselben verrauschten Umriss wie das Becken — eine
+  // exakte Ellipse als Wasserlinie ist der schnellste Weg zu „gerechnet".
+  const wasserGeo = new THREE.CircleGeometry(1, 96);
+  {
+    const wp = wasserGeo.attributes.position;
+    for (let v = 1; v < wp.count; v++) {
+      const a = Math.atan2(wp.getY(v), wp.getX(v));
+      // 0,95 ist die Wasserlinie im Profil des Beckens (makeTeichbecken: WL).
+      wp.setXY(v, Math.cos(a) * teichUmriss(a) * 0.95, Math.sin(a) * teichUmriss(a) * 0.95);
+    }
+    wp.needsUpdate = true;
+    wasserGeo.computeVertexNormals();
+  }
+  const pond = new THREE.Mesh(wasserGeo, pondMat);
   pond.rotation.x = -Math.PI / 2;
-  pond.position.set(pondCenter.x, 0.01, pondCenter.z);
-  pond.scale.set(1.2, 1, 1);
+  pond.position.set(pondCenter.x, -0.019, pondCenter.z);
+  pond.scale.set(TEICH.rx, 1, TEICH.rz);
+  pond.name = 'zen-wasser';
   group.add(pond);
   // Steinrand um den Teich
   for (let i = 0; i < 16; i++) {
     const a = (i / 16) * Math.PI * 2;
     const s = makeZenStone(rand, 0.12 + rand() * 0.08, 0x8f8880);
-    s.position.set(pondCenter.x + Math.cos(a) * 2.0, 0.05, pondCenter.z + Math.sin(a) * 1.7);
+    // **An die Wasserlinie gerückt und abgesenkt.** Vorher standen die Steine
+    // auf dem Kiesniveau am äußeren Rand — eine Perlenkette neben einer
+    // Scheibe. Jetzt sitzen sie im Uferwulst, ihr Fuß liegt unter Wasser.
+    s.position.set(
+      pondCenter.x + Math.cos(a) * TEICH.rx * 1.0,
+      -0.01,
+      pondCenter.z + Math.sin(a) * TEICH.rz * 1.0
+    );
+    // **Nass ist nicht „dunkler eingefärbt", aber dunkel ist der halbe Effekt.**
+    // Ein Wasserfilm füllt die Mikrorauheit: Was in die Poren fällt, kommt kaum
+    // wieder heraus. Die Rauheit ließe sich nur über ein zweites Material
+    // ändern — und das wäre ein zweiter Draw-Call für sechzehn Kiesel. Die
+    // Verdunklung steckt deshalb in den Scheitelfarben, gestaffelt über die
+    // Wasserlinie: unter Wasser voll, darüber ein Saum von acht Zentimetern,
+    // wo das Wasser hochzieht.
+    {
+      s.updateMatrix();
+      const pos = s.geometry.attributes.position;
+      const col = s.geometry.attributes.color;
+      const v = new THREE.Vector3();
+      for (let k = 0; k < pos.count; k++) {
+        v.fromBufferAttribute(pos, k).applyMatrix4(s.matrix);
+        const nass = 1 - smoothstep(-0.019, 0.065, v.y);
+        const f = 1 - nass * 0.45;
+        col.setXYZ(k, col.getX(k) * f, col.getY(k) * f * 0.99, col.getZ(k) * f * 0.97);
+      }
+      col.needsUpdate = true;
+    }
     // Derselbe Granit wie die Findlinge, also derselbe Sammler.
     findlinge.push(s);
   }
@@ -5153,7 +5491,8 @@ function createZenEnvironment() {
     const pad = makeLilyPad(rand);
     const a = rand() * Math.PI * 2;
     const r = rand() * 1.5;
-    pad.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.03, pondCenter.z + Math.sin(a) * r);
+    // Auf der Wasserfläche (−0,019), nicht drei Zentimeter darüber.
+    pad.position.set(pondCenter.x + Math.cos(a) * r * 1.15, -0.013, pondCenter.z + Math.sin(a) * r);
     seerosen.push(pad);
   }
   group.add(...verschmelzeObjekte(seerosen, 'zen-seerosen'));
@@ -5162,7 +5501,7 @@ function createZenEnvironment() {
     const lotus = makeLotus();
     const a = rand() * Math.PI * 2;
     const r = 0.3 + rand() * 1.1;
-    lotus.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.04, pondCenter.z + Math.sin(a) * r);
+    lotus.position.set(pondCenter.x + Math.cos(a) * r * 1.15, -0.008, pondCenter.z + Math.sin(a) * r);
     lotusse.push(lotus);
   }
   // Zwei Meshes: Blütenblätter und Kerne haben verschiedene Materialien.
@@ -5190,7 +5529,7 @@ function createZenEnvironment() {
     // `c-torii` als „vier konzentrische Ellipsen konstanter Breite" gefunden,
     // durch die die Harkstreifen ungestört hindurchlaufen, und für ein zweites
     // aufgelegtes Muster gehalten. Es waren Wasserringe auf dem Sand.
-    ring.position.set(pondCenter.x, 0.025, pondCenter.z);
+    ring.position.set(pondCenter.x, -0.012, pondCenter.z);
     ring.userData = { phase: rand() * 1000, period: 3 + rand() * 2 };
     group.add(ring);
     ripples.push(ring);
@@ -5510,9 +5849,15 @@ function createZenEnvironment() {
         const d = koi.userData;
         const a = time * d.speed + d.phase;
         const bob = Math.sin(time * 2 + d.phase) * 0.01;
+        // **Die Koi schwammen auf dem Wasser, nicht darin.** Ihre Bahn lag bei
+        // y = 0, der Körper ist 11 cm hoch, die Wasserfläche lag bei y = 0,01 —
+        // viereinhalb Zentimeter Fisch standen heraus. Jetzt 10 cm unter der
+        // Oberfläche: Der Rücken bleibt gut zwei Zentimeter unter Wasser, und
+        // unter dem Bauch stehen bei der äußeren Bahn noch acht Zentimeter bis
+        // zum Grund.
         koi.position.set(
           pondCenter.x + Math.cos(a) * d.radius * 1.15,
-          bob,
+          -0.1 + bob,
           pondCenter.z + Math.sin(a) * d.radius
         );
 
