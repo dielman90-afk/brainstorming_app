@@ -684,3 +684,55 @@ Baum-Weltkoordinaten ohne Zwischenversatz.
 Und ein zweiter: Die Astabschnitte waren offene Zylinder ohne Deckel. Die
 Innenwand wird rückseitig weggeschnitten, und die Astspitzen sahen aus wie
 abgesägte Rohre, durch die man den Himmel sieht.
+
+---
+
+## Durchlauf 8 — Paket 4 (Wasser), zweiter Anlauf
+
+**Messwerte:** Draw-Calls 90 unverändert, Dreiecke 67 970 → 68 034,
+Texturspeicher 21,52 MB unverändert, Konsole sauber. Regression: `env-night`
+bitgleich, `env-dojo` Δmax 4 auf 0,010 %, `env-island` im Eigenrauschen.
+
+### Warum der Teich nichts spiegelte — nachgerechnet statt geraten
+
+Ein Laufzeit-Auszug hat zuerst geklärt, dass die Umgebungskarte überhaupt
+ankommt: 768×1024, CubeUV-Mapping, Stärke 2,0, Rauheit 0,14. Der Weg war also
+in Ordnung. Dann die Rechnung: Bei einem Blick von 1,5 m Augenhöhe auf einen
+Teich in 3,5 m Abstand trifft man die Fläche unter **67° zur Normalen**; der
+Fresnel-Anteil ist dort rund 12 %. Zwölf Prozent der Himmelsradianz von 0,66
+sind 0,08 linear — nach der ACES-Kurve etwa L 90, und **genau L 90 hatte der
+Prüfer gemessen.**
+
+Der Fehler lag also nicht im Aufbau, sondern in der Quelle: Die Pegel der
+Himmelsbeschreibung für die Spiegelungskarte standen deutlich unter dem, was
+die sichtbare Kuppel zeigt. Horizont 0,66 → 0,98, Dunst 0,58 → 0,88,
+Zenit 0,36 → 0,48. Dazu die Rauheit von 0,14 auf 0,09: Je schärfer die Keule,
+desto mehr vom hellen Horizontband kommt zurück.
+
+Gemessen auf der Wasserfläche: Anteil über L 190 von **0,0 % auf 0,4 %**,
+Mittel 112 → 123, p95 143 → 168.
+
+### Die schwarze Naht an der Wasserlinie
+
+Sie war die Summe aus zwei Dingen: der dunkelsten Zone des Beckens (die genau
+auf der Wasserlinie lag) und dem dunklen Saum, den der Wassershader dort noch
+einmal darüberlegte (65 %). Zone aufgehellt, Saum auf 38 %, und die
+Wasserfläche hat statt 96 nun 160 Segmente — bei 2 m Radius waren 96 Segmente
+13 cm je Kante und die Wasserlinie aus zwei Metern sichtbar facettiert.
+
+### Ein eigener Fehler
+
+Die nassen Uferkiesel bekamen Rauheit 0,24 bei 45 % Verdunklung. Im Bild waren
+das schwarze, glänzende Kiesel — Obsidian, nicht nasser Granit. Nasser Stein
+ist dunkler und glatter als trockener, aber er bleibt Stein. Jetzt 0,34 und
+26 %.
+
+### Was am Wasser offen bleibt
+
+* **Keine Spiegelung der Laterne.** Sie steht mit L 202 unmittelbar am Becken.
+  Eine Punktlichtspiegelung bräuchte entweder eine zweite Umgebungskarte an
+  ihrer Stelle oder ein Punktlicht — beides teuer für ein Detail.
+* **Seerosen werfen keinen Schatten ins Wasser.** Sie liegen sechs Millimeter
+  über der Fläche; bei 19° Sonnenstand liegt der Schatten damit 17 mm versetzt
+  und damit unter dem Blatt. Der richtige Ort wäre der Beckengrund 40 cm
+  darunter — dort ist das Wasser aber schon deckend.
