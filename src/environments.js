@@ -3642,100 +3642,427 @@ function createNightEnvironment() {
 
 // --- Zen-Garten ---
 
-// Sandfläche mit weichen, geharkten Wellenlinien (konzentrisch, organisch – kein Raster)
-// **Die Harkspur war bisher aufgemalt und nicht vorhanden.**
+// --- Das Sandbett -----------------------------------------------------------
 //
-// Eine Rille im Kies ist kein hellerer Strich, sie ist eine Vertiefung: Bei
-// einer Sonne, die hier 20° über dem Horizont steht, hat sie eine beschienene
-// und eine verschattete Flanke, und genau dieser Wechsel macht aus einer Fläche
-// eine geharkte Fläche. Aufgemalt bleibt sie flach, egal wie gut die Farbe ist –
-// das ist der Grund, warum der Boden aussah wie bedruckter Karton.
+// Der Kiesgarten ist mit 1256 m² die mit Abstand größte Fläche der Umgebung
+// und füllt in vier der sechs Prüfansichten mehr als die Hälfte des Bildes.
+// Was hier nicht trägt, trägt nirgends.
 //
-// Deshalb wird dieselbe Zeichnung zweimal verwendet: einmal als Farbe und
-// einmal als **Höhenfeld**, aus dem `heightToMaps()` die Normal-Map rechnet.
-// Beide aus derselben Quelle heißt: Relief und Farbe liegen deckungsgleich.
-// Zwei getrennte Zeichnungen wären die einfachste Art, eine Rille zu bekommen,
-// die man sieht, aber nicht dort, wo sie hell ist.
-const SAND_CENTERS = [
-  [512, 512],
-  [250, 300],
-  [780, 700],
-  [720, 260],
-];
-let _sandMaps = null;
-function sandMaps() {
-  if (_sandMaps) return _sandMaps;
-  const size = 1024;
+// **Warum die aufgemalte Harkspur weg musste.** Sie stand als Kreisbögen in
+// einer 1024er-Karte, die einmal über die ganze Scheibe gespannt ist: ein
+// Texel deckt 3,9 cm ab. Der Rillenabstand lag deshalb bei 86 cm — nicht weil
+// das ein plausibler Abstand für eine Harke wäre (der liegt bei 20 bis 25 cm),
+// sondern weil ein kleinerer in dieser Auflösung nicht mehr abtastbar gewesen
+// wäre. Das Ergebnis las sich als Dünung, nicht als geharkter Kies. Dieselbe
+// Auflösungsgrenze machte aus der Körnung, die in Vierergruppen von Texeln
+// gewürfelt wurde, ein Karo von 15,6 cm Kantenlänge — im Bild als rechteckiges
+// Muster sichtbar und damit ein Programmierer-Tell erster Güte.
+//
+// Eine höhere Auflösung ist nicht der Ausweg: Für 22-cm-Rillen mit einer
+// brauchbaren Flanke bräuchte man rund 8000² Texel, also gut 350 MB. Das
+// Budget für **alle** Texturen sind 60 MB.
+//
+// Deshalb ist die Aufgabe aufgeteilt, jede Frequenz auf den Träger, der sie
+// billig kann:
+//
+//   * **grob** (Meter bis Zehnermeter) — eine 512er-Farbkarte über die ganze
+//     Scheibe: Flecken aus gröberem und feinerem Kies, das Ausbleichen zum
+//     Rand. 7,8 cm je Texel, aber es stehen nur tiefe Frequenzen darin, also
+//     sieht man die Auflösung nicht.
+//   * **mittel** (die Harkspur, 22 cm) — **rechnerisch im Shader**, aus der
+//     Weltposition. Eine Rille ist damit in jeder Entfernung gleich scharf,
+//     kostet kein Byte Speicher, und — der eigentliche Gewinn — sie kann sich
+//     an `fwidth` ausblenden, sobald eine Periode auf weniger als zwei Pixel
+//     fällt. Genau das ist die Unterabtastung, die auf der Insel drei
+//     Durchläufe gekostet hat.
+//   * **fein** (Korn, 1 bis 3 mm) — eine kachelnde 256er-Normal-Map mit
+//     **reinem Rauschen**, 0,32 m je Kachel. Reines Rauschen wiederholt sich
+//     unauffällig; die Begründung steht ausführlich bei `cliffMaps()` in
+//     src/dojo/stonework.js.
+//
+// Speicher: 512² Farbe + 256² Korn = 1,4 + 0,35 MB gegen vorher zweimal 1024²
+// = 11,2 MB.
 
-  // --- Höhenfeld -------------------------------------------------------------
-  const hc = document.createElement('canvas');
-  hc.width = hc.height = size;
-  const hx = hc.getContext('2d');
-  hx.fillStyle = '#b0b0b0'; // Kammhöhe zwischen den Rillen
-  hx.fillRect(0, 0, size, size);
-  // Weichgezeichnet gestrichelt, damit der Sobel eine **Flanke** findet statt
-  // einer Stufe. Eine harte Kante ergibt in der Normal-Map einen Grat, der
-  // keinen Schatten wirft, sondern einen schwarzen Strich zeigt – derselbe
-  // Fehler, der beim Kies des Dojos einen eigenen Weichzeichner nötig machte.
-  hx.filter = 'blur(3px)';
-  hx.strokeStyle = '#3c3c3c'; // Rillengrund
-  hx.lineWidth = 5;
-  for (const [cx, cy] of SAND_CENTERS) {
-    for (let r = 22; r < 220; r += 22) {
-      hx.beginPath();
-      hx.arc(cx, cy, r, 0, Math.PI * 2);
-      hx.stroke();
-    }
-  }
-  hx.filter = 'none';
-  const gezeichnet = hx.getImageData(0, 0, size, size).data;
-  const rille = new Float32Array(size * size);
-  for (let i = 0; i < size * size; i++) rille[i] = gezeichnet[i * 4] / 255;
+const SAND_RADIUS = 20;
 
-  // Körnung: eine feste Rauschzelle statt weißem Rauschen je Pixel. Auf einer
-  // 40-m-Fläche wäre Pixelrauschen nur Flimmern.
-  const korn = (x, y) => {
-    const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-    return s - Math.floor(s);
-  };
-
-  const { normalMap, field } = heightToMaps({
-    size,
-    strength: 2.4,
-    height: (x, y) => rille[y * size + x] * 0.82 + korn(x >> 2, y >> 2) * 0.18,
-    anisotropy: 8,
-  });
-
-  // --- Farbe, aus demselben Feld --------------------------------------------
+// Kachelnde Kornkarte: Körner **setzen**, nicht Rauschen rechnen.
+//
+// **Der erste Anlauf war ein Wertrauschen auf einem quadratischen Gitter**, und
+// genau das sah man: In der Vergrößerung des Vordergrunds (e-sand, 6-fach bei
+// 500|640) lag ein diagonales Karomuster über dem Sand — die Interpolation
+// zwischen den Gitterzellen hat eine Vorzugsrichtung, und bei vier Pixeln je
+// Zelle steht sie im Bild. Ein Rauschen, dem man das Gitter ansieht, ist
+// derselbe Programmierer-Tell wie eine gekachelte Textur, der man die Kachel
+// ansieht.
+//
+// Körner sind keine Frequenz, sondern Objekte. Sie werden deshalb einzeln
+// gesetzt: runde Tupfen an zufälligen Stellen, jeder auch um ±Kachelbreite
+// versetzt gezeichnet, damit die Karte nahtlos bleibt. Das Ergebnis hat keine
+// Vorzugsrichtung, weil es kein Gitter gibt.
+function kornCanvas(size, rand) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
-  const bild = ctx.createImageData(size, size);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = y * size + x;
-      const h = field[i];
-      // Warmer Sandton mit einem Verlauf über die Diagonale, wie zuvor. Der
-      // Rillengrund sieht weniger Himmel und wird dadurch dunkler.
-      const diag = (x + y) / (size * 2);
-      const schatten = 0.66 + h * 0.5;
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, size, size);
+
+  const tupfen = (x, y, r, hell) => {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const v = Math.round(128 + hell * 127);
+    g.addColorStop(0, `rgba(${v},${v},${v},0.85)`);
+    g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  // Alles, was näher als der eigene Radius am Rand liegt, wird zusätzlich auf
+  // der Gegenseite gezeichnet – sonst reißt die Kachel an der Naht auf.
+  const setze = (x, y, r, hell) => {
+    for (const dx of [-size, 0, size]) {
+      for (const dy of [-size, 0, size]) {
+        if (Math.abs(x + dx - size / 2) > size / 2 + r) continue;
+        if (Math.abs(y + dy - size / 2) > size / 2 + r) continue;
+        tupfen(x + dx, y + dy, r, hell);
+      }
+    }
+  };
+
+  // Grobkorn: einzelne Kiesel, die aus der Fläche stehen.
+  for (let i = 0; i < 220; i++) {
+    setze(rand() * size, rand() * size, 3.5 + rand() * 5.5, 0.35 + rand() * 0.45);
+  }
+  // Feinkorn: die Masse. Deutlich mehr und deutlich kleiner.
+  for (let i = 0; i < 2600; i++) {
+    setze(rand() * size, rand() * size, 1.1 + rand() * 1.9, (rand() - 0.45) * 0.9);
+  }
+  return ctx.getImageData(0, 0, size, size).data;
+}
+
+let _sandMaps = null;
+function sandMaps() {
+  if (_sandMaps) return _sandMaps;
+
+  // --- Farbe, grob (512², einmal über die 40-m-Scheibe) ---------------------
+  const fSize = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = fSize;
+  const ctx = canvas.getContext('2d');
+  const bild = ctx.createImageData(fSize, fSize);
+  for (let y = 0; y < fSize; y++) {
+    for (let x = 0; x < fSize; x++) {
+      const i = y * fSize + x;
+      // Weltkoordinate dieses Texels, normiert auf den Scheibenradius
+      const nx = (x / fSize) * 2 - 1;
+      const nz = (y / fSize) * 2 - 1;
+      const rad = Math.min(1, Math.hypot(nx, nz));
+
+      // Flecken aus gröberem und feinerem Kies. Zwei Frequenzen: große Zonen
+      // (der Kies wurde in Fuhren aufgeschüttet) und kleinere Wolken darin.
+      const zone = fbm2(nx * 2.1 + 11, nz * 2.1 - 7);
+      const wolke = fbm2(nx * 7.4 - 3, nz * 7.4 + 5);
+      const fleck = 1 + zone * 0.16 + wolke * 0.075;
+
+      // **Ausbleichen zum Rand.** Der Kies vor den Steingruppen wird täglich
+      // geharkt und dabei umgewälzt, der Rand liegt jahrelang in der Sonne:
+      // heller, blasser, eine Spur kühler. Der Verlauf setzt erst bei 55 % des
+      // Radius ein, damit die Mitte satt bleibt.
+      const bleich = smoothstep(0.55, 1.0, rad);
+      // Dazu ein warmer Streiflichtverlauf über die Diagonale wie zuvor: Die
+      // Sonne steht links hinten, die ihr zugewandte Hälfte ist wärmer.
+      const diag = (nx - nz) * 0.5;
+
+      const grund = [231, 212, 176];
+      const blass = [236, 226, 205];
       const r4 = i * 4;
-      bild.data[r4] = Math.min(255, (231 - diag * 11) * schatten);
-      bild.data[r4 + 1] = Math.min(255, (212 - diag * 15) * schatten);
-      bild.data[r4 + 2] = Math.min(255, (176 - diag * 20) * schatten);
+      for (let k = 0; k < 3; k++) {
+        const basis = grund[k] * (1 - bleich) + blass[k] * bleich;
+        const warm = 1 + diag * (k === 0 ? 0.035 : k === 1 ? 0.012 : -0.03);
+        bild.data[r4 + k] = Math.max(0, Math.min(255, basis * fleck * warm));
+      }
       bild.data[r4 + 3] = 255;
     }
   }
   ctx.putImageData(bild, 0, 0);
   const map = new THREE.CanvasTexture(canvas);
   map.colorSpace = THREE.SRGBColorSpace;
-  for (const t of [map, normalMap]) {
-    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-    t.anisotropy = 8;
-  }
+  map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
+  map.anisotropy = 4;
 
-  _sandMaps = { map, normalMap };
+  // --- Korn, fein (256², kachelnd) ------------------------------------------
+  //
+  // 2600 feine Körner und 220 grobe Kiesel je Kachel von 32 cm. Das grobe
+  // Korn ist das, was aus zwei Metern noch als Kies lesbar ist; das feine ist
+  // die Masse dazwischen.
+  const kSize = 256;
+  const korn = kornCanvas(kSize, mulberry32(53177));
+  const { normalMap: grainMap } = heightToMaps({
+    size: kSize,
+    strength: 1.5,
+    anisotropy: 8,
+    height: (x, y) => korn[(y * kSize + x) * 4] / 255,
+  });
+  grainMap.wrapS = grainMap.wrapT = THREE.RepeatWrapping;
+  // **0,7 m je Kachel, nicht 0,32.** Mit der kleineren Kachel lag ein Texel bei
+  // 1,25 mm und das Grobkorn bei 3 bis 9 mm — physikalisch richtig für Kies und
+  // im Bild trotzdem nicht vorhanden: Aus drei Metern löst ein Pixel gut 3,7 mm
+  // auf, die Karte wird also längst aus einer Mipmap-Stufe gelesen, in der das
+  // Korn wegmittelt ist. Sichtbar ist auf diese Entfernung nur, was gröber als
+  // etwa einen Zentimeter ist. Mit 0,7 m je Kachel liegt das Grobkorn bei 1 bis
+  // 2,5 cm und steht im Bild.
+  const kachelnProScheibe = (SAND_RADIUS * 2) / 0.7;
+  grainMap.repeat.set(kachelnProScheibe, kachelnProScheibe);
+
+  _sandMaps = { map, grainMap };
   return _sandMaps;
+}
+
+// Das Sandmaterial.
+//
+// Die Harkspur entsteht aus einem **Potentialfeld** φ(x,z): Die Rillen liegen
+// dort, wo φ ein Vielfaches des Rillenabstands ist. Für gerade Züge ist φ der
+// Abstand zu einer Geraden, für konzentrische Ringe der Abstand zu einem
+// Mittelpunkt. Weil beides dieselbe Größe ist, lässt sich zwischen ihnen
+// umschalten, indem man in der Nähe einer Insel deren Ringfeld nimmt und
+// draußen das gerade — genau so, wie ein Gärtner harkt: ein Band von Ringen um
+// jede Steingruppe, gerade Züge im offenen Feld, und dazwischen eine sichtbare
+// Naht, wo die Züge aufeinandertreffen.
+//
+// Diese Naht ist kein Fehler, sondern das Kennzeichen einer gestalteten
+// Fläche. Sie wird nur um ein paar Zentimeter geglättet, damit der
+// Phasensprung nicht als Bruchkante steht.
+function sandMaterial() {
+  const k = sandMaps();
+  const uniforms = {
+    // xz Mittelpunkt, z Innenradius des Rings, w Breite des Ringbandes
+    uSandRinge: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+    // xz Mittelpunkt, z Radius, w Stärke – Feuchtezonen an Moos und Teich
+    uSandFeucht: { value: Array.from({ length: 6 }, () => new THREE.Vector4()) },
+    uSandGerade: { value: new THREE.Vector2(Math.cos(0.42), Math.sin(0.42)) },
+    uSandTeilung: { value: 0.225 },
+    uSandTiefe: { value: 0.026 },
+  };
+
+  const material = new THREE.MeshStandardMaterial({
+    map: k.map,
+    normalMap: k.grainMap,
+    // Das Korn ist eine Andeutung, kein Geröll.
+    normalScale: new THREE.Vector2(1.15, 1.15),
+    // Trockener Kies ist stumpf. Die Kämme sind eine Spur glatter als der
+    // Rillengrund – das steht im Shader, eine eigene Rauheitskarte wäre eine
+    // zweite Abtastung je Pixel auf der größten Fläche der Szene.
+    roughness: 0.95,
+    metalness: 0,
+  });
+
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n varying vec3 vSandWelt;')
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\n vSandWelt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vSandWelt;
+         uniform vec4 uSandRinge[4];
+         uniform vec4 uSandFeucht[6];
+         uniform vec2 uSandGerade;
+         uniform float uSandTeilung;
+         uniform float uSandTiefe;
+         // Ergebnisse von sandRelief(): Steigung in Weltkoordinaten (x,z),
+         // Kammhöhe 0…1 und Feuchte 0…1.
+         vec2 gSandSteigung;
+         float gSandKamm;
+         float gSandFeucht;
+
+         void sandRelief(vec2 p) {
+           // --- Potentialfeld: gerade Züge, um die Inseln herum Ringe --------
+           float phi = dot(p, uSandGerade);
+           vec2 grad = uSandGerade;
+           // **Eine Harke wird von Hand gezogen.** Perfekt parallele Geraden
+           // und perfekte Kreise sind der sicherste Weg, eine Fläche als
+           // gerechnet zu verraten. Zwei langwellige Terme verbiegen das
+           // Potential um wenige Zentimeter – zu wenig, um als Welle zu lesen,
+           // genug, damit keine zwei Züge deckungsgleich laufen. Der Beitrag
+           // zur Steigung ist gegenüber dem Rillenprofil vernachlässigbar und
+           // wird deshalb nicht mitgeführt.
+           phi += 0.055 * sin(p.x * 0.41 + p.y * 0.27) + 0.028 * sin(p.x * 1.13 - p.y * 0.94);
+           // Naht: wo ein Ringband endet, wird die Amplitude kurz
+           // heruntergenommen statt die Phase springen zu lassen.
+           float naht = 1.0;
+           for (int i = 0; i < 4; i++) {
+             vec2 d = p - uSandRinge[i].xy;
+             float r = length(d) + 1e-4;
+             float f = r - uSandRinge[i].z;
+             if (f > 0.0 && f < uSandRinge[i].w) {
+               phi = f;
+               grad = d / r;
+             }
+             naht *= smoothstep(0.0, 0.09, abs(f - uSandRinge[i].w));
+             // Innerhalb der Insel selbst wird nicht geharkt.
+             naht *= smoothstep(-0.12, 0.02, f);
+           }
+
+           // --- Feuchte an Moos und Teich ------------------------------------
+           float feucht = 0.0;
+           for (int i = 0; i < 6; i++) {
+             vec2 d = p - uSandFeucht[i].xy;
+             feucht = max(
+               feucht,
+               uSandFeucht[i].w * (1.0 - smoothstep(uSandFeucht[i].z, uSandFeucht[i].z + 0.75, length(d)))
+             );
+           }
+           gSandFeucht = feucht;
+
+           // --- Rillenprofil --------------------------------------------------
+           float s = phi / uSandTeilung;
+           // **Der Ausblendeterm, ohne den das Bild flimmert.** Fällt eine
+           // Periode unter etwa zwei Pixel, kann sie nicht mehr abgetastet
+           // werden; stehen bleibt Moiré. Also wird die Rille dort flach.
+           float w = fwidth(s);
+           float scharf = 1.0 - smoothstep(0.22, 0.55, w);
+
+           float h = 0.5 - 0.5 * cos(6.2831853 * s);
+           float kamm = h * h * (3.0 - 2.0 * h);      // flacher Kamm, runde Rille
+           float dKamm = 6.0 * h * (1.0 - h) * 3.1415927 * sin(6.2831853 * s);
+
+           // Zum Rand hin wird seltener geharkt: Die Spur läuft aus.
+           float rand = 1.0 - smoothstep(11.0, 17.0, length(p));
+           // Der Druck auf der Harke ist nicht konstant. Zwei langwellige
+           // Terme lassen die Rille stellenweise tief und stellenweise fast
+           // verlaufen — die mittlere Frequenz, die zwischen Korn (Millimeter)
+           // und Zug (Zentimeter) sonst fehlt.
+           float druck = 0.98 + 0.30 * sin(p.x * 0.83 + p.y * 0.61) + 0.18 * sin(p.x * 0.29 - p.y * 0.44);
+           // Am Moos und am Wasser hört die Harke auf.
+           float amp = scharf * naht * rand * druck * (1.0 - feucht * 0.85);
+
+           gSandSteigung = grad * (uSandTiefe / uSandTeilung) * dKamm * amp;
+           gSandKamm = mix(0.5, kamm, amp);
+         }`
+      )
+      .replace(
+        '#include <map_fragment>',
+        `sandRelief(vSandWelt.xz);
+         #include <map_fragment>
+         {
+           // Der Rillengrund sieht weniger Himmel und liegt im Eigenschatten
+           // der Flanke: dunkler und eine Spur kühler. Der Kamm bekommt die
+           // Lichtspitze.
+           diffuseColor.rgb *= mix(vec3(0.715, 0.71, 0.74), vec3(1.11, 1.10, 1.06), gSandKamm);
+           // Feuchter Kies ist dunkler und gesättigter – das ist der Übergang
+           // zum Moos und zum Teichufer.
+           diffuseColor.rgb *= mix(vec3(1.0), vec3(0.63, 0.66, 0.55), gSandFeucht);
+         }`
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+         // Der Kamm ist glattgestrichen, im Rillengrund liegt loses Korn.
+         roughnessFactor *= mix(1.0, 0.86, gSandKamm);`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+         // Die Steigung des Höhenfelds steht in Weltkoordinaten, \`normal\` an
+         // dieser Stelle im Blickraum. viewMatrix gehört zum festen Vorspann
+         // jedes three-Fragmentshaders.
+         normal = normalize(normal - mat3(viewMatrix) * vec3(gSandSteigung.x, 0.0, gSandSteigung.y));`
+      );
+  };
+  // Ohne eigenen Schlüssel teilt sich dieses Material ein kompiliertes Programm
+  // mit jedem anderen MeshStandardMaterial gleicher Bauart – und bekäme dessen
+  // Shader ohne die Harkspur.
+  material.customProgramCacheKey = () => 'zen-sand';
+  material.userData.sandUniforms = uniforms;
+  return material;
+}
+
+// Das Bett selbst: eine Scheibe mit radialen Ringen.
+//
+// `CircleGeometry(20, 72)` hätte 72 Dreiecke und einen einzigen Mittelpunkt —
+// für eine Fläche mit Nebel und Scheitelfarben zu grob, und ihr Rand wäre ein
+// sichtbares 72-Eck. Die Ringe stehen außen weiter auseinander als innen: Wo
+// man steht, zählt jeder Zentimeter, am Rand nimmt der Nebel ohnehin alles.
+function makeSandBett(radius, ringe = 26, segmente = 128) {
+  const pos = [];
+  const uv = [];
+  const idx = [];
+  pos.push(0, 0, 0);
+  uv.push(0.5, 0.5);
+  for (let j = 1; j <= ringe; j++) {
+    const r = radius * Math.pow(j / ringe, 1.45);
+    for (let i = 0; i < segmente; i++) {
+      const a = (i / segmente) * Math.PI * 2;
+      const x = Math.cos(a) * r;
+      const z = Math.sin(a) * r;
+      pos.push(x, 0, z);
+      uv.push(x / (radius * 2) + 0.5, z / (radius * 2) + 0.5);
+    }
+  }
+  const ring = (j, i) => 1 + (j - 1) * segmente + (i % segmente);
+  for (let i = 0; i < segmente; i++) idx.push(0, ring(1, i + 1), ring(1, i));
+  for (let j = 1; j < ringe; j++) {
+    for (let i = 0; i < segmente; i++) {
+      const a = ring(j, i);
+      const b = ring(j, i + 1);
+      const c = ring(j + 1, i + 1);
+      const d = ring(j + 1, i);
+      idx.push(a, b, d, b, c, d);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// Der Saum jenseits des Kiesbetts.
+//
+// **Das Kiesbett endet bei 20 m, und der Nebel fängt bei 20 m an.** Damit
+// bekommt genau die Kante, an der die Welt aufhört, null Dunst und steht als
+// scharfe Linie gegen den Himmel — in der Totale die auffälligste Schwäche des
+// Bildes. Der Saum ändert weder den Kiesradius noch die Nebeldistanzen; er legt
+// nur Grund dorthin, wo bisher Himmel war, und überlässt ihn dem Nebel.
+function makeSandSaum() {
+  const geo = new THREE.RingGeometry(SAND_RADIUS - 0.4, 52, 128, 8);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const farben = new Float32Array(pos.count * 3);
+  const nah = new THREE.Color(0xd9cba9); // Kiesfarbe am Innenrand
+  // **Kein Grün.** Der erste Anlauf ließ den Saum in stumpfes Grün laufen —
+  // gedacht als Bewuchs außerhalb des Gartens, im Bild ein grüner Streifen
+  // genau auf der Horizontlinie. Der Nebel dieser Umgebung ist warm; der Saum
+  // muss ihm entgegenlaufen, nicht quer dazu.
+  const fern = new THREE.Color(0xd8bc93);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const r = Math.hypot(pos.getX(i), pos.getZ(i));
+    // Erst in stumpfes Grün (Bewuchs außerhalb des Gartens), dann in die
+    // Nebelfarbe selbst – ab 46 m ist der Nebel gesättigt, dort darf keine
+    // andere Farbe mehr durchkommen.
+    c.copy(nah).lerp(fern, smoothstep(SAND_RADIUS, SAND_RADIUS + 12, r));
+    // Flecken, damit der Ring kein Farbverlauf ist
+    const f = 0.92 + hashNoise(pos.getX(i) * 0.14, 0, pos.getZ(i) * 0.14) * 0.16;
+    farben[i * 3] = c.r * f;
+    farben[i * 3 + 1] = c.g * f;
+    farben[i * 3 + 2] = c.b * f;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xffffff })
+  );
+  mesh.name = 'zen-saum';
+  mesh.position.y = -0.06;
+  return mesh;
 }
 
 // Die Sonne des Zen-Gartens als Richtung, in die das Licht **läuft**.
@@ -4316,7 +4643,12 @@ function createZenEnvironment() {
   group.name = 'env-zen';
 
   // Warme, ruhige Spätnachmittags-Kuppel
-  group.add(makeDome(0x8fb6d8, 0xf6e3c6, 0xe4cba2));
+  // Horizontfarbe **gleich** der Nebelfarbe und ein weiter Radius. Beides
+  // gehört zusammen: Der Saum (siehe `makeSandSaum`) läuft bis dorthin, wo der
+  // Nebel gesättigt ist; träfe dort ein anders getönter Himmel auf den Boden,
+  // stünde die Horizontlinie wieder als Kante im Bild – nur eben in Creme
+  // statt in Sand.
+  group.add(makeDome(0x8fb6d8, 0xecd9bb, 0xe4cba2, 70));
 
   // Weiches, warmes Licht
   group.add(new THREE.HemisphereLight(0xffe9cf, 0xb8a888, 1.05));
@@ -4340,24 +4672,28 @@ function createZenEnvironment() {
   rim.position.set(16, 6, 14);
   group.add(rim);
 
-  // Sandfläche (flach, geharkt) – jetzt mit echtem Relief in den Rillen.
-  const sandK = sandMaps();
-  const sand = new THREE.Mesh(
-    new THREE.CircleGeometry(20, 72),
-    new THREE.MeshStandardMaterial({
-      map: sandK.map,
-      normalMap: sandK.normalMap,
-      // Trockener Kies ist stumpf. Keine Rauheitskarte: Die Streuung zwischen
-      // Rillengrund und Kamm ist auf trockenem Sand klein, und das hier ist die
-      // größte Fläche der Szene – eine Abtastung je Pixel für fast nichts.
-      roughness: 0.95,
-      metalness: 0,
-    })
-  );
+  // Der Saum liegt unter allem anderen und wird zuerst gezeichnet.
+  group.add(makeSandSaum());
+
+  // Das Kiesbett. Radius unverändert 20 m; die Harkspur entsteht jetzt
+  // rechnerisch aus der Weltposition, siehe `sandMaterial()`.
+  const sandMat = sandMaterial();
+  const sand = new THREE.Mesh(makeSandBett(SAND_RADIUS), sandMat);
   sand.name = 'zen-sand';
-  sand.rotation.x = -Math.PI / 2;
   sand.position.y = -0.02;
   group.add(sand);
+
+  // Die Ringbänder der Harke. Um jede Steingruppe und um den Teich wird ein
+  // Band von konzentrischen Zügen geharkt, außen laufen gerade Züge.
+  // (x, z, Innenradius, Breite des Bandes)
+  sandMat.userData.sandUniforms.uSandRinge.value[0].set(-3.5, -2.5, 1.15, 2.6);
+  sandMat.userData.sandUniforms.uSandRinge.value[1].set(4.0, 1.5, 0.95, 2.1);
+  sandMat.userData.sandUniforms.uSandRinge.value[2].set(1.0, -4.5, 1.1, 2.4);
+  sandMat.userData.sandUniforms.uSandRinge.value[3].set(3.2, -1.2, 2.35, 3.1);
+  const feuchtZonen = sandMat.userData.sandUniforms.uSandFeucht.value;
+  // Der Teich ist die stärkste Feuchtequelle; das Ufer bleibt dunkel.
+  feuchtZonen[0].set(3.2, -1.2, 2.3, 0.85);
+  let feuchtIndex = 1;
 
   // Moosinseln.
   //
@@ -4407,6 +4743,17 @@ function createZenEnvironment() {
     moss.position.set(Math.cos(a) * r, -0.01, Math.sin(a) * r);
     moss.scale.set(1 + rand() * 0.6, 1, 0.7 + rand() * 0.5);
     moosTeile.push(moss);
+    // Der Sand am Moos ist feucht: dunkler, gesättigter, und die Harke hört
+    // dort auf. Ohne diesen Übergang liegt das Moos wie ein aufgeklebter
+    // grüner Fleck auf trockenem Kies.
+    if (feuchtIndex < feuchtZonen.length) {
+      feuchtZonen[feuchtIndex++].set(
+        moss.position.x,
+        moss.position.z,
+        mossR * Math.max(moss.scale.x, moss.scale.z) * 0.9,
+        0.7
+      );
+    }
   }
   group.add(...verschmelzeObjekte(moosTeile, 'zen-moos'));
 
