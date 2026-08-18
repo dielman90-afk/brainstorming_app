@@ -577,13 +577,10 @@ const GLOBAL_HEMI = { sky: 0xffffff, ground: 0x334455, intensity: 1.4 };
 const COMPENSATION = 1.0;
 
 export function buildAtmosphere(renderer) {
-  // Schatten global scharfschalten. Das ist eine Renderer-Einstellung und damit
-  // für alle Umgebungen sichtbar – folgenlos, weil außer dem Dojo keine einzige
-  // Umgebung `castShadow` oder `receiveShadow` setzt (nachgeprüft: kein Treffer
-  // in src/). Ohne Werfer und ohne Empfänger rendert three keine Schattenkarte
-  // und ändert kein Pixel.
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  // (Das Scharfschalten der Schatten ist nach main.js gewandert. Es ist eine
+  // Renderer-Einstellung, und hier stand sie in einer Funktion, die erst läuft,
+  // wenn jemand das Dojo betritt – die Himmelsinsel bekam dadurch keine
+  // Schattenkarte, obwohl sie Werfer und Empfänger gesetzt hatte.)
 
   const environment = buildEnvironment(renderer);
 

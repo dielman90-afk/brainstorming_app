@@ -322,6 +322,85 @@ export function graniteMaps() {
   return _granite;
 }
 
+// 🧗 Felswand-Karte für große Flächen (Himmelsinsel).
+//
+// **Warum nicht die Granitkarte.** Der Granit ist für Gartensteine im Dojo
+// gezeichnet: eine 40-cm-Kachel mit Absplitterungen, also flachen Muscheln auf
+// einem 6×6-Zellgitter. Auf einem Findling von einem halben Meter ist das
+// richtig. Auf einer Inselflanke von vierzig Metern kehrt dieselbe Kachel
+// dutzendfach wieder, und die Absplitterungen sind das, was dabei auffällt: Sie
+// sind einzeln identifizierbare Formen gleicher Größe und Ausrichtung, und der
+// Prüfer hat sie über die Inselunterseite als Raster ausgemessen – Zentren bei
+// (372,260), (423,280), (457,260), (393,367) und weiteren, „wie Luftpolsterfolie".
+// Ein Rauschfeld wiederholt sich auch, aber es wiederholt sich unauffällig; eine
+// erkennbare Form wiederholt sich auffällig.
+//
+// Diese Karte hat deshalb **keine Absplitterungen**. Stattdessen füllt sie die
+// Lücke, die am Fels bisher offen war: zwischen dem Pixelkorn (4 px) und dem
+// Facettenmaßstab (mehrere hundert Pixel) lag nichts. Ein geriffeltes
+// Rauschfeld (`1 − |2n − 1|`, hoch potenziert) liefert genau dort schmale,
+// scharfe Kerben – Risse und Adern statt runder Dellen.
+let _cliff = null;
+export function cliffMaps() {
+  if (_cliff) return _cliff;
+  const size = 512;
+
+  const height = (x, y) => {
+    const u = x / size;
+    const v = y / size;
+    const base =
+      pfbm(u * 6, v * 6, 6, 3, 401) * 0.50 +
+      pfbm(u * 18, v * 18, 18, 3, 419) * 0.28 +
+      pfbm(u * 48, v * 48, 48, 2, 433) * 0.14 +
+      grainAt(x, y, 71) * 0.08;
+    // Risse. Der hohe Exponent macht aus dem Grat des geriffelten Rauschens
+    // eine schmale Linie; abgezogen wird daraus eine Kerbe.
+    const grat = 1 - Math.abs(2 * pfbm(u * 9, v * 9, 9, 2, 457) - 1);
+    const riss = Math.pow(grat, 7);
+    // Eine zweite, feinere Rissschar quer dazu – eine einzelne Schar liest sich
+    // als Marmorierung, zwei sich kreuzende als gebrochener Fels.
+    const grat2 = 1 - Math.abs(2 * pfbm(u * 23 + 3, v * 23 + 11, 23, 2, 479) - 1);
+    const riss2 = Math.pow(grat2, 9);
+    return clamp01(base - riss * 0.42 - riss2 * 0.22);
+  };
+
+  const maps = heightToMaps({
+    size,
+    repeat: [1, 1],
+    strength: 2.0,
+    height,
+    // Flacher als beim Granit: Eine Felswand im Freien ist durchgehend stumpf.
+    // Der nasse Glanz des Gartensteins hat hier nichts zu suchen.
+    roughness: (h) => 240 - h * 26,
+  });
+
+  _cliff = { normalMap: maps.normalMap, roughnessMap: maps.roughnessMap };
+  return _cliff;
+}
+
+const _cliffMats = new Map();
+
+/**
+ * Fels für große Flächen. Wie `graniteMaterial`, aber mit `cliffMaps()`.
+ */
+export function cliffMaterial({ tone = 0xffffff, vertexColors = true } = {}) {
+  const key = `${tone}|${vertexColors ? 1 : 0}`;
+  const cached = _cliffMats.get(key);
+  if (cached) return cached;
+  const { normalMap, roughnessMap } = cliffMaps();
+  const mat = new THREE.MeshStandardMaterial({
+    color: tone,
+    vertexColors,
+    normalMap,
+    roughnessMap,
+    metalness: 0,
+    roughness: 1,
+  });
+  mat.normalScale = new THREE.Vector2(1.5, 1.5);
+  _cliffMats.set(key, mat);
+  return mat;
+}
+
 // Materialinstanzen werden **geteilt**, nicht je Objekt erzeugt. Schlüssel ist
 // das Paar (Ton, Vertexfarben) – mehr Varianten gibt es nicht, und Farbe
 // gehört ohnehin in die Vertexfarben (siehe `mossPatina`).

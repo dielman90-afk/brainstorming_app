@@ -64,6 +64,14 @@ renderer.xr.enabled = true;
 // UI/Karten sind per material.toneMapped = false ausgenommen, bleiben also knackig.
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
+// Schatten sind eine RENDERER-Einstellung und gehören deshalb hierher, nicht in
+// eine einzelne Umgebung. Sie standen in der Dojo-Atmosphäre, die erst gebaut
+// wird, wenn man das Dojo betritt – die Himmelsinsel hat ihre Schattenwerfer
+// und -empfänger dadurch gesetzt, ohne dass je eine Schattenkarte entstand.
+// Folgenlos für Umgebungen ohne Werfer: Ohne castShadow und receiveShadow
+// rendert three keine Schattenkarte und ändert kein Pixel.
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
@@ -1658,12 +1666,16 @@ function resolveBounds(bounds, px, pz) {
     floorY: z.floorY ?? 0,
   };
 }
-const clock = new THREE.Clock();
+// THREE.Timer statt des abgekündigten THREE.Clock (three ≥ r180 warnt sonst bei
+// jedem Start). Mit connect(document) liefert er nach einem Tab-Wechsel kein
+// riesiges Delta mehr – Karten und Animationen springen dadurch nicht.
+const clock = new THREE.Timer();
+clock.connect(document);
 let elapsed = 0;
 
 renderer.setAnimationLoop(() => {
-  // getDelta() ist die einzige Zeitquelle; elapsed wird selbst akkumuliert
-  // (getElapsedTime würde den Delta verbrauchen und dt auf 0 setzen).
+  // update() ist die einzige Zeitquelle; elapsed wird selbst akkumuliert.
+  clock.update();
   const dt = Math.min(0.1, clock.getDelta());
   elapsed += dt;
   interactions.update();
