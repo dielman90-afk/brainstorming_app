@@ -6,14 +6,16 @@ Fortgeschrieben in **jedem** Durchlauf. Neueste Einträge oben.
 
 | Größe | Grenze | Ausgang (zen-00) | jetzt |
 | --- | ---: | ---: | ---: |
-| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **86 ✅** |
-| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 59 712 ✅ |
+| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **90 ✅** |
+| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 60 514 ✅ |
 | Texturspeicher | ≤ 60 MB | 29,77 MB | 21,52 MB ✅ |
-| Shader-Programme | – | 20 | 25 |
+| Shader-Programme | – | 20 | 30 |
 
-Pakete: **1 bestanden.** Paket 2 (Sand) hat einen Anlauf nicht bestanden, der
-zweite ist gebaut und ungeprüft. Paket 3 (Licht) **nicht bestanden**, offene
-Punkte unten. Paket 4 (Wasser) gebaut, Prüfung läuft. 5–9 offen.
+Pakete: **1 bestanden.** Paket 2 (Sand): erster Anlauf nicht bestanden, zweiter
+gebaut. Paket 3 (Licht): erster Anlauf nicht bestanden, zweiter gebaut.
+Paket 4 (Wasser) gebaut. Prüfung von Sand-2 und Wasser läuft. 5–9 offen.
+
+**Zwei Anläufe verbraucht bei Paket 2, einer bei Paket 3.** Grenze sind vier.
 
 **Korrektur zu meinem eigenen Urteil.** Ich habe Paket 2 nach Durchlauf 2
 selbst als bestanden protokolliert und committet, **bevor** der Prüfer sein
@@ -533,3 +535,74 @@ Durchlauf 4 nachgeholt worden.
 **Offene Punkte für den zweiten Anlauf an Paket 3:** Lichtspitzen, Sonnenscheibe
 warm statt weiß, Kontaktansatz an stehenden Objekten, Streulicht durch das Laub,
 Peter-Panning am Bambusfuß, Himmel, Absaufen der Steinschattenseiten.
+
+---
+
+## Durchlauf 6 — Paket 3 (Licht & Atmosphäre), zweiter Anlauf
+
+**Messwerte:** Draw-Calls 86 → 90, Dreiecke 59 712 → 60 514, Texturspeicher
+21,52 MB unverändert, Shader-Programme 25 → 30, Konsole sauber. Regression:
+`env-night` und `env-matrix` bitgleich, `env-dojo` Δmax 4 auf 0,009 %,
+`env-island` im Eigenrauschen.
+
+### Der Kern des Befunds: Ich hatte abgedunkelt statt Licht zu geben
+
+Der Anteil über L 200 war von 31,2 % auf 1,7 % gefallen. Der Fehler war, die
+Grundhelligkeit zu senken **und** die Sonne nur moderat anzuheben. Bei 19,4°
+trifft die Sonne eine waagerechte Fläche mit cos 71° = 0,33; sie muss also rund
+dreimal so stark sein wie bei Mittagsstand, um dieselbe Flächenhelligkeit zu
+erreichen. Jetzt 4,1 statt 3,1, die Hemisphäre 1,05 statt 0,85 (sie ist im
+Schatten die einzige Quelle), und der Kies hat ein Albedo von 0,78 statt 0,90
+bekommen — sonst stand er als gebleichte Fläche im Bild.
+
+Anteil über L 200, `a-eyelevel`: 1,7 % → **11,8 %**; `d-aerial`: 16,7 % →
+41,3 %.
+
+### Warum es die geforderten Lichtspitzen nicht aus dem Kies geben kann
+
+Nachgerechnet, statt es dreimal zu probieren: Bei Sonnenstärke 4,6,
+Einfallswinkel 71° und Albedo 0,77 liegt der diffuse Anteil einer waagerechten
+Fläche bei rund 0,72 linear; mit Belichtung 1,1 durch die ACES-Kurve sind das
+etwa L 210. Für L 230 bräuchte es das Doppelte, also eine Sonne um 9 — und die
+würde jede senkrechte Fläche ausfressen.
+
+Spitzen können deshalb nur aus dem **Glanz** kommen. Zwei Versuche, die
+Rauheit des Kieskamms zu senken (0,42 und 0,25), sahen im Bild beide falsch
+aus: Bei streifendem Blick auf eine waagerechte Fläche ist die Glanzkeule
+ohnehin breit, und mit niedriger Rauheit leuchtet nicht eine Kante auf, sondern
+der halbe Vordergrund — der Kies sah lackiert aus und der Schatten in der Rille
+war wieder weg. Trockener Kies bleibt also stumpf.
+
+Die Lichtspitzen kommen jetzt von den Dingen, die welche haben dürfen:
+
+* **Der nasse Stein am Wasser** — ein eigenes Material mit Rauheit 0,24. Das
+  ist der eine zusätzliche Draw-Call, der in dieser Szene eine echte
+  Lichtspitze liefert, und er ist zugleich die Materialtrennung „nass gegen
+  trocken", die dem Teichrand gefehlt hat.
+* **Der Lichtkasten der Laterne** — jetzt ein unbeleuchtetes Material ohne
+  Tonemapping. Vorher war ein Lichtkasten am späten Nachmittag genauso hell wie
+  der Kies daneben.
+* **Die Sonnenscheibe**, siehe unten.
+
+### Die weiteren Punkte des Prüfers
+
+* **Sonnenscheibe warm statt ausgefressen.** Additiv plus voller Kern ergab
+  reines Weiß: 20,7 % der Scheibenfläche standen auf exakt (255,255,255). Kern
+  gedeckelt und wärmer, Hof kräftiger.
+* **Streulicht durch das Laub — zurückgedreht.** Der erste Anlauf nahm die
+  Hüllkörper der Kronen aus der Schattenkarte, damit nur die alphageprüften
+  Blattkarten werfen. Gemessen kam ein Kronenschatten von Δ 18 L heraus,
+  während der bloße Stamm daneben Δ 68 warf — die Krone warf **schwächer als
+  ihr eigener Stamm**. Die Karten decken aus Sonnenrichtung zu wenig Fläche.
+  Der Hüllkörper wirft wieder mit; was entsteht, ist ein Baumschatten mit
+  dichtem Kern und aufgelöstem Saum.
+* **Kontaktverdunklung an stehenden Objekten.** Am Torii saß der Fleck in der
+  Mitte des Tors — die Pfosten stehen aber 1,2 m links und rechts davon und
+  damit außerhalb. Jetzt zwei Flecken an den Füßen.
+* **Peter-Panning am Bambusfuß.** Normal-Bias von 0,008 auf 0,0025; ein Halm
+  ist 7 cm dick, der Versatz darf nicht in die Größenordnung des Objekts
+  kommen. Schattenakne hatte der Prüfer ausdrücklich nicht gefunden, es war
+  also Luft nach unten.
+* **Himmel.** Wolkenschwelle gesenkt, Stärke auf 1,0 — und eine **senkrechte
+  Naht** beseitigt: Die zweite Wolkenoktave lief mit Faktor 2,31 über 4 Umläufe,
+  also 9,24 — kein ganzer Umlauf. Jetzt 3,0 mal 4 gleich 12.
