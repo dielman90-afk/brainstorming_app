@@ -88,13 +88,19 @@ function mulberry32(seed) {
 }
 
 // Himmelskuppel mit vertikalem Farbverlauf (von innen sichtbar)
-function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44, sun = null) {
+function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44, sun = null, clouds = null) {
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
-    defines: sun ? { HAS_SUN: '' } : {},
+    defines: { ...(sun ? { HAS_SUN: '' } : {}), ...(clouds ? { HAS_CLOUDS: '' } : {}) },
     uniforms: {
+      cloudMap: { value: clouds ? clouds.map : null },
+      cloudColor: { value: new THREE.Color(clouds ? clouds.color : 0xffffff) },
+      cloudLit: { value: new THREE.Color(clouds ? clouds.lit : 0xffffff) },
+      cloudStrength: { value: clouds ? (clouds.strength ?? 0.7) : 0 },
+      cloudScale: { value: new THREE.Vector2(...(clouds?.scale ?? [3, 2.4])) },
+      cloudBand: { value: new THREE.Vector4(...(clouds?.band ?? [0.02, 0.14, 0.34, 0.78])) },
       topColor: { value: new THREE.Color(topColor) },
       horizonColor: { value: new THREE.Color(horizonColor) },
       bottomColor: { value: new THREE.Color(bottomColor) },
@@ -120,6 +126,12 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
       uniform vec3 sunColor;
       uniform float sunTight;
       uniform float sunBroad;
+      uniform sampler2D cloudMap;
+      uniform vec3 cloudColor;
+      uniform vec3 cloudLit;
+      uniform float cloudStrength;
+      uniform vec2 cloudScale;
+      uniform vec4 cloudBand;
       varying vec3 vPos;
       void main() {
         vec3 dir = normalize(vPos);
@@ -127,6 +139,35 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
         vec3 col = h > 0.0
           ? mix(horizonColor, topColor, pow(h, 0.8))
           : mix(horizonColor, bottomColor, pow(-h, 0.8));
+        #ifdef HAS_CLOUDS
+          // **Schleierwolken, gerechnet in der Kuppel — kein Draw-Call.**
+          //
+          // Der Himmel war eine lineare Rampe: Neunzehn Proben über 380 Pixel
+          // stiegen streng monoton mit gleicher Schrittweite, bei einem
+          // Himmelanteil von rund 45 % des Bildes. Eine Rampe ist kein Himmel.
+          //
+          // Die Kachel läuft ganzzahlig um den Horizont (cloudScale.x ist eine
+          // ganze Zahl mal dem Umlauf), sonst stünde an einer Stelle des
+          // Himmels eine senkrechte Naht.
+          {
+            float az = atan(dir.z, dir.x) * 0.15915494;
+            vec2 uvW = vec2(az * cloudScale.x, h * cloudScale.y);
+            float n =
+              texture2D(cloudMap, uvW).r * 0.62 +
+              texture2D(cloudMap, uvW * 2.31 + vec2(0.37, 0.11)).r * 0.38;
+            // Nur ein Band über dem Horizont: Zenitnah läuft die
+            // Azimut-Abbildung in den Pol und würde die Kachel verraten.
+            float band = smoothstep(cloudBand.x, cloudBand.y, h) *
+                         (1.0 - smoothstep(cloudBand.z, cloudBand.w, h));
+            float wolke = smoothstep(0.26, 0.72, n) * band * cloudStrength;
+            #ifdef HAS_SUN
+              float zurSonne = max(dot(dir, sunDir), 0.0);
+            #else
+              float zurSonne = 0.0;
+            #endif
+            col = mix(col, mix(cloudColor, cloudLit, pow(zurSonne, 2.2)), wolke);
+          }
+        #endif
         #ifdef HAS_SUN
           // Zwei Keulen: ein weiter, schwacher Hof über den halben Himmel und
           // ein enger, heller Kern direkt um die Sonne.
@@ -4065,14 +4106,81 @@ function makeSandSaum() {
   return mesh;
 }
 
-// Die Sonne des Zen-Gartens als Richtung, in die das Licht **läuft**.
-// `sun.position` ist [−12 | 9 | −6], das Licht zielt auf den Ursprung. Nötig,
-// weil `mossPatina()` sonst die Sonne des Dojos nähme und die Wetterseite jedes
-// Steins auf der falschen Seite läge.
+// Kachelnde Schleierwolken-Karte.
+//
+// Gezeichnet statt gerechnet, und zwar als **gestreckte Tupfen**: Ein Zirrus
+// ist ein in die Länge gezogener Fetzen, kein isotroper Fleck. Jeder Tupfen
+// wird an den Rändern zusätzlich versetzt gezeichnet, damit die Kachel nahtlos
+// bleibt — dieselbe Umlauftechnik wie bei der Kornkarte des Sandes.
+let _wolkenKarte = null;
+function wolkenKarte(size = 256) {
+  if (_wolkenKarte) return _wolkenKarte;
+  const rand = mulberry32(90210);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, size, size);
+  const fetzen = (x, y, rx, ry, a) => {
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    g.addColorStop(0, `rgba(255,255,255,${a})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate((rand() - 0.5) * 0.5);
+    ctx.scale(rx, ry);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+  ctx.globalCompositeOperation = 'lighter';
+  // Drei Größenordnungen: Bänke, Fetzen darin, Fasern an ihren Rändern.
+  for (const [n, rxMin, rxSpan, verh, alpha] of [
+    [14, size * 0.16, size * 0.22, 0.16, 0.5],
+    [46, size * 0.06, size * 0.1, 0.2, 0.34],
+    [150, size * 0.015, size * 0.04, 0.28, 0.22],
+  ]) {
+    for (let i = 0; i < n; i++) {
+      const rx = rxMin + rand() * rxSpan;
+      const ry = rx * verh * (0.6 + rand() * 0.9);
+      const x = rand() * size;
+      const y = rand() * size;
+      for (const dx of [-size, 0, size]) {
+        for (const dy of [-size, 0, size]) {
+          if (Math.abs(x + dx - size / 2) > size / 2 + rx) continue;
+          if (Math.abs(y + dy - size / 2) > size / 2 + ry) continue;
+          fetzen(x + dx, y + dy, rx, ry, alpha);
+        }
+      }
+    }
+  }
+  const t = new THREE.CanvasTexture(canvas);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  _wolkenKarte = t;
+  return t;
+}
+
+// **Der Sonnenstand des Zen-Gartens, an einer Stelle.**
+//
+// Vorher stand er bei [−12 | 9 | −6], also 34° über dem Horizont. Das ist
+// später Vormittag, nicht später Nachmittag: Bei 34° fällt das Licht so steil
+// auf die waagerechte Kiesfläche, dass eine 1,3 cm tiefe Harkrille kaum eine
+// verschattete Flanke bekommt, und die Schlagschatten sind kürzer als die
+// Objekte breit sind. Jetzt 19,4° — Streiflicht über den Kies, Schatten fast
+// dreimal so lang wie das Objekt hoch ist.
+//
+// Alles, was die Sonne braucht, liest hier: das Licht selbst, die
+// Schattenkamera, die Sonnenscheibe am Himmel, die Himmelsbeschreibung für die
+// Spiegelungskarte des Wassers — und `mossPatina()`, das sonst die Sonne des
+// Dojos nähme und die Wetterseite jedes Steins auf die falsche Seite legte.
+const ZEN_SONNE = [-14, 5.5, -7];
+// Richtung, in die das Licht **läuft** (vom Stand zum Ursprung).
 const ZEN_SUN = (() => {
-  const d = [12, -9, 6];
-  const len = Math.hypot(...d);
-  return d.map((v) => v / len);
+  const len = Math.hypot(...ZEN_SONNE);
+  return ZEN_SONNE.map((v) => -v / len);
 })();
 
 // Ein Material für **alle** Zen-Steine.
@@ -4091,6 +4199,18 @@ function zenGranite() {
     // Sonne 35° hoch, und mit der Vorgabe von 1,0 war auf dem Findling aus
     // einem Meter Abstand schlicht nichts zu sehen.
     _zenGranit.normalScale = new THREE.Vector2(2.2, 2.2);
+    // **Lichtspitzen.** Mit Rauheit 1,0 hat kein Stein im ganzen Bildsatz einen
+    // Glanzpunkt: gemessen lag der Anteil über L=230 bei 0,00 bis 0,02 %, und
+    // der lag auf einem Partikel, nie auf einer Fläche. Ein Findling im
+    // Streiflicht einer tief stehenden Sonne hat auf seinen oberen Rundungen
+    // sehr wohl einen breiten, stumpfen Glanz. Der Wert skaliert die
+    // Rauheitskarte, die Streuung zwischen matt und glatt bleibt also erhalten.
+    _zenGranit.roughness = 0.76;
+    // Ein schmaler Himmelssaum an der Silhouettenkante. Kleiner Betrag, hoher
+    // Exponent: Auf einer flach schattierten Fläche wird ein weicher
+    // Fresnel-Saum sonst zur **Flächen**helligkeit statt zur Kante, und alles
+    // sieht bereift aus.
+    addSkyRim(_zenGranit, { color: 0xbcd6f0, strength: 0.2, power: 4.2 });
   }
   return _zenGranit;
 }
@@ -4344,7 +4464,7 @@ function makeBambooGrove(rand, cx, cz) {
   // zurückgegeben: Die Umgebung sammelt alle Schatten ein und zeichnet sie in
   // einem Draw-Call (siehe `verschmelzeSchatten`). Dafür muss er in
   // Weltkoordinaten stehen, nicht relativ zum Hain.
-  const shadow = makeBlobShadow(1.4, 0.4, 0.02);
+  const shadow = makeBlobShadow(0.8, 0.45, 0.02);
   shadow.position.set(cx, 0.02, cz);
   return {
     group,
@@ -4648,28 +4768,131 @@ function createZenEnvironment() {
   // Nebel gesättigt ist; träfe dort ein anders getönter Himmel auf den Boden,
   // stünde die Horizontlinie wieder als Kante im Bild – nur eben in Creme
   // statt in Sand.
-  group.add(makeDome(0x8fb6d8, 0xecd9bb, 0xe4cba2, 70));
-
-  // Weiches, warmes Licht
-  group.add(new THREE.HemisphereLight(0xffe9cf, 0xb8a888, 1.05));
-  const sun = new THREE.DirectionalLight(0xffe0b3, 1.7);
-  sun.position.set(-12, 9, -6);
-  group.add(sun);
-  const sunSprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(255,240,210,1)', 'rgba(255,210,150,0.5)'),
-      transparent: true,
-      depthWrite: false,
-      fog: false,
+  group.add(
+    makeDome(0x8fb6d8, 0xecd9bb, 0xe4cba2, 70, {
+      dir: new THREE.Vector3(...ZEN_SONNE),
+      // Der Hof wird **auf** die Himmelsfarbe addiert, ist also ein Zuschlag
+      // und kein Farbton. Warm und zurückhaltend: Ein tief stehender Hof, der
+      // den halben Himmel aufhellt, frisst die Tonwertstaffelung, die der
+      // Nebel darunter aufbauen soll.
+      color: 0x5a4020,
+      tight: 220,
+      broad: 2.4,
+    },
+    {
+      map: wolkenKarte(),
+      // Der Schatten der Wolke ist blaugrau, ihre besonnte Seite golden. Beides
+      // gehört in die Tonart der Umgebung: warm mit kühlem Gegenpol.
+      color: 0xc9bfc4,
+      lit: 0xffe3b4,
+      strength: 0.85,
+      // Ganzzahliger Umlauf, sonst steht eine senkrechte Naht am Himmel.
+      scale: [4, 3.1],
+      // Kein Zirrus unter 3° und keiner über 45°: unten frisst ihn der Dunst,
+      // oben verrät die Azimut-Abbildung die Kachel.
+      band: [0.008, 0.055, 0.42, 0.92],
     })
   );
-  sunSprite.position.set(-22, 10, -18);
-  sunSprite.scale.set(9, 9, 1);
-  group.add(sunSprite);
 
-  // Warmes Rim-/Backlight zum Abheben der Silhouetten
-  const rim = new THREE.DirectionalLight(0xffdcb0, 0.45);
-  rim.position.set(16, 6, 14);
+  // --- Licht ----------------------------------------------------------------
+  //
+  // **Der Garten hatte kein Licht, sondern Umgebungshelligkeit.** Gemessen: der
+  // Sand direkt am Fuß eines Trittsteins 212,8, der Sand einen Meter daneben
+  // 212,9 — ein Unterschied von 0,1 von 255. Jede Form war ausgeschnitten und
+  // aufgeklebt, nichts hatte Gewicht.
+  //
+  // Drei Quellen sorgten dafür: die Grundleuchte der App mit 1,4, die eigene
+  // Hemisphäre mit 1,05 und ein Gegenlicht mit 0,45 — zusammen fast das
+  // Dreifache dessen, was die Sonne bei 34° auf einer waagerechten Fläche
+  // beitrug. Die Grundleuchte steht jetzt auf 0,35 (`sceneAmbient` unten), die
+  // eigene Hemisphäre trägt nur noch den Himmelsanteil, und die Sonne ist die
+  // Hauptquelle.
+  // **Der Himmel ist kühl, die Sonne ist warm.** Das ist der Kern eines
+  // Spätnachmittags und zugleich der billigste Weg zu Tiefe: Die besonnte
+  // Fläche und die verschattete unterscheiden sich dann nicht nur in der
+  // Helligkeit, sondern im Farbton. Vorher war beides warm, und der Schatten
+  // war schlicht ein dunklerer Sand. Die Bodenfarbe der Hemisphäre ist das
+  // Rücklicht des Kieses und bleibt warm.
+  group.add(new THREE.HemisphereLight(0xbcd2ee, 0xa8875f, 0.85));
+
+  const sun = new THREE.DirectionalLight(0xffd9a0, 3.1);
+  sun.position.set(...ZEN_SONNE);
+  group.add(sun);
+
+  // --- Schlagschatten -------------------------------------------------------
+  //
+  // Das Schattenvolumen umfasst 24 m im Quadrat um den Ursprung. Der gestaltete
+  // Teil des Gartens liegt innerhalb von 10 m; der längste Schatten ist der des
+  // Torii, der bei 19° Sonnenstand gut 9 m weit läuft. Außerhalb des Volumens
+  // liefert threes Abfrage „beleuchtet", der Kies bleibt dort also hell — was
+  // richtig ist, weil dort nichts steht.
+  sun.castShadow = true;
+  {
+    const sh = sun.shadow;
+    sh.mapSize.set(2048, 2048);
+    const HALB = 12;
+    sh.camera.left = -HALB;
+    sh.camera.right = HALB;
+    sh.camera.top = HALB;
+    sh.camera.bottom = -HALB;
+    // Die Quelle steht 16,6 m vom Ursprung; die Szene reicht von dort aus grob
+    // 3 bis 33 m.
+    sh.camera.near = 2.5;
+    sh.camera.far = 34;
+    // Normal-Bias statt großem Tiefen-Bias: Er verschiebt den Abtastpunkt
+    // entlang der Normalen und erzeugt deshalb kein Peter-Panning – den
+    // sichtbaren Spalt zwischen Objekt und Schattenansatz.
+    sh.bias = -0.0004;
+    // **0,03 war zu viel und hat die flachen Objekte um ihren Schatten
+    // gebracht.** Der Normal-Bias verschiebt den Abtastpunkt entlang der
+    // Normalen; auf dem Kies zeigt die nach oben. Ein Trittstein ist 6 cm dick
+    // und steht 3 cm über dem Sand — bei 3 cm Versatz wird also über ihn
+    // hinweg abgetastet, und er wirft nichts. Im Bild sah das aus wie ein
+    // vergessener Schattenwerfer, war aber ein Zahlenwert.
+    sh.normalBias = 0.008;
+    sh.camera.updateProjectionMatrix();
+  }
+
+  // Die Sonnenscheibe. **`toneMapped: false` ist hier das Entscheidende:** Ohne
+  // das läuft die Scheibe durch dieselbe ACES-Kurve wie alles andere und landet
+  // im flachen Ast — gemessen war der Sonnenkern mit L=210,5 dunkler als der
+  // Sand davor mit L=214,8. Eine Sonne, die dunkler ist als der Boden, ist
+  // keine Lichtquelle, sondern ein Wattebausch. Additiv gemischt, damit sie den
+  // Himmel aufhellt statt ihn zu überdecken.
+  const sonnenRichtung = new THREE.Vector3(...ZEN_SONNE).normalize();
+  // Zwei Sprites, weil ein einzelner Verlauf entweder einen harten Kern oder
+  // einen weiten Hof ergibt, nie beides — dieselbe Aufteilung wie bei der
+  // Insel. Der erste Anlauf hatte einen Verlauf mit Skalierung 11 auf 38 m
+  // Abstand: 16° am Himmel, mit sichtbar hartem Rand. Das war keine Sonne,
+  // sondern eine Scheibe.
+  for (const [scale, innen, aussen] of [
+    [1.9, 'rgba(255,253,246,1)', 'rgba(255,238,200,0.85)'],
+    [13.0, 'rgba(255,228,178,0.30)', 'rgba(255,198,132,0.10)'],
+  ]) {
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: makeGlowTexture(innen, aussen),
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        // **Ohne das läuft die Scheibe durch dieselbe ACES-Kurve wie alles
+        // andere und landet im flachen Ast.** Gemessen war der Sonnenkern mit
+        // L=210,5 dunkler als der Sand davor mit L=214,8 — eine Sonne, die
+        // dunkler ist als der Boden, ist keine Lichtquelle.
+        toneMapped: false,
+        fog: false,
+      })
+    );
+    sprite.position.copy(sonnenRichtung).multiplyScalar(38);
+    sprite.scale.set(scale, scale, 1);
+    group.add(sprite);
+  }
+
+  // Warmes Gegenlicht aus der Gegenrichtung, das die Silhouetten von der
+  // Schattenseite her ablöst. Schwächer als zuvor: Es soll die Kante zeigen,
+  // nicht die Fläche aufhellen.
+  const rim = new THREE.DirectionalLight(0xffcf9c, 0.3);
+  rim.position.set(15, 3.5, 13);
   group.add(rim);
 
   // Der Saum liegt unter allem anderen und wird zuerst gezeichnet.
@@ -4775,7 +4998,10 @@ function createZenEnvironment() {
       const pz = sg.z + (rand() - 0.5) * 0.9;
       s.position.set(px, 0.12 + rand() * 0.1, pz);
       findlinge.push(s);
-      const sh = makeBlobShadow(size * 1.5, 0.5);
+      // Enger als vor dem Schlagschatten: Der gefälschte Fleck ist jetzt
+      // Kontaktverdunklung — die Verschattung des Himmelslichts unmittelbar am
+      // Objekt —, nicht mehr der Ersatz für den Schatten selbst.
+      const sh = makeBlobShadow(size * 0.95, 0.55);
       sh.position.set(px, 0.015, pz);
       kontaktschatten.push(sh);
     }
@@ -4878,7 +5104,14 @@ function createZenEnvironment() {
   for (let i = 0; i < 3; i++) {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 28), rippleMat.clone());
     ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.025;
+    // **Die Ringe standen im Ursprung, nicht im Teich.** `update()` setzt ihre
+    // Lage nur im ersten Fünfzigstel ihrer Periode neu; davor — und in jedem
+    // eingefrorenen Bild, das nicht zufällig in dieses Fenster fällt — lagen
+    // sie bei (0 | 0), also mitten auf dem Kies. Der Prüfer hat sie in
+    // `c-torii` als „vier konzentrische Ellipsen konstanter Breite" gefunden,
+    // durch die die Harkstreifen ungestört hindurchlaufen, und für ein zweites
+    // aufgelegtes Muster gehalten. Es waren Wasserringe auf dem Sand.
+    ring.position.set(pondCenter.x, 0.025, pondCenter.z);
     ring.userData = { phase: rand() * 1000, period: 3 + rand() * 2 };
     group.add(ring);
     ripples.push(ring);
@@ -4953,7 +5186,7 @@ function createZenEnvironment() {
   sakura.add(sakuraKrone.blobs, sakuraKrone.karten);
   sakura.position.set(-4.5, 0, 2.5);
   group.add(sakura);
-  const sakuraShadow = makeBlobShadow(1.3, 0.4);
+  const sakuraShadow = makeBlobShadow(0.7, 0.5);
   sakuraShadow.position.set(-4.4, 0.015, 2.5);
   kontaktschatten.push(sakuraShadow);
 
@@ -4961,7 +5194,7 @@ function createZenEnvironment() {
   const maple = makeMaple(rand);
   maple.position.set(4.8, 0, 3.2);
   group.add(maple);
-  const mapleShadow = makeBlobShadow(1.0, 0.4);
+  const mapleShadow = makeBlobShadow(0.55, 0.5);
   mapleShadow.position.set(4.8, 0.015, 3.2);
   kontaktschatten.push(mapleShadow);
 
@@ -4974,14 +5207,14 @@ function createZenEnvironment() {
   const lantern = makeLantern();
   lantern.position.set(1.6, 0, -1.8);
   group.add(lantern);
-  const lanternShadow = makeBlobShadow(0.4, 0.5);
+  const lanternShadow = makeBlobShadow(0.26, 0.6);
   lanternShadow.position.set(1.6, 0.015, -1.8);
   kontaktschatten.push(lanternShadow);
   const torii = makeTorii();
   torii.position.set(-2, 0, -9);
   torii.rotation.y = 0.35;
   group.add(torii);
-  const toriiShadow = makeBlobShadow(1.8, 0.35);
+  const toriiShadow = makeBlobShadow(0.85, 0.45);
   toriiShadow.position.set(-2, 0.015, -9);
   toriiShadow.scale.x *= 2; // länglich unter dem Tor
   kontaktschatten.push(toriiShadow);
@@ -5074,9 +5307,9 @@ function createZenEnvironment() {
   // im Zwischenspeicher von `buildSkyEnvironment`.
   const ZEN_HIMMEL = {
     name: 'zen',
-    sun: [-12, 9, -6],
+    sun: ZEN_SONNE,
     target: [0, 0, 0],
-    sunColor: 0xffe0b3,
+    sunColor: 0xffd9a0,
     sky: {
       zenith: { hex: 0x7ea3cc, level: 0.36 },
       horizon: { hex: 0xf3dcb4, level: 0.66 },
@@ -5097,12 +5330,60 @@ function createZenEnvironment() {
     ]),
   };
 
+  // --- Wer wirft, wer empfängt ----------------------------------------------
+  //
+  // Einmal über den fertigen Baum statt an dreißig Stellen von Hand: Alles, was
+  // ein Körper ist, wirft und empfängt. Ausgenommen sind die Flächen, die
+  // keiner sind — Himmelskuppel, Kies, Saum, die gefälschten Kontaktschatten,
+  // die Wasserfläche und alles, was Sprite oder Punktwolke ist. Der Kies und
+  // der Saum empfangen selbstverständlich, sie werfen nur nicht.
+  {
+    // Der Kies, der Saum und das Moos liegen flach auf dem Boden – sie können
+    // nichts beschatten außer sich selbst, kosten in der Schattenkarte aber
+    // denselben Zeichenaufruf wie ein Baum.
+    // **Streulicht durch das Laub.** Die Hüllkörper der Kronen sind
+    // undurchsichtige Blasen; wirft die Krone mit ihnen, fällt ein
+    // geschlossener dunkler Fleck auf den Kies. Wirft nur das Blattwerk — die
+    // Karten mit Alpha-Test, für die `foliageMaterial()` ein eigenes
+    // Tiefenmaterial mitbringt —, entsteht das gesprenkelte Licht unter einem
+    // Baum. Die Hüllkörper bleiben sichtbar und verdecken weiterhin die
+    // Durchsicht; sie stehen nur nicht mehr in der Schattenkarte.
+    const nurEmpfangen = new Set([
+      'zen-sand',
+      'zen-saum',
+      'zen-moos',
+      'zen-sakura-blobs',
+      'zen-ahorn-blobs',
+    ]);
+    const garnicht = new Set(['zen-kontaktschatten']);
+    for (const kind of group.children) {
+      kind.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.material?.isShaderMaterial) return; // Himmelskuppel
+        if (garnicht.has(o.name)) return;
+        o.receiveShadow = true;
+        const durchsichtig = o.material?.transparent === true && o.material?.opacity < 0.9;
+        o.castShadow = !nurEmpfangen.has(o.name) && o !== pond && !durchsichtig;
+      });
+    }
+    // Die Wasserfläche empfängt, wirft aber nicht: Ein Teich, der einen Schatten
+    // auf den Sand darunter wirft, ist ein Loch, kein Wasser.
+    pond.castShadow = false;
+  }
+
   return {
     id: 'zen',
     name: '🪷 Zen-Garten',
     background: new THREE.Color(0xe9d3ae),
     fog: new THREE.Fog(0xecd9bb, 20, 46),
     group,
+
+    // **Die Grundleuchte der App wird für diese Umgebung heruntergenommen.**
+    // Sie steht in main.js bei 1,4 und gilt für alles; hier lieferte sie gut
+    // die Hälfte der Flächenhelligkeit, und weil eine Hemisphärenleuchte fast
+    // nur von `normal.y` abhängt, reagierte dieser Anteil auf keine Form.
+    // Der Zen-Garten bringt seinen Himmelsanteil selbst mit.
+    sceneAmbient: 0.35,
 
     // **Warum die Karte erst hier entsteht und nicht beim Bauen.** Der
     // PMREM-Generator braucht einen lebenden Renderer und rechnet auf der GPU;
