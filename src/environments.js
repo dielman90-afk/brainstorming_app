@@ -5,6 +5,7 @@ import { heightToMaps, scaleUV } from './dojo/materials.js';
 import { mossMaterial, waterMaterial, updateWater } from './dojo/ground.js';
 import {
   graniteMaterial,
+  cliffMaterial,
   mossPatina,
   boxProjectUV,
   weatheredWoodMaterial,
@@ -453,7 +454,17 @@ function inselBaumMaterialien() {
       windStrength: 0.03,
       roughness: 0.7,
       color: 0xbfe3a8,
-    }), { strength: 0.55, power: 1.9 });
+      // Der Himmelssaum sitzt eng und schwach.
+      //
+      // Bei `strength 0.55, power 1.9` war er auf einer BLATTKARTE kein Saum
+      // mehr: Eine Karte ist eine ebene Fläche mit konstanter Normale, der
+      // Fresnel-Term wird darauf zur Flächenhelligkeit. Jede schräg stehende
+      // Karte wurde damit fast weiß – gemessen lagen 18,4 % der Kronenpixel
+      // über L=190. Das ist zweierlei Schaden: Die Astlage wird unlesbar, und
+      // auf der Quest kriecht so ein Salz-und-Pfeffer-Muster bei jeder
+      // Kopfbewegung. Derselbe Fehler wie seinerzeit am Fels, dieselbe
+      // Korrektur: hoher Exponent, kleiner Betrag.
+    }), { strength: 0.26, power: 4.2 });
     _inselKarten = addSkyRim(foliageMaterial({
       atlas: leafAtlas('azalea'),
       // Aufgehellt auf das Inselgrün. Der Azaleen-Atlas ist für den schattigen
@@ -467,7 +478,7 @@ function inselBaumMaterialien() {
       translucency: 0.95,
       transColor: 0xdcf7b0,
       windStrength: 0.06,
-    }), { strength: 0.50, power: 2.0 });
+    }), { strength: 0.24, power: 4.2 });
   }
   return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten, nadeln: _inselNadeln };
 }
@@ -661,7 +672,7 @@ const ISLAND_TOP_Y = -0.02; // Höhe der ebenen Grasfläche (Bestand beibehalten
 const WORLD_SCALE = 4;
 const ISLAND_FLAT_R = 0.58; // bis hierhin (Anteil des Radius) bleibt es eben
 
-function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
+function makeIslandShape(rand, { radius = 5, depth = 5, river = null, detail = 1 } = {}) {
   const p0 = rand() * TAU;
   const p1 = rand() * TAU;
   const p2 = rand() * TAU;
@@ -672,7 +683,21 @@ function makeIslandShape(rand, { radius = 5, depth = 5, river = null } = {}) {
   const nz = rand() * 60;
   const strataPhase = rand() * TAU;
   const strataTilt = rand() * TAU; // die Bänke liegen schräg, nicht waagerecht
-  const strataRate = 4.2 + rand() * 2.6; // Bankdicke: je Insel anders
+  // Bankdicke: je Insel anders – ABER an die Ringzahl der Flanke gekoppelt.
+  //
+  // Die Schichtbänke sind ein Sägezahn über die Flankenkoordinate; die Flanke
+  // wird mit `sideRings * detail` Ringen abgetastet. Auf den Mini-Inseln
+  // (detail 0,55, also 20 Ringe) trafen bis zu neun Bänke auf 20 Ringe – knapp
+  // zwei Stützstellen je Bank. Der Sägezahn kann bei dieser Abtastung nicht
+  // als Sims lesen, er kippt in eine Treppe aus gleich hohen, waagerechten
+  // Absätzen um: genau die „gestapelten Regalbretter", die die Mini-Inseln wie
+  // eine gedrehte Kiste aussehen ließen. Es war kein Formfehler, sondern
+  // Unterabtastung. Vier bis fünf Ringe je Bank sind das Minimum; die
+  // Obergrenze fällt mit der Detailstufe, was auch inhaltlich richtig ist –
+  // was weiter weg steht, zeigt weniger, aber größere Formen.
+  const flankenRinge = Math.max(8, Math.round(36 * detail));
+  const rateMax = flankenRinge / 4.5 / 1.34;
+  const strataRate = Math.min(4.2 + rand() * 2.6, rateMax);
   const fracPhase = rand() * 40;
   const leanX = (rand() - 0.5) * 0.9; // der Felskeil hängt schief, nicht mittig
   const leanZ = (rand() - 0.5) * 0.9;
@@ -1192,12 +1217,15 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
       metalness: 0,
       flatShading: true,
     }),
-    addSkyRim(graniteMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
+    // Felswandkarte, NICHT die Granitkarte des Dojo-Gartens: Deren
+    // Absplitterungen sind auf einer vierzig Meter hohen Flanke ein sichtbares
+    // Raster gleicher Dellen. Begründung ausführlich bei cliffMaps().
+    addSkyRim(cliffMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
       strength: 0.18,
       power: 4.0,
     }),
   ]);
-  // graniteMaterial() liefert aus einem Cache; ohne clone() bekäme jede Insel
+  // cliffMaterial() liefert aus einem Cache; ohne clone() bekäme jede Insel
   // dasselbe Objekt, und der Saum des Felses läge auch auf dem Erdreich.
   mesh.material[2].flatShading = true;
   mesh.name = 'island-body';
@@ -1475,6 +1503,13 @@ function tuftGeometry(rand) {
 function addGrassDecoration(group, rand, shape) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
+  // Kontaktverdunklung für die Horste. Bäume, Findlinge, Büsche und Pilze
+  // hatten sie; die Grasbüschel als einzige nicht – und sie sind das, was im
+  // Nahbild direkt vor dem Nutzer steht. Gemessen lag der Boden 15 px neben
+  // einem Büschelfuß eine einzige Luminanzstufe unter der freien Fläche, der
+  // Horst saß also mit haarscharfer Kante auf vollwertig hellem Gras. Alle
+  // Verdunklungen zusammen sind EIN Draw-Call.
+  const horstSchatten = new GeoBucket();
 
   // Nester statt Gleichverteilung: erst ein Zentrum würfeln, dann darum streuen.
   const nester = [];
@@ -1536,10 +1571,29 @@ function addGrassDecoration(group, rand, shape) {
     color.setHex(pick(rand, halmTon));
     if (nass > 0) color.offsetHSL(0.015 * nass, 0.10 * nass, -0.05 * nass);
     tufts.setColorAt(i, color);
+    addContactShadow(horstSchatten, shape, x, z, 0.115 * dummy.scale.x, true);
   }
   tufts.instanceMatrix.needsUpdate = true;
   if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
   group.add(tufts);
+
+  const horstSchattenMesh = horstSchatten.mesh(
+    new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      // Schwächer als unter Büschen und Findlingen: Ein Grasbüschel verdeckt
+      // wenig Himmel, und dreihundert kräftige Flecken würden die Wiese
+      // scheckig machen.
+      opacity: 0.32,
+      depthWrite: false,
+      toneMapped: false,
+    }),
+    'tuft-shade'
+  );
+  if (horstSchattenMesh) {
+    horstSchattenMesh.renderOrder = 1;
+    group.add(horstSchattenMesh);
+  }
 
   // --- Blumen -------------------------------------------------------------
   //
@@ -2126,12 +2180,20 @@ function makeButterflies(rand) {
 // Volumetrisch wirkende Wolke: Cluster weicher Kugeln zu EINEM Mesh verschmolzen.
 // Als echtes 3D-Objekt (kein Billboard-Sprite) dreht sie sich NICHT mit der
 // Kopfbewegung – sie bleibt fest im Raum stehen.
-const CLOUD_MATERIAL = new THREE.MeshStandardMaterial({
+// UNBELEUCHTET, mit Absicht.
+//
+// Vorher war das ein MeshStandardMaterial. Damit lag über den einbebackenen
+// Scheitelfarben noch die volle Szenenbeleuchtung – einschließlich der starken
+// Aufhellung von unten, die für den Inselkiel eingeführt wurde. Gemessen wurde
+// dadurch die UNTERSEITE jeder Wolke als ihre hellste Fläche (5-backlight
+// x=450: oben L=191, innen L=174, unten L=203; zwei weitere Bilder gleich).
+// Die flache Haufenwolken-Unterkante war geometrisch da, wurde aber als
+// Leuchtfläche gerendert und kippte damit genau die Lesart, für die sie gebaut
+// war. Eine Wolke ist ohnehin kein Lambert-Körper – ihre Helligkeit kommt aus
+// Streuung. Mit MeshBasicMaterial ist der Bake die ganze Wahrheit, und die
+// Richtung kann nicht mehr von einem Licht überstimmt werden.
+const CLOUD_MATERIAL = new THREE.MeshBasicMaterial({
   color: 0xffffff,
-  roughness: 1,
-  metalness: 0,
-  flatShading: false,
-  // Die Lichtrichtung steckt in den Scheitelfarben (siehe makeCloud).
   vertexColors: true,
 });
 
@@ -2208,12 +2270,21 @@ function makeCloud(rand, size = 1, sunDir = null) {
     // Und wie weit oben sie liegt – Wolken sind unten grundsätzlich dichter.
     const up = maxY > 0 ? y / maxY : 0;
     // Grundhelligkeit: sonnenzugewandt heller, oben heller, Schattenseite tiefer.
-    let f = 0.62 + 0.40 * Math.max(0, facing) + 0.22 * up - 0.26 * Math.max(0, -facing);
+    // Die Beträge gelten seit der Umstellung auf ein unbeleuchtetes Material
+    // ALLEIN – vorher kam die Szenenbeleuchtung als Faktor obendrauf.
+    //
+    // Und sie müssen UNTER der Kompressionsschwelle des Tonemappers bleiben. Mit
+    // Grundwert 0,92 lag schon der Körper der Wolke im flachen Ast der
+    // ACES-Kurve; gemessen hatte eine nahe Wolke dadurch (242,242,241) mit
+    // dreizehn Luminanzstufen Gesamtspanne – ein weißes Blatt Papier. Der Gipfel
+    // ohne Silberrand liegt jetzt bei 1,14, der Schatten bei 0,34, und dazwischen
+    // bleibt die Kurve steil genug, dass die Form sichtbar wird.
+    let f = 0.62 + 0.34 * Math.max(0, facing) + 0.18 * up - 0.28 * Math.max(0, -facing);
     // SILBERRAND. Der schmale, sehr helle Saum genau dort, wo die Sonne die
     // Wolke streift, ist das Erkennungszeichen einer Haufenwolke im Gegenlicht –
     // und er fehlte vollständig. Er sitzt eng (hoher Exponent), damit er ein
     // Saum bleibt und nicht die halbe Wolke aufhellt.
-    f += 0.85 * Math.pow(Math.max(0, facing), 7);
+    f += 1.00 * Math.pow(Math.max(0, facing), 7);
     // Die Schattenseite ist kühl, die Sonnenseite eine Spur warm.
     c.setRGB(f * (1 + 0.06 * facing), f * (1 + 0.015 * facing), f * (1 - 0.05 * facing));
     colors[i * 3] = c.r;
@@ -2292,23 +2363,43 @@ function makeVines(rand, radius, count, shape = null) {
     // der Vorhang hing sichtbar frei im Himmel. Am Kreis-Ansatz landete
     // derselbe Wert noch ungefähr an der Kante.
     const drift = shape ? 0.04 + rand() * 0.07 : 0.18 + rand() * 0.3;
-    const seite = (rand() - 0.5) * 0.5; // seitlicher Versatz, damit keine zwei gleich hängen
+    // Seitlicher Versatz TANGENTIAL zur Wand, nicht entlang der Z-Achse.
+    //
+    // Vorher wurde er stur auf z addiert. An einem Ansatzpunkt, der zufällig
+    // schon auf der Z-Achse lag, schob er den Strang damit in die Wand oder von
+    // ihr weg statt an ihr entlang – und an allen anderen wirkte er
+    // unterschiedlich stark. Übrig blieb ein Strang, der praktisch lotrecht
+    // fiel: eine senkrechte Kette gleicher Kugeln, „wie eine grüne Raupe".
+    const tx = Math.cos(a);
+    const tz = -Math.sin(a);
+    const seite = (rand() - 0.5) * 0.34;
+    // Zwei Auslenkungen mit verschiedenem Vorzeichen ergeben eine S-Krümmung
+    // statt einer schrägen Geraden.
+    const bauch = (rand() - 0.5) * 0.18;
+    // Wer seitlich ausschert, muss zugleich nach AUSSEN. Der Ansatzradius liegt
+    // bei `engste - 0,02`, also praktisch auf der Wand; eine reine
+    // Seitwärtsbewegung an einer konvexen Flanke führt damit ins Gestein. Beim
+    // ersten Versuch mit ±0,45 verschwand der halbe Strang im Fels und tauchte
+    // weiter unten wieder auf.
+    const raus = Math.abs(seite) * 0.75;
+    const rx = Math.sin(a) * raus;
+    const rz = Math.cos(a) * raus;
     const kurve = new THREE.CatmullRomCurve3([
       new THREE.Vector3(ax, ansatzY, az),
       new THREE.Vector3(
-        ax * (1 + drift * 0.35),
+        ax * (1 + drift * 0.35) + tx * (seite * 0.22 + bauch) + rx * 0.3,
         ansatzY - len * 0.22,
-        az * (1 + drift * 0.35) + seite * 0.3
+        az * (1 + drift * 0.35) + tz * (seite * 0.22 + bauch) + rz * 0.3
       ),
       new THREE.Vector3(
-        ax * (1 + drift * 0.5),
+        ax * (1 + drift * 0.5) + tx * seite * 0.62 + rx * 0.75,
         ansatzY - len * 0.62,
-        az * (1 + drift * 0.5) + seite * 0.6
+        az * (1 + drift * 0.5) + tz * seite * 0.62 + rz * 0.75
       ),
       new THREE.Vector3(
-        ax * (1 + drift * 0.52),
+        ax * (1 + drift * 0.52) + tx * seite + rx,
         ansatzY - len,
-        az * (1 + drift * 0.52) + seite * 0.72
+        az * (1 + drift * 0.52) + tz * seite + rz
       ),
     ]);
 
@@ -2338,15 +2429,35 @@ function makeVines(rand, radius, count, shape = null) {
 
     // Blattbüschel entlang des Strangs, nach unten hin kleiner. Der oberste
     // sitzt bei 18 % – ganz am Ansatz wäre er im Fels.
+    // Blattbüschel in UNGLEICHEN Abständen und mit ungleicher Größe.
+    //
+    // Vorher: `t = 0.14 + (b / bueschel) * 0.82` – ein festes Raster mit ±0,05
+    // Wackeln. Gleich große Kugeln in gleichem Abstand auf einer Geraden sind
+    // die Definition einer Perlenkette. Jetzt wächst t in zufälligen Schritten,
+    // sodass sich Büschel stellenweise zu Trauben ballen und dazwischen ein
+    // Stück nackter Strang sichtbar bleibt; dazu ein kleiner Querversatz, damit
+    // sie nicht alle auf der Achse aufgefädelt sind.
     const bueschel = 6 + Math.floor(rand() * 4);
-    for (let b = 0; b < bueschel; b++) {
-      const t = 0.14 + (b / bueschel) * 0.82 + rand() * 0.05;
+    let t = 0.12 + rand() * 0.08;
+    for (let b = 0; b < bueschel && t < 0.99; b++) {
       kurve.getPointAt(Math.min(0.99, t), mitte);
+      const quer = 0.045;
       laubPunkte.push({
-        p: mitte.clone(),
-        s: (0.17 + rand() * 0.11) * (1 - t * 0.35),
+        p: mitte
+          .clone()
+          .add(
+            new THREE.Vector3(
+              (rand() - 0.5) * quer,
+              (rand() - 0.5) * quer * 0.5,
+              (rand() - 0.5) * quer
+            )
+          ),
+        // Größenspanne 0,09 … 0,30 statt 0,17 … 0,28: wenige große Polster,
+        // viele kleine Blattgruppen.
+        s: (0.09 + Math.pow(rand(), 1.8) * 0.21) * (1 - t * 0.35),
         dreh: rand() * Math.PI * 2,
       });
+      t += 0.05 + Math.pow(rand(), 1.6) * 0.20;
     }
   }
 
@@ -2498,7 +2609,7 @@ function buildIsland(
 ) {
   const island = new THREE.Group();
   island.name = 'island';
-  const shape = makeIslandShape(rand, { radius, depth, river });
+  const shape = makeIslandShape(rand, { radius, depth, river, detail });
   island.userData.shape = shape;
   // Wo Findlinge liegen, darf kein Gras stehen. Die Streudekoration sitzt auf
   // der GELAENDEhoehe, die Bloecke liegen darueber - ein Horst an derselben
@@ -2508,7 +2619,11 @@ function buildIsland(
     for (const b of shape.blocked) {
       if ((x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r) return false;
     }
-    return Math.hypot(x, z) < shape.radius * shape.outline(Math.atan2(x, z)) * 0.90;
+    // 0,96 statt 0,90: Bei 0,90 endete JEDER Bewuchs schlagartig entlang einer
+    // Linie, und darunter lag bis zur Abbruchkante ein völlig glatter, kahler
+    // Streifen – ein Streuradius, den man ansehen kann. Die steile Kante selbst
+    // hält shape.frei ohnehin frei, weil dort die Grasnarbe abfällt.
+    return Math.hypot(x, z) < shape.radius * shape.outline(Math.atan2(x, z)) * 0.96;
   };
 
   island.add(buildIslandBody(shape, { detail }));
@@ -2572,7 +2687,13 @@ function buildIsland(
   for (let i = 0; i < rocks; i++) {
     const s = 0.14 + rand() * 0.30;
     const angle = rand() * TAU;
-    const r = radius * (rand() > 0.4 ? 0.66 + rand() * 0.26 : 0.30 + rand() * 0.3);
+    // ARBEITSBEREICH BLEIBT FREI. Bis ISLAND_FLAT_R (0,58 des Radius) ist die
+    // Fläche bewusst eben: Dort steht der Nutzer, dort legt die App die Karten
+    // im Halbkreis ab. Vorher landete gut jeder dritte Findling bei 0,30…0,60 –
+    // also mitten darin. Im Prüfbild „Nahaufnahme Bodenvegetation" füllte ein
+    // einzelner Block dadurch 69,8 % des Rahmens, und in der Anwendung stünde
+    // er zwischen Nutzer und Karten.
+    const r = radius * (rand() > 0.4 ? 0.72 + rand() * 0.20 : 0.62 + rand() * 0.10);
     const sx = Math.sin(angle) * r;
     const sz = Math.cos(angle) * r;
     shape.blocked.push({ x: sx, z: sz, r: s * 1.9 });
@@ -2585,7 +2706,10 @@ function buildIsland(
     addContactShadow(shadowBucket, shape, sx, sz, s * 1.7, shadows);
   }
 
-  const steinMat = addSkyRim(graniteMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
+  // Dieselbe Karte wie die Flanke. Vorher trug der Findling die Granitkarte mit
+  // ihren Einschlüssen, die Wand aber nicht – zwei Gesteinsarten in einem Bild,
+  // was der Prüfer zu Recht als LOD-Fehler gelesen hat.
+  const steinMat = addSkyRim(cliffMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
     strength: 0.16,
     power: 3.8,
   });
@@ -2810,7 +2934,10 @@ function createIslandEnvironment() {
 
   const sun = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(255,253,240,1)', 'rgba(255,240,190,0.7)'),
+      // Warmer Kern. Gemessen war die Scheibe über neunzig Pixel hinweg reines
+      // (255,255,255) bei Sättigung null – die einzige Lichtquelle des Bildes
+      // hatte keine Farbtemperatur.
+      map: makeGlowTexture('rgba(255,247,222,1)', 'rgba(255,232,168,0.7)'),
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -2907,19 +3034,35 @@ function createIslandEnvironment() {
 
   // Entfernte Mini-Inseln, die sanft auf und ab schweben
   const minis = [];
+  // Tiefe je Insel verschieden. Vorher hatten alle fünf dasselbe Verhältnis
+  // von Radius zu Tiefe (5 zu 6,4) – und weil die Hauptinsel bei 5 zu 8,2
+  // liegt, waren die kleinen im Vergleich flache Scheiben. Fünf gleich
+  // proportionierte Scheiben nebeneinander lesen sich als Serienteil.
   const miniConfigs = [
-    { angle: 0.6, dist: 14, y: -1.5, scale: 0.35 },
-    { angle: 2.4, dist: 19, y: 2.0, scale: 0.5 },
-    { angle: 3.9, dist: 23, y: -3.0, scale: 0.65 },
-    { angle: 5.2, dist: 16, y: 3.5, scale: 0.3 },
-    { angle: 1.5, dist: 26, y: -5.5, scale: 0.55 },
+    { angle: 0.6, dist: 14, y: -1.5, scale: 0.35, depth: 8.8 },
+    { angle: 2.4, dist: 19, y: 2.0, scale: 0.5, depth: 7.2 },
+    { angle: 3.9, dist: 23, y: -3.0, scale: 0.65, depth: 9.6 },
+    { angle: 5.2, dist: 16, y: 3.5, scale: 0.3, depth: 7.8 },
+    { angle: 1.5, dist: 26, y: -5.5, scale: 0.55, depth: 8.4 },
   ];
   miniConfigs.forEach((cfg, i) => {
     // Geringere Auflösung: Die Mini-Inseln stehen 14–26 m entfernt, dort fällt
     // die halbe Gitterdichte nicht auf, spart aber Dreiecke und Bauzeit.
-    const mini = buildIsland(rand, { radius: 5, depth: 6.4, trees: 3, rocks: 2, vines: 5, detail: 0.55 });
+    const mini = buildIsland(rand, {
+      radius: 5,
+      depth: cfg.depth,
+      trees: 3,
+      rocks: 2,
+      vines: 5,
+      detail: 0.55,
+    });
     mini.scale.setScalar(cfg.scale);
     mini.position.set(Math.sin(cfg.angle) * cfg.dist, cfg.y, Math.cos(cfg.angle) * cfg.dist);
+    // SCHIEFLAGE. Fünf Inseln, deren Deckel alle exakt waagerecht liegen, sind
+    // die auffälligste Regelmäßigkeit am Horizont – nichts, was frei im Raum
+    // treibt, richtet sich von selbst nach der Weltachse aus. Der Betrag bleibt
+    // klein genug, dass die Grasfläche als Grasfläche liest.
+    mini.rotation.set((rand() - 0.5) * 0.30, rand() * TAU, (rand() - 0.5) * 0.30);
     mini.userData.baseY = cfg.y;
     mini.userData.phase = i * 1.7;
     group.add(mini);
@@ -2933,14 +3076,50 @@ function createIslandEnvironment() {
     { count: 7, yMin: -2, yMax: 3.5, rMin: 16, rMax: 32, size: 1.0 }, // auf Augenhöhe
     { count: 9, yMin: -13, yMax: -4, rMin: 8, rMax: 28, size: 1.35 }, // tief unter den Inseln
   ];
+  // Kein Wolkenkörper darf in einer Mini-Insel stecken. Die mittlere Schicht
+  // (y −2 … 3,5, Radius 16 … 32) überlappt die Inselplätze exakt, und in drei
+  // von sechs Prüfbildern schnitt eine weiße Ellipse mit harter Kante durch
+  // einen grünen Plateaurand. Das liest als Fehler, nicht als Gestaltung.
+  const steckInInsel = (x, y, z) =>
+    miniConfigs.some(
+      (cfg) =>
+        Math.abs(y - cfg.y) < 4.5 &&
+        Math.hypot(x - Math.sin(cfg.angle) * cfg.dist, z - Math.cos(cfg.angle) * cfg.dist) <
+          5.5 + 6 * cfg.scale
+    );
+
   for (const layer of cloudLayers) {
     for (let i = 0; i < layer.count; i++) {
       const cloud = makeCloud(rand, layer.size, SUN_DIR);
-      const a = rand() * Math.PI * 2;
-      const r = layer.rMin + rand() * (layer.rMax - layer.rMin);
-      const y = layer.yMin + rand() * (layer.yMax - layer.yMin);
+      let a = 0;
+      let r = 0;
+      let y = 0;
+      for (let versuch = 0; versuch < 14; versuch++) {
+        a = rand() * Math.PI * 2;
+        r = layer.rMin + rand() * (layer.rMax - layer.rMin);
+        y = layer.yMin + rand() * (layer.yMax - layer.yMin);
+        if (!steckInInsel(Math.cos(a) * r, y, Math.sin(a) * r)) break;
+      }
       cloud.position.set(Math.cos(a) * r, y, Math.sin(a) * r);
       cloud.rotation.y = rand() * Math.PI * 2;
+      // GRÖSSENSTAFFELUNG. Gemessen hatte der Himmel nach dem Wolkenumbau zehn
+      // Ballen zwischen 1129 und 3672 Pixeln – Faktor 3,3, also praktisch alle
+      // gleich groß. Der Stand davor hatte einen Faktor von 18. Die Struktur
+      // INNERHALB der Wolke war besser geworden, die Verteilung ZWISCHEN den
+      // Wolken schlechter: keine Heldenwolke, keine Schleier, nur Mittelmaß.
+      // Dieselbe Regel wie überall sonst – eine Großform, zwei mittlere, viele
+      // kleine.
+      const rang = rand();
+      if (rang > 0.86) {
+        const k = 1.7 + rand() * 0.7;
+        cloud.scale.set(k, k * 0.85, k);
+      } else if (rang < 0.38) {
+        const k = 0.5 + rand() * 0.35;
+        cloud.scale.set(k * 2.0, k * 0.28, k * 1.5);
+      } else {
+        const k = 0.7 + rand() * 0.5;
+        cloud.scale.set(k, k, k);
+      }
       cloud.userData.baseX = cloud.position.x;
       cloud.userData.baseZ = cloud.position.z;
       cloud.userData.speed = 0.1 + rand() * 0.22;
@@ -2961,7 +3140,23 @@ function createIslandEnvironment() {
   // Leichter Tiefennebel (fern), damit ferne Inseln/Wolken sanft ausblenden –
   // Karten in Reichweite bleiben unberührt. Die Distanzen sind Weltkoordinaten
   // und müssen den Maßstab mitgehen, sonst versinkt die Insel im Nebel.
-  const fog = new THREE.Fog(0xb2d6ea, 10 * WORLD_SCALE, 46 * WORLD_SCALE);
+  // Gemessen war die Tiefenstaffelung wirkungslos: Der nahe Findling lag bei
+  // L=106,8, der Fels der fernen Mini-Insel bei L=105,0 – 1,8 Stufen Unterschied
+  // über zig Meter. Der Grund war die Reichweite: Bei `near = 10 * WORLD_SCALE`
+  // beginnt der Dunst erst 40 m vor der Kamera, und dort ist der interessante
+  // Teil der Szene längst zu Ende. Die nahen Mini-Inseln stehen 48 m entfernt
+  // und bekamen dadurch 6 % Dunst. Jetzt setzt er bei 20 m an; die Hauptinsel,
+  // auf der der Nutzer steht und auf der die Karten liegen, bleibt mit unter
+  // 25 m Abstand nahezu unberührt.
+  //
+  // Nachgemessen: Bei `far = 34 * WORLD_SCALE` blieb der Unterschied zwischen
+  // nahem Findling und ferner Mini-Insel bei 2 Luminanzstufen. Der Grund ist
+  // `vFogDepth = -mvPosition.z` – der Nebel rechnet mit der Tiefe ENTLANG der
+  // Blickachse, nicht mit dem Abstand. Eine Insel, die 46° seitlich steht, hat
+  // bei 82 m Abstand nur 57 m Tiefe und verliert damit ein Drittel des Dunstes.
+  // Die Reichweite ist ein Kompromiss: Stärker gesetzt löste sich die
+  // Hauptinsel in der Totale (Kamera 57 m entfernt) selbst in Milch auf.
+  const fog = new THREE.Fog(0xb2d6ea, 6 * WORLD_SCALE, 32 * WORLD_SCALE);
 
   // Was in der Brille dünner wird. Das Laub zuerst – Alpha-Test und
   // Überzeichnung –, dann die Streudekoration: Blumen, Grasbüschel, Pilze und

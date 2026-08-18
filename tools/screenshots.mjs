@@ -44,7 +44,11 @@ try {
       await selectEnv(page, id);
       await lockCamera(page, { ...shot, name: id }, 6.0);
       await page.waitForTimeout(450);
-      await page.screenshot({ path: path.join(outDir, `env-${id}.png`) });
+      // Das Dojo ist die teuerste der fuenf Umgebungen; unter SwiftShader hat
+      // ein Einzelbild davon schon die Vorgabe von 30 s gerissen und den
+      // ganzen Durchlauf abgebrochen. Der Wert ist reine Harness-Geduld und
+      // sagt nichts ueber die Laufzeit auf der Quest.
+      await page.screenshot({ path: path.join(outDir, `env-${id}.png`), timeout: 120000 });
       process.stdout.write(`✓ env-${id}\n`);
     }
     // Zurück auf die Insel, damit ein anschließender Blick nicht irritiert.
