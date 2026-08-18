@@ -6,13 +6,14 @@ Fortgeschrieben in **jedem** Durchlauf. Neueste Einträge oben.
 
 | Größe | Grenze | Ausgang (zen-00) | jetzt |
 | --- | ---: | ---: | ---: |
-| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **84 ✅** |
-| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 44 414 ✅ |
-| Texturspeicher | ≤ 60 MB | 29,77 MB | 21,18 MB ✅ |
-| Shader-Programme | – | 20 | 24 |
+| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **86 ✅** |
+| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 59 712 ✅ |
+| Texturspeicher | ≤ 60 MB | 29,77 MB | 21,52 MB ✅ |
+| Shader-Programme | – | 20 | 25 |
 
-Pakete: **1 bestanden.** Paket 2 (Sand) **nicht bestanden**, ein Anlauf
-verbraucht, offene Punkte unten. Paket 3 gebaut, Prüfung läuft. 4–9 offen.
+Pakete: **1 bestanden.** Paket 2 (Sand) hat einen Anlauf nicht bestanden, der
+zweite ist gebaut und ungeprüft. Paket 3 (Licht) **nicht bestanden**, offene
+Punkte unten. Paket 4 (Wasser) gebaut, Prüfung läuft. 5–9 offen.
 
 **Korrektur zu meinem eigenen Urteil.** Ich habe Paket 2 nach Durchlauf 2
 selbst als bestanden protokolliert und committet, **bevor** der Prüfer sein
@@ -425,3 +426,110 @@ den man hinschreiben statt schätzen muss.
   auslaufende Harke) und von der Moosseite her als ausgefranster Rand. Was
   fehlt, ist die dritte Sache: Moospolster haben Aufbauhöhe, sie liegen nicht
   flach auf. Das gehört zu Paket 5.
+
+---
+
+## Durchlauf 5 — Paket 4: Wasser
+
+**Messwerte:** Draw-Calls 84 → 86, Dreiecke 44 414 → 59 712, Texturspeicher
+21,18 → 21,52 MB, Konsole sauber. Regression: `env-night` und `env-matrix`
+bitgleich, `env-dojo` Δmax 4 auf 0,008 %, `env-island` im Eigenrauschen.
+
+### Der Befund: Der Teich war eine Scheibe, kein Gewässer
+
+Die Wasserfläche lag bei y = 0,01 auf dem Kiesbett bei y = −0,02 — drei
+Zentimeter „Tiefe". Der Prüfer hatte gemessen: Mittel 114, Spannweite 26, kein
+Pixel über 190, praktisch keine Sättigung, und eine Spalte durch den Teich fiel
+streng monoton. Dazu: Die Koi sind 11 cm hoch und schwammen auf y = 0 — sie
+ragten viereinhalb Zentimeter aus dem Wasser.
+
+### Was gebaut wurde
+
+* **Ein echtes Becken.** 42 cm tiefe Mulde mit Uferwulst, der über die
+  Wasserlinie steigt und außen wieder in den Kies läuft. Die Zonen — Schlick,
+  Flachwasser, Wasserlinie, nasses Ufer, trockener Wulst — stecken in den
+  Scheitelfarben, also ein Draw-Call.
+* **Eine Aussparung im Kiesbett.** Sonst schneidet die waagerechte Kiesfläche
+  durch das Becken und man sieht Sand auf halber Wassertiefe.
+* **Tiefenton als Deckkraft, nicht als Farbe.** Am Ufer sieht man den sandigen
+  Grund, in der Mitte nicht mehr — nach Beer-Lambert, nicht linear. Genau das
+  trennt Wasser von eingefärbtem Glas. Gemessen: Mittel 95 → 112 bei einer
+  Spannweite von 59 bis 143 gegen 96 bis 122 vorher.
+* **Wasserlinie statt Schnitt.** Ein dunkler Saum am Ufer, und die Fläche läuft
+  am äußersten Rand in der Deckkraft aus.
+* **Nässe an den Steinen.** Die sechzehn Uferkiesel sind an die Wasserlinie
+  gerückt und abgesenkt; unterhalb davon sind ihre Scheitelfarben um 45 %
+  abgedunkelt, mit einem Saum von acht Zentimetern darüber, wo das Wasser
+  hochzieht. Kein zweites Material, also kein zweiter Draw-Call.
+* **Die Koi schwimmen unter Wasser**, 10 cm unter der Oberfläche. Seerosen,
+  Lotus und Wasserringe sitzen auf der Fläche statt drei Zentimeter darüber.
+* **Rauheit von 0,05 auf 0,14** und Spiegelungsstärke verdoppelt: Bei 0,05 ist
+  die Sonnenspiegelung ein Punkt von wenigen Pixeln.
+
+### Drei eigene Fehler in diesem Durchlauf
+
+1. **`vMapUv` gibt es auf dieser Fläche nicht.** three legt die UV-Varianten je
+   Kartenslot an; die Wasserfläche hat gar keine Farbkarte, nur Normal- und
+   Clearcoat-Normalkarte. Der Shader kompilierte nicht und die Konsole war voll
+   mit „useProgram: program not valid". Behoben mit einer eigenen Varying.
+2. **Vierecke wegzulassen reicht als Aussparung nicht.** Der erste Anlauf
+   verwarf jedes Viereck, dessen Ecken im Loch lagen; der Rand folgte damit der
+   Ringauflösung von rund 40 cm und stand als Zackenkranz aus dem Uferwulst.
+   Jetzt werden die inneren Punkte **radial auf die Kontur gezogen** und nur die
+   ganz innen liegenden Vierecke verworfen — sonst spannen sie nach dem
+   Aufziehen eine Sehne quer durch das Becken auf. Auch das stand erst als
+   helle Zacken im Bild.
+3. **`hashNoise` ist ein Hash, kein Rauschen.** Ich habe ihn als Umrissfunktion
+   benutzt — zwei benachbarte Winkel liefern damit unabhängige Werte, und der
+   Uferwulst lief nicht in Zungen und Buchten aus, sondern in einen Zackenstern.
+   Dieselbe Ursache hatte der neue Rand der Moosinseln aus Durchlauf 4. Ersetzt
+   durch `welligerUmriss()`: eine Summe von Sinus-Termen mit ganzzahliger
+   Frequenz — stetig, und bei 2π schließt sie sich von selbst.
+
+### Was offen bleibt
+
+* **Keine Glanzbahn auf dem Wasser** (kein Pixel über 190). Von den festen
+  Kameras aus ist sie geometrisch nicht zu haben: Die Sonne steht links hinten,
+  `b-pond` blickt nach rechts vorn, die Spiegelrichtung zeigt am Sonnenstand
+  vorbei. Das ist kein Rechenfehler, sondern die Aufstellung. Ob der Teich
+  überhaupt an einer Stelle liegt, an der er die Sonne fangen kann, ist eine
+  **Kompositionsfrage** — Paket 7.
+
+---
+
+## Prüferbefund zu Paket 3 (Licht & Atmosphäre): **nicht bestanden**
+
+Zwei von fünf Teilaufgaben bestehen, drei nicht.
+
+| Teilaufgabe | Urteil | Beleg |
+| --- | --- | --- |
+| Lichtrichtung / Tageszeit | bestanden | Schattenlänge zu Höhe ≥ 3,2 : 1, Richtung über alle sechs Kameras konsistent |
+| Schlagschatten | bestanden | dieselbe Sandfläche besonnt 182,2 gegen verschattet 140,3, an den Kernen Δ 74 — vorher Δ 8,6 |
+| Kontaktverdunklung | **teilweise** | unter dem flach liegenden Trittstein Δ 78–88 über 18 px; an **stehenden** Objekten gar nicht: Torii-Pfoster endet bei L 48,4, zwei Pixel weiter steht der volle Sonnensand mit 180,7 |
+| Warme Lichtspitzen | **nicht bestanden** | Anteil über L 230 in `a-eyelevel`, `b-pond`, `d-aerial` jeweils **0,00 %**; hellster Pixel unter dem Horizont 226,2. Die Sonnenscheibe selbst ist zu 20,7 % reines (255,255,255) — ausgefressen und nicht warm |
+| Streulicht durch das Laub | **nicht bestanden** | Kronenschatten Δ 18 L (Ahorn) gegen Stamm- und Halmschatten Δ 68–77 L. Die Krone wirft **schwächer** als der Stamm — die Beleuchtung ist dort invertiert |
+
+Dazu: **Die Lichtseiten sind gesunken.** Anteil über L 200 fiel von 31,2 % auf
+1,7 % (`a-eyelevel`), 69,5 % auf 16,7 % (`d-aerial`). Das Paket hat die Szene
+abgedunkelt, statt ihr eine Lichtkante zu geben. Die Schattenseiten der
+Findlinge saufen ab (Anteil unter L 30 von 1,6 % auf 21,4 %). Der Himmel bleibt
+eine Rampe (RMS-Rest 0,89 → 1,63, in `f-grove` bleiben die Zirren unter 4,2 L
+und damit unter der Sichtbarkeitsschwelle). Und am Bambusfuß steht
+Peter-Panning: ein 2–4 px heller Spalt zwischen Halm und Schattenansatz.
+
+Ausdrücklich **nicht** gefunden: Schattenakne, Naht oder Kachel im Himmel,
+ausgefressene Lichter außerhalb der Sonnenscheibe.
+
+Gelungen und zu erhalten: Die **Tiefenstaffelung** ist vervierfacht — reine
+Sandbänder in der Totale von nah nach fern 172,4 → 181,0 → 192,9 → 203,4 →
+218,5, also 46,1 L über die Strecke gegen 11,0 L vorher, bei gleichzeitig
+fallendem Kontrast. Vordergrund, Mitte und Ferne sind erstmals messbar
+getrennt.
+
+Zwei der drei Sand-Altbefunde sind durch das Licht mitgelöst worden
+(Vordergrund-Tonwert, Korn); das Sägezahnprofil war noch offen und ist in
+Durchlauf 4 nachgeholt worden.
+
+**Offene Punkte für den zweiten Anlauf an Paket 3:** Lichtspitzen, Sonnenscheibe
+warm statt weiß, Kontaktansatz an stehenden Objekten, Streulicht durch das Laub,
+Peter-Panning am Bambusfuß, Himmel, Absaufen der Steinschattenseiten.
