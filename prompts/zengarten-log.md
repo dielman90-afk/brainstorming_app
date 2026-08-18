@@ -6,12 +6,20 @@ Fortgeschrieben in **jedem** Durchlauf. Neueste Einträge oben.
 
 | Größe | Grenze | Ausgang (zen-00) | jetzt |
 | --- | ---: | ---: | ---: |
-| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **54 ✅** |
-| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 28 074 ✅ |
-| Texturspeicher | ≤ 60 MB | 29,77 MB | 20,77 MB ✅ |
-| Shader-Programme | – | 20 | 19 |
+| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **84 ✅** |
+| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 44 294 ✅ |
+| Texturspeicher | ≤ 60 MB | 29,77 MB | 21,18 MB ✅ |
+| Shader-Programme | – | 20 | 24 |
 
-Pakete: **1 und 2 bestanden.** 3–9 offen.
+Pakete: **1 bestanden.** Paket 2 (Sand) **nicht bestanden**, ein Anlauf
+verbraucht, offene Punkte unten. Paket 3 gebaut, Prüfung läuft. 4–9 offen.
+
+**Korrektur zu meinem eigenen Urteil.** Ich habe Paket 2 nach Durchlauf 2
+selbst als bestanden protokolliert und committet, **bevor** der Prüfer sein
+Urteil geliefert hat. Das war falsch herum: Der Prüfer ist die Instanz, nicht
+ich. Sein Urteil lautet „nicht bestanden", und es ist mit Zahlen belegt, denen
+ich nicht widersprechen kann. Der Eintrag zu Durchlauf 2 unten ist
+entsprechend berichtigt.
 
 ---
 
@@ -131,7 +139,7 @@ Vergleichsbilder vorher.
 
 ---
 
-## Durchlauf 2 — Paket 2: Sand — **bestanden**
+## Durchlauf 2 — Paket 2: Sand — **nicht bestanden** (Urteil des Prüfers)
 
 **Messwerte:** Draw-Calls 53 → 54 (der Saum), Dreiecke 19 570 → 28 074
 (das Kiesbett ist jetzt ein Ringnetz statt 72 Dreiecke), Texturspeicher
@@ -197,6 +205,40 @@ kein Moiré, obwohl die Rillen bis 17 m laufen.
    genau auf die Horizontlinie. Der Nebel ist warm; der Saum muss ihm
    entgegenlaufen, nicht quer dazu.
 
+### Das Urteil des Prüfers: nicht bestanden
+
+Zwei der sechs Teilaufgaben sitzen, vier nicht:
+
+| Teilaufgabe | Urteil | Beleg |
+| --- | --- | --- |
+| Harkmuster | bestanden | Kantenstärke im Vordergrund 0,107 → 0,394 L, das Karogitter ist weg |
+| Ausbleichen zum Rand | knapp bestanden | Sättigung nah→fern 22,4 % → 17,5 %, Richtung stimmt, Betrag zaghaft |
+| Relief in den Rillen | **nicht bestanden** | Profilasymmetrie 0,84 (Sägezahn wäre 2–4), Talwert 194 = Grundton; kein Pixel im Vordergrundstreifen unter L 183 |
+| Korn | **nicht bestanden** | Hochpassbetrag 0,41 L, unter der Sichtbarkeitsschwelle |
+| Übergang zum Moos | **nicht bestanden** | Bereich (460,478)–(620,518) in `a-eyelevel` **pixelidentisch** zu vorher |
+| Rand des Kiesbetts | **nicht bestanden** | `d-aerial` Spalte 500, y 84–100: konstant 218,9 — kein Abschluss, nur Ausblendung |
+
+Dazu sechs neue Programmierer-Tells, der schwerste: **Moiré**. In `f-grove`
+liegt die Rillenperiode bei x=350 zwischen 2,7 und 3,7 px — Nyquist ist 2 px.
+Der Ausblendeterm greift also zu spät. Gleichzeitig meldet der Prüfer, dass
+die **Fernzone toter** ist als vorher (strukturloser Anteil 31,2 % → 59,8 %):
+Der Preis für die Aliasing-Vermeidung wurde zu weit vorne bezahlt. Beides
+zusammen heißt, dass die Ausblendung nicht auf „nichts" laufen darf, sondern
+auf eine gröbere Struktur, die weiter trägt.
+
+Weiter belegt: der Rillenabstand ist mit 7,0 % Streuung zu regelmäßig
+(Handharke streut 15–30 % sprunghaft), der Musterabbruch bei 11–17 m steht als
+gerade Linie quer im Bild (`e-sand` y ≈ 367–372), und die Modellierung nimmt
+**zur Kamera hin ab** statt zu (Kantenstärke 1,79 bei y=480 gegen 0,37 bei
+y=700).
+
+Und ein echter Fehler, den er gefunden hat und ich nicht: In `c-torii` bei
+(600,612) lagen „vier konzentrische Ellipsen konstanter Breite" auf dem Sand,
+durch die die Harkstreifen ungestört hindurchlaufen. Das waren die
+**Wasserringe des Teichs**, die im Ursprung standen statt im Wasser —
+`update()` setzt ihre Lage nur im ersten Fünfzigstel ihrer Periode, davor
+liegen sie bei (0 | 0). Behoben in Durchlauf 3.
+
 ### Was offen bleibt
 
 * **Die Modellierung des Sandes ist durch das Licht gedeckelt.** Im
@@ -236,3 +278,68 @@ bestanden, 16 belegte Mängel. Die schwersten, mit Paketzuordnung:
 | 14 | Koi ohne Körperbogen, ohne Schatten, ohne Bugwelle | beide waagerecht, gleiche Richtung | 8 |
 | 15 | Der Garten ist eine schwebende Platte | Sandkreis endet als scharfer Bogen gegen den Himmel | **2 ✔** |
 | 16 | Der Himmel ist eine lineare Rampe | 19 Proben streng monoton, gleiche Schrittweite | 3 |
+
+---
+
+## Durchlauf 3 — Paket 3: Licht & Atmosphäre
+
+**Messwerte:** Draw-Calls 54 → **84** (der Schattendurchgang; Budget 120),
+Dreiecke 28 074 → 44 294, Texturspeicher 20,77 → 21,18 MB, Shader-Programme
+19 → 24, Konsole sauber, Build grün. Regression: `env-night`, `env-matrix`
+bitgleich, `env-dojo` Δmax 6 auf 0,009 % der Pixel, `env-island` im bekannten
+Eigenrauschen.
+
+### Die Wurzel: eine Leuchte in main.js, die niemandem gehörte
+
+`scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4))` gilt für
+**alles** — Passthrough, Desktop-Ansicht und jede der fünf Welten. Zusammen mit
+der eigenen Hemisphäre des Gartens (1,05) und einem Gegenlicht (0,45) standen
+damit fast das Dreifache dessen im Bild, was die Sonne bei 34° auf eine
+waagerechte Fläche legte. Eine Hemisphärenleuchte hängt fast nur von
+`normal.y` ab; dieser Anteil reagiert also auf **keine** Oberflächenform. Das
+ist der Grund, warum der Sand über die ganze Fläche 17 Luminanzstufen hatte und
+warum am Fuß eines Trittsteins 0,1 Stufen Unterschied zum freien Sand gemessen
+wurden.
+
+three kennt keine Beleuchtung je Objekt — Layer filtern nur kameraweit —, also
+ist die Stärke der einzige Hebel. Sie liegt jetzt bei der Umgebung
+(`env.sceneAmbient`): Wer nichts angibt, bekommt weiterhin 1,4, die vier
+anderen Welten und beide Nicht-Welt-Zustände ändern sich um kein Pixel. Der
+Zen-Garten setzt 0,35 und bringt seinen Himmelsanteil selbst mit.
+
+### Was sich sichtbar geändert hat
+
+* **Sonnenstand 34° → 19,4°.** Später Nachmittag statt später Vormittag.
+  Streiflicht über den Kies, Schatten fast dreimal so lang wie das Objekt hoch
+  ist. Der Sonnenstand steht jetzt an **einer** Stelle im Code und wird von
+  Licht, Schattenkamera, Sonnenscheibe, Himmelsbeschreibung und der
+  Moospatina der Steine gelesen.
+* **Schlagschatten**, 2048er Karte über 24 m. Gemessen auf derselben
+  Sandfläche: besonnt L=182, verschattet L=107 — vorher war der Unterschied
+  0,1.
+* **Kühler Himmel, warme Sonne.** Vorher war beides warm und der Schatten nur
+  ein dunklerer Sand. Jetzt trennen sich besonnt und verschattet im **Farbton**,
+  nicht nur in der Helligkeit.
+* **Die Sonne ist eine Lichtquelle.** Kleiner heller Kern plus weiter Hof, beide
+  `toneMapped: false` — ohne das läuft die Scheibe durch dieselbe ACES-Kurve
+  wie alles andere und landet im flachen Ast; gemessen war der Sonnenkern mit
+  L=210,5 **dunkler** als der Sand davor mit L=214,8.
+* **Schleierwolken am Himmel**, gerechnet in der Kuppel, null Draw-Calls. Der
+  Himmel war eine lineare Rampe über 45 % der Bildfläche.
+* **Streulicht durch das Laub.** Die Hüllkörper der Kronen stehen nicht mehr in
+  der Schattenkarte, nur noch die Blattkarten mit Alpha-Test. Unter der Sakura
+  liegt damit gesprenkeltes Licht statt eines geschlossenen dunklen Flecks.
+* **Lichtspitzen auf Stein.** Die Rauheit des Zen-Granits skaliert jetzt auf
+  0,76; dazu ein schmaler Himmelssaum an der Silhouettenkante — kleiner Betrag,
+  hoher Exponent, damit daraus keine Flächenhelligkeit wird.
+* **Kontaktverdunklung** statt Schattenersatz: Die gefälschten Flecken unter den
+  Objekten sind auf 45–60 % ihres Radius zurückgenommen, weil die Sonne den
+  Schatten jetzt selbst wirft.
+
+### Ein eigener Fehler in diesem Durchlauf
+
+Der Normal-Bias der Schattenkarte stand auf 0,03. Er verschiebt den
+Abtastpunkt entlang der Normalen, und auf dem Kies zeigt die nach oben — ein
+Trittstein ist 6 cm dick und steht 3 cm über dem Sand, also wurde über ihn
+hinweg abgetastet und er warf nichts. Im Bild sah das aus wie ein vergessener
+Schattenwerfer, war aber ein Zahlenwert. Auf 0,008 gesenkt.
