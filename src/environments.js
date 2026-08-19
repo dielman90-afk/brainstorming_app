@@ -4628,114 +4628,196 @@ function makeZenStone(rand, size, color = 0x8b8680) {
   return stone;
 }
 
-// Steinlaterne (Ishidōrō): gestapelte Steinelemente mit warmem Glimmen
+// Steinlaterne (Ishidōrō).
+//
+// **Der Prüfer hat sie als „Kugel + Kegel + Zylinder + Zylinder + Kegelstumpf,
+// alle sauber getrennt lesbar" beschrieben** — ein Grundkörperstapel. Was einer
+// Yukimi-Laterne ihre Silhouette gibt, sind zwei Dinge, die dort fehlten:
+//
+//   * **Ein weit auskragendes Dach mit hochgezogenen Ecken.** Der Schirm ist
+//     breiter als alles darunter und schwingt an den sechs Ecken nach oben.
+//     Das ist die Form, die man aus zwanzig Metern erkennt.
+//   * **Ein Lichtkasten mit Öffnungen.** Sechs Eckpfosten statt einer
+//     geschlossenen Trommel; dazwischen sieht man das Licht.
 function makeLantern() {
   const group = new THREE.Group();
   const stoneMat = zenGranite();
-  // Ein Stein, der jahrzehntelang im Garten steht: Auf jedem Absatz sammelt
-  // sich Wasser, und dort sitzt der Schmutzring, der aus gestapelten Zylindern
-  // ein Stück macht. `mossPatina()` kennt diesen `ledge`-Fall.
   const steinTeil = (geo, y, seed) => {
     boxProjectUV(geo, 0.16);
     paintVertices(geo, 0xa8a199);
-    mossPatina(geo, {
-      y0: y,
-      floor: 0,
-      height: 0.22,
-      scale: 0.1,
-      strength: 0.7,
-      seed,
-      sun: ZEN_SUN,
-    });
+    mossPatina(geo, { y0: y, floor: 0, height: 0.22, scale: 0.1, strength: 0.7, seed, sun: ZEN_SUN });
     return geo;
   };
-  // Die fünf Steinteile stehen fest aufeinander – ein Mesh. Der Lichtkasten
-  // bleibt eigenständig, er hat ein leuchtendes Material.
   const steine = [];
-  const base = new THREE.Mesh(
-    steinTeil(new THREE.CylinderGeometry(0.18, 0.22, 0.12, 8), 0.06, 11),
-    stoneMat
-  );
-  base.position.y = 0.06;
-  steine.push(base);
-  const post = new THREE.Mesh(
-    steinTeil(new THREE.CylinderGeometry(0.06, 0.07, 0.42, 8), 0.33, 12),
-    stoneMat
-  );
-  post.position.y = 0.33;
-  steine.push(post);
-  const platform = new THREE.Mesh(
-    steinTeil(new THREE.CylinderGeometry(0.16, 0.14, 0.06, 8), 0.57, 13),
-    stoneMat
-  );
-  platform.position.y = 0.57;
-  steine.push(platform);
-  // Lichtkasten mit warmem Glimmen
+
+  // Fußplatte, im Kies versenkt
+  steine.push(steinTeil(new THREE.CylinderGeometry(0.24, 0.28, 0.1, 6), 0.02, 10).translate(0, 0.02, 0));
+  // Schaft
+  steine.push(steinTeil(new THREE.CylinderGeometry(0.062, 0.078, 0.44, 8), 0.29, 12).translate(0, 0.29, 0));
+  // Zwischenplatte, auf der der Lichtkasten sitzt
+  steine.push(steinTeil(new THREE.CylinderGeometry(0.17, 0.13, 0.055, 6), 0.54, 13).translate(0, 0.54, 0));
+  // Sechs Eckpfosten des Lichtkastens — dazwischen fällt das Licht heraus.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+    const pf = new THREE.BoxGeometry(0.045, 0.2, 0.045);
+    pf.rotateY(-a);
+    pf.translate(Math.cos(a) * 0.115, 0.67, Math.sin(a) * 0.115);
+    steine.push(steinTeil(pf, 0.67, 14 + i));
+  }
+  // Deckplatte des Kastens
+  steine.push(steinTeil(new THREE.CylinderGeometry(0.15, 0.145, 0.03, 6), 0.785, 20).translate(0, 0.785, 0));
+
+  // Das Dach: sechseckiger Schirm mit hochgezogenen Ecken. Gebaut aus einem
+  // Kegel, dessen Randpunkte an den Ecken angehoben werden.
+  {
+    const dach = new THREE.ConeGeometry(0.3, 0.17, 6, 3, true);
+    const pos = dach.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      const x = pos.getX(v);
+      const z = pos.getZ(v);
+      const r = Math.hypot(x, z);
+      if (r < 0.02) continue;
+      const a = Math.atan2(z, x);
+      // Sechs Ecken: dort, wo cos(6a) maximal ist, hebt sich der Rand.
+      const ecke = Math.max(0, Math.cos(6 * a + Math.PI));
+      const t = r / 0.3;
+      pos.setY(v, pos.getY(v) + Math.pow(t, 2.2) * ecke * 0.085);
+      pos.setX(v, x * (1 + Math.pow(t, 2) * ecke * 0.1));
+      pos.setZ(v, z * (1 + Math.pow(t, 2) * ecke * 0.1));
+    }
+    pos.needsUpdate = true;
+    dach.computeVertexNormals();
+    steine.push(steinTeil(dach, 0.87, 21).translate(0, 0.87, 0));
+  }
+  // Knauf
+  steine.push(steinTeil(new THREE.SphereGeometry(0.05, 10, 7), 0.99, 22).translate(0, 0.99, 0));
+
+  const stein = new THREE.Mesh(mergeGeometries(steine.map((g) => (g.index ? g.toNonIndexed() : g))), stoneMat);
+  stein.name = 'zen-laterne-stein';
+  group.add(stein);
+
+  // Der Lichtkörper zwischen den Pfosten. Unbeleuchtetes Material ohne
+  // Tonemapping: Ein Lichtkasten am späten Nachmittag darf heller sein als der
+  // Kies daneben.
   const box = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.13, 0.13, 0.18, 6),
-    // Die einzige eigene Lichtquelle im Garten. `toneMapped: false` hält sie
-    // aus der ACES-Kurve heraus — sonst ist ein Lichtkasten am späten
-    // Nachmittag genauso hell wie der Kies daneben.
+    new THREE.CylinderGeometry(0.108, 0.108, 0.19, 6),
     new THREE.MeshBasicMaterial({ color: 0xffd79a, toneMapped: false })
   );
-  box.position.y = 0.69;
+  box.position.y = 0.67;
   group.add(box);
-  const roof = new THREE.Mesh(
-    steinTeil(new THREE.ConeGeometry(0.22, 0.16, 6), 0.86, 14),
-    stoneMat
-  );
-  roof.position.y = 0.86;
-  steine.push(roof);
-  const finial = new THREE.Mesh(
-    steinTeil(new THREE.SphereGeometry(0.045, 8, 6), 0.96, 15),
-    stoneMat
-  );
-  finial.position.y = 0.96;
-  steine.push(finial);
-  group.add(...verschmelzeObjekte(steine, 'zen-laterne-stein'));
+
   const glow = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(255,200,120,0.9)', 'rgba(255,150,60,0.35)'),
+      map: makeGlowTexture('rgba(255,205,130,0.85)', 'rgba(255,152,62,0.3)'),
       transparent: true,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
       fog: false,
     })
   );
-  glow.position.y = 0.69;
-  glow.scale.set(1.2, 1.2, 1);
+  glow.position.y = 0.68;
+  glow.scale.set(1.1, 1.1, 1);
   group.add(glow);
   return group;
 }
 
-// Torii-Tor als ruhiger Landmark am Rand
+// Torii-Tor als ruhiger Landmark am Rand.
+//
+// **Der Prüfer hat es als eine einzige Farbe gemessen:** Deckbalken, beide
+// Pfosten und der Riegel lagen bei (191,57,33) mit einer maximalen Abweichung
+// von 1 von 255 — vier verschieden orientierte Flächen ohne jeden Unterschied.
+// Dazu „ein gerader Quader ohne Aufwärtsschwung und ohne Verjüngung".
+//
+// Ein Myōjin-Torii hat fünf Dinge, die es von einem H aus Balken unterscheiden:
+//
+//   * **Kasagi mit Schwung.** Der Deckbalken ist nach oben gebogen und läuft
+//     zu den Enden hin schmaler zu. Das ist die Linie, an der man ein Torii
+//     von weitem erkennt.
+//   * **Shimaki.** Direkt darunter ein zweiter, flacherer Balken.
+//   * **Nuki, der durchstößt.** Der Riegel geht durch die Pfosten hindurch und
+//     steht auf beiden Seiten vor.
+//   * **Geneigte Pfosten.** Sie stehen nicht senkrecht, sondern oben leicht
+//     nach innen — das gibt dem Tor seinen Stand.
+//   * **Kusabi.** Keile, die den Nuki im Pfosten festsetzen.
+//
+// Die Farbunterschiede zwischen den Teilen stecken in den Scheitelfarben: Der
+// Deckbalken steht im Regen und ist ausgeblichen, die Unterseiten sind
+// nachgedunkelt, die Pfostenfüße sind vom Spritzwasser dunkel.
 function makeTorii() {
   const group = new THREE.Group();
-  // Zinnoberrot bleibt – ein Torii ist rot –, aber jetzt auf gealtertem Holz:
-  // Die Maserung läuft bei `weatheredWoodMaterial` in **V**, also längs eines
-  // Zylinders, und genau so stehen die Pfosten. Die Farbe multipliziert die
-  // Karte, der Rotton bleibt also erhalten und bekommt Struktur dazu.
-  const mat = weatheredWoodMaterial({ tone: 0xd4553a, vertexColors: false });
+  const mat = weatheredWoodMaterial({ tone: 0xd4553a, vertexColors: true });
   const h = 3.2;
   const span = 2.4;
-  // Fünf Teile, ein Material, nichts davon bewegt sich gegeneinander: Das Tor
-  // ist ein Stück Holzwerk und wird auch als eines gezeichnet.
   const teile = [];
+
+  // Ein Balken mit Schwung: eine Box, deren Scheitelpunkte nach oben gebogen
+  // und zu den Enden verjüngt werden.
+  const balken = (laenge, hoehe, tiefe, schwung, verjuengung) => {
+    const geo = new THREE.BoxGeometry(laenge, hoehe, tiefe, 24, 1, 1);
+    const pos = geo.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      const x = pos.getX(v);
+      const t = Math.abs(x) / (laenge / 2);
+      pos.setY(v, pos.getY(v) + t * t * schwung);
+      // Verjüngung nur nach unten, die Oberkante bleibt die Schwunglinie.
+      if (pos.getY(v) < 0) pos.setY(v, pos.getY(v) * (1 - t * verjuengung));
+      pos.setZ(v, pos.getZ(v) * (1 - t * verjuengung * 0.7));
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    return geo;
+  };
+
   for (const sx of [-1, 1]) {
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, h, 12), mat);
-    pillar.position.set(sx * span * 0.5, h / 2, 0);
+    // Pfosten mit Verjüngung nach oben und leichter Neigung nach innen.
+    const pillar = new THREE.CylinderGeometry(0.145, 0.195, h, 14);
+    scaleUV(pillar, 3);
+    pillar.rotateZ(-sx * 0.028);
+    pillar.translate(sx * span * 0.5, h / 2, 0);
     teile.push(pillar);
   }
-  const topBeam = new THREE.Mesh(new THREE.BoxGeometry(span + 1.1, 0.3, 0.42), mat);
-  topBeam.position.y = h - 0.05;
-  topBeam.rotation.z = 0.02;
-  teile.push(topBeam);
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(span + 0.2, 0.22, 0.34), mat);
-  lintel.position.y = h - 0.6;
-  teile.push(lintel);
-  const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.5, 0.3), mat);
-  ridge.position.y = h - 0.32;
-  teile.push(ridge);
-  group.add(...verschmelzeObjekte(teile, 'zen-torii'));
+  // Kasagi: der geschwungene Deckbalken
+  teile.push(balken(span + 1.35, 0.26, 0.44, 0.3, 0.42).translate(0, h + 0.09, 0));
+  // Shimaki: der flachere Balken darunter
+  teile.push(balken(span + 1.15, 0.17, 0.36, 0.24, 0.34).translate(0, h - 0.11, 0));
+  // Nuki: der Riegel stößt durch die Pfosten hindurch
+  teile.push(new THREE.BoxGeometry(span + 0.62, 0.2, 0.3).translate(0, h - 0.78, 0));
+  // Gakuzuka: die Strebe zwischen Nuki und Shimaki
+  teile.push(new THREE.BoxGeometry(0.19, 0.62, 0.24).translate(0, h - 0.42, 0));
+  // Kusabi: die Keile, die den Nuki im Pfosten halten
+  for (const sx of [-1, 1]) {
+    teile.push(new THREE.BoxGeometry(0.075, 0.3, 0.34).translate(sx * (span * 0.5 + 0.2), h - 0.78, 0));
+  }
+
+  const geo = mergeGeometries(teile.map((g) => (g.index ? g.toNonIndexed() : g)));
+  // Scheitelfarben: oben ausgeblichen, Unterseiten nachgedunkelt, Pfostenfüße
+  // vom Spritzwasser dunkel. Ohne das sind vier verschieden ausgerichtete
+  // Flächen im Bild nicht zu unterscheiden.
+  {
+    const pos = geo.attributes.position;
+    const nor = geo.attributes.normal;
+    const farben = new Float32Array(pos.count * 3);
+    for (let v = 0; v < pos.count; v++) {
+      const y = pos.getY(v);
+      const ny = nor.getY(v);
+      // Wetterseite: nach oben zeigende Flächen bleichen aus
+      let f = 1 + Math.max(0, ny) * 0.16;
+      // Unterseiten liegen im Eigenschatten der Konstruktion
+      f *= 1 - Math.max(0, -ny) * 0.22;
+      // Der Fuß ist dunkel, oben ist das Holz heller
+      f *= 0.84 + Math.min(1, y / h) * 0.22;
+      // Feine Streuung, damit keine Fläche gleichförmig ist
+      f *= 0.94 + hashNoise(pos.getX(v) * 3.3, y * 3.3, pos.getZ(v) * 3.3) * 0.12;
+      farben[v * 3] = f;
+      farben[v * 3 + 1] = f * (0.97 + Math.max(0, ny) * 0.05);
+      farben[v * 3 + 2] = f * (0.94 + Math.max(0, ny) * 0.09);
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'zen-torii';
+  group.add(mesh);
   return group;
 }
 
@@ -5501,7 +5583,13 @@ function createZenEnvironment() {
   for (const sg of stoneGroups) {
     for (let i = 0; i < sg.n; i++) {
       const size = 0.28 + rand() * 0.45;
-      const s = makeZenStone(rand, size, i === 0 ? 0x807a72 : 0x938c83);
+      // **Sieben Steine, ein Farbton.** Gemessen war G/R bei 0,82–0,85 und
+      // B/R bei 0,57–0,60 über alle Findlinge — nur die Helligkeit schwankte.
+      // Findlinge in einem Garten sind ausgesucht und stammen aus
+      // verschiedenen Brüchen: einer warm, einer bläulich, einer moosgrün
+      // angelaufen.
+      const toene = [0x8a8076, 0x7d7d7c, 0x928472, 0x82857a, 0x8e8378];
+      const s = makeZenStone(rand, size, toene[Math.floor(rand() * toene.length) % toene.length]);
       const px = sg.x + (rand() - 0.5) * 0.9;
       const pz = sg.z + (rand() - 0.5) * 0.9;
       s.position.set(px, 0.12 + rand() * 0.1, pz);
@@ -5517,11 +5605,35 @@ function createZenEnvironment() {
 
   // Trittstein-Pfad. Ein Material für alle sechs, Unterschiede über die
   // Scheitelfarben; Moos sammelt sich am Rand, wo der Fuß nicht hintritt.
+  // **Fünf identische Scheiben auf einer Geraden.** So hat der Prüfer den
+  // Pfad gemessen: Breiten 21/22/23/21/23 px, Höhen 13/14/14/13/14, gleicher
+  // Weltabstand, keiner gedreht, keiner eingesunken. Ein Trittstein ist ein
+  // gespaltener Findling: kantiger Umriss, jeder anders groß, jeder in einer
+  // anderen Lage, und er sitzt **im** Kies, nicht darauf.
   const trittsteine = [];
-  for (let i = 0; i < 6; i++) {
-    const geo = new THREE.CylinderGeometry(0.26, 0.26, 0.06, 12);
+  for (let i = 0; i < 7; i++) {
+    const groesse = 0.21 + rand() * 0.13;
+    // Umriss: ein Vieleck mit ungleichen Radien, nicht ein Kreis. Wenige
+    // Segmente, damit die Kante gebrochen liest statt rund.
+    const ecken = 7 + Math.floor(rand() * 3);
+    const geo = new THREE.CylinderGeometry(groesse, groesse * 0.94, 0.075, ecken);
+    {
+      const pos = geo.attributes.position;
+      const umriss = welligerUmriss(820 + i * 31, 0.26, 4);
+      for (let v = 0; v < pos.count; v++) {
+        const px = pos.getX(v);
+        const pz = pos.getZ(v);
+        const r = Math.hypot(px, pz);
+        if (r < 1e-5) continue;
+        const f = umriss(Math.atan2(pz, px));
+        pos.setX(v, px * f);
+        pos.setZ(v, pz * f);
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+    }
     boxProjectUV(geo, 0.22);
-    paintVertices(geo, 0x8e8880);
+    paintVertices(geo, [0x8e8880, 0x847d73, 0x99928a, 0x8a8378][i % 4]);
     mossPatina(geo, {
       y0: 0.01,
       floor: 0,
@@ -5535,8 +5647,22 @@ function createZenEnvironment() {
       sun: ZEN_SUN,
     });
     const step = new THREE.Mesh(geo, zenGranite());
-    step.position.set(-1.5 + i * 0.85, 0.01, 3.2 - i * 0.5 + Math.sin(i) * 0.2);
-    step.scale.set(1 + rand() * 0.2, 1, 0.85);
+    // Der Pfad krümmt sich, und die Schrittweite schwankt — ein gelegter Weg
+    // folgt dem Schritt, nicht dem Lineal.
+    const t = i / 6;
+    const bogen = Math.sin(t * 1.9) * 1.1;
+    step.position.set(
+      -1.7 + t * 4.6 + (rand() - 0.5) * 0.22,
+      // **Eingesunken.** Der Kies liegt bei −0,02; ein Stein, der 3 cm hoch
+      // aus 7,5 cm Dicke herausschaut, sitzt im Bett statt darauf.
+      -0.014 + rand() * 0.012,
+      3.35 - t * 2.9 - bogen * 0.45 + (rand() - 0.5) * 0.24
+    );
+    step.rotation.y = rand() * Math.PI * 2;
+    // Leichte Schieflage: kein gelegter Stein liegt exakt waagerecht.
+    step.rotation.x = (rand() - 0.5) * 0.09;
+    step.rotation.z = (rand() - 0.5) * 0.09;
+    step.scale.set(1 + rand() * 0.24, 1, 0.8 + rand() * 0.25);
     trittsteine.push(step);
   }
   group.add(...verschmelzeObjekte(trittsteine, 'zen-trittsteine'));
@@ -5693,9 +5819,18 @@ function createZenEnvironment() {
   group.add(pond);
   // Steinrand um den Teich
   const uferSteine = [];
+  // **Perlenkette bei konstantem Winkelschritt** — so hat der Prüfer den
+  // Teichrand gemessen. Ein gesetzter Uferrand hat Lücken, Häufungen und
+  // Steine verschiedener Größe. Der Winkel wird deshalb je Stein gestört, und
+  // zwei von sechzehn Plätzen bleiben leer.
   for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    const s = makeZenStone(rand, 0.12 + rand() * 0.08, 0x8f8880);
+    if (i === 4 || i === 11) {
+      rand();
+      rand();
+      continue;
+    }
+    const a = ((i + (rand() - 0.5) * 0.75) / 16) * Math.PI * 2;
+    const s = makeZenStone(rand, 0.1 + rand() * 0.13, 0x8f8880);
     // **An die Wasserlinie gerückt und abgesenkt.** Vorher standen die Steine
     // auf dem Kiesniveau am äußeren Rand — eine Perlenkette neben einer
     // Scheibe. Jetzt sitzen sie im Uferwulst, ihr Fuß liegt unter Wasser.

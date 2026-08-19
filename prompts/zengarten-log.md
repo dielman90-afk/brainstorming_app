@@ -736,3 +736,57 @@ ist dunkler und glatter als trockener, aber er bleibt Stein. Jetzt 0,34 und
   über der Fläche; bei 19° Sonnenstand liegt der Schatten damit 17 mm versetzt
   und damit unter dem Blatt. Der richtige Ort wäre der Beckengrund 40 cm
   darunter — dort ist das Wasser aber schon deckend.
+
+---
+
+## Durchlauf 9 — Paket 6: Steinwerk
+
+**Messwerte:** Draw-Calls 90 unverändert, Dreiecke 68 034 → 68 158,
+Texturspeicher 21,52 MB unverändert, Konsole sauber. Regression: `env-night`
+bitgleich, `env-dojo` Δmax 4 auf 0,008 %, `env-matrix` Δmax 1, `env-island` im
+Eigenrauschen.
+
+### Was sich sichtbar geändert hat
+
+* **Trittsteine.** Der Prüfer hatte gemessen: Breiten 21/22/23/21/23 px, Höhen
+  13/14/14/13/14, gleicher Weltabstand, keiner gedreht, keiner eingesunken —
+  fünf identische Scheiben auf einer Geraden. Jetzt sieben Steine mit
+  gebrochenem, vieleckigem Umriss, jeder anders groß, jeder gedreht und leicht
+  schräg gelegt, alle im Kies **versenkt** statt daraufgelegt, und der Pfad
+  krümmt sich mit schwankender Schrittweite.
+* **Findlinge.** G/R lag bei allen zwischen 0,82 und 0,85, B/R zwischen 0,57
+  und 0,60 — nur die Helligkeit schwankte. Jetzt fünf Grundtöne: warm, kühl,
+  bräunlich, olivgrau. Gemessen liegt der Hochpass eines Findlings jetzt bei
+  2,807 gegen 1,775 auf dem Sand daneben; vorher war der Stein **glatter** als
+  der Sand (1,988 gegen 2,845).
+* **Uferrand.** Statt einer Perlenkette bei konstantem Winkelschritt jetzt
+  gestörte Winkel, schwankende Größen und zwei bewusste Lücken.
+* **Torii.** Aus dem H aus Balken ist ein Myōjin-Torii geworden: Kasagi mit
+  Aufwärtsschwung und Verjüngung zu den Enden, Shimaki darunter, ein Nuki, der
+  durch die Pfosten stößt und vorsteht, Gakuzuka als Mittelstrebe, Kusabi als
+  Keile, und Pfosten, die sich verjüngen und oben nach innen neigen. Die vier
+  Flächen, die vorher um höchstens 1 von 255 auseinanderlagen, tragen jetzt
+  Scheitelfarben: oben ausgeblichen, Unterseiten nachgedunkelt, Füße vom
+  Spritzwasser dunkel.
+* **Laterne.** Aus dem Grundkörperstapel ist eine Yukimi-Laterne geworden: ein
+  weit auskragendes sechseckiges Dach mit hochgezogenen Ecken, und ein
+  Lichtkasten aus sechs Eckpfosten, zwischen denen das Licht heraussteht.
+
+---
+
+## Der Prüfer fällt aus
+
+Der Prüf-Subagent ist beim Urteil über die Durchläufe 6 bis 8 mit
+„monthly spend limit" abgebrochen, mitten in der Messung. Weitere Subagenten
+lassen sich damit nicht mehr starten.
+
+**Das ist eine echte Lücke, und ich schreibe sie hierher statt sie zu
+überspielen:** Die Pakete 3 (Licht, zweiter Anlauf), 5 (Bepflanzung), 4
+(Wasser, zweiter Anlauf) und 6 (Steinwerk) sind **nicht extern geprüft**. Was
+ich zu ihnen berichte, sind meine eigenen Messungen mit denselben Werkzeugen —
+und ich bin an meiner eigenen Arbeit nicht unbefangen. Die Zahlen stimmen; das
+Urteil „bestanden" spreche ich mir nicht selbst zu.
+
+Ab hier prüfe ich mit `tools/pixel.mjs`, `tools/region.mjs --hochpass`,
+`tools/crop.mjs` und `tools/diff.mjs` gegen die Befunde, die der Prüfer
+zuletzt schriftlich hinterlassen hat, und benenne jeden offenen Punkt.
