@@ -4556,118 +4556,166 @@ function makeBluetenblaetter(rand, quellen, anzahl = 320) {
 //
 // Die Mauer läuft nur über den hinteren Bogen. Rundherum wäre ein Kasten; so
 // bleibt die Öffnung nach vorn, aus der man in den Garten blickt.
-function makeGartenmauer(radius, vonGrad, bisGrad, { hoehe = 1.75, seed = 3131 } = {}) {
-  const SEG = 96;
+// `hoehe` 2,1 m und nicht 1,75: Bei Augenhöhe 1,6 m und 13,5 m Abstand liegt
+// die Oberkante einer 1,75-m-Mauer praktisch auf der Blickachse — man sieht
+// stellenweise über sie hinweg auf den Sand dahinter, und die Einfassung
+// verliert genau das, wofür sie da ist. 2,1 m schließen den Blick.
+//
+// **Gebaut als durchgehendes Band, nicht als Kranz aus Quadern.** Der erste
+// Anlauf setzte 96 einzelne Kisten entlang des Bogens. Auf der Innenseite
+// stoßen zwei benachbarte Kisten unter 2,8° aneinander und lassen an jeder
+// Fuge eine Kante stehen — im Bild lagen über die ganze Mauer senkrechte
+// Striche in exakt gleichem Abstand. Ein Profil, das am Bogen entlanggezogen
+// wird, hat diese Fugen nicht: Die Innenfläche ist eine Fläche.
+function makeGartenmauer(radius, vonGrad, bisGrad, { hoehe = 2.1, seed = 3131 } = {}) {
+  const SEG = 128;
   const von = (vonGrad * Math.PI) / 180;
   const bis = (bisGrad * Math.PI) / 180;
-  const wand = [];
-  const dach = [];
-  const rand = mulberry32(seed);
+  const welle = welligerUmriss(seed, 0.03, 4);
 
-  // Die Mauer schwankt leicht in Radius und Höhe — eine Lehmmauer ist von Hand
-  // aufgezogen und sackt über die Jahre.
-  const welle = welligerUmriss(seed, 0.035, 4);
-  const punkt = (t, r, y) => {
+  // Querschnitt der Mauer: radialer Versatz und Höhe. Von der Innenseite unten
+  // über den Sockelabsatz und die Wandfläche zum überstehenden Ziegeldach, über
+  // den First und außen wieder hinunter. `dach` markiert, welche Abschnitte zum
+  // Dach gehören — sie bekommen das andere Material.
+  const D = hoehe;
+  const profil = [
+    [-0.17, 0, 0],
+    [-0.17, 0.3, 0],
+    [-0.13, 0.33, 0],
+    [-0.13, D, 0],
+    [-0.28, D + 0.01, 1],
+    [-0.26, D + 0.13, 1],
+    [-0.05, D + 0.2, 1],
+    [0.05, D + 0.2, 1],
+    [0.26, D + 0.13, 1],
+    [0.28, D + 0.01, 1],
+    [0.13, D, 0],
+    [0.13, 0.33, 0],
+    [0.17, 0.3, 0],
+    [0.17, 0, 0],
+  ];
+
+  const pos = [];
+  const idx = [];
+  const dachFlag = [];
+  for (let i = 0; i <= SEG; i++) {
+    const t = i / SEG;
     const a = von + (bis - von) * t;
-    const rr = r * welle(a * 3);
-    return new THREE.Vector3(Math.cos(a) * rr, y, Math.sin(a) * rr);
-  };
-
-  for (let i = 0; i < SEG; i++) {
-    const t0 = i / SEG;
-    const t1 = (i + 1) / SEG;
-    const senk = 1 - Math.abs(t0 - 0.5) * 0.06; // Enden minimal niedriger
-    const h = hoehe * senk * (0.985 + rand() * 0.03);
-    // Wandkörper: ein Quader zwischen zwei Bogenpunkten
-    for (const [d, dy, farbe] of [
-      [0.17, 0, 'sockel'],
-      [0.13, 0, 'wand'],
-    ]) {
-      const unten = farbe === 'sockel' ? 0 : 0.28;
-      const oben = farbe === 'sockel' ? 0.3 : h;
-      const a0 = punkt(t0, radius, 0);
-      const a1 = punkt(t1, radius, 0);
-      const mitte = a0.clone().add(a1).multiplyScalar(0.5);
-      const laenge = a0.distanceTo(a1) * 1.06;
-      const winkel = Math.atan2(a1.z - a0.z, a1.x - a0.x);
-      const g = new THREE.BoxGeometry(laenge, oben - unten, d * 2);
-      g.rotateY(-winkel);
-      g.translate(mitte.x, unten + (oben - unten) / 2, mitte.z);
-      g.userData = { farbe };
-      wand.push(g);
+    const rr = radius * welle(a * 3);
+    const cx = Math.cos(a);
+    const cz = Math.sin(a);
+    // Die Enden sitzen minimal tiefer — eine Lehmmauer sackt zu den Enden hin.
+    const senk = 1 - Math.pow(Math.abs(t - 0.5) * 2, 3) * 0.03;
+    for (const [dr, y, istDach] of profil) {
+      pos.push(cx * (rr + dr), y * senk, cz * (rr + dr));
+      dachFlag.push(istDach);
     }
-    // Ziegeldach mit Überstand
-    {
-      const a0 = punkt(t0, radius, 0);
-      const a1 = punkt(t1, radius, 0);
-      const mitte = a0.clone().add(a1).multiplyScalar(0.5);
-      const laenge = a0.distanceTo(a1) * 1.06;
-      const winkel = Math.atan2(a1.z - a0.z, a1.x - a0.x);
-      const g = new THREE.BoxGeometry(laenge, 0.1, 0.52);
-      g.rotateY(-winkel);
-      g.translate(mitte.x, h + 0.05, mitte.z);
-      dach.push(g);
-      // Firstrundung: ein flacher Halbzylinder oben drauf
-      const f = new THREE.CylinderGeometry(0.07, 0.07, laenge, 6, 1, false, 0, Math.PI);
-      f.rotateZ(Math.PI / 2);
-      f.rotateY(-winkel);
-      f.translate(mitte.x, h + 0.1, mitte.z);
-      dach.push(f);
+  }
+  const P = profil.length;
+  // **Die Wicklung, nachgerechnet statt geraten.** Das Profil läuft an der
+  // Innenseite nach oben, der Bogen läuft mit wachsendem Winkel. Für das
+  // Dreieck (a, b, d) ist die eine Kante +ŷ und die andere die Tangente
+  // t̂ = (−sin α, 0, cos α); ŷ × t̂ = (cos α, 0, sin α), also **nach außen**.
+  // Genau so herum stand die Innenfläche der Mauer im Bild schwarz: Sie war
+  // von der Sonne abgewandt, weil ihre Normale in die falsche Richtung zeigte.
+  // Die umgekehrte Reihenfolge dreht sie nach innen.
+  for (let i = 0; i < SEG; i++) {
+    for (let j = 0; j < P - 1; j++) {
+      const a = i * P + j;
+      const b = a + 1;
+      const c = (i + 1) * P + j + 1;
+      const d = (i + 1) * P + j;
+      idx.push(a, d, b, b, d, c);
+    }
+  }
+  // Stirnflächen an beiden Enden, damit die Mauer nicht offen endet.
+  for (const [i, drehen] of [[0, false], [SEG, true]]) {
+    for (let j = 1; j < P - 2; j++) {
+      const a = i * P;
+      const b = i * P + j;
+      const c = i * P + j + 1;
+      idx.push(...(drehen ? [a, c, b] : [a, b, c]));
     }
   }
 
-  const bauTeil = (liste, unten, oben) => {
-    const geo = mergeGeometries(liste.map((g) => (g.index ? g.toNonIndexed() : g)));
-    const pos = geo.attributes.position;
-    const farben = new Float32Array(pos.count * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+
+  // Scheitelfarben. Wand und Dach unterscheiden sich im Grundton; darüber
+  // liegen Flecken und Regenstreifen, beide aus einem **stetigen** Rauschen
+  // über Winkel und Höhe — ein Hash je Scheitelpunkt hätte an den
+  // Segmentgrenzen wieder Sprünge.
+  {
+    const p2 = geo.attributes.position;
+    const farben = new Float32Array(p2.count * 3);
+    const wandUnten = new THREE.Color(0x6d6152);
+    const wandOben = new THREE.Color(0xd2c5a8);
+    const dachTon = new THREE.Color(0x545963);
     const c = new THREE.Color();
-    for (let v = 0; v < pos.count; v++) {
-      const y = pos.getY(v);
-      const t = THREE.MathUtils.clamp((y - 0) / hoehe, 0, 1);
-      c.copy(unten).lerp(oben, t);
-      // Verwitterung: Regenstreifen und Flecken
+    for (let v = 0; v < p2.count; v++) {
+      const y = p2.getY(v);
+      const winkel = Math.atan2(p2.getZ(v), p2.getX(v));
+      if (dachFlag[v % P]) {
+        c.copy(dachTon);
+      } else {
+        c.copy(wandUnten).lerp(wandOben, THREE.MathUtils.clamp(y / D, 0, 1));
+      }
+      const fleck = fbm2(winkel * 9.5 + 31, y * 1.4);
+      const streifen = fbm2(winkel * 34 - 7, y * 0.18);
       const f =
-        0.9 +
-        hashNoise(pos.getX(v) * 1.7, y * 0.6, pos.getZ(v) * 1.7) * 0.14 -
-        Math.max(0, 0.45 - t) * 0.22;
+        0.9 + fleck * 0.2 + streifen * 0.13 - Math.max(0, 0.45 - y / D) * 0.2;
       farben[v * 3] = c.r * f;
       farben[v * 3 + 1] = c.g * f;
       farben[v * 3 + 2] = c.b * f;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
-    return geo;
-  };
+  }
 
-  // **Abschlusspfeiler.** Ohne sie endet die Mauer als glatte Schnittfläche
-  // gegen den Himmel — im Bild eine Kante ohne Grund. Ein gemauerter Abschluss
-  // ist etwas dicker, etwas höher und trägt seine eigene Dachkappe.
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.9, metalness: 0 })
+  );
+  mesh.name = 'zen-mauer';
+  const gruppe = new THREE.Group();
+  gruppe.add(mesh);
+
+  // Abschlusspfeiler: Ohne sie endet die Mauer als glatte Schnittfläche gegen
+  // den Himmel — eine Kante ohne Grund.
+  const pfeiler = [];
   for (const t of [0, 1]) {
     const a = von + (bis - von) * t;
     const rr = radius * welle(a * 3);
     const px = Math.cos(a) * rr;
     const pz = Math.sin(a) * rr;
-    const pf = new THREE.BoxGeometry(0.42, hoehe + 0.16, 0.42);
+    const pf = new THREE.BoxGeometry(0.44, D + 0.2, 0.44);
     pf.rotateY(-a);
-    pf.translate(px, (hoehe + 0.16) / 2, pz);
-    wand.push(pf);
-    const kappe = new THREE.BoxGeometry(0.58, 0.11, 0.58);
+    pf.translate(px, (D + 0.2) / 2, pz);
+    pfeiler.push(pf);
+    const kappe = new THREE.BoxGeometry(0.62, 0.12, 0.62);
     kappe.rotateY(-a);
-    kappe.translate(px, hoehe + 0.22, pz);
-    dach.push(kappe);
+    kappe.translate(px, D + 0.26, pz);
+    pfeiler.push(kappe);
   }
-
-  const gruppe = new THREE.Group();
-  const wandMesh = new THREE.Mesh(
-    bauTeil(wand, new THREE.Color(0x6d6152), new THREE.Color(0xcfc2a6)),
-    new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.94, metalness: 0 })
-  );
-  wandMesh.name = 'zen-mauer';
-  const dachMesh = new THREE.Mesh(
-    bauTeil(dach, new THREE.Color(0x4a4e55), new THREE.Color(0x5d626b)),
-    new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.6, metalness: 0 })
-  );
-  dachMesh.name = 'zen-mauer-dach';
-  gruppe.add(wandMesh, dachMesh);
+  const pfGeo = mergeGeometries(pfeiler.map((g) => g.toNonIndexed()));
+  {
+    const p3 = pfGeo.attributes.position;
+    const farben = new Float32Array(p3.count * 3);
+    const c = new THREE.Color();
+    for (let v = 0; v < p3.count; v++) {
+      const y = p3.getY(v);
+      c.copy(new THREE.Color(0x6d6152)).lerp(new THREE.Color(0xcabd9f), THREE.MathUtils.clamp(y / D, 0, 1));
+      const f = 0.9 + fbm2(p3.getX(v) * 2.1, y * 1.6) * 0.22;
+      farben[v * 3] = c.r * f;
+      farben[v * 3 + 1] = c.g * f;
+      farben[v * 3 + 2] = c.b * f;
+    }
+    pfGeo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+  const pfMesh = new THREE.Mesh(pfGeo, mesh.material);
+  pfMesh.name = 'zen-mauer-pfeiler';
+  gruppe.add(pfMesh);
   return gruppe;
 }
 

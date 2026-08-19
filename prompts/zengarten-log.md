@@ -7,15 +7,27 @@ Fortgeschrieben in **jedem** Durchlauf. Neueste Einträge oben.
 | Größe | Grenze | Ausgang (zen-00) | jetzt |
 | --- | ---: | ---: | ---: |
 | Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **97 ✅** |
-| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 85 590 ✅ |
+| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 80 770 ✅ |
 | Texturspeicher | ≤ 60 MB | 29,77 MB | 21,53 MB ✅ |
 | Shader-Programme | – | 20 | 32 |
 
-Pakete: **1 bestanden.** Paket 2 (Sand): erster Anlauf nicht bestanden, zweiter
-gebaut. Paket 3 (Licht): erster Anlauf nicht bestanden, zweiter gebaut.
-Paket 4 (Wasser) gebaut. Prüfung von Sand-2 und Wasser läuft. 5–9 offen.
+| Paket | Anläufe | Stand |
+| --- | ---: | --- |
+| 1 Draw-Call-Struktur | 1 | **bestanden** (Prüfer) |
+| 2 Sand | 2 | 1. Anlauf nicht bestanden, 2. Anlauf: 3 von 6 Teilaufgaben bestanden, 3 offen |
+| 3 Licht & Atmosphäre | 2 | 1. Anlauf nicht bestanden, 2. Anlauf **ungeprüft** |
+| 4 Wasser | 2 | 1. Anlauf nicht bestanden, 2. Anlauf **ungeprüft** |
+| 5 Bepflanzung | 1 | **ungeprüft** |
+| 6 Steinwerk | 1 | **ungeprüft** |
+| 7 Komposition | 1 | **ungeprüft** |
+| 8 Leben & Bewegung | 1 | **ungeprüft** |
+| 9 Schlusspass | 1 | erledigt |
 
-**Zwei Anläufe verbraucht bei Paket 2, einer bei Paket 3.** Grenze sind vier.
+„Ungeprüft" heißt: Der Prüf-Subagent ist beim Urteil über die Durchläufe 6 bis
+8 an einem Ausgabelimit des Kontos abgebrochen und ließ sich danach nicht mehr
+starten. Die Zahlen in den Einträgen unten sind meine eigenen Messungen mit
+denselben Werkzeugen. Ein Urteil „bestanden" spreche ich mir für diese Pakete
+nicht selbst zu.
 
 **Korrektur zu meinem eigenen Urteil.** Ich habe Paket 2 nach Durchlauf 2
 selbst als bestanden protokolliert und committet, **bevor** der Prüfer sein
@@ -837,3 +849,61 @@ Mittelgrund. Die geharkte Fläche endet jetzt an der Mauer statt im Nebel.
   Die Welle steht jetzt im Vertexshader: seitlicher Versatz proportional zu
   sin(z·k − t·ω), Amplitude wächst nach hinten, der Kopf bleibt ruhig. Der
   Schwanz schlägt in derselben Phase weiter, sonst arbeitet er dagegen.
+
+---
+
+## Durchlauf 11 — Schlusspass
+
+**Endstand:** Draw-Calls **97** von 120, Dreiecke **80 770** von 350 000,
+Texturspeicher **21,53 MB** von 60, Shader-Programme 32, Konsole frei von
+Errors und Warnings, `npm run build` grün. Regression über alle vier anderen
+Umgebungen: `env-night` bitgleich, `env-matrix` Δmax 1, `env-dojo` Δmax 6 auf
+0,011 % der Pixel, `env-island` im bekannten Eigenrauschen des Harness
+(0,62–0,87 % bei ≥2, zwei Läufe desselben Standes liegen bei 0,80 %).
+
+### Zwei Fehler an der Mauer, beide im Schlusspass gefunden
+
+1. **Senkrechte Nähte in gleichem Abstand.** Die Mauer war aus 96 einzelnen
+   Quadern entlang des Bogens verschmolzen; auf der Innenseite stoßen zwei
+   benachbarte Quader unter 2,8° aneinander und lassen an jeder Fuge eine Kante
+   stehen. Im Bild lag darüber ein regelmäßiges Raster senkrechter Striche —
+   ein Programmierer-Tell, das die Konstruktion verrät. Jetzt ein Profil, das
+   am Bogen entlanggezogen wird: Die Innenfläche ist eine Fläche.
+2. **Die Innenfläche war schwarz.** Nach dem Umbau zeigte die Normale nach
+   außen. Nachgerechnet statt geraten: Das Profil läuft innen nach oben, der
+   Bogen mit wachsendem Winkel; für das Dreieck (a, b, d) ist die eine Kante ŷ
+   und die andere die Tangente t̂ = (−sin α, 0, cos α), und ŷ × t̂ =
+   (cos α, 0, sin α) — nach außen. Umgekehrte Reihenfolge, fertig.
+
+### Was am Ende offen bleibt
+
+Ehrlich und vollständig, nach der letzten schriftlichen Prüferliste und
+meinen eigenen Nachmessungen:
+
+**Sand (Paket 2, zwei Anläufe verbraucht, zwei blieben ungenutzt)**
+* Der **Musterabbruch** am Rand der geharkten Fläche ist immer noch ein harter
+  Ansatz — jetzt an der Mauer statt im Nebel, was ihm einen Grund gibt, aber
+  der Sprung selbst ist nicht weich.
+* Der **Rücken zwischen den Rillen** ist im Nahfeld eine ebene Fläche statt
+  einer Wölbung.
+
+**Licht (Paket 3)**
+* **Warme Lichtspitzen** kommen von Sonnenscheibe, Laterne und nassem Stein.
+  Aus dem Kies sind sie nicht zu holen: Bei Albedo 0,77 und 71° Einfall liegt
+  der diffuse Anteil bei 0,72 linear, was mit Belichtung 1,1 durch die
+  ACES-Kurve etwa L 210 ergibt. Für L 230 bräuchte es eine Sonne um 9, und die
+  würde jede senkrechte Fläche ausfressen. Zwei Versuche über den Glanz sahen
+  lackiert aus. Das ist eine Grenze der Belichtung, kein Versäumnis — aber es
+  ist eine Grenze.
+* **Streulicht durch das Laub** ist ein Baumschatten mit dichtem Kern und
+  aufgelöstem Saum, keine Lichtflecken **im** Kern. Der Hüllkörper ist
+  undurchsichtig; ohne ihn wirft die Krone schwächer als ihr eigener Stamm.
+
+**Wasser (Paket 4)**
+* Die **Laterne spiegelt sich nicht** im Teich. Eine Punktlichtspiegelung
+  bräuchte eine zweite Umgebungskarte an ihrer Stelle.
+* **Seerosen werfen keinen Schatten ins Wasser** — sie liegen sechs Millimeter
+  über der Fläche, bei 19° Sonnenstand liegt der Schatten damit unter dem Blatt.
+
+**Nicht extern geprüft:** Licht (2. Anlauf), Wasser (2. Anlauf), Bepflanzung,
+Steinwerk, Komposition, Bewegung. Siehe Abschnitt „Der Prüfer fällt aus".
