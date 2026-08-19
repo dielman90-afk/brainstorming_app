@@ -6,8 +6,8 @@ Fortgeschrieben in **jedem** Durchlauf. Neueste Einträge oben.
 
 | Größe | Grenze | Ausgang (zen-00) | jetzt |
 | --- | ---: | ---: | ---: |
-| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **97 ✅** |
-| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 80 770 ✅ |
+| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **93 ✅** |
+| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 74 606 ✅ |
 | Texturspeicher | ≤ 60 MB | 29,77 MB | 21,53 MB ✅ |
 | Shader-Programme | – | 20 | 32 |
 
@@ -907,3 +907,70 @@ meinen eigenen Nachmessungen:
 
 **Nicht extern geprüft:** Licht (2. Anlauf), Wasser (2. Anlauf), Bepflanzung,
 Steinwerk, Komposition, Bewegung. Siehe Abschnitt „Der Prüfer fällt aus".
+
+---
+
+## Durchlauf 12 — Nacharbeit auf Zuruf
+
+Vier Punkte aus der Sichtung: Mauer weg, Teich voll, Bäume seltsam, zu viele
+fallende Blätter, abstehende Zweige oben.
+
+**Messwerte:** Draw-Calls 97 → 93, Dreiecke 80 770 → 74 606, Texturspeicher
+21,53 MB unverändert, Konsole sauber. Regression: `env-night` bitgleich,
+`env-matrix` Δmax 2, `env-dojo` Δmax 6 auf 0,010 %, `env-island` im
+Eigenrauschen.
+
+### 1. Die Gartenmauer ist entfallen
+
+Sie hat geleistet, was sie sollte — Einfassung, waagerechte Linie, Trennung von
+Mittelgrund und Ferne —, aber sie hat den Garten auch geschlossen: Aus dem
+offenen Kiesfeld unter weitem Himmel wurde ein Hof. `makeGartenmauer()` bleibt
+im Code stehen, gebaut und geprüft, und ist in fünf Zeilen wieder einzuhängen.
+Die Harkspur läuft dafür wieder weiter und unregelmäßiger aus, statt an einer
+Kante zu enden, und die neun Sträucher sind von 9–11 m auf 6–8 m
+herangerückt — an der Mauer standen sie richtig, ohne sie wären es Klumpen weit
+draußen im leeren Kies.
+
+### 2. Der Teich war nicht zu leer, er war zu schmal
+
+**Das hier ist der Fehler, den ich am teuersten bezahlt habe, und er stand seit
+Paket 4 im Code.** Die Wasserfläche ist eine `CircleGeometry` in der **XY**-Ebene,
+die anschließend um −90° um X gekippt wird. Ich habe sie mit
+`scale.set(rx, 1, rz)` zur Ellipse gemacht — geschrieben, als läge sie in der
+XZ-Ebene. Die Skalierung wirkt aber **vor** der Drehung auf die lokalen Achsen:
+Lokal-Y wird zu Welt-Z, lokal-Z (überall null) zu Welt-Y. Die Streckung auf
+1,7 lief damit ins Leere, und der Teich war in Z nur 1,0 m weit — das Becken
+ringsum aber 1,7. Übrig blieb ein breiter Streifen Uferhang, den ich für zu
+wenig Wasser gehalten habe.
+
+**Dreimal habe ich versucht, das mit dem Pegel zu beheben** (0,95 → 1,01 →
+1,04 → 1,055 der Beckenkontur), und dreimal hat es nicht getragen. Der vierte
+Anlauf war eine Messung: Ein Laufzeit-Auszug, der für zwölf Azimute den
+äußersten Wasserpunkt und die Beckenkrone in Weltkoordinaten ausliest, zeigte
+einen Wasserradius von **0,61 bis 1,10 statt konstant 1,04** — und 1/1,7 =
+0,588 nennt die Ursache beim Namen. Fünf Minuten gegen drei Anläufe. Genau die
+Regel, die im Auftrag steht und die ich zum zweiten Mal zu spät befolgt habe.
+
+Zwei kleinere Befunde fielen dabei mit ab und sind ebenfalls behoben:
+
+* Die Wasserkontur lief **spiegelverkehrt** zur Beckenkontur, weil der lokale
+  Winkel der gekippten Scheibe dem negativen Weltwinkel entspricht.
+* Das Flachwasser war mit Deckkraft 0,34 so durchsichtig, dass der Beckenhang
+  ungebrochen durchschien und als trockenes Ufer las. Jetzt 0,62, und der
+  Flachwasserton ist grünlich statt sandfarben.
+
+### 3. Die Bäume
+
+* **Abstehende Zweige oben.** Die Nebenzweige sollten die Silhouette
+  unregelmäßig machen, endeten aber zwangsläufig irgendwo — und wo das
+  außerhalb der Blattmasse lag, stand ein Stab in der Luft. Sie sind entfallen.
+  Die Hauptäste enden jetzt außerdem tief **im** Schopf (−r·0,3 statt +r·0,25),
+  statt an den oberen Ansätzen aus der Krone zu stechen.
+* **Die Krone saß wie ein Pilzhut auf dem Stamm** — sechs Ansätze zwischen 2,30
+  und 2,92 m ergaben eine breite, unten glatt abgeschnittene Platte. Jetzt acht
+  (Sakura) beziehungsweise sieben (Ahorn) Ansätze mit deutlich mehr
+  Höhenstreuung, zwei davon tief außen, so dass die Krone an den Seiten
+  herabhängt und die Unterkante keine Waagerechte mehr ist. Kostet keine
+  Draw-Calls, die Schöpfe sind Instanzen.
+* **Zu viele Blätter.** 320 fallende Blätter sind kein Kirschbaum im Wind,
+  sondern ein Schneesturm. Jetzt 90.
