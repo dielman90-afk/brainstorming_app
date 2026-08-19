@@ -295,10 +295,16 @@ export async function selectEnv(page, id) {
   await page.waitForTimeout(150);
 }
 
+// **Die Sperre muss dafür aus.** Seit src/walkable.js haelt die App den Nutzer
+// im begehbaren Bereich und auf dessen Boden – die festen Kameras hier liegen
+// bewusst ausserhalb (die Totale 24 m ueber der Insel, der Kantenblick knapp
+// jenseits der Abbruchkante). Ohne das Abschalten zieht die Sperre sie jedes
+// Bild auf Augenhoehe zurueck, und die Vergleichsbilder waeren wertlos.
 export async function placeCamera(page, shot, time = 6.0) {
   await page.evaluate(
     ({ pos, look, fov, time }) => {
       const { camera, player, renderer, scene, controls } = window.__app;
+      window.__app.env.setWalkEnabled?.(false);
       player.position.set(0, 0, 0);
       player.rotation.set(0, 0, 0);
       // OrbitControls.update() ruft am Ende lookAt(target) auf und würde eine
@@ -322,6 +328,7 @@ export async function lockCamera(page, shot, time) {
   await page.evaluate(
     ({ pos, look, fov, time }) => {
       const app = window.__app;
+      app.env.setWalkEnabled?.(false); // siehe placeCamera
       if (app.__harnessLock) cancelAnimationFrame(app.__harnessLock);
       const tick = () => {
         app.controls.target.set(look[0], look[1], look[2]);

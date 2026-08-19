@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createDojoEnvironment } from './dojo/index.js';
+import { makeIslandWalk, makeHeightFieldWalk } from './walkable.js';
 import { heightToMaps, scaleUV } from './dojo/materials.js';
 import { mossMaterial, waterMaterial, updateWater } from './dojo/ground.js';
 import {
@@ -930,10 +931,11 @@ const pick = (rand, list) => list[Math.floor(rand() * list.length) % list.length
 // Beschreibung. Geometrie und Objektplatzierung benutzen dieselben Funktionen –
 // dadurch kann nichts schweben und nichts im Boden stecken.
 //
-// Wichtige Einschränkung: Die Fortbewegung (locomotion.js) kennt kein Gelände,
-// der Nutzer läuft immer auf y = 0. Die begehbare Innenfläche bleibt deshalb
-// bewusst eben; die Höhenentwicklung setzt erst außerhalb davon ein und geht in
-// den felsigen Randwall über, der ohnehin nicht zum Betreten einlädt.
+// Die Fortbewegung nutzt dieselbe Beschreibung: `walk` der Insel-Umgebung
+// klemmt auf `outline` und liest die Standhöhe aus `heightAt` (walkable.js).
+// Der Nutzer läuft damit wirklich auf dem Gelände – über die ebene Innenfläche,
+// den Randwall hinauf und bis an die Abbruchkante, aber nicht darüber hinaus.
+// Früher lief er stur auf y = 0 und damit durch den Wall hindurch.
 const ISLAND_TOP_Y = -0.02; // Höhe der ebenen Grasfläche (Bestand beibehalten)
 // Weltmaßstab der ganzen Insel-Gruppe. Steht auf Modulebene, weil auch das
 // Schattenvolumen ihn braucht – und das wird gesetzt, bevor die Gruppe skaliert
@@ -3452,6 +3454,25 @@ function createIslandEnvironment() {
     background: new THREE.Color(0x9fc6e2),
     fog,
     group,
+
+    // --- Begehbarer Bereich ---------------------------------------------
+    //
+    // Begehbar ist die **Hauptinsel**, und zwar ganz: über die ebene
+    // Innenfläche, den Randwall hinauf, über den Höhenrücken und bis an die
+    // Abbruchkante. Grundriss und Standhöhe kommen aus derselben Formbeschreibung,
+    // aus der auch die Geometrie und die Objektplatzierung entstehen
+    // (`makeIslandShape`) – die Sperre kann deshalb nicht von dem abweichen, was
+    // man sieht.
+    //
+    // **0,99 statt 1,0.** Genau an der Kante ist Schluss; das letzte Prozent
+    // deckt die Sodenplatte ab, die dort über den Fels ragt und auf der man
+    // sonst in der Luft stünde.
+    //
+    // Die Mini-Inseln bleiben unerreichbar. Sie stehen 14 bis 26 Einheiten
+    // entfernt, haben eigene Maßstäbe, eine Schieflage und schweben zusätzlich
+    // auf und ab – sie sind Horizont, kein Ziel.
+    walk: makeIslandWalk(shape, WORLD_SCALE, 0.99),
+
     setQuality(stufe) {
       applyQuality(group, null, stufe, ISLAND_QUALITAET);
       return null;
@@ -3647,6 +3668,15 @@ function makeMarsGround(rand) {
   ground.position.y = -0.03;
   group.add(ground);
 
+  // Standhöhe für die Fortbewegung, in WELTkoordinaten dieser Gruppe.
+  //
+  // **Achsen aufpassen.** Das Gitter ist eine PlaneGeometry mit
+  // `rotation.x = -PI/2`; damit bildet lokal (x, y, z) auf (x, z, −y) ab. Das
+  // oben `z` genannte `pos.getY(i)` ist also das NEGIERTE Welt-z, und die
+  // Auslenkung `pos.setZ(i, h)` landet auf der Welt-Höhe. Ohne das Minuszeichen
+  // liegen die Krater gespiegelt unter den Füßen.
+  group.userData.floorAt = (x, z) => heightAt(x, -z) + ground.position.y;
+
   // Verstreute Felsbrocken (mehr Facetten = Stein statt Kristall, flach gelagert)
   const rockColors = [0x843d24, 0x6f331f, 0x5a281a, 0x92472b];
   for (let i = 0; i < 30; i++) {
@@ -3773,7 +3803,8 @@ function createNightEnvironment() {
   groundGlow.position.set(-8, 3, 6);
   group.add(groundGlow);
 
-  group.add(makeMarsGround(rand));
+  const marsGround = makeMarsGround(rand);
+  group.add(marsGround);
 
   return {
     id: 'night',
@@ -3781,6 +3812,12 @@ function createNightEnvironment() {
     background: new THREE.Color(0x0a0605),
     fog: new THREE.Fog(0x1c0d09, 22, 48),
     group,
+
+    // Begehbar ohne Grenze, aber ÜBER den Dünen statt hindurch. Das Höhenfeld
+    // ist dasselbe, aus dem das Gitter entsteht – es kann deshalb nicht davon
+    // abweichen, und es gilt auch jenseits der 96-m-Platte, wo ohnehin keine
+    // sichtbare Geometrie mehr liegt.
+    walk: makeHeightFieldWalk(marsGround.userData.floorAt),
 
     // **Hier gibt es bewusst nichts auszudünnen.** Der Nachthimmel hat keine
     // Blattkarten, keine additiven Lagen über Bildschirmgröße und keine

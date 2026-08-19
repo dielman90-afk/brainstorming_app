@@ -164,7 +164,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   bleiben handgroß und in Reichweite.
 - **Fortbewegung durch die Landschaft** (`src/locomotion.js`): Ein Player-Rig
   (Gruppe mit Kamera + Controllern) bewegt den Nutzer durch die Welt. **Desktop:**
-  WASD/Pfeile bewegen, Q/E runter/hoch – die gewohnte Orbit-Ansicht und
+  WASD/Pfeile bewegen – die gewohnte Orbit-Ansicht und
   Karten-Bedienung bleiben erhalten. **VR:** linker Stick = sanftes Gleiten in
   Blickrichtung (analog dosierbar), rechter Stick = Snap-Turn (komfortables
   ruckartiges Drehen). **Ohne Controller:** ins Leere pinchen und die Hand
@@ -176,6 +176,29 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   desorientiert. Der Zug bleibt horizontal, damit man nicht unbeabsichtigt
   abhebt, und einzelne Frames werden vor der Übersetzung gekappt, damit ein
   Tracking-Aussetzer keinen Sprung auslöst.
+- **Begehbarer Bereich** (`src/walkable.js`): Die Fortbewegung ist rein
+  horizontal – es gibt **kein Hoch/Runter mehr**. Die frühere Freiflug-Belegung
+  Q/E hatte keine Grenze: Man stieg durch Baumkronen, schwebte unter die Insel
+  und landete, weil es keine Kollision gibt, regelmäßig *in* einem Objekt statt
+  davor. Stattdessen beschreibt jede Umgebung selbst, wo man gehen darf und wie
+  hoch dort der Boden liegt:
+
+  | Umgebung | Grenze | Boden |
+  | --- | --- | --- |
+  | 🏝 Himmelsinsel | die Hauptinsel bis an die Abbruchkante (99 % des Umrisses) | das echte Gelände – über die ebene Mitte, den Randwall hinauf, über den Höhenrücken |
+  | ⛩ Konstrukt-Dojo | Zonenkette Raum → Türdurchgang → Engawa → Stufe → Kiesbeet | je Zone, mit weicher Stufe |
+  | 🌌 Nachthimmel | keine | das Dünen- und Kraterrelief |
+  | 🪷 Zen-Garten, ⬜ Konstrukt, Passthrough | keine | eben |
+
+  Grundriss und Standhöhe der Insel kommen aus **derselben** analytischen
+  Formbeschreibung, aus der auch ihre Geometrie entsteht (`makeIslandShape`) –
+  die Sperre kann deshalb nicht von dem abweichen, was man sieht. Der Bodenwechsel
+  wird über wenige Bilder nachgeführt, damit aus der Dojo-Stufe keine
+  Sprungschaltung und aus dem Inselwall ein Anstieg wird. Am Desktop, wo es keine
+  Kopfpose gibt, darf die Orbit-Kamera in einem Band von 0,4 bis 2,6 m über
+  diesem Boden stehen – das Board bleibt von schräg oben ansehbar, ohne dass man
+  davonfliegen kann. **Es ist eine Projektion, kein Kollisionssystem:** Durch
+  Laterne, Becken oder Baumstamm geht man weiterhin hindurch.
 - **Ideen-Karten:** Schwebende 3D-Panels mit Text. Per Controller-Ray anvisieren,
   mit dem Trigger greifen, verschieben und frei im Raum anordnen.
 - **Prozessflussdiagramm** (`src/flowLayout.js`, Reiter „Prozess" im
@@ -398,6 +421,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── tween.js            Sanftes Umsetzen von Objekten (Layout-Animation)
 │   ├── interactions.js     Controller-/Hand-Raycasting, Grab + Maus-Fallback
 │   ├── locomotion.js       Fortbewegung (Player-Rig): VR-Gleiten + Snap-Turn
+│   ├── walkable.js         Begehbarer Bereich je Umgebung (Grenze + Bodenhöhe)
 │   ├── wristMenu.js        Menü-Panel an Controller bzw. Handfläche
 │   ├── history.js          Undo/Redo (Board-Snapshots)
 │   ├── hud.js              Statuszeile, Ladeanzeige und Fehlerkarte im Blickfeld
