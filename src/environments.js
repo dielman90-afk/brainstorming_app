@@ -429,9 +429,11 @@ function astwerk(gabel, ansaetze, { seed = 7, stammR = 0.09, spitzeR = 0.028 } =
     const ziel = new THREE.Vector3(x, y, z);
     // Der Ast endet etwas unterhalb der Schopfmitte, sonst steckt sein Ende
     // sichtbar in der Blattmasse.
-    // Der Ast endet **innerhalb** des Schopfes, nicht davor: Ein Ast, der vor
-    // der Blattmasse aufhört, liest als abgebrochener Stumpf.
-    ziel.addScaledVector(new THREE.Vector3().subVectors(ziel, g).normalize(), r * 0.25);
+    // **Der Ast endet tief im Schopf.** Mit r·0,25 reichte er nur knapp hinein
+    // und stach an den oberen Ansätzen oben aus der Blattmasse heraus — im Bild
+    // dünne Stäbe, die über der Krone standen. Mit −r·0,3 liegt die Spitze
+    // sicher innerhalb der Blattmasse und wird von ihr verdeckt.
+    ziel.addScaledVector(new THREE.Vector3().subVectors(ziel, g).normalize(), -r * 0.3);
     // Ausbuchtung senkrecht zur Astrichtung und zur Senkrechten: Ein Ast wächst
     // nicht auf der kürzesten Verbindung.
     const richtung = new THREE.Vector3().subVectors(ziel, g).normalize();
@@ -439,18 +441,19 @@ function astwerk(gabel, ansaetze, { seed = 7, stammR = 0.09, spitzeR = 0.028 } =
     if (achse.lengthSq() < 1e-4) achse.set(1, 0, 0);
     achse.normalize().applyAxisAngle(richtung, rand() * Math.PI * 2);
     const dick = stammR * (0.6 + r);
-    teile.push(...ast(g, ziel, dick, spitzeR * (0.45 + rand() * 0.4), 0.1 + rand() * 0.18, achse));
+    teile.push(...ast(g, ziel, dick, spitzeR * (0.45 + rand() * 0.4), 0.08 + rand() * 0.3, achse));
     // Ein Nebenzweig je Ast, der vor dem Schopf abgeht — er macht die
     // Silhouette unregelmäßig, ohne dass man ihn einzeln liest.
+    // (verbraucht denselben Zufallswert wie zuvor, damit sich die Astlage
+    // gegenüber dem geprüften Stand nicht verschiebt)
     const abzweig = new THREE.Vector3().lerpVectors(g, ziel, 0.55 + rand() * 0.2);
-    // Der Nebenzweig läuft ebenfalls in die Krone hinein, nicht daneben ins
-    // Leere, und endet spitz.
-    const nebenZiel = abzweig
-      .clone()
-      .addScaledVector(richtung, 0.5 + rand() * 0.35)
-      .addScaledVector(achse, (rand() - 0.5) * 0.45)
-      .add(new THREE.Vector3(0, 0.2 + rand() * 0.25, 0));
-    teile.push(...ast(abzweig, nebenZiel, dick * 0.4, spitzeR * 0.25, 0.06, achse));
+    // **Die Nebenzweige sind entfallen.** Sie sollten die Silhouette
+    // unregelmäßig machen, endeten aber zwangsläufig irgendwo — und wo das
+    // außerhalb der Blattmasse lag, stand ein abstehender Stab in der Luft.
+    // Ein Ast, der ins Nichts zeigt, ist schlimmer als gar keiner. Die
+    // Unregelmäßigkeit trägt jetzt die Blattmasse allein; die Hauptäste sind
+    // dafür in Dicke und Bogen stärker gestreut.
+    void abzweig;
   }
   return teile;
 }
@@ -4151,7 +4154,9 @@ function sandMaterial() {
            // um ±5 m.
            float r = length(p);
            float az = atan(p.y, p.x);
-           float grenze = 12.1 + 1.5 * sin(az * 2.3 + 1.1) + 0.9 * sin(az * 5.1 - 0.4);
+           // Ohne die Mauer als Abschluss läuft die Spur wieder weiter und
+           // unregelmäßiger aus — sie endet dann im Dunst statt an einer Kante.
+           float grenze = 13.5 + 3.2 * sin(az * 2.3 + 1.1) + 1.8 * sin(az * 5.1 - 0.4);
            float rand = 1.0 - smoothstep(grenze - 3.0, grenze + 3.0, r);
            // Der Druck auf der Harke ist nicht konstant. Zwei langwellige
            // Terme lassen die Rille stellenweise tief und stellenweise fast
@@ -4460,7 +4465,11 @@ function blattTextur() {
   return t;
 }
 
-function makeBluetenblaetter(rand, quellen, anzahl = 320) {
+// `anzahl` 90 und nicht 320: Dreihundertzwanzig fallende Blätter sind kein
+// Kirschbaum im Wind, sondern ein Schneesturm — im Bild lagen ständig Blätter
+// über der halben Fläche. Ein Sakura verliert einzelne Blüten; was zählt, ist,
+// dass ab und zu eines vorbeitrudelt.
+function makeBluetenblaetter(rand, quellen, anzahl = 90) {
   const geo = new THREE.PlaneGeometry(0.062, 0.078);
   const mat = new THREE.MeshLambertMaterial({
     map: blattTextur(),
@@ -5339,11 +5348,13 @@ function mapleMaterials() {
 }
 
 const MAPLE_ANSAETZE = [
-  [0, 2.14, 0, 0.46],
-  [0.58, 1.98, 0.18, 0.32],
-  [-0.52, 2.05, -0.24, 0.34],
-  [0.18, 2.38, -0.18, 0.3],
-  [-0.24, 2.3, 0.4, 0.28],
+  [0, 2.24, 0, 0.44],
+  [0.62, 2.0, 0.2, 0.32],
+  [-0.56, 2.08, -0.26, 0.34],
+  [0.2, 2.5, -0.2, 0.29],
+  [-0.26, 2.36, 0.44, 0.28],
+  [-0.66, 1.76, 0.16, 0.25],
+  [0.5, 1.82, -0.4, 0.25],
 ];
 function makeMaple(rand) {
   const tree = new THREE.Group();
@@ -5831,7 +5842,10 @@ function createZenEnvironment() {
   sandMat.userData.sandUniforms.uSandRinge.value[3].set(3.2, -1.2, 2.35, 3.1);
   const feuchtZonen = sandMat.userData.sandUniforms.uSandFeucht.value;
   // Der Teich ist die stärkste Feuchtequelle; das Ufer bleibt dunkel.
-  feuchtZonen[0].set(3.2, -1.2, 2.3, 0.85);
+  // Enger als vorher: Mit 2,3 m plus 0,75 m Auslauf reichte der unbeharkte
+  // Feuchtsaum bis gut drei Meter vom Teichmittelpunkt und legte einen breiten
+  // glatten Ring um das Wasser — im Bild las der wie trockengefallenes Ufer.
+  feuchtZonen[0].set(3.2, -1.2, 1.75, 0.8);
   let feuchtIndex = 1;
 
   // Moosinseln.
@@ -6081,7 +6095,9 @@ function createZenEnvironment() {
   // ist der Abstand zum Ufer.
   {
     const tiefUniforms = {
-      uWasserFlach: { value: new THREE.Color(0x6d7c62) },
+      // Flachwasser über Sand ist nicht sandfarben, sondern grünlich: Was
+      // hindurchkommt, hat schon einen Zentimeter Wasser passiert.
+      uWasserFlach: { value: new THREE.Color(0x5c7358) },
       uWasserTief: { value: new THREE.Color(0x11302f) },
       uWasserSaum: { value: new THREE.Color(0x2f3a30) },
     };
@@ -6127,7 +6143,14 @@ function createZenEnvironment() {
              diffuseColor.rgb = mix(diffuseColor.rgb, uWasserSaum, saum * 0.38);
              // Flach ist durchsichtig, tief nicht. Am äußersten Rand läuft die
              // Fläche aus, damit die Wasserlinie kein Schnitt ist.
-             diffuseColor.a = mix(0.34, 0.94, deckung) * (1.0 - smoothstep(0.955, 1.0, rand) * 0.75);
+             // **0,34 am Ufer war zu durchsichtig.** Der Beckenhang schien
+             // dort so ungebrochen durch, dass das Flachwasser als trockenes
+             // Ufer las — im Bild ein breiter sandfarbener Streifen zwischen
+             // Wasser und Uferkieseln, der wie ein halb abgelassener Teich
+             // aussah. Es war kein Pegelproblem, sondern ein Deckungsproblem:
+             // Auch flaches Wasser tönt, was darunter liegt. 0,62 lässt den
+             // Grund noch durch, färbt ihn aber sichtbar ein.
+             diffuseColor.a = mix(0.62, 0.96, deckung) * (1.0 - smoothstep(0.965, 1.0, rand) * 0.6);
            }`
         );
     };
@@ -6167,17 +6190,52 @@ function createZenEnvironment() {
   {
     const wp = wasserGeo.attributes.position;
     for (let v = 1; v < wp.count; v++) {
-      const a = Math.atan2(wp.getY(v), wp.getX(v));
-      // 0,95 ist die Wasserlinie im Profil des Beckens (makeTeichbecken: WL).
-      wp.setXY(v, Math.cos(a) * teichUmriss(a) * 0.95, Math.sin(a) * teichUmriss(a) * 0.95);
+      // **Die Scheibe wird um −90° um X gedreht.** Ein Punkt (x, y, 0) landet
+      // damit bei (x, 0, −y): Der lokale Winkel a entspricht dem **negativen**
+      // Weltwinkel. Der erste Anlauf hat `teichUmriss(a)` benutzt und damit
+      // eine zur Beckenkontur **spiegelverkehrte** Wasserlinie gezeichnet —
+      // links lag das Wasser an den Steinen, rechts stand ein breiter trockener
+      // Streifen dazwischen. Genau das sah aus wie ein halb leerer Teich, und
+      // zweimal den Pegel anzuheben hat es nicht behoben, weil es kein
+      // Pegelproblem war.
+      const a = -Math.atan2(wp.getY(v), wp.getX(v));
+      // **Randvoll, nicht halb leer.** Vorher lag die Wasserfläche auf der
+      // Wasserlinie des Beckenprofils (0,95) und damit auf der Höhe, an der der
+      // Uferwulst erst anfängt zu steigen — zwischen Wasser und Uferkrone stand
+      // ein trockener Ring, und der Teich sah aus wie ein Becken, aus dem
+      // jemand Wasser abgelassen hat. Der Spiegel steht jetzt bei 1,01, also
+      // ein gutes Stück den Uferhang hinauf; sichtbar bleibt vom Ufer nur der
+      // schmale Streifen bis zur Krone.
+      wp.setXY(v, Math.cos(a) * teichUmriss(a) * 1.04, -Math.sin(a) * teichUmriss(a) * 1.04);
     }
     wp.needsUpdate = true;
     wasserGeo.computeVertexNormals();
   }
   const pond = new THREE.Mesh(wasserGeo, pondMat);
   pond.rotation.x = -Math.PI / 2;
-  pond.position.set(pondCenter.x, -0.019, pondCenter.z);
-  pond.scale.set(TEICH.rx, 1, TEICH.rz);
+  // **Randvoll heißt: bis an die Uferkrone.** Der Uferhang steigt von 0 (bei
+  // t = 0,95) auf sein Maximum +0,07 (bei t = 1,06) und fällt danach nach außen
+  // wieder ab; höher als die Krone kann das Wasser nicht stehen, ohne
+  // überzulaufen. Der Spiegel liegt deshalb bei t = 1,055, wo der Hang
+  // +0,0696 erreicht — über dem Beckenursprung bei −0,02 also +0,0496. Vom
+  // Ufer bleibt innen gut ein Zentimeter sichtbar, außen der abfallende Rand.
+  //
+  // Zwei Zwischenstände waren zu niedrig: 0,95 (auf der Wasserlinie des
+  // Profils) ließ einen breiten trockenen Ring stehen, 1,04 immer noch einen
+  // von zwanzig Zentimetern.
+  pond.position.set(pondCenter.x, 0.0442, pondCenter.z);
+  // **Der Fehler, der den Teich halb leer aussehen ließ.** Hier stand
+  // `set(rx, 1, rz)` — geschrieben, als läge die Scheibe in der XZ-Ebene. Sie
+  // ist aber eine `CircleGeometry` in der **XY**-Ebene und wird erst danach um
+  // −90° um X gekippt. Die Skalierung wirkt vor der Drehung auf die lokalen
+  // Achsen: Lokal-Y wird zu Welt-Z, lokal-Z (das hier überall null ist) zu
+  // Welt-Y. Die Streckung auf 1,7 lief damit ins Leere, und der Teich war in
+  // Z nur 1,0 m weit statt 1,7 — das Becken ringsum aber schon. Übrig blieb
+  // ein breiter Streifen Uferhang, den ich für zu wenig Wasser gehalten und
+  // dreimal mit dem Pegel zu beheben versucht habe. Gemessen war der
+  // Wasserradius je Azimut 0,61 bis 1,10 statt konstant 1,04 — das hat es in
+  // fünf Minuten geklärt.
+  pond.scale.set(TEICH.rx, TEICH.rz, 1);
   pond.name = 'zen-wasser';
   group.add(pond);
   // Steinrand um den Teich
@@ -6197,10 +6255,12 @@ function createZenEnvironment() {
     // **An die Wasserlinie gerückt und abgesenkt.** Vorher standen die Steine
     // auf dem Kiesniveau am äußeren Rand — eine Perlenkette neben einer
     // Scheibe. Jetzt sitzen sie im Uferwulst, ihr Fuß liegt unter Wasser.
+    // Auf der Uferkrone, mit dem Fuß im Wasser: Der Spiegel steht bei +0,044,
+    // die Steine sitzen bei +0,028 und ragen daraus hervor.
     s.position.set(
-      pondCenter.x + Math.cos(a) * TEICH.rx * 1.0,
-      -0.01,
-      pondCenter.z + Math.sin(a) * TEICH.rz * 1.0
+      pondCenter.x + Math.cos(a) * TEICH.rx * 1.09,
+      0.035,
+      pondCenter.z + Math.sin(a) * TEICH.rz * 1.09
     );
     // **Nass ist nicht „dunkler eingefärbt", aber dunkel ist der halbe Effekt.**
     // Ein Wasserfilm füllt die Mikrorauheit: Was in die Poren fällt, kommt kaum
@@ -6216,7 +6276,7 @@ function createZenEnvironment() {
       const v = new THREE.Vector3();
       for (let k = 0; k < pos.count; k++) {
         v.fromBufferAttribute(pos, k).applyMatrix4(s.matrix);
-        const nass = 1 - smoothstep(-0.019, 0.065, v.y);
+        const nass = 1 - smoothstep(0.0496, 0.13, v.y);
         const f = 1 - nass * 0.26;
         col.setXYZ(k, col.getX(k) * f, col.getY(k) * f * 0.99, col.getZ(k) * f * 0.97);
       }
@@ -6233,8 +6293,8 @@ function createZenEnvironment() {
     const pad = makeLilyPad(rand);
     const a = rand() * Math.PI * 2;
     const r = rand() * 1.5;
-    // Auf der Wasserfläche (−0,019), nicht drei Zentimeter darüber.
-    pad.position.set(pondCenter.x + Math.cos(a) * r * 1.15, -0.013, pondCenter.z + Math.sin(a) * r);
+    // Auf der Wasserfläche (+0,025), nicht darüber schwebend.
+    pad.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.056, pondCenter.z + Math.sin(a) * r);
     seerosen.push(pad);
   }
   group.add(...verschmelzeObjekte(seerosen, 'zen-seerosen'));
@@ -6243,7 +6303,7 @@ function createZenEnvironment() {
     const lotus = makeLotus();
     const a = rand() * Math.PI * 2;
     const r = 0.3 + rand() * 1.1;
-    lotus.position.set(pondCenter.x + Math.cos(a) * r * 1.15, -0.008, pondCenter.z + Math.sin(a) * r);
+    lotus.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.061, pondCenter.z + Math.sin(a) * r);
     lotusse.push(lotus);
   }
   // Zwei Meshes: Blütenblätter und Kerne haben verschiedene Materialien.
@@ -6271,7 +6331,7 @@ function createZenEnvironment() {
     // `c-torii` als „vier konzentrische Ellipsen konstanter Breite" gefunden,
     // durch die die Harkstreifen ungestört hindurchlaufen, und für ein zweites
     // aufgelegtes Muster gehalten. Es waren Wasserringe auf dem Sand.
-    ring.position.set(pondCenter.x, -0.012, pondCenter.z);
+    ring.position.set(pondCenter.x, 0.0565, pondCenter.z);
     ring.userData = { phase: rand() * 1000, period: 3 + rand() * 2 };
     group.add(ring);
     ripples.push(ring);
@@ -6301,13 +6361,21 @@ function createZenEnvironment() {
   // weil die Blattmasse bei y = 1,78 anfing und der Stamm bei 1,8 endete. Ein
   // Baum liest sich aber über die Lücke zwischen Stamm und Krone: Dort steht
   // das Astwerk, und dort sieht man den Himmel hindurch.
+  // Acht Ansätze statt sechs, und mit deutlich mehr Höhenstreuung: Die sechs
+  // lagen zwischen 2,30 und 2,92 m und ergaben eine breite, unten glatt
+  // abgeschnittene Platte — die Krone saß wie ein Pilzhut auf dem Stamm. Zwei
+  // tief außen sitzende Ansätze lassen sie an den Seiten herabhängen, der
+  // mittlere steigt; die Unterkante ist damit keine Waagerechte mehr.
+  // Draw-Calls kostet das nichts, die Schöpfe sind Instanzen.
   const SAKURA_ANSAETZE = [
-    [0, 2.62, 0, 0.62],
-    [0.72, 2.42, 0.26, 0.44],
-    [-0.6, 2.54, -0.35, 0.48],
-    [0.35, 2.92, -0.23, 0.4],
-    [-0.35, 2.82, 0.46, 0.36],
-    [0.12, 2.3, 0.58, 0.34],
+    [0, 2.78, 0, 0.58],
+    [0.78, 2.46, 0.28, 0.42],
+    [-0.66, 2.56, -0.38, 0.46],
+    [0.38, 3.04, -0.25, 0.38],
+    [-0.38, 2.9, 0.5, 0.34],
+    [0.14, 2.34, 0.62, 0.34],
+    [-0.88, 2.14, 0.22, 0.3],
+    [0.62, 2.16, -0.56, 0.3],
   ];
   // Stamm und Astwerk in **einem** Mesh: ein Ast zu jedem Kronenansatz plus je
   // ein Nebenzweig. Alle Koordinaten sind Weltkoordinaten des Baums, der Stamm
@@ -6378,26 +6446,31 @@ function createZenEnvironment() {
 
   // --- Einfassung: Mauer und Sträucher --------------------------------------
   //
-  // Die Mauer läuft von 130° bis 400°, also über zweihundertsiebzig Grad. Die
-  // Lücke liegt bei rund 85° — genau dort, wo man in den Garten hineinblickt.
-  // Ein Karesansui ist eingefasst, aber nicht zugemauert: Die Öffnung ist die
-  // Seite, von der aus er gesehen werden soll. Radius 13,5 m, damit die Mauer
-  // außerhalb aller gesetzten Steine und Bäume steht und die geharkte Fläche
-  // an ihr endet.
-  group.add(makeGartenmauer(13.5, 130, 400));
-  // Sträucher vor die Mauer und als Mittelgrundmasse. Sie stehen in Gruppen,
-  // nicht in einer Reihe, und lassen zwischen sich Lücken auf die Mauer.
+  // **Die Gartenmauer ist wieder entfallen.** Sie hat den Garten eingefasst und
+  // der leeren Fläche einen Grund gegeben, aber sie hat ihn auch geschlossen —
+  // aus dem offenen Kiesfeld unter weitem Himmel wurde ein Hof. Der Garten
+  // bleibt offen; die Sträucher übernehmen die Aufgabe, dem Blick im
+  // Mittelgrund Masse zu geben, ohne eine Wand zu ziehen.
+  //
+  // `makeGartenmauer()` steht weiter im Code: Sie ist gebaut, geprüft und in
+  // fünf Zeilen wieder einzuhängen, falls die Entscheidung noch einmal fällt.
+  //
+  // Sträucher als Mittelgrundmasse. Sie stehen in Gruppen, nicht in einer
+  // Reihe, und lassen Lücken zwischen sich.
   group.add(
+    // Näher herangerückt, seit die Mauer fehlt: Auf 9 bis 11 m standen sie an
+    // ihr; ohne sie wären es Klumpen weit draußen im leeren Kies. Auf 6 bis 8 m
+    // begrenzen sie den gestalteten Teil des Gartens, ohne ihn zu schließen.
     makeKarikomi(rand, [
-      [-9.4, -7.2, 1.0, 0.85],
-      [-8.0, -8.4, 0.72, 0.6],
-      [-10.6, -5.6, 0.8, 0.66],
-      [1.6, -11.4, 1.15, 0.95],
-      [3.1, -10.8, 0.85, 0.7],
-      [-4.6, -11.2, 0.95, 0.78],
-      [-11.4, 0.6, 1.05, 0.88],
-      [-10.9, 2.4, 0.7, 0.55],
-      [7.4, -8.6, 0.9, 0.72],
+      [-6.9, -5.3, 1.0, 0.85],
+      [-5.8, -6.4, 0.72, 0.6],
+      [-7.9, -4.0, 0.8, 0.66],
+      [1.2, -8.2, 1.15, 0.95],
+      [2.5, -7.7, 0.85, 0.7],
+      [-3.4, -8.1, 0.95, 0.78],
+      [-8.2, 0.4, 1.05, 0.88],
+      [-7.8, 1.9, 0.7, 0.55],
+      [5.6, -6.3, 0.9, 0.72],
     ])
   );
 
@@ -6638,7 +6711,7 @@ function createZenEnvironment() {
         // zum Grund.
         koi.position.set(
           pondCenter.x + Math.cos(a) * d.radius * 1.15,
-          -0.1 + bob,
+          -0.05 + bob,
           pondCenter.z + Math.sin(a) * d.radius
         );
 
