@@ -73,6 +73,73 @@ export const SHOTS = [
   },
 ];
 
+// Feste Kameras des Zen-Gartens. Maßstab 1:1 (kein WORLD_SCALE), Sandkreis
+// r = 20 m, Augenhöhe 1.6 m.
+// DIESE WERTE DÜRFEN SICH ÜBER ALLE DURCHLÄUFE NICHT ÄNDERN – sonst sind die
+// Vergleichsbilder wertlos. Eingefroren in Durchlauf 1 nach Sichtprüfung der
+// Bildausschnitte.
+export const ZEN_SHOTS = [
+  {
+    name: 'a-eyelevel',
+    title: 'Augenhöhe, Blick über den Sand zum Torii',
+    pos: [0, 1.6, 6.0],
+    look: [0, 1.0, -12.0],
+    fov: 70,
+  },
+  {
+    name: 'b-pond',
+    title: 'Teich mit Laterne',
+    pos: [1.2, 1.5, 2.4],
+    look: [3.2, 0.1, -1.2],
+    fov: 65,
+  },
+  {
+    name: 'c-torii',
+    title: 'Torii über den Trittsteinen',
+    pos: [1.0, 1.6, 3.0],
+    look: [-2.0, 1.5, -9.0],
+    fov: 70,
+  },
+  {
+    name: 'd-aerial',
+    title: 'Totale von schräg oben (Komposition)',
+    pos: [10.0, 9.0, 12.0],
+    look: [0, 0, 0],
+    fov: 55,
+  },
+  {
+    name: 'e-sand',
+    title: 'Flache Nahsicht auf Harkmuster und Trittsteine',
+    pos: [0.5, 0.45, 4.2],
+    look: [-1.5, -0.05, -2.0],
+    fov: 60,
+  },
+  {
+    name: 'f-grove',
+    title: 'Sakura und Bambushain',
+    pos: [2.0, 1.7, 6.5],
+    look: [-5.0, 1.6, 0.5],
+    fov: 70,
+  },
+];
+
+// Kamerasätze je Umgebung. `SHOTS` bleibt der Inselsatz, damit die alten
+// Inselbilder vergleichbar bleiben.
+export const ENV_SHOTS = { island: SHOTS, zen: ZEN_SHOTS };
+
+export function shotsFor(envId) {
+  const set = ENV_SHOTS[envId];
+  if (!set) throw new Error(`Kein Kamerasatz für Umgebung "${envId}"`);
+  return set;
+}
+
+// --env <id> aus der Kommandozeile. Vorgabe ist der Zen-Garten: Das ist die
+// Umgebung, an der gerade gearbeitet wird.
+export function envArg(argv, fallback = 'zen') {
+  const i = argv.indexOf('--env');
+  return i >= 0 ? argv[i + 1] : fallback;
+}
+
 // Screenshots der anderen Umgebungen (Regressionsvergleich).
 //
 // Achtung beim Pixelvergleich: ⬜ Konstrukt ist NICHT reproduzierbar. Das Bild
@@ -80,6 +147,7 @@ export const SHOTS = [
 // zufällig – zwei Läufe desselben Standes unterscheiden sich dort immer. Für
 // diese Umgebung zählt der Blick aufs Bild, nicht der Byte-Vergleich.
 export const REGRESSION_SHOTS = {
+  island: { pos: [1.5, 1.6, 9.0], look: [-2.0, 1.2, -14.0], fov: 70 },
   night: { pos: [0, 1.6, 6], look: [0, 2.5, -18], fov: 70 },
   zen: { pos: [0, 1.6, 6], look: [0, 1.0, -12], fov: 70 },
   matrix: { pos: [0, 1.6, 2.5], look: [0, 1.0, -5], fov: 70 },

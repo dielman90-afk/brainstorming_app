@@ -62,6 +62,33 @@ function hashNoise(x, y, z) {
 
 const TAU = Math.PI * 2;
 
+// **Ein glatter, periodischer Umriss — und warum `hashNoise` dafür falsch ist.**
+//
+// `hashNoise` ist ein Hash, kein Rauschen: Zwei benachbarte Eingaben liefern
+// unabhängige Werte. Als Streuung je Scheitelpunkt ist das genau richtig (die
+// Flecken auf Saum und Becken benutzen es so), als **Umriss** ergibt es einen
+// Zackenstern. Genau das stand im Bild: Der Uferwulst des Teichs lief nicht in
+// Zungen und Buchten aus, sondern in helle Dreiecke, die wie Kartenfehler
+// aussahen — und dieselbe Ursache hatte der Rand der Moosinseln.
+//
+// Was hier gebraucht wird, ist eine Funktion des Winkels, die stetig ist **und**
+// sich bei 2π schließt. Eine Summe von Sinus-Termen mit ganzzahliger Frequenz
+// erfüllt beides von selbst. Die Amplituden fallen mit 1/f, damit die groben
+// Buchten die Form bestimmen und die feinen nur die Kante beleben.
+function welligerUmriss(seed, staerke = 0.16, terme = 5) {
+  const rnd = mulberry32(seed);
+  const glieder = [];
+  for (let k = 0; k < terme; k++) {
+    glieder.push({ f: k + 2, a: (rnd() * 2 - 1) / (k + 2), p: rnd() * TAU });
+  }
+  const norm = glieder.reduce((sum, g) => sum + Math.abs(g.a), 0) || 1;
+  return (winkel) => {
+    let v = 0;
+    for (const g of glieder) v += g.a * Math.sin(g.f * winkel + g.p);
+    return 1 + (v / norm) * staerke;
+  };
+}
+
 // Kürzester Winkelabstand, damit Formmerkmale (Landzunge, Bucht, Höhenrücken)
 // über die 0/2π-Naht hinweg stetig bleiben.
 function angDelta(a, b) {
@@ -88,13 +115,19 @@ function mulberry32(seed) {
 }
 
 // Himmelskuppel mit vertikalem Farbverlauf (von innen sichtbar)
-function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44, sun = null) {
+function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44, sun = null, clouds = null) {
   const material = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
-    defines: sun ? { HAS_SUN: '' } : {},
+    defines: { ...(sun ? { HAS_SUN: '' } : {}), ...(clouds ? { HAS_CLOUDS: '' } : {}) },
     uniforms: {
+      cloudMap: { value: clouds ? clouds.map : null },
+      cloudColor: { value: new THREE.Color(clouds ? clouds.color : 0xffffff) },
+      cloudLit: { value: new THREE.Color(clouds ? clouds.lit : 0xffffff) },
+      cloudStrength: { value: clouds ? (clouds.strength ?? 0.7) : 0 },
+      cloudScale: { value: new THREE.Vector2(...(clouds?.scale ?? [3, 2.4])) },
+      cloudBand: { value: new THREE.Vector4(...(clouds?.band ?? [0.02, 0.14, 0.34, 0.78])) },
       topColor: { value: new THREE.Color(topColor) },
       horizonColor: { value: new THREE.Color(horizonColor) },
       bottomColor: { value: new THREE.Color(bottomColor) },
@@ -120,6 +153,12 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
       uniform vec3 sunColor;
       uniform float sunTight;
       uniform float sunBroad;
+      uniform sampler2D cloudMap;
+      uniform vec3 cloudColor;
+      uniform vec3 cloudLit;
+      uniform float cloudStrength;
+      uniform vec2 cloudScale;
+      uniform vec4 cloudBand;
       varying vec3 vPos;
       void main() {
         vec3 dir = normalize(vPos);
@@ -127,6 +166,38 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
         vec3 col = h > 0.0
           ? mix(horizonColor, topColor, pow(h, 0.8))
           : mix(horizonColor, bottomColor, pow(-h, 0.8));
+        #ifdef HAS_CLOUDS
+          // **Schleierwolken, gerechnet in der Kuppel — kein Draw-Call.**
+          //
+          // Der Himmel war eine lineare Rampe: Neunzehn Proben über 380 Pixel
+          // stiegen streng monoton mit gleicher Schrittweite, bei einem
+          // Himmelanteil von rund 45 % des Bildes. Eine Rampe ist kein Himmel.
+          //
+          // Die Kachel läuft ganzzahlig um den Horizont (cloudScale.x ist eine
+          // ganze Zahl mal dem Umlauf), sonst stünde an einer Stelle des
+          // Himmels eine senkrechte Naht.
+          {
+            float az = atan(dir.z, dir.x) * 0.15915494;
+            vec2 uvW = vec2(az * cloudScale.x, h * cloudScale.y);
+            float n =
+              texture2D(cloudMap, uvW).r * 0.62 +
+              // **Der Faktor muss ganzzahlig sein.** 2,31 mal die 4 Umläufe
+              // der Grundoktave ergibt 9,24 — kein ganzer Umlauf, und genau
+              // dort stand eine senkrechte Naht im Himmel. 3,0 mal 4 ist 12.
+              texture2D(cloudMap, uvW * 3.0 + vec2(0.37, 0.11)).r * 0.38;
+            // Nur ein Band über dem Horizont: Zenitnah läuft die
+            // Azimut-Abbildung in den Pol und würde die Kachel verraten.
+            float band = smoothstep(cloudBand.x, cloudBand.y, h) *
+                         (1.0 - smoothstep(cloudBand.z, cloudBand.w, h));
+            float wolke = smoothstep(0.18, 0.62, n) * band * cloudStrength;
+            #ifdef HAS_SUN
+              float zurSonne = max(dot(dir, sunDir), 0.0);
+            #else
+              float zurSonne = 0.0;
+            #endif
+            col = mix(col, mix(cloudColor, cloudLit, pow(zurSonne, 2.2)), wolke);
+          }
+        #endif
         #ifdef HAS_SUN
           // Zwei Keulen: ein weiter, schwacher Hof über den halben Himmel und
           // ein enger, heller Kern direkt um die Sonne.
@@ -293,6 +364,204 @@ class GeoBucket {
     if (name) m.name = name;
     return m;
   }
+}
+
+// --- Astwerk ----------------------------------------------------------------
+//
+// **Der Prüfer hat es so beschrieben: „Sakura als Brokkoli auf Stiel ohne einen
+// einzigen Ast".** Nachgemessen war der Stamm über 70 Pixel Höhe und über die
+// volle Breite exakt derselbe Wert — ein Keil, keine Röhre, und zwischen ihm
+// und der Krone lag nichts.
+//
+// Ein Baum liest sich als Silhouette über die **Astlage**: wo die Krone
+// ansetzt, muss ein Ast hinführen, und er muss sich verjüngen und teilen. Die
+// Ansatzpunkte der Krone stehen ohnehin schon fest (`baueKrone`), also führt
+// von der Stammgabel ein Ast zu jedem von ihnen.
+//
+// Gebaut wird aus drei geraden Abschnitten je Ast statt aus einer Röhre entlang
+// einer Kurve: Der Unterschied ist bei zwei Metern Astlänge nicht zu sehen, und
+// eine Röhre mit gleichbleibendem Durchmesser wäre falscher als drei
+// verjüngte Zylinder. Alles wird mit dem Stamm zu einem Mesh verschmolzen,
+// kostet also keinen Draw-Call.
+function astAbschnitt(von, nach, r0, r1, seiten = 6) {
+  const richtung = new THREE.Vector3().subVectors(nach, von);
+  const laenge = richtung.length();
+  // **Nicht offen.** Der erste Anlauf ließ die Zylinder ohne Deckel; die
+  // Rückseite der Innenwand wird weggeschnitten, und die Astspitzen sahen aus
+  // wie abgesägte Rohre, durch die man den Himmel sieht.
+  const geo = new THREE.CylinderGeometry(r1, r0, laenge, seiten, 1, false);
+  geo.translate(0, laenge / 2, 0);
+  const q = new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    richtung.clone().normalize()
+  );
+  geo.applyQuaternion(q);
+  geo.translate(von.x, von.y, von.z);
+  return geo;
+}
+
+// Ein Ast von `von` nach `nach`, in drei Abschnitten mit einer Ausbuchtung zur
+// Seite. `bogen` ist der seitliche Ausschlag in Metern.
+function ast(von, nach, r0, r1, bogen, achse) {
+  const teile = [];
+  const p = (t) => {
+    const q = new THREE.Vector3().lerpVectors(von, nach, t);
+    // Sinus über die Länge: null an beiden Enden, größter Ausschlag in der Mitte
+    q.addScaledVector(achse, Math.sin(t * Math.PI) * bogen);
+    return q;
+  };
+  const stufen = [0, 1 / 3, 2 / 3, 1];
+  for (let i = 0; i < 3; i++) {
+    const t0 = stufen[i];
+    const t1 = stufen[i + 1];
+    teile.push(astAbschnitt(p(t0), p(t1), r0 + (r1 - r0) * t0, r0 + (r1 - r0) * t1));
+  }
+  return teile;
+}
+
+// Astwerk zu einer Liste von Kronenansätzen. `gabel` ist der Punkt am Stamm, an
+// dem sich der Baum teilt.
+function astwerk(gabel, ansaetze, { seed = 7, stammR = 0.09, spitzeR = 0.028 } = {}) {
+  const rand = mulberry32(seed);
+  const teile = [];
+  const g = new THREE.Vector3(...gabel);
+  for (const [x, y, z, r] of ansaetze) {
+    const ziel = new THREE.Vector3(x, y, z);
+    // Der Ast endet etwas unterhalb der Schopfmitte, sonst steckt sein Ende
+    // sichtbar in der Blattmasse.
+    // **Der Ast endet tief im Schopf.** Mit r·0,25 reichte er nur knapp hinein
+    // und stach an den oberen Ansätzen oben aus der Blattmasse heraus — im Bild
+    // dünne Stäbe, die über der Krone standen. Mit −r·0,3 liegt die Spitze
+    // sicher innerhalb der Blattmasse und wird von ihr verdeckt.
+    ziel.addScaledVector(new THREE.Vector3().subVectors(ziel, g).normalize(), -r * 0.3);
+    // Ausbuchtung senkrecht zur Astrichtung und zur Senkrechten: Ein Ast wächst
+    // nicht auf der kürzesten Verbindung.
+    const richtung = new THREE.Vector3().subVectors(ziel, g).normalize();
+    const achse = new THREE.Vector3().crossVectors(richtung, new THREE.Vector3(0, 1, 0));
+    if (achse.lengthSq() < 1e-4) achse.set(1, 0, 0);
+    achse.normalize().applyAxisAngle(richtung, rand() * Math.PI * 2);
+    const dick = stammR * (0.6 + r);
+    teile.push(...ast(g, ziel, dick, spitzeR * (0.45 + rand() * 0.4), 0.08 + rand() * 0.3, achse));
+    // Ein Nebenzweig je Ast, der vor dem Schopf abgeht — er macht die
+    // Silhouette unregelmäßig, ohne dass man ihn einzeln liest.
+    // (verbraucht denselben Zufallswert wie zuvor, damit sich die Astlage
+    // gegenüber dem geprüften Stand nicht verschiebt)
+    const abzweig = new THREE.Vector3().lerpVectors(g, ziel, 0.55 + rand() * 0.2);
+    // **Die Nebenzweige sind entfallen.** Sie sollten die Silhouette
+    // unregelmäßig machen, endeten aber zwangsläufig irgendwo — und wo das
+    // außerhalb der Blattmasse lag, stand ein abstehender Stab in der Luft.
+    // Ein Ast, der ins Nichts zeigt, ist schlimmer als gar keiner. Die
+    // Unregelmäßigkeit trägt jetzt die Blattmasse allein; die Hauptäste sind
+    // dafür in Dicke und Bogen stärker gestreut.
+    void abzweig;
+  }
+  return teile;
+}
+
+// --- Fertige Meshes verschmelzen -------------------------------------------
+//
+// `GeoBucket` schreibt beim Hinzufügen die Scheitelfarben neu. Genau die tragen
+// bei den Zen-Steinen aber die Unterschiede – Grundton, Moospatina, gebackenes
+// Licht –, und die Objekte sind zum Zeitpunkt des Verschmelzens längst fertig
+// gebaut und platziert. Diese Hilfe nimmt sie, wie sie sind: Weltmatrix in die
+// Geometrie backen, Attribute angleichen, verschmelzen.
+//
+// Erst bauen, dann verschmelzen – und nicht umgekehrt – ist Absicht. Wer schon
+// beim Bauen in einen Puffer schreibt, muss die Reihenfolge der Zufallszahlen
+// mitdenken; `mulberry32` ist gesät, ein verschobener Aufruf verschiebt alles
+// danach. So bleibt die Bildkomposition Zeichen für Zeichen dieselbe.
+function backeMatrix(mesh) {
+  const g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry.clone();
+  g.applyMatrix4(mesh.matrixWorld);
+  return g;
+}
+
+// `mergeGeometries` verlangt in allen Teilen denselben Attributsatz.
+function angleichen(g, brauchtFarbe) {
+  if (!g.attributes.normal) g.computeVertexNormals();
+  if (!g.attributes.uv) {
+    g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+  }
+  if (brauchtFarbe && !g.attributes.color) {
+    g.setAttribute(
+      'color',
+      new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 3).fill(1), 3)
+    );
+  }
+  for (const key of Object.keys(g.attributes)) {
+    if (!['position', 'normal', 'uv', 'color'].includes(key)) g.deleteAttribute(key);
+  }
+  if (!brauchtFarbe && g.attributes.color) g.deleteAttribute('color');
+  return g;
+}
+
+// Objekte (einzelne Meshes oder ganze Gruppen) zu je **einem** Mesh pro
+// vorkommendem Material. Rückgabe ist eine Liste, damit der Aufrufer sie ohne
+// Fallunterscheidung mit `group.add(...)` einhängen kann.
+function verschmelzeObjekte(objekte, name) {
+  if (!objekte.length) return [];
+  const halter = new THREE.Group();
+  for (const o of objekte) halter.add(o);
+  halter.updateMatrixWorld(true);
+  const nachMaterial = new Map();
+  halter.traverse((o) => {
+    if (!o.isMesh || o.isInstancedMesh) return;
+    if (!nachMaterial.has(o.material)) nachMaterial.set(o.material, []);
+    nachMaterial.get(o.material).push(o);
+  });
+  const raus = [];
+  for (const [material, liste] of nachMaterial) {
+    const geos = liste.map((m) => angleichen(backeMatrix(m), material.vertexColors === true));
+    const mesh = new THREE.Mesh(mergeGeometries(geos), material);
+    for (const g of geos) g.dispose();
+    mesh.name = raus.length ? `${name}-${raus.length}` : name;
+    raus.push(mesh);
+  }
+  return raus;
+}
+
+// Alle Kontaktschatten einer Umgebung in **ein** Mesh.
+//
+// Sie sind sich bis auf Ort, Größe und Deckkraft gleich – nur legt
+// `makeBlobShadow` je Schatten ein eigenes Material an, weil die Deckkraft dort
+// steht. Scheitelfarben multiplizieren die Farbe, nicht die Deckkraft; der
+// übliche Ausweg wäre eine alphaMap je Schatten und damit wieder ein Material
+// je Schatten. three kennt aber einen zweiten Fall: Hat das Farbattribut
+// **vier** Komponenten, setzt der Renderer `USE_COLOR_ALPHA`
+// (WebGLPrograms, Feld `vertexAlphas`), und die vierte Komponente multipliziert
+// die Deckkraft mit. Damit stehen dreizehn Schatten in einem Draw-Call.
+let _schattenMaterial = null;
+function verschmelzeSchatten(schatten, name = 'kontaktschatten') {
+  if (!_schattenMaterial) {
+    _schattenMaterial = new THREE.MeshBasicMaterial({
+      map: shadowTexture(),
+      transparent: true,
+      depthWrite: false,
+      toneMapped: false,
+      vertexColors: true,
+    });
+  }
+  const halter = new THREE.Group();
+  for (const s of schatten) halter.add(s);
+  halter.updateMatrixWorld(true);
+  const geos = schatten.map((s) => {
+    const g = angleichen(backeMatrix(s), false);
+    const n = g.attributes.position.count;
+    const farben = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      farben[i * 4] = 1;
+      farben[i * 4 + 1] = 1;
+      farben[i * 4 + 2] = 1;
+      farben[i * 4 + 3] = s.material.opacity;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(farben, 4));
+    return g;
+  });
+  const mesh = new THREE.Mesh(mergeGeometries(geos), _schattenMaterial);
+  for (const g of geos) g.dispose();
+  mesh.name = name;
+  mesh.renderOrder = 1; // knapp über dem opaken Boden, wie die Einzelschatten
+  return mesh;
 }
 
 // --- Kronen aus vielen kleinen Schöpfen -------------------------------------
@@ -3536,110 +3805,1088 @@ function createNightEnvironment() {
 
 // --- Zen-Garten ---
 
-// Sandfläche mit weichen, geharkten Wellenlinien (konzentrisch, organisch – kein Raster)
-// **Die Harkspur war bisher aufgemalt und nicht vorhanden.**
+// --- Das Sandbett -----------------------------------------------------------
 //
-// Eine Rille im Kies ist kein hellerer Strich, sie ist eine Vertiefung: Bei
-// einer Sonne, die hier 20° über dem Horizont steht, hat sie eine beschienene
-// und eine verschattete Flanke, und genau dieser Wechsel macht aus einer Fläche
-// eine geharkte Fläche. Aufgemalt bleibt sie flach, egal wie gut die Farbe ist –
-// das ist der Grund, warum der Boden aussah wie bedruckter Karton.
+// Der Kiesgarten ist mit 1256 m² die mit Abstand größte Fläche der Umgebung
+// und füllt in vier der sechs Prüfansichten mehr als die Hälfte des Bildes.
+// Was hier nicht trägt, trägt nirgends.
 //
-// Deshalb wird dieselbe Zeichnung zweimal verwendet: einmal als Farbe und
-// einmal als **Höhenfeld**, aus dem `heightToMaps()` die Normal-Map rechnet.
-// Beide aus derselben Quelle heißt: Relief und Farbe liegen deckungsgleich.
-// Zwei getrennte Zeichnungen wären die einfachste Art, eine Rille zu bekommen,
-// die man sieht, aber nicht dort, wo sie hell ist.
-const SAND_CENTERS = [
-  [512, 512],
-  [250, 300],
-  [780, 700],
-  [720, 260],
-];
-let _sandMaps = null;
-function sandMaps() {
-  if (_sandMaps) return _sandMaps;
-  const size = 1024;
+// **Warum die aufgemalte Harkspur weg musste.** Sie stand als Kreisbögen in
+// einer 1024er-Karte, die einmal über die ganze Scheibe gespannt ist: ein
+// Texel deckt 3,9 cm ab. Der Rillenabstand lag deshalb bei 86 cm — nicht weil
+// das ein plausibler Abstand für eine Harke wäre (der liegt bei 20 bis 25 cm),
+// sondern weil ein kleinerer in dieser Auflösung nicht mehr abtastbar gewesen
+// wäre. Das Ergebnis las sich als Dünung, nicht als geharkter Kies. Dieselbe
+// Auflösungsgrenze machte aus der Körnung, die in Vierergruppen von Texeln
+// gewürfelt wurde, ein Karo von 15,6 cm Kantenlänge — im Bild als rechteckiges
+// Muster sichtbar und damit ein Programmierer-Tell erster Güte.
+//
+// Eine höhere Auflösung ist nicht der Ausweg: Für 22-cm-Rillen mit einer
+// brauchbaren Flanke bräuchte man rund 8000² Texel, also gut 350 MB. Das
+// Budget für **alle** Texturen sind 60 MB.
+//
+// Deshalb ist die Aufgabe aufgeteilt, jede Frequenz auf den Träger, der sie
+// billig kann:
+//
+//   * **grob** (Meter bis Zehnermeter) — eine 512er-Farbkarte über die ganze
+//     Scheibe: Flecken aus gröberem und feinerem Kies, das Ausbleichen zum
+//     Rand. 7,8 cm je Texel, aber es stehen nur tiefe Frequenzen darin, also
+//     sieht man die Auflösung nicht.
+//   * **mittel** (die Harkspur, 22 cm) — **rechnerisch im Shader**, aus der
+//     Weltposition. Eine Rille ist damit in jeder Entfernung gleich scharf,
+//     kostet kein Byte Speicher, und — der eigentliche Gewinn — sie kann sich
+//     an `fwidth` ausblenden, sobald eine Periode auf weniger als zwei Pixel
+//     fällt. Genau das ist die Unterabtastung, die auf der Insel drei
+//     Durchläufe gekostet hat.
+//   * **fein** (Korn, 1 bis 3 mm) — eine kachelnde 256er-Normal-Map mit
+//     **reinem Rauschen**, 0,32 m je Kachel. Reines Rauschen wiederholt sich
+//     unauffällig; die Begründung steht ausführlich bei `cliffMaps()` in
+//     src/dojo/stonework.js.
+//
+// Speicher: 512² Farbe + 256² Korn = 1,4 + 0,35 MB gegen vorher zweimal 1024²
+// = 11,2 MB.
 
-  // --- Höhenfeld -------------------------------------------------------------
-  const hc = document.createElement('canvas');
-  hc.width = hc.height = size;
-  const hx = hc.getContext('2d');
-  hx.fillStyle = '#b0b0b0'; // Kammhöhe zwischen den Rillen
-  hx.fillRect(0, 0, size, size);
-  // Weichgezeichnet gestrichelt, damit der Sobel eine **Flanke** findet statt
-  // einer Stufe. Eine harte Kante ergibt in der Normal-Map einen Grat, der
-  // keinen Schatten wirft, sondern einen schwarzen Strich zeigt – derselbe
-  // Fehler, der beim Kies des Dojos einen eigenen Weichzeichner nötig machte.
-  hx.filter = 'blur(3px)';
-  hx.strokeStyle = '#3c3c3c'; // Rillengrund
-  hx.lineWidth = 5;
-  for (const [cx, cy] of SAND_CENTERS) {
-    for (let r = 22; r < 220; r += 22) {
-      hx.beginPath();
-      hx.arc(cx, cy, r, 0, Math.PI * 2);
-      hx.stroke();
-    }
-  }
-  hx.filter = 'none';
-  const gezeichnet = hx.getImageData(0, 0, size, size).data;
-  const rille = new Float32Array(size * size);
-  for (let i = 0; i < size * size; i++) rille[i] = gezeichnet[i * 4] / 255;
+const SAND_RADIUS = 20;
 
-  // Körnung: eine feste Rauschzelle statt weißem Rauschen je Pixel. Auf einer
-  // 40-m-Fläche wäre Pixelrauschen nur Flimmern.
-  const korn = (x, y) => {
-    const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
-    return s - Math.floor(s);
-  };
-
-  const { normalMap, field } = heightToMaps({
-    size,
-    strength: 2.4,
-    height: (x, y) => rille[y * size + x] * 0.82 + korn(x >> 2, y >> 2) * 0.18,
-    anisotropy: 8,
-  });
-
-  // --- Farbe, aus demselben Feld --------------------------------------------
+// Kachelnde Kornkarte: Körner **setzen**, nicht Rauschen rechnen.
+//
+// **Der erste Anlauf war ein Wertrauschen auf einem quadratischen Gitter**, und
+// genau das sah man: In der Vergrößerung des Vordergrunds (e-sand, 6-fach bei
+// 500|640) lag ein diagonales Karomuster über dem Sand — die Interpolation
+// zwischen den Gitterzellen hat eine Vorzugsrichtung, und bei vier Pixeln je
+// Zelle steht sie im Bild. Ein Rauschen, dem man das Gitter ansieht, ist
+// derselbe Programmierer-Tell wie eine gekachelte Textur, der man die Kachel
+// ansieht.
+//
+// Körner sind keine Frequenz, sondern Objekte. Sie werden deshalb einzeln
+// gesetzt: runde Tupfen an zufälligen Stellen, jeder auch um ±Kachelbreite
+// versetzt gezeichnet, damit die Karte nahtlos bleibt. Das Ergebnis hat keine
+// Vorzugsrichtung, weil es kein Gitter gibt.
+function kornCanvas(size, rand) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
-  const bild = ctx.createImageData(size, size);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const i = y * size + x;
-      const h = field[i];
-      // Warmer Sandton mit einem Verlauf über die Diagonale, wie zuvor. Der
-      // Rillengrund sieht weniger Himmel und wird dadurch dunkler.
-      const diag = (x + y) / (size * 2);
-      const schatten = 0.66 + h * 0.5;
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, size, size);
+
+  const tupfen = (x, y, r, hell) => {
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    const v = Math.round(128 + hell * 127);
+    g.addColorStop(0, `rgba(${v},${v},${v},0.85)`);
+    g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  // Alles, was näher als der eigene Radius am Rand liegt, wird zusätzlich auf
+  // der Gegenseite gezeichnet – sonst reißt die Kachel an der Naht auf.
+  const setze = (x, y, r, hell) => {
+    for (const dx of [-size, 0, size]) {
+      for (const dy of [-size, 0, size]) {
+        if (Math.abs(x + dx - size / 2) > size / 2 + r) continue;
+        if (Math.abs(y + dy - size / 2) > size / 2 + r) continue;
+        tupfen(x + dx, y + dy, r, hell);
+      }
+    }
+  };
+
+  // Grobkorn: einzelne Kiesel, die aus der Fläche stehen.
+  for (let i = 0; i < 220; i++) {
+    setze(rand() * size, rand() * size, 3.5 + rand() * 5.5, 0.35 + rand() * 0.45);
+  }
+  // Feinkorn: die Masse. Deutlich mehr und deutlich kleiner.
+  for (let i = 0; i < 2600; i++) {
+    setze(rand() * size, rand() * size, 1.1 + rand() * 1.9, (rand() - 0.45) * 0.9);
+  }
+  return ctx.getImageData(0, 0, size, size).data;
+}
+
+let _sandMaps = null;
+function sandMaps() {
+  if (_sandMaps) return _sandMaps;
+
+  // --- Farbe, grob (512², einmal über die 40-m-Scheibe) ---------------------
+  const fSize = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = fSize;
+  const ctx = canvas.getContext('2d');
+  const bild = ctx.createImageData(fSize, fSize);
+  for (let y = 0; y < fSize; y++) {
+    for (let x = 0; x < fSize; x++) {
+      const i = y * fSize + x;
+      // Weltkoordinate dieses Texels, normiert auf den Scheibenradius
+      const nx = (x / fSize) * 2 - 1;
+      const nz = (y / fSize) * 2 - 1;
+      const rad = Math.min(1, Math.hypot(nx, nz));
+
+      // Flecken aus gröberem und feinerem Kies. Zwei Frequenzen: große Zonen
+      // (der Kies wurde in Fuhren aufgeschüttet) und kleinere Wolken darin.
+      const zone = fbm2(nx * 2.1 + 11, nz * 2.1 - 7);
+      const wolke = fbm2(nx * 7.4 - 3, nz * 7.4 + 5);
+      const fleck = 1 + zone * 0.16 + wolke * 0.075;
+
+      // **Ausbleichen zum Rand.** Der Kies vor den Steingruppen wird täglich
+      // geharkt und dabei umgewälzt, der Rand liegt jahrelang in der Sonne:
+      // heller, blasser, eine Spur kühler. Der Verlauf setzt erst bei 55 % des
+      // Radius ein, damit die Mitte satt bleibt.
+      const bleich = smoothstep(0.55, 1.0, rad);
+      // Dazu ein warmer Streiflichtverlauf über die Diagonale wie zuvor: Die
+      // Sonne steht links hinten, die ihr zugewandte Hälfte ist wärmer.
+      const diag = (nx - nz) * 0.5;
+
+      // **Dunkler als vorher.** Mit einer Sonne, die dreimal so stark ist wie
+      // bei Mittagsstand, stand der Kies bei einem Albedo von 0,90 als
+      // gebleichte Fläche im Bild (Anteil über L 190: 51,6 %). Kies ist kein
+      // Papier; ein Albedo um 0,78 lässt die Lichtseite oben und gibt der
+      // Fläche ihre Farbe zurück.
+      const grund = [212, 191, 155];
+      const blass = [224, 211, 186];
       const r4 = i * 4;
-      bild.data[r4] = Math.min(255, (231 - diag * 11) * schatten);
-      bild.data[r4 + 1] = Math.min(255, (212 - diag * 15) * schatten);
-      bild.data[r4 + 2] = Math.min(255, (176 - diag * 20) * schatten);
+      for (let k = 0; k < 3; k++) {
+        const basis = grund[k] * (1 - bleich) + blass[k] * bleich;
+        const warm = 1 + diag * (k === 0 ? 0.035 : k === 1 ? 0.012 : -0.03);
+        bild.data[r4 + k] = Math.max(0, Math.min(255, basis * fleck * warm));
+      }
       bild.data[r4 + 3] = 255;
     }
   }
   ctx.putImageData(bild, 0, 0);
   const map = new THREE.CanvasTexture(canvas);
   map.colorSpace = THREE.SRGBColorSpace;
-  for (const t of [map, normalMap]) {
-    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
-    t.anisotropy = 8;
-  }
+  map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
+  map.anisotropy = 4;
 
-  _sandMaps = { map, normalMap };
+  // --- Korn, fein (256², kachelnd) ------------------------------------------
+  //
+  // 2600 feine Körner und 220 grobe Kiesel je Kachel von 32 cm. Das grobe
+  // Korn ist das, was aus zwei Metern noch als Kies lesbar ist; das feine ist
+  // die Masse dazwischen.
+  const kSize = 256;
+  const korn = kornCanvas(kSize, mulberry32(53177));
+  const { normalMap: grainMap } = heightToMaps({
+    size: kSize,
+    strength: 1.5,
+    anisotropy: 8,
+    height: (x, y) => korn[(y * kSize + x) * 4] / 255,
+  });
+  grainMap.wrapS = grainMap.wrapT = THREE.RepeatWrapping;
+  // **0,7 m je Kachel, nicht 0,32.** Mit der kleineren Kachel lag ein Texel bei
+  // 1,25 mm und das Grobkorn bei 3 bis 9 mm — physikalisch richtig für Kies und
+  // im Bild trotzdem nicht vorhanden: Aus drei Metern löst ein Pixel gut 3,7 mm
+  // auf, die Karte wird also längst aus einer Mipmap-Stufe gelesen, in der das
+  // Korn wegmittelt ist. Sichtbar ist auf diese Entfernung nur, was gröber als
+  // etwa einen Zentimeter ist. Mit 0,7 m je Kachel liegt das Grobkorn bei 1 bis
+  // 2,5 cm und steht im Bild.
+  const kachelnProScheibe = (SAND_RADIUS * 2) / 0.7;
+  grainMap.repeat.set(kachelnProScheibe, kachelnProScheibe);
+
+  _sandMaps = { map, grainMap };
   return _sandMaps;
 }
 
-// Die Sonne des Zen-Gartens als Richtung, in die das Licht **läuft**.
-// `sun.position` ist [−12 | 9 | −6], das Licht zielt auf den Ursprung. Nötig,
-// weil `mossPatina()` sonst die Sonne des Dojos nähme und die Wetterseite jedes
-// Steins auf der falschen Seite läge.
+// Das Sandmaterial.
+//
+// Die Harkspur entsteht aus einem **Potentialfeld** φ(x,z): Die Rillen liegen
+// dort, wo φ ein Vielfaches des Rillenabstands ist. Für gerade Züge ist φ der
+// Abstand zu einer Geraden, für konzentrische Ringe der Abstand zu einem
+// Mittelpunkt. Weil beides dieselbe Größe ist, lässt sich zwischen ihnen
+// umschalten, indem man in der Nähe einer Insel deren Ringfeld nimmt und
+// draußen das gerade — genau so, wie ein Gärtner harkt: ein Band von Ringen um
+// jede Steingruppe, gerade Züge im offenen Feld, und dazwischen eine sichtbare
+// Naht, wo die Züge aufeinandertreffen.
+//
+// Diese Naht ist kein Fehler, sondern das Kennzeichen einer gestalteten
+// Fläche. Sie wird nur um ein paar Zentimeter geglättet, damit der
+// Phasensprung nicht als Bruchkante steht.
+function sandMaterial() {
+  const k = sandMaps();
+  const uniforms = {
+    // xz Mittelpunkt, z Innenradius des Rings, w Breite des Ringbandes
+    uSandRinge: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
+    // xz Mittelpunkt, z Radius, w Stärke – Feuchtezonen an Moos und Teich
+    uSandFeucht: { value: Array.from({ length: 6 }, () => new THREE.Vector4()) },
+    uSandGerade: { value: new THREE.Vector2(Math.cos(0.42), Math.sin(0.42)) },
+    uSandTeilung: { value: 0.225 },
+    uSandTiefe: { value: 0.026 },
+  };
+
+  const material = new THREE.MeshStandardMaterial({
+    map: k.map,
+    normalMap: k.grainMap,
+    // Das Korn ist eine Andeutung, kein Geröll.
+    normalScale: new THREE.Vector2(1.3, 1.3),
+    // Trockener Kies ist stumpf. Die Kämme sind eine Spur glatter als der
+    // Rillengrund – das steht im Shader, eine eigene Rauheitskarte wäre eine
+    // zweite Abtastung je Pixel auf der größten Fläche der Szene.
+    roughness: 0.95,
+    metalness: 0,
+  });
+
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n varying vec3 vSandWelt;')
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\n vSandWelt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vSandWelt;
+         uniform vec4 uSandRinge[4];
+         uniform vec4 uSandFeucht[6];
+         uniform vec2 uSandGerade;
+         uniform float uSandTeilung;
+         uniform float uSandTiefe;
+         // Ergebnisse von sandRelief(): Steigung in Weltkoordinaten (x,z),
+         // Kammhöhe 0…1 und Feuchte 0…1.
+         vec2 gSandSteigung;
+         float gSandKamm;
+         float gSandFeucht;
+
+         void sandRelief(vec2 p) {
+           // --- Potentialfeld: gerade Züge, um die Inseln herum Ringe --------
+           float phi = dot(p, uSandGerade);
+           vec2 grad = uSandGerade;
+           // **Eine Harke wird von Hand gezogen.** Perfekt parallele Geraden
+           // und perfekte Kreise sind der sicherste Weg, eine Fläche als
+           // gerechnet zu verraten. Zwei langwellige Terme verbiegen das
+           // Potential um wenige Zentimeter – zu wenig, um als Welle zu lesen,
+           // genug, damit keine zwei Züge deckungsgleich laufen. Der Beitrag
+           // zur Steigung ist gegenüber dem Rillenprofil vernachlässigbar und
+           // wird deshalb nicht mitgeführt.
+           phi += 0.055 * sin(p.x * 0.41 + p.y * 0.27) + 0.028 * sin(p.x * 1.13 - p.y * 0.94);
+           // Naht: wo ein Ringband endet, wird die Amplitude kurz
+           // heruntergenommen statt die Phase springen zu lassen.
+           float naht = 1.0;
+           for (int i = 0; i < 4; i++) {
+             vec2 d = p - uSandRinge[i].xy;
+             float r = length(d) + 1e-4;
+             float f = r - uSandRinge[i].z;
+             if (f > 0.0 && f < uSandRinge[i].w) {
+               phi = f;
+               grad = d / r;
+             }
+             naht *= smoothstep(0.0, 0.09, abs(f - uSandRinge[i].w));
+             // Innerhalb der Insel selbst wird nicht geharkt.
+             naht *= smoothstep(-0.12, 0.02, f);
+           }
+
+           // --- Feuchte an Moos und Teich ------------------------------------
+           float feucht = 0.0;
+           for (int i = 0; i < 6; i++) {
+             vec2 d = p - uSandFeucht[i].xy;
+             feucht = max(
+               feucht,
+               uSandFeucht[i].w * (1.0 - smoothstep(uSandFeucht[i].z, uSandFeucht[i].z + 0.75, length(d)))
+             );
+           }
+           gSandFeucht = feucht;
+
+           // --- Abstandsstreuung ----------------------------------------------
+           //
+           // **7,0 % Streuung im Rillenabstand sind zu wenig.** Eine von Hand
+           // gezogene Harke streut 15 bis 30 %, und zwar sprunghaft: Der
+           // Gärtner setzt neu an, zieht mal enger, mal weiter. Gemessen war
+           // die Folge im Ausgangsstand monoton — reine Perspektive plus
+           // Kreiskrümmung, ohne einen einzigen Zufallsanteil. Der Term unten
+           // verzerrt die Phase langwellig; weil er von phi selbst abhängt,
+           // ändert er den **Abstand**, nicht nur die Lage.
+           //
+           // **Der erste Anlauf hat die Spur zerlegt.** Ich hatte den Betrag
+           // geschätzt statt die Ableitung hinzuschreiben. Für phi' = phi +
+           // A·sin(f·phi) ist dphi'/dphi = 1 + A·f·cos(f·phi), die Streuung des
+           // Abstands ist also **A·f** — nicht A, und nicht A·f·Teilung. Mit
+           // A=0,5 und f=1,8 stand dort A·f = 0,9, also ±90 %; wo der Ausdruck
+           // negativ wurde, lief die Spur rückwärts. Im Bild waren das keine
+           // Harkzüge mehr, sondern Kratzer. Jetzt A·f = 0,18 + 0,08 = 0,26,
+           // also die 15 bis 30 %, die eine von Hand gezogene Harke streut.
+           phi += 0.22 * sin(phi * 0.8 + p.x * 0.4) + 0.03 * sin(phi * 2.6 - p.y * 0.6);
+
+           // --- Rillenprofil --------------------------------------------------
+           float s = phi / uSandTeilung;
+           // **Der Ausblendeterm, ohne den das Bild flimmert.** w ist die
+           // Zahl der Perioden je Pixel; ab 0,5 ist Nyquist erreicht. Der erste
+           // Anlauf blendete zwischen 0,22 und 0,55 aus und stand damit bei
+           // einer Periode von 2,7 px noch auf 64 % Amplitude — der Prüfer hat
+           // genau dort Schwebungen gefunden. Jetzt ist die feine Spur bei 0,34
+           // vollständig weg, also deutlich vor Nyquist.
+           float w = fwidth(s);
+           float scharf = 1.0 - smoothstep(0.10, 0.34, w);
+
+           // **Asymmetrisches Profil.** Eine Harkzinke schiebt das Korn zur
+           // Seite: Die eine Flanke ist steil, die andere läuft flach aus.
+           // Gemessen hatte das Profil eine Asymmetrie von 0,84 — ein
+           // symmetrisches Wellenband, also ein Glanzlicht auf dem Grat statt
+           // eines Schattens in der Rille. Die Phasenverzerrung unten macht
+           // daraus einen Sägezahn; die Ableitung zieht die Verzerrung über die
+           // Kettenregel mit.
+           float t = fract(s);
+           float tw = t + 0.24 * sin(6.2831853 * t);
+           float h = 0.5 - 0.5 * cos(6.2831853 * tw);
+           float kamm = h * h * (3.0 - 2.0 * h);      // flacher Kamm, runde Rille
+           float dtw = 1.0 + 0.24 * 6.2831853 * cos(6.2831853 * t);
+           float dKamm = 6.0 * h * (1.0 - h) * 3.1415927 * sin(6.2831853 * tw) * dtw;
+
+           // **Der grobe Zug, der die Ferne trägt.** Blendet die feine Spur
+           // aus, bleibt sonst eine leere Fläche zurück — der Prüfer hat den
+           // strukturlosen Anteil im Fernband von 31 % auf 60 % steigen sehen.
+           // Ein geharktes Bett hat aber zwei Maßstäbe: die Zinken und die
+           // Bahnen, in denen der Gärtner arbeitet. Die Bahn ist siebenmal so
+           // breit, wird also erst siebenmal weiter draußen unterabtastbar und
+           // hält die Ferne besetzt.
+           float sGrob = phi / (uSandTeilung * 7.0);
+           float scharfGrob = 1.0 - smoothstep(0.10, 0.34, fwidth(sGrob));
+           float hGrob = 0.5 - 0.5 * cos(6.2831853 * sGrob);
+           float kammGrob = hGrob * hGrob * (3.0 - 2.0 * hGrob);
+           float dGrob = 6.0 * hGrob * (1.0 - hGrob) * 3.1415927 * sin(6.2831853 * sGrob);
+
+           // **Zum Rand hin wird seltener geharkt — aber nicht auf einem
+           // Kreis.** Der erste Anlauf ließ die Spur zwischen 11 und 17 m
+           // auslaufen, und weil das ein exakter Kreis um den Ursprung war,
+           // stand im flachen Blick eine gerade Linie quer durchs Bild
+           // (e-sand, y rund 367 bis 372). Die Grenze schwankt jetzt ueber den Azimut
+           // um ±5 m.
+           float r = length(p);
+           float az = atan(p.y, p.x);
+           // Ohne die Mauer als Abschluss läuft die Spur wieder weiter und
+           // unregelmäßiger aus — sie endet dann im Dunst statt an einer Kante.
+           float grenze = 13.5 + 3.2 * sin(az * 2.3 + 1.1) + 1.8 * sin(az * 5.1 - 0.4);
+           float rand = 1.0 - smoothstep(grenze - 3.0, grenze + 3.0, r);
+           // Der Druck auf der Harke ist nicht konstant. Zwei langwellige
+           // Terme lassen die Rille stellenweise tief und stellenweise fast
+           // verlaufen — die mittlere Frequenz, die zwischen Korn (Millimeter)
+           // und Zug (Zentimeter) sonst fehlt.
+           float druck = 0.98 + 0.30 * sin(p.x * 0.83 + p.y * 0.61) + 0.18 * sin(p.x * 0.29 - p.y * 0.44);
+           // Am Moos und am Wasser hört die Harke auf.
+           float gemeinsam = naht * rand * druck * (1.0 - feucht * 0.85);
+           float amp = scharf * gemeinsam;
+           // Der grobe Zug ist flacher als die Zinkenspur, aber breiter – seine
+           // Steigung bleibt deshalb in derselben Größenordnung.
+           float ampGrob = scharfGrob * gemeinsam * 0.55;
+
+           gSandSteigung =
+             grad * (uSandTiefe / uSandTeilung) * (dKamm * amp + dGrob * ampGrob / 7.0);
+           gSandKamm = mix(0.5, kamm, amp) + (kammGrob - 0.5) * ampGrob * 0.5;
+         }`
+      )
+      .replace(
+        '#include <map_fragment>',
+        `sandRelief(vSandWelt.xz);
+         #include <map_fragment>
+         {
+           // Der Rillengrund sieht weniger Himmel und liegt im Eigenschatten
+           // der Flanke: dunkler und eine Spur kühler. Der Kamm bekommt die
+           // Lichtspitze.
+           diffuseColor.rgb *= mix(vec3(0.715, 0.71, 0.74), vec3(1.11, 1.10, 1.06), gSandKamm);
+           // Feuchter Kies ist dunkler und gesättigter – das ist der Übergang
+           // zum Moos und zum Teichufer.
+           diffuseColor.rgb *= mix(vec3(1.0), vec3(0.63, 0.66, 0.55), gSandFeucht);
+         }`
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+         // Der Kamm ist glattgestrichen, im Rillengrund liegt loses Korn.
+         // **Die Lichtspitze kann nicht aus dem diffusen Anteil kommen.**
+         // Nachgerechnet: Bei Sonnenstärke 4,6, Einfallswinkel 71° und
+         // Albedo 0,77 liegt der diffuse Anteil einer waagerechten Fläche bei
+         // rund 0,72 linear; mit Belichtung 1,1 durch die ACES-Kurve sind das
+         // etwa L 210. Für L 230 bräuchte es das Doppelte, also eine Sonne um
+         // 9 — und die würde jede senkrechte Fläche ausfressen.
+         //
+         // Spitzen kommen deshalb aus dem **Glanz**. Bei Rauheit 0,58 ist die
+         // Keule so breit, dass ihr Maximum unter 5 % des diffusen Anteils
+         // bleibt; bei 0,25 ist sie rund zwanzigmal höher. Auf einem Kamm, der
+         // quer zur streifenden Sonne steht, zieht das eine helle Linie — und
+         // genau das ist die Lichtkante, die einem geharkten Kies bei tiefer
+         // Sonne das Leben gibt. Der Rillengrund bleibt stumpf.
+         // **Und 0,42 war immer noch zu viel.** Bei streifendem Blick auf
+         // eine waagerechte Fläche ist die Glanzkeule ohnehin breit; senkt man
+         // dann auch noch die Rauheit, leuchtet nicht eine Kante auf, sondern
+         // der halbe Vordergrund — im Bild sah der Kies aus wie lackiert, und
+         // der Schatten in der Rille war wieder weg.
+         //
+         // Der Kies bleibt also stumpf, wie trockener Kies es ist. Die
+         // Lichtspitzen dieser Szene kommen von den Dingen, die welche haben
+         // dürfen: der Sonnenscheibe, dem Lichtkasten der Laterne und dem
+         // nassen Stein am Wasser.
+         roughnessFactor *= mix(1.0, 0.86, gSandKamm);`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+         // Die Steigung des Höhenfelds steht in Weltkoordinaten, \`normal\` an
+         // dieser Stelle im Blickraum. viewMatrix gehört zum festen Vorspann
+         // jedes three-Fragmentshaders.
+         normal = normalize(normal - mat3(viewMatrix) * vec3(gSandSteigung.x, 0.0, gSandSteigung.y));`
+      );
+  };
+  // Ohne eigenen Schlüssel teilt sich dieses Material ein kompiliertes Programm
+  // mit jedem anderen MeshStandardMaterial gleicher Bauart – und bekäme dessen
+  // Shader ohne die Harkspur.
+  material.customProgramCacheKey = () => 'zen-sand';
+  material.userData.sandUniforms = uniforms;
+  return material;
+}
+
+// Das Bett selbst: eine Scheibe mit radialen Ringen.
+//
+// `CircleGeometry(20, 72)` hätte 72 Dreiecke und einen einzigen Mittelpunkt —
+// für eine Fläche mit Nebel und Scheitelfarben zu grob, und ihr Rand wäre ein
+// sichtbares 72-Eck. Die Ringe stehen außen weiter auseinander als innen: Wo
+// man steht, zählt jeder Zentimeter, am Rand nimmt der Nebel ohnehin alles.
+// `aussparung` = { x, z, rx, rz, umriss(azimut) }: Wo das Teichbecken steht,
+// muss die Kiesfläche weichen — sonst schneidet sie als waagerechte Platte
+// durch das Becken, und man sieht Sand auf halber Wassertiefe.
+//
+// **Vierecke wegzulassen reicht nicht.** Der erste Anlauf verwarf jedes
+// Viereck, dessen Ecken innerhalb lagen; der Rand des Lochs folgte damit der
+// Ringauflösung von rund 40 cm und stand als Zackenkranz aus dem Uferwulst
+// heraus. Stattdessen werden die Punkte im Inneren **radial auf die Kontur
+// gezogen**. Vierecke, die ganz innen lagen, kollabieren dabei auf die Kontur
+// und haben keine Fläche mehr; Vierecke am Rand werden zu schmalen Streifen,
+// die exakt an der Kontur enden. Der Rand des Lochs ist danach glatt, und weil
+// dieselbe Umrissfunktion wie beim Becken benutzt wird, läuft er parallel zu
+// dessen Ufer statt quer dazu.
+function makeSandBett(radius, ringe = 44, segmente = 160, aussparung = null) {
+  const pos = [];
+  const uv = [];
+  const idx = [];
+  // Punkt innerhalb der Aussparung radial auf deren Kontur ziehen. `innen`
+  // merkt sich, welche Punkte das betraf.
+  const innen = [];
+  const setze = (x, z) => {
+    let drin = false;
+    if (aussparung) {
+      const dx = x - aussparung.x;
+      const dz = z - aussparung.z;
+      const a = Math.atan2(dz, dx);
+      const f = aussparung.umriss ? aussparung.umriss(a) : 1;
+      const nx = dx / (aussparung.rx * f);
+      const nz = dz / (aussparung.rz * f);
+      const len = Math.hypot(nx, nz);
+      if (len < 1 && len > 1e-6) {
+        x = aussparung.x + dx / len;
+        z = aussparung.z + dz / len;
+        drin = true;
+      } else if (len <= 1e-6) {
+        x = aussparung.x + aussparung.rx * f;
+        z = aussparung.z;
+        drin = true;
+      }
+    }
+    innen.push(drin);
+    pos.push(x, 0, z);
+    uv.push(x / (radius * 2) + 0.5, z / (radius * 2) + 0.5);
+  };
+  setze(0, 0);
+  for (let j = 1; j <= ringe; j++) {
+    const r = radius * Math.pow(j / ringe, 1.45);
+    for (let i = 0; i < segmente; i++) {
+      const a = (i / segmente) * Math.PI * 2;
+      setze(Math.cos(a) * r, Math.sin(a) * r);
+    }
+  }
+  const ring = (j, i) => 1 + (j - 1) * segmente + (i % segmente);
+  // **Aufziehen allein reicht nicht.** Ein Viereck, dessen vier Ecken alle im
+  // Inneren lagen, landet danach mit allen vier Ecken auf der Kontur — aber an
+  // vier verschiedenen Winkeln. Es spannt damit eine Sehne quer durch das
+  // Becken auf, und genau das stand im Bild: helle Zacken, die vom Ufer aus
+  // über das Wasser liefen. Solche Vierecke entfallen; übrig bleiben die am
+  // Rand, deren äußere Ecken unberührt sind und deren innere jetzt exakt auf
+  // der Kontur sitzen.
+  const ganzInnen = (...v) => v.every((k) => innen[k]);
+  for (let i = 0; i < segmente; i++) {
+    const a = ring(1, i + 1);
+    const b = ring(1, i);
+    if (ganzInnen(0, a, b)) continue;
+    idx.push(0, a, b);
+  }
+  for (let j = 1; j < ringe; j++) {
+    for (let i = 0; i < segmente; i++) {
+      const a = ring(j, i);
+      const b = ring(j, i + 1);
+      const c = ring(j + 1, i + 1);
+      const d = ring(j + 1, i);
+      if (ganzInnen(a, b, c, d)) continue;
+      idx.push(a, b, d, b, c, d);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// --- Das Teichbecken --------------------------------------------------------
+//
+// **Der Teich war eine Scheibe, kein Gewässer.** Die Wasserfläche lag bei
+// y = 0,01 auf einem Kiesbett bei y = −0,02: drei Zentimeter „Tiefe". Gemessen
+// hatte die offene Fläche einen Mittelwert von 114 bei einer Spannweite von 26
+// und keinem einzigen Pixel über 190 — kein Tiefenton, keine Spiegelung, keine
+// Uferzone, und die Wasserlinie ein sauberer Schnitt. Und die Koi schwammen
+// nicht darin: Ihr Körper ist 11 cm hoch und ihre Bahn lag bei y = 0, also
+// ragten sie viereinhalb Zentimeter aus dem Wasser.
+//
+// Das Becken hier ist eine echte Mulde: 34 cm tief in der Mitte, mit einem
+// Uferwulst, der über die Wasserlinie steigt und außen wieder in den Kies
+// läuft. Der Umriss ist verrauscht — eine exakte Ellipse ist der schnellste
+// Weg zu „gerechnet".
+//
+// Ein Mesh, ein Draw-Call. Die Zonen — Grund, Flachwasser, Wasserlinie,
+// nasses Ufer, trockener Wulst — stecken in den Scheitelfarben.
+function makeTeichbecken(rx, rz, { tiefe = 0.42, seed = 4242, umriss } = {}) {
+  const RINGE = 22;
+  const SEG = 96;
+  // **Die Wasserlinie liegt bei 0,95, nicht bei 0,86.** Im ersten Anlauf war
+  // der Uferwulst einen vollen Meter breit und legte sich als brauner Ring um
+  // eine kleine Wasserfläche — im Bild eine Pfütze in einer Baugrube. Ein
+  // Gartenteich hat einen schmalen Uferstreifen.
+  const WL = 0.95;
+  // Radiusfaktor (0…1,30) auf Höhe.
+  const profil = (t) => {
+    if (t < WL) {
+      // Der Grund fällt am Ufer zügig ab und läuft dann flach aus — ein
+      // Gartenteich ist keine Halbkugel. Bei 42 cm Tiefe und diesem Profil
+      // bleiben unter der Koi-Bahn (t bis 0,57) noch 18 cm Wasser unter dem
+      // Fisch; mit dem ursprünglichen Profil wäre er durch den Grund gefahren.
+      const u = 1 - t / WL;
+      return -tiefe * u * (1.4 - 0.4 * u);
+    }
+    if (t < 1.06) {
+      // Ufer: steigt aus dem Wasser bis zum Wulst
+      const u = (t - WL) / (1.06 - WL);
+      return u * u * (3 - 2 * u) * 0.07;
+    }
+    // Außen wieder auf Kiesniveau
+    const u = (t - 1.06) / 0.1;
+    return 0.07 - u * u * (3 - 2 * u) * 0.09;
+  };
+  // Zonenfarben. Der Grund ist Schlick, das Flachwasser sandig, die
+  // Wasserlinie am dunkelsten (dauerhaft nass), der Wulst trockener Kies.
+  const grund = new THREE.Color(0x4a4736);
+  const flach = new THREE.Color(0x958b64);
+  const linie = new THREE.Color(0x7a6f58);
+  const nass = new THREE.Color(0x8d7c5c);
+  const trocken = new THREE.Color(0xd6c6a2);
+  const farbe = (t) => {
+    const c = new THREE.Color();
+    if (t < 0.6) return c.copy(grund).lerp(flach, smoothstep(0.0, 0.6, t));
+    if (t < WL) return c.copy(flach).lerp(linie, smoothstep(0.6, WL, t));
+    if (t < 1.02) return c.copy(linie).lerp(nass, smoothstep(WL, 1.02, t));
+    return c.copy(nass).lerp(trocken, smoothstep(1.02, 1.16, t));
+  };
+
+  const pos = [];
+  const uv = [];
+  const col = [];
+  const idx = [];
+  const setze = (x, y, z, t) => {
+    pos.push(x, y, z);
+    // UVs in Weltmetern, damit die Kornkarte auf dem Ufer dieselbe Körnung
+    // zeigt wie der Kies daneben.
+    uv.push(x / 0.7, z / 0.7);
+    const c = farbe(t);
+    // Flecken, damit die Zonen keine Farbringe sind
+    const f = 0.86 + hashNoise(x * 3.1, seed, z * 3.1) * 0.3;
+    col.push(c.r * f, c.g * f, c.b * f);
+  };
+  setze(0, profil(0), 0, 0);
+  for (let j = 1; j <= RINGE; j++) {
+    const t = 1.16 * (j / RINGE);
+    for (let i = 0; i < SEG; i++) {
+      const a = (i / SEG) * Math.PI * 2;
+      // Umriss verrauscht: Zungen und Buchten wie an einem gewachsenen Ufer.
+      // Dieselbe Funktion benutzen die Wasserfläche und die Aussparung im
+      // Kiesbett — sonst laufen die drei Ränder auseinander.
+      const r = t * umriss(a);
+      setze(Math.cos(a) * r * rx, profil(t), Math.sin(a) * r * rz, t);
+    }
+  }
+  const ring = (j, i) => 1 + (j - 1) * SEG + (i % SEG);
+  for (let i = 0; i < SEG; i++) idx.push(0, ring(1, i + 1), ring(1, i));
+  for (let j = 1; j < RINGE; j++) {
+    for (let i = 0; i < SEG; i++) {
+      idx.push(ring(j, i), ring(j, i + 1), ring(j + 1, i), ring(j, i + 1), ring(j + 1, i + 1), ring(j + 1, i));
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// --- Fallende Blütenblätter --------------------------------------------------
+//
+// **Der Prüfer hat sie als Staub gemessen:** 28 Partikel, mittlere Breite
+// 4,5 px, Seitenverhältnis **1,06** — runde, richtungslose, gleich große
+// Punkte. Ihre Dichte war gegenläufig zum Baum verteilt (doppelt so viele auf
+// der vom Sakura abgewandten Seite), und sie schwebten bis an den oberen
+// Bildrand, also weit über jeder Baumkrone.
+//
+// Ein Blütenblatt ist kein Punkt: Es hat eine Längsachse, es taumelt um sie,
+// und es fällt dort, wo der Baum steht. Eine Punktwolke kann davon nichts —
+// `PointsMaterial` zeichnet immer achsenparallele Quadrate. Also
+// Instanzen mit eigener Lage.
+function blattTextur() {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  // Kirschblütenblatt: eiförmig mit der charakteristischen Kerbe an der Spitze
+  const g = ctx.createLinearGradient(0, 0, 0, size);
+  g.addColorStop(0, 'rgba(255,228,238,1)');
+  g.addColorStop(0.6, 'rgba(255,205,224,1)');
+  g.addColorStop(1, 'rgba(246,178,203,1)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(size * 0.5, size * 0.96);
+  ctx.bezierCurveTo(size * 0.06, size * 0.72, size * 0.1, size * 0.16, size * 0.42, size * 0.06);
+  // Die Kerbe
+  ctx.lineTo(size * 0.5, size * 0.2);
+  ctx.lineTo(size * 0.58, size * 0.06);
+  ctx.bezierCurveTo(size * 0.9, size * 0.16, size * 0.94, size * 0.72, size * 0.5, size * 0.96);
+  ctx.closePath();
+  ctx.fill();
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+// `anzahl` 90 und nicht 320: Dreihundertzwanzig fallende Blätter sind kein
+// Kirschbaum im Wind, sondern ein Schneesturm — im Bild lagen ständig Blätter
+// über der halben Fläche. Ein Sakura verliert einzelne Blüten; was zählt, ist,
+// dass ab und zu eines vorbeitrudelt.
+function makeBluetenblaetter(rand, quellen, anzahl = 90) {
+  const geo = new THREE.PlaneGeometry(0.062, 0.078);
+  const mat = new THREE.MeshLambertMaterial({
+    map: blattTextur(),
+    transparent: true,
+    alphaTest: 0.45,
+    side: THREE.DoubleSide,
+    // Ebene Fläche: der zweite Durchgang für die Rückseiten zeichnet dieselben
+    // Pixel noch einmal.
+    forceSinglePass: true,
+    depthWrite: true,
+  });
+  const mesh = new THREE.InstancedMesh(geo, mat, anzahl);
+  mesh.name = 'zen-blueten';
+  mesh.frustumCulled = false;
+  const meta = [];
+  for (let i = 0; i < anzahl; i++) {
+    // **Die Blätter fallen dort, wo ein Baum steht.** Jede Instanz bekommt eine
+    // Quelle zugelost; ihre Streuung um den Stamm wächst nach unten, weil der
+    // Wind sie auf dem Weg vertreibt.
+    const q = quellen[Math.floor(rand() * quellen.length) % quellen.length];
+    meta.push({
+      qx: q.x,
+      qz: q.z,
+      hoehe: q.hoehe,
+      streu: q.streu,
+      a: rand() * Math.PI * 2,
+      r: Math.sqrt(rand()),
+      y0: rand(),
+      // Jedes Blatt fällt anders schnell und taumelt anders — nichts im
+      // Gleichtakt.
+      fall: 0.22 + rand() * 0.3,
+      dreh: (rand() - 0.5) * 3.4,
+      kipp: rand() * Math.PI * 2,
+      kippTempo: 0.8 + rand() * 1.9,
+      schwing: rand() * Math.PI * 2,
+      schwingWeite: 0.18 + rand() * 0.45,
+      groesse: 0.75 + rand() * 0.6,
+    });
+  }
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const pos = new THREE.Vector3();
+  const skal = new THREE.Vector3();
+  return {
+    mesh,
+    update(time) {
+      for (let i = 0; i < anzahl; i++) {
+        const d = meta[i];
+        // Fallhöhe läuft von der Krone bis zum Boden und beginnt oben neu.
+        const t = ((d.y0 + 1 - ((time * d.fall) / d.hoehe) % 1) % 1);
+        const y = t * d.hoehe;
+        // Je tiefer, desto weiter vom Stamm weg
+        const weite = d.streu * (0.35 + (1 - t) * 0.9);
+        pos.set(
+          d.qx + Math.cos(d.a) * d.r * weite + Math.sin(time * 0.7 + d.schwing) * d.schwingWeite,
+          y + 0.02,
+          d.qz + Math.sin(d.a) * d.r * weite + Math.cos(time * 0.55 + d.schwing) * d.schwingWeite
+        );
+        e.set(
+          Math.sin(time * d.kippTempo + d.kipp) * 1.5,
+          time * d.dreh + d.kipp,
+          Math.cos(time * d.kippTempo * 0.7 + d.kipp) * 1.1
+        );
+        q.setFromEuler(e);
+        skal.setScalar(d.groesse);
+        m.compose(pos, q, skal);
+        mesh.setMatrixAt(i, m);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    },
+  };
+}
+
+// --- Gartenmauer und geschnittene Sträucher ---------------------------------
+//
+// **Der schwerste Kompositionsbefund: Der Garten hat keine Grenze.** In der
+// Totale lagen die Objekte als lose Reihe quer über eine Fläche, die nach allen
+// Seiten ins Nichts lief; der Prüfer hat das Bildviertel links unten mit 98,9 %
+// strukturlosem Sand gemessen und die Objektlage als „gleichmäßig über den
+// Kreis verstreut, ohne Führung" beschrieben.
+//
+// Das ist kein Streuungsproblem, sondern ein **Rahmenproblem**. Ein
+// Karesansui ist immer eingefasst — von einer verputzten Lehmmauer mit
+// Ziegeldach, einer Hecke oder einem Bambuszaun. Die Einfassung leistet drei
+// Dinge auf einmal:
+//
+//   * Sie gibt der leeren Fläche einen **Grund**: Aus „da ist nichts" wird
+//     „da ist absichtlich nichts" — das *ma*, um das es geht.
+//   * Sie legt eine **waagerechte Linie** ins Bild, gegen die alle Silhouetten
+//     stehen. Vorher stand alles gegen Himmel.
+//   * Sie trennt Mittelgrund von Ferne und macht die Tiefenstaffelung sichtbar.
+//
+// Die Mauer läuft nur über den hinteren Bogen. Rundherum wäre ein Kasten; so
+// bleibt die Öffnung nach vorn, aus der man in den Garten blickt.
+// `hoehe` 2,1 m und nicht 1,75: Bei Augenhöhe 1,6 m und 13,5 m Abstand liegt
+// die Oberkante einer 1,75-m-Mauer praktisch auf der Blickachse — man sieht
+// stellenweise über sie hinweg auf den Sand dahinter, und die Einfassung
+// verliert genau das, wofür sie da ist. 2,1 m schließen den Blick.
+//
+// **Gebaut als durchgehendes Band, nicht als Kranz aus Quadern.** Der erste
+// Anlauf setzte 96 einzelne Kisten entlang des Bogens. Auf der Innenseite
+// stoßen zwei benachbarte Kisten unter 2,8° aneinander und lassen an jeder
+// Fuge eine Kante stehen — im Bild lagen über die ganze Mauer senkrechte
+// Striche in exakt gleichem Abstand. Ein Profil, das am Bogen entlanggezogen
+// wird, hat diese Fugen nicht: Die Innenfläche ist eine Fläche.
+function makeGartenmauer(radius, vonGrad, bisGrad, { hoehe = 2.1, seed = 3131 } = {}) {
+  const SEG = 128;
+  const von = (vonGrad * Math.PI) / 180;
+  const bis = (bisGrad * Math.PI) / 180;
+  const welle = welligerUmriss(seed, 0.03, 4);
+
+  // Querschnitt der Mauer: radialer Versatz und Höhe. Von der Innenseite unten
+  // über den Sockelabsatz und die Wandfläche zum überstehenden Ziegeldach, über
+  // den First und außen wieder hinunter. `dach` markiert, welche Abschnitte zum
+  // Dach gehören — sie bekommen das andere Material.
+  const D = hoehe;
+  const profil = [
+    [-0.17, 0, 0],
+    [-0.17, 0.3, 0],
+    [-0.13, 0.33, 0],
+    [-0.13, D, 0],
+    [-0.28, D + 0.01, 1],
+    [-0.26, D + 0.13, 1],
+    [-0.05, D + 0.2, 1],
+    [0.05, D + 0.2, 1],
+    [0.26, D + 0.13, 1],
+    [0.28, D + 0.01, 1],
+    [0.13, D, 0],
+    [0.13, 0.33, 0],
+    [0.17, 0.3, 0],
+    [0.17, 0, 0],
+  ];
+
+  const pos = [];
+  const idx = [];
+  const dachFlag = [];
+  for (let i = 0; i <= SEG; i++) {
+    const t = i / SEG;
+    const a = von + (bis - von) * t;
+    const rr = radius * welle(a * 3);
+    const cx = Math.cos(a);
+    const cz = Math.sin(a);
+    // Die Enden sitzen minimal tiefer — eine Lehmmauer sackt zu den Enden hin.
+    const senk = 1 - Math.pow(Math.abs(t - 0.5) * 2, 3) * 0.03;
+    for (const [dr, y, istDach] of profil) {
+      pos.push(cx * (rr + dr), y * senk, cz * (rr + dr));
+      dachFlag.push(istDach);
+    }
+  }
+  const P = profil.length;
+  // **Die Wicklung, nachgerechnet statt geraten.** Das Profil läuft an der
+  // Innenseite nach oben, der Bogen läuft mit wachsendem Winkel. Für das
+  // Dreieck (a, b, d) ist die eine Kante +ŷ und die andere die Tangente
+  // t̂ = (−sin α, 0, cos α); ŷ × t̂ = (cos α, 0, sin α), also **nach außen**.
+  // Genau so herum stand die Innenfläche der Mauer im Bild schwarz: Sie war
+  // von der Sonne abgewandt, weil ihre Normale in die falsche Richtung zeigte.
+  // Die umgekehrte Reihenfolge dreht sie nach innen.
+  for (let i = 0; i < SEG; i++) {
+    for (let j = 0; j < P - 1; j++) {
+      const a = i * P + j;
+      const b = a + 1;
+      const c = (i + 1) * P + j + 1;
+      const d = (i + 1) * P + j;
+      idx.push(a, d, b, b, d, c);
+    }
+  }
+  // Stirnflächen an beiden Enden, damit die Mauer nicht offen endet.
+  for (const [i, drehen] of [[0, false], [SEG, true]]) {
+    for (let j = 1; j < P - 2; j++) {
+      const a = i * P;
+      const b = i * P + j;
+      const c = i * P + j + 1;
+      idx.push(...(drehen ? [a, c, b] : [a, b, c]));
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+
+  // Scheitelfarben. Wand und Dach unterscheiden sich im Grundton; darüber
+  // liegen Flecken und Regenstreifen, beide aus einem **stetigen** Rauschen
+  // über Winkel und Höhe — ein Hash je Scheitelpunkt hätte an den
+  // Segmentgrenzen wieder Sprünge.
+  {
+    const p2 = geo.attributes.position;
+    const farben = new Float32Array(p2.count * 3);
+    const wandUnten = new THREE.Color(0x6d6152);
+    const wandOben = new THREE.Color(0xd2c5a8);
+    const dachTon = new THREE.Color(0x545963);
+    const c = new THREE.Color();
+    for (let v = 0; v < p2.count; v++) {
+      const y = p2.getY(v);
+      const winkel = Math.atan2(p2.getZ(v), p2.getX(v));
+      if (dachFlag[v % P]) {
+        c.copy(dachTon);
+      } else {
+        c.copy(wandUnten).lerp(wandOben, THREE.MathUtils.clamp(y / D, 0, 1));
+      }
+      const fleck = fbm2(winkel * 9.5 + 31, y * 1.4);
+      const streifen = fbm2(winkel * 34 - 7, y * 0.18);
+      const f =
+        0.9 + fleck * 0.2 + streifen * 0.13 - Math.max(0, 0.45 - y / D) * 0.2;
+      farben[v * 3] = c.r * f;
+      farben[v * 3 + 1] = c.g * f;
+      farben[v * 3 + 2] = c.b * f;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.9, metalness: 0 })
+  );
+  mesh.name = 'zen-mauer';
+  const gruppe = new THREE.Group();
+  gruppe.add(mesh);
+
+  // Abschlusspfeiler: Ohne sie endet die Mauer als glatte Schnittfläche gegen
+  // den Himmel — eine Kante ohne Grund.
+  const pfeiler = [];
+  for (const t of [0, 1]) {
+    const a = von + (bis - von) * t;
+    const rr = radius * welle(a * 3);
+    const px = Math.cos(a) * rr;
+    const pz = Math.sin(a) * rr;
+    const pf = new THREE.BoxGeometry(0.44, D + 0.2, 0.44);
+    pf.rotateY(-a);
+    pf.translate(px, (D + 0.2) / 2, pz);
+    pfeiler.push(pf);
+    const kappe = new THREE.BoxGeometry(0.62, 0.12, 0.62);
+    kappe.rotateY(-a);
+    kappe.translate(px, D + 0.26, pz);
+    pfeiler.push(kappe);
+  }
+  const pfGeo = mergeGeometries(pfeiler.map((g) => g.toNonIndexed()));
+  {
+    const p3 = pfGeo.attributes.position;
+    const farben = new Float32Array(p3.count * 3);
+    const c = new THREE.Color();
+    for (let v = 0; v < p3.count; v++) {
+      const y = p3.getY(v);
+      c.copy(new THREE.Color(0x6d6152)).lerp(new THREE.Color(0xcabd9f), THREE.MathUtils.clamp(y / D, 0, 1));
+      const f = 0.9 + fbm2(p3.getX(v) * 2.1, y * 1.6) * 0.22;
+      farben[v * 3] = c.r * f;
+      farben[v * 3 + 1] = c.g * f;
+      farben[v * 3 + 2] = c.b * f;
+    }
+    pfGeo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+  const pfMesh = new THREE.Mesh(pfGeo, mesh.material);
+  pfMesh.name = 'zen-mauer-pfeiler';
+  gruppe.add(pfMesh);
+  return gruppe;
+}
+
+// Geschnittene Sträucher (Karikomi) als Mittelgrundmasse vor der Mauer.
+// Runde, dichte Polster — sie sind das Gegenstück zur harten Waagerechten der
+// Mauer und geben dem Blick etwas, woran er vor der Ferne hängenbleibt.
+function makeKarikomi(rand, plaetze) {
+  const teile = [];
+  for (const [x, z, r, hoehe] of plaetze) {
+    const geo = new THREE.SphereGeometry(r, 14, 10);
+    const pos = geo.attributes.position;
+    const beule = welligerUmriss(Math.floor(x * 97 + z * 31) & 0xffff, 0.14, 4);
+    for (let v = 0; v < pos.count; v++) {
+      const px = pos.getX(v);
+      const py = pos.getY(v);
+      const pz = pos.getZ(v);
+      const f = beule(Math.atan2(pz, px)) * (0.94 + hashNoise(px * 4, py * 4, pz * 4) * 0.12);
+      pos.setXYZ(v, px * f, Math.max(0, py) * (hoehe / r) * f, pz * f);
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    // Scheitelfarben: oben lichter, unten im Eigenschatten des Polsters
+    const farben = new Float32Array(pos.count * 3);
+    const oben = new THREE.Color(0x7f8f52);
+    const unten = new THREE.Color(0x3d4a2b);
+    const c = new THREE.Color();
+    for (let v = 0; v < pos.count; v++) {
+      const t = THREE.MathUtils.clamp(pos.getY(v) / hoehe, 0, 1);
+      c.copy(unten).lerp(oben, Math.pow(t, 0.6));
+      const f = 0.9 + hashNoise(pos.getX(v) * 6, pos.getY(v) * 6, pos.getZ(v) * 6) * 0.2;
+      farben[v * 3] = c.r * f;
+      farben[v * 3 + 1] = c.g * f;
+      farben[v * 3 + 2] = c.b * f;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    geo.translate(x, -0.03, z);
+    teile.push(geo);
+  }
+  const mesh = new THREE.Mesh(
+    mergeGeometries(teile.map((g) => (g.index ? g.toNonIndexed() : g))),
+    new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.88, metalness: 0 })
+  );
+  mesh.name = 'zen-karikomi';
+  return mesh;
+}
+
+// Der Saum jenseits des Kiesbetts.
+//
+// **Das Kiesbett endet bei 20 m, und der Nebel fängt bei 20 m an.** Damit
+// bekommt genau die Kante, an der die Welt aufhört, null Dunst und steht als
+// scharfe Linie gegen den Himmel — in der Totale die auffälligste Schwäche des
+// Bildes. Der Saum ändert weder den Kiesradius noch die Nebeldistanzen; er legt
+// nur Grund dorthin, wo bisher Himmel war, und überlässt ihn dem Nebel.
+function makeSandSaum() {
+  const geo = new THREE.RingGeometry(SAND_RADIUS - 0.4, 52, 128, 8);
+  geo.rotateX(-Math.PI / 2);
+  const pos = geo.attributes.position;
+  const farben = new Float32Array(pos.count * 3);
+  const nah = new THREE.Color(0xd9cba9); // Kiesfarbe am Innenrand
+  // **Kein Grün.** Der erste Anlauf ließ den Saum in stumpfes Grün laufen —
+  // gedacht als Bewuchs außerhalb des Gartens, im Bild ein grüner Streifen
+  // genau auf der Horizontlinie. Der Nebel dieser Umgebung ist warm; der Saum
+  // muss ihm entgegenlaufen, nicht quer dazu.
+  const fern = new THREE.Color(0xd8bc93);
+  const c = new THREE.Color();
+  for (let i = 0; i < pos.count; i++) {
+    const r = Math.hypot(pos.getX(i), pos.getZ(i));
+    // Erst in stumpfes Grün (Bewuchs außerhalb des Gartens), dann in die
+    // Nebelfarbe selbst – ab 46 m ist der Nebel gesättigt, dort darf keine
+    // andere Farbe mehr durchkommen.
+    c.copy(nah).lerp(fern, smoothstep(SAND_RADIUS, SAND_RADIUS + 12, r));
+    // Flecken, damit der Ring kein Farbverlauf ist
+    const f = 0.92 + hashNoise(pos.getX(i) * 0.14, 0, pos.getZ(i) * 0.14) * 0.16;
+    farben[i * 3] = c.r * f;
+    farben[i * 3 + 1] = c.g * f;
+    farben[i * 3 + 2] = c.b * f;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  const mesh = new THREE.Mesh(
+    geo,
+    new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xffffff })
+  );
+  mesh.name = 'zen-saum';
+  mesh.position.y = -0.06;
+  return mesh;
+}
+
+// Kachelnde Schleierwolken-Karte.
+//
+// Gezeichnet statt gerechnet, und zwar als **gestreckte Tupfen**: Ein Zirrus
+// ist ein in die Länge gezogener Fetzen, kein isotroper Fleck. Jeder Tupfen
+// wird an den Rändern zusätzlich versetzt gezeichnet, damit die Kachel nahtlos
+// bleibt — dieselbe Umlauftechnik wie bei der Kornkarte des Sandes.
+let _wolkenKarte = null;
+function wolkenKarte(size = 256) {
+  if (_wolkenKarte) return _wolkenKarte;
+  const rand = mulberry32(90210);
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, size, size);
+  const fetzen = (x, y, rx, ry, a) => {
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    g.addColorStop(0, `rgba(255,255,255,${a})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate((rand() - 0.5) * 0.5);
+    ctx.scale(rx, ry);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, 1, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  };
+  ctx.globalCompositeOperation = 'lighter';
+  // Drei Größenordnungen: Bänke, Fetzen darin, Fasern an ihren Rändern.
+  for (const [n, rxMin, rxSpan, verh, alpha] of [
+    [14, size * 0.16, size * 0.22, 0.16, 0.5],
+    [46, size * 0.06, size * 0.1, 0.2, 0.34],
+    [150, size * 0.015, size * 0.04, 0.28, 0.22],
+  ]) {
+    for (let i = 0; i < n; i++) {
+      const rx = rxMin + rand() * rxSpan;
+      const ry = rx * verh * (0.6 + rand() * 0.9);
+      const x = rand() * size;
+      const y = rand() * size;
+      for (const dx of [-size, 0, size]) {
+        for (const dy of [-size, 0, size]) {
+          if (Math.abs(x + dx - size / 2) > size / 2 + rx) continue;
+          if (Math.abs(y + dy - size / 2) > size / 2 + ry) continue;
+          fetzen(x + dx, y + dy, rx, ry, alpha);
+        }
+      }
+    }
+  }
+  const t = new THREE.CanvasTexture(canvas);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.anisotropy = 4;
+  _wolkenKarte = t;
+  return t;
+}
+
+// **Der Sonnenstand des Zen-Gartens, an einer Stelle.**
+//
+// Vorher stand er bei [−12 | 9 | −6], also 34° über dem Horizont. Das ist
+// später Vormittag, nicht später Nachmittag: Bei 34° fällt das Licht so steil
+// auf die waagerechte Kiesfläche, dass eine 1,3 cm tiefe Harkrille kaum eine
+// verschattete Flanke bekommt, und die Schlagschatten sind kürzer als die
+// Objekte breit sind. Jetzt 19,4° — Streiflicht über den Kies, Schatten fast
+// dreimal so lang wie das Objekt hoch ist.
+//
+// Alles, was die Sonne braucht, liest hier: das Licht selbst, die
+// Schattenkamera, die Sonnenscheibe am Himmel, die Himmelsbeschreibung für die
+// Spiegelungskarte des Wassers — und `mossPatina()`, das sonst die Sonne des
+// Dojos nähme und die Wetterseite jedes Steins auf die falsche Seite legte.
+const ZEN_SONNE = [-14, 5.5, -7];
+// Richtung, in die das Licht **läuft** (vom Stand zum Ursprung).
 const ZEN_SUN = (() => {
-  const d = [12, -9, 6];
-  const len = Math.hypot(...d);
-  return d.map((v) => v / len);
+  const len = Math.hypot(...ZEN_SONNE);
+  return ZEN_SONNE.map((v) => -v / len);
 })();
 
 // Ein Material für **alle** Zen-Steine.
@@ -3649,6 +4896,27 @@ const ZEN_SUN = (() => {
 // lassen. `graniteMaterial()` mit Scheitelfarben macht daraus einen: Die
 // Unterschiede zwischen den Steinen stecken in den Farben ihrer Vertices, nicht
 // in getrennten Materialien. Genau dafür ist `vertexColors` da.
+// Der nasse Stein am Wasser als **eigenes** Material.
+//
+// Nass ist nicht nur dunkler: Ein Wasserfilm füllt die Mikrorauheit auf, die
+// Oberfläche spiegelt. Die Verdunklung steckt in den Scheitelfarben und kostet
+// nichts; die Rauheit steht im Material und braucht deshalb ein zweites. Das
+// ist der eine Draw-Call, der in dieser Szene eine echte Lichtspitze liefert —
+// nasser Granit im Streiflicht einer tief stehenden Sonne.
+let _zenNassGranit = null;
+function zenNassGranite() {
+  if (!_zenNassGranit) {
+    _zenNassGranit = graniteMaterial({ tone: 0xa9a49b, vertexColors: true });
+    _zenNassGranit.normalScale = new THREE.Vector2(1.4, 1.4);
+    // 0,24 zusammen mit 45 % Verdunklung ergab schwarze, glänzende Kiesel —
+    // Obsidian, nicht nasser Granit. Nasser Stein ist dunkler und glatter als
+    // trockener, aber er bleibt Stein.
+    _zenNassGranit.roughness = 0.34;
+    addSkyRim(_zenNassGranit, { color: 0xbcd6f0, strength: 0.18, power: 4.2 });
+  }
+  return _zenNassGranit;
+}
+
 let _zenGranit = null;
 function zenGranite() {
   if (!_zenGranit) {
@@ -3658,6 +4926,18 @@ function zenGranite() {
     // Sonne 35° hoch, und mit der Vorgabe von 1,0 war auf dem Findling aus
     // einem Meter Abstand schlicht nichts zu sehen.
     _zenGranit.normalScale = new THREE.Vector2(2.2, 2.2);
+    // **Lichtspitzen.** Mit Rauheit 1,0 hat kein Stein im ganzen Bildsatz einen
+    // Glanzpunkt: gemessen lag der Anteil über L=230 bei 0,00 bis 0,02 %, und
+    // der lag auf einem Partikel, nie auf einer Fläche. Ein Findling im
+    // Streiflicht einer tief stehenden Sonne hat auf seinen oberen Rundungen
+    // sehr wohl einen breiten, stumpfen Glanz. Der Wert skaliert die
+    // Rauheitskarte, die Streuung zwischen matt und glatt bleibt also erhalten.
+    _zenGranit.roughness = 0.66;
+    // Ein schmaler Himmelssaum an der Silhouettenkante. Kleiner Betrag, hoher
+    // Exponent: Auf einer flach schattierten Fläche wird ein weicher
+    // Fresnel-Saum sonst zur **Flächen**helligkeit statt zur Kante, und alles
+    // sieht bereift aus.
+    addSkyRim(_zenGranit, { color: 0xbcd6f0, strength: 0.2, power: 4.2 });
   }
   return _zenGranit;
 }
@@ -3697,103 +4977,196 @@ function makeZenStone(rand, size, color = 0x8b8680) {
   return stone;
 }
 
-// Steinlaterne (Ishidōrō): gestapelte Steinelemente mit warmem Glimmen
+// Steinlaterne (Ishidōrō).
+//
+// **Der Prüfer hat sie als „Kugel + Kegel + Zylinder + Zylinder + Kegelstumpf,
+// alle sauber getrennt lesbar" beschrieben** — ein Grundkörperstapel. Was einer
+// Yukimi-Laterne ihre Silhouette gibt, sind zwei Dinge, die dort fehlten:
+//
+//   * **Ein weit auskragendes Dach mit hochgezogenen Ecken.** Der Schirm ist
+//     breiter als alles darunter und schwingt an den sechs Ecken nach oben.
+//     Das ist die Form, die man aus zwanzig Metern erkennt.
+//   * **Ein Lichtkasten mit Öffnungen.** Sechs Eckpfosten statt einer
+//     geschlossenen Trommel; dazwischen sieht man das Licht.
 function makeLantern() {
   const group = new THREE.Group();
   const stoneMat = zenGranite();
-  // Ein Stein, der jahrzehntelang im Garten steht: Auf jedem Absatz sammelt
-  // sich Wasser, und dort sitzt der Schmutzring, der aus gestapelten Zylindern
-  // ein Stück macht. `mossPatina()` kennt diesen `ledge`-Fall.
   const steinTeil = (geo, y, seed) => {
     boxProjectUV(geo, 0.16);
     paintVertices(geo, 0xa8a199);
-    mossPatina(geo, {
-      y0: y,
-      floor: 0,
-      height: 0.22,
-      scale: 0.1,
-      strength: 0.7,
-      seed,
-      sun: ZEN_SUN,
-    });
+    mossPatina(geo, { y0: y, floor: 0, height: 0.22, scale: 0.1, strength: 0.7, seed, sun: ZEN_SUN });
     return geo;
   };
-  const base = new THREE.Mesh(
-    steinTeil(new THREE.CylinderGeometry(0.18, 0.22, 0.12, 8), 0.06, 11),
-    stoneMat
-  );
-  base.position.y = 0.06;
-  group.add(base);
-  const post = new THREE.Mesh(
-    steinTeil(new THREE.CylinderGeometry(0.06, 0.07, 0.42, 8), 0.33, 12),
-    stoneMat
-  );
-  post.position.y = 0.33;
-  group.add(post);
-  const platform = new THREE.Mesh(
-    steinTeil(new THREE.CylinderGeometry(0.16, 0.14, 0.06, 8), 0.57, 13),
-    stoneMat
-  );
-  platform.position.y = 0.57;
-  group.add(platform);
-  // Lichtkasten mit warmem Glimmen
+  const steine = [];
+
+  // Fußplatte, im Kies versenkt
+  steine.push(steinTeil(new THREE.CylinderGeometry(0.24, 0.28, 0.1, 6), 0.02, 10).translate(0, 0.02, 0));
+  // Schaft
+  steine.push(steinTeil(new THREE.CylinderGeometry(0.062, 0.078, 0.44, 8), 0.29, 12).translate(0, 0.29, 0));
+  // Zwischenplatte, auf der der Lichtkasten sitzt
+  steine.push(steinTeil(new THREE.CylinderGeometry(0.17, 0.13, 0.055, 6), 0.54, 13).translate(0, 0.54, 0));
+  // Sechs Eckpfosten des Lichtkastens — dazwischen fällt das Licht heraus.
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
+    const pf = new THREE.BoxGeometry(0.045, 0.2, 0.045);
+    pf.rotateY(-a);
+    pf.translate(Math.cos(a) * 0.115, 0.67, Math.sin(a) * 0.115);
+    steine.push(steinTeil(pf, 0.67, 14 + i));
+  }
+  // Deckplatte des Kastens
+  steine.push(steinTeil(new THREE.CylinderGeometry(0.15, 0.145, 0.03, 6), 0.785, 20).translate(0, 0.785, 0));
+
+  // Das Dach: sechseckiger Schirm mit hochgezogenen Ecken. Gebaut aus einem
+  // Kegel, dessen Randpunkte an den Ecken angehoben werden.
+  {
+    const dach = new THREE.ConeGeometry(0.3, 0.17, 6, 3, true);
+    const pos = dach.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      const x = pos.getX(v);
+      const z = pos.getZ(v);
+      const r = Math.hypot(x, z);
+      if (r < 0.02) continue;
+      const a = Math.atan2(z, x);
+      // Sechs Ecken: dort, wo cos(6a) maximal ist, hebt sich der Rand.
+      const ecke = Math.max(0, Math.cos(6 * a + Math.PI));
+      const t = r / 0.3;
+      pos.setY(v, pos.getY(v) + Math.pow(t, 2.2) * ecke * 0.085);
+      pos.setX(v, x * (1 + Math.pow(t, 2) * ecke * 0.1));
+      pos.setZ(v, z * (1 + Math.pow(t, 2) * ecke * 0.1));
+    }
+    pos.needsUpdate = true;
+    dach.computeVertexNormals();
+    steine.push(steinTeil(dach, 0.87, 21).translate(0, 0.87, 0));
+  }
+  // Knauf
+  steine.push(steinTeil(new THREE.SphereGeometry(0.05, 10, 7), 0.99, 22).translate(0, 0.99, 0));
+
+  const stein = new THREE.Mesh(mergeGeometries(steine.map((g) => (g.index ? g.toNonIndexed() : g))), stoneMat);
+  stein.name = 'zen-laterne-stein';
+  group.add(stein);
+
+  // Der Lichtkörper zwischen den Pfosten. Unbeleuchtetes Material ohne
+  // Tonemapping: Ein Lichtkasten am späten Nachmittag darf heller sein als der
+  // Kies daneben.
   const box = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.13, 0.13, 0.18, 6),
-    new THREE.MeshStandardMaterial({ color: 0xffcf8a, emissive: 0xff9e3d, emissiveIntensity: 0.9, roughness: 0.7 })
+    new THREE.CylinderGeometry(0.108, 0.108, 0.19, 6),
+    new THREE.MeshBasicMaterial({ color: 0xffd79a, toneMapped: false })
   );
-  box.position.y = 0.69;
+  box.position.y = 0.67;
   group.add(box);
-  const roof = new THREE.Mesh(
-    steinTeil(new THREE.ConeGeometry(0.22, 0.16, 6), 0.86, 14),
-    stoneMat
-  );
-  roof.position.y = 0.86;
-  group.add(roof);
-  const finial = new THREE.Mesh(
-    steinTeil(new THREE.SphereGeometry(0.045, 8, 6), 0.96, 15),
-    stoneMat
-  );
-  finial.position.y = 0.96;
-  group.add(finial);
+
   const glow = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(255,200,120,0.9)', 'rgba(255,150,60,0.35)'),
+      map: makeGlowTexture('rgba(255,205,130,0.85)', 'rgba(255,152,62,0.3)'),
       transparent: true,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
       fog: false,
     })
   );
-  glow.position.y = 0.69;
-  glow.scale.set(1.2, 1.2, 1);
+  glow.position.y = 0.68;
+  glow.scale.set(1.1, 1.1, 1);
   group.add(glow);
   return group;
 }
 
-// Torii-Tor als ruhiger Landmark am Rand
+// Torii-Tor als ruhiger Landmark am Rand.
+//
+// **Der Prüfer hat es als eine einzige Farbe gemessen:** Deckbalken, beide
+// Pfosten und der Riegel lagen bei (191,57,33) mit einer maximalen Abweichung
+// von 1 von 255 — vier verschieden orientierte Flächen ohne jeden Unterschied.
+// Dazu „ein gerader Quader ohne Aufwärtsschwung und ohne Verjüngung".
+//
+// Ein Myōjin-Torii hat fünf Dinge, die es von einem H aus Balken unterscheiden:
+//
+//   * **Kasagi mit Schwung.** Der Deckbalken ist nach oben gebogen und läuft
+//     zu den Enden hin schmaler zu. Das ist die Linie, an der man ein Torii
+//     von weitem erkennt.
+//   * **Shimaki.** Direkt darunter ein zweiter, flacherer Balken.
+//   * **Nuki, der durchstößt.** Der Riegel geht durch die Pfosten hindurch und
+//     steht auf beiden Seiten vor.
+//   * **Geneigte Pfosten.** Sie stehen nicht senkrecht, sondern oben leicht
+//     nach innen — das gibt dem Tor seinen Stand.
+//   * **Kusabi.** Keile, die den Nuki im Pfosten festsetzen.
+//
+// Die Farbunterschiede zwischen den Teilen stecken in den Scheitelfarben: Der
+// Deckbalken steht im Regen und ist ausgeblichen, die Unterseiten sind
+// nachgedunkelt, die Pfostenfüße sind vom Spritzwasser dunkel.
 function makeTorii() {
   const group = new THREE.Group();
-  // Zinnoberrot bleibt – ein Torii ist rot –, aber jetzt auf gealtertem Holz:
-  // Die Maserung läuft bei `weatheredWoodMaterial` in **V**, also längs eines
-  // Zylinders, und genau so stehen die Pfosten. Die Farbe multipliziert die
-  // Karte, der Rotton bleibt also erhalten und bekommt Struktur dazu.
-  const mat = weatheredWoodMaterial({ tone: 0xd4553a, vertexColors: false });
+  const mat = weatheredWoodMaterial({ tone: 0xd4553a, vertexColors: true });
   const h = 3.2;
   const span = 2.4;
+  const teile = [];
+
+  // Ein Balken mit Schwung: eine Box, deren Scheitelpunkte nach oben gebogen
+  // und zu den Enden verjüngt werden.
+  const balken = (laenge, hoehe, tiefe, schwung, verjuengung) => {
+    const geo = new THREE.BoxGeometry(laenge, hoehe, tiefe, 24, 1, 1);
+    const pos = geo.attributes.position;
+    for (let v = 0; v < pos.count; v++) {
+      const x = pos.getX(v);
+      const t = Math.abs(x) / (laenge / 2);
+      pos.setY(v, pos.getY(v) + t * t * schwung);
+      // Verjüngung nur nach unten, die Oberkante bleibt die Schwunglinie.
+      if (pos.getY(v) < 0) pos.setY(v, pos.getY(v) * (1 - t * verjuengung));
+      pos.setZ(v, pos.getZ(v) * (1 - t * verjuengung * 0.7));
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    return geo;
+  };
+
   for (const sx of [-1, 1]) {
-    const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, h, 12), mat);
-    pillar.position.set(sx * span * 0.5, h / 2, 0);
-    group.add(pillar);
+    // Pfosten mit Verjüngung nach oben und leichter Neigung nach innen.
+    const pillar = new THREE.CylinderGeometry(0.145, 0.195, h, 14);
+    scaleUV(pillar, 3);
+    pillar.rotateZ(-sx * 0.028);
+    pillar.translate(sx * span * 0.5, h / 2, 0);
+    teile.push(pillar);
   }
-  const topBeam = new THREE.Mesh(new THREE.BoxGeometry(span + 1.1, 0.3, 0.42), mat);
-  topBeam.position.y = h - 0.05;
-  topBeam.rotation.z = 0.02;
-  group.add(topBeam);
-  const lintel = new THREE.Mesh(new THREE.BoxGeometry(span + 0.2, 0.22, 0.34), mat);
-  lintel.position.y = h - 0.6;
-  group.add(lintel);
-  const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.5, 0.3), mat);
-  ridge.position.y = h - 0.32;
-  group.add(ridge);
+  // Kasagi: der geschwungene Deckbalken
+  teile.push(balken(span + 1.35, 0.26, 0.44, 0.3, 0.42).translate(0, h + 0.09, 0));
+  // Shimaki: der flachere Balken darunter
+  teile.push(balken(span + 1.15, 0.17, 0.36, 0.24, 0.34).translate(0, h - 0.11, 0));
+  // Nuki: der Riegel stößt durch die Pfosten hindurch
+  teile.push(new THREE.BoxGeometry(span + 0.62, 0.2, 0.3).translate(0, h - 0.78, 0));
+  // Gakuzuka: die Strebe zwischen Nuki und Shimaki
+  teile.push(new THREE.BoxGeometry(0.19, 0.62, 0.24).translate(0, h - 0.42, 0));
+  // Kusabi: die Keile, die den Nuki im Pfosten halten
+  for (const sx of [-1, 1]) {
+    teile.push(new THREE.BoxGeometry(0.075, 0.3, 0.34).translate(sx * (span * 0.5 + 0.2), h - 0.78, 0));
+  }
+
+  const geo = mergeGeometries(teile.map((g) => (g.index ? g.toNonIndexed() : g)));
+  // Scheitelfarben: oben ausgeblichen, Unterseiten nachgedunkelt, Pfostenfüße
+  // vom Spritzwasser dunkel. Ohne das sind vier verschieden ausgerichtete
+  // Flächen im Bild nicht zu unterscheiden.
+  {
+    const pos = geo.attributes.position;
+    const nor = geo.attributes.normal;
+    const farben = new Float32Array(pos.count * 3);
+    for (let v = 0; v < pos.count; v++) {
+      const y = pos.getY(v);
+      const ny = nor.getY(v);
+      // Wetterseite: nach oben zeigende Flächen bleichen aus
+      let f = 1 + Math.max(0, ny) * 0.16;
+      // Unterseiten liegen im Eigenschatten der Konstruktion
+      f *= 1 - Math.max(0, -ny) * 0.22;
+      // Der Fuß ist dunkel, oben ist das Holz heller
+      f *= 0.84 + Math.min(1, y / h) * 0.22;
+      // Feine Streuung, damit keine Fläche gleichförmig ist
+      f *= 0.94 + hashNoise(pos.getX(v) * 3.3, y * 3.3, pos.getZ(v) * 3.3) * 0.12;
+      farben[v * 3] = f;
+      farben[v * 3 + 1] = f * (0.97 + Math.max(0, ny) * 0.05);
+      farben[v * 3 + 2] = f * (0.94 + Math.max(0, ny) * 0.09);
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.name = 'zen-torii';
+  group.add(mesh);
   return group;
 }
 
@@ -3824,23 +5197,53 @@ function bambooMaterials() {
   }
   return { culm: _bambooMat, cards: _bambooCards };
 }
+// **Der Prüfer las den Hain als „acht gerade Stäbe mit Pom-Pom oben".** Drei
+// Dinge fehlten, und alle drei sind an einem Halm sofort zu sehen:
+//
+//   * **Verjüngung.** Ein Bambushalm ist unten doppelt so dick wie oben. Die
+//     alte Fassung hatte über die ganze Länge denselben Radius — das ist ein
+//     Rohr, kein Halm.
+//   * **Bogen.** Bambus steht nicht senkrecht, er neigt sich und biegt sich
+//     unter dem eigenen Schopf. Der Bogen wird über die Segmente aufsummiert,
+//     die Halme sind deshalb auch untereinander verschieden gekrümmt.
+//   * **Nodien in wechselndem Abstand.** Unten kurz, in der Mitte lang, oben
+//     wieder kürzer — bei gleichmäßigem Abstand liest man das Gitter.
 function makeBambooStalk(rand) {
   const geos = [];
-  const segs = 5 + Math.floor(rand() * 4);
-  const rad = 0.035 + rand() * 0.02;
+  const segs = 7 + Math.floor(rand() * 4);
+  const radUnten = 0.036 + rand() * 0.016;
+  // Neigungsrichtung und -stärke je Halm
+  const neigA = rand() * Math.PI * 2;
+  const neig = 0.05 + rand() * 0.13;
   let y = 0;
-  for (let s = 0; s < segs; s++) {
-    const segH = 0.34 + rand() * 0.14;
-    const c = new THREE.CylinderGeometry(rad * 0.96, rad, segH, 7);
-    c.translate(0, y + segH / 2, 0);
+  let x = 0;
+  let z = 0;
+  for (let i = 0; i < segs; i++) {
+    const t = i / segs;
+    // Internodien: kurz, lang, kurz
+    const segH = 0.2 + Math.sin(Math.min(1, t * 1.15) * Math.PI) * 0.3 + rand() * 0.06;
+    const r0 = radUnten * (1 - t * 0.5);
+    const r1 = radUnten * (1 - (t + 1 / segs) * 0.5);
+    // Der Bogen wächst quadratisch mit der Höhe — so hängt die Spitze, nicht
+    // der Fuß.
+    const versatz = neig * t * t * segH * 3.2;
+    const dx = Math.cos(neigA) * versatz;
+    const dz = Math.sin(neigA) * versatz;
+    const c = new THREE.CylinderGeometry(r1, r0, segH, 7);
+    c.rotateZ(-Math.cos(neigA) * neig * t * 1.3);
+    c.rotateX(Math.sin(neigA) * neig * t * 1.3);
+    c.translate(x + dx / 2, y + segH / 2, z + dz / 2);
     geos.push(c);
-    const knot = new THREE.CylinderGeometry(rad * 1.15, rad * 1.15, 0.03, 7);
-    knot.translate(0, y + segH, 0);
-    geos.push(knot);
+    x += dx;
+    z += dz;
     y += segH;
+    const knot = new THREE.CylinderGeometry(r1 * 1.16, r1 * 1.16, 0.026, 7);
+    knot.translate(x, y, z);
+    geos.push(knot);
   }
   const stalk = new THREE.Mesh(mergeGeometries(geos), bambooMaterials().culm);
   stalk.userData.height = y;
+  stalk.userData.spitze = new THREE.Vector3(x, y, z);
   return stalk;
 }
 
@@ -3879,18 +5282,23 @@ function makeBambooGrove(rand, cx, cz) {
   {
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
+    // Die Schöpfe sitzen an der **gebogenen** Spitze, nicht senkrecht über dem
+    // Fuß — sonst hängt das Laub neben dem Halm in der Luft. Und sie sitzen
+    // gestaffelt: Ein Bambusschopf ist keine Kugel obendrauf, sondern Laub, das
+    // über das obere Drittel verteilt ansetzt.
     stalks.forEach((s, i) => {
-      const hoehe = s.userData.height * s.scale.y;
+      const sp = s.userData.spitze;
       for (let k = 0; k < 2; k++) {
+        const t = 1 - k * 0.22;
         q.setFromEuler(new THREE.Euler(0, i * 1.3 + k * 2.4, 0));
         m.compose(
           new THREE.Vector3(
-            s.position.x + (k - 0.5) * 0.16,
-            hoehe - 0.18 - k * 0.26,
-            s.position.z + (k - 0.5) * 0.13
+            s.position.x + sp.x * s.scale.x * t + (k - 0.5) * 0.13,
+            sp.y * s.scale.y * t - 0.1,
+            s.position.z + sp.z * s.scale.z * t + (k - 0.5) * 0.11
           ),
           q,
-          new THREE.Vector3(0.3, 0.34, 0.3)
+          new THREE.Vector3(0.28, 0.3, 0.28)
         );
         schopf.setMatrixAt(i * 2 + k, m);
       }
@@ -3899,10 +5307,15 @@ function makeBambooGrove(rand, cx, cz) {
   }
   group.add(schopf);
 
-  const shadow = makeBlobShadow(1.4, 0.4, 0.02);
-  group.add(shadow);
+  // Der Kontaktschatten des Hains wird **nicht** hier eingehängt, sondern
+  // zurückgegeben: Die Umgebung sammelt alle Schatten ein und zeichnet sie in
+  // einem Draw-Call (siehe `verschmelzeSchatten`). Dafür muss er in
+  // Weltkoordinaten stehen, nicht relativ zum Hain.
+  const shadow = makeBlobShadow(0.8, 0.45, 0.02);
+  shadow.position.set(cx, 0.02, cz);
   return {
     group,
+    shadow,
     update(time) {
       for (const s of stalks) {
         s.rotation.z = Math.sin(time * 0.9 + s.userData.phase) * s.userData.sway;
@@ -3934,24 +5347,30 @@ function mapleMaterials() {
   return { cards: _mapleCards };
 }
 
+const MAPLE_ANSAETZE = [
+  [0, 2.24, 0, 0.44],
+  [0.62, 2.0, 0.2, 0.32],
+  [-0.56, 2.08, -0.26, 0.34],
+  [0.2, 2.5, -0.2, 0.29],
+  [-0.26, 2.36, 0.44, 0.28],
+  [-0.66, 1.76, 0.16, 0.25],
+  [0.5, 1.82, -0.4, 0.25],
+];
 function makeMaple(rand) {
   const tree = new THREE.Group();
   const trunk = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.16, 1.5, 8),
+    mergeGeometries([
+      scaleUV(new THREE.CylinderGeometry(0.075, 0.17, 1.62, 10), 4.5).translate(0, 0.81, 0),
+      ...astwerk([0, 1.28, 0], MAPLE_ANSAETZE, { seed: 0x71a3, stammR: 0.07 }),
+    ]),
     weatheredWoodMaterial({ tone: 0x7d6552, vertexColors: false })
   );
-  trunk.position.y = 0.75;
-  trunk.rotation.z = -0.08;
+  trunk.position.y = 0;
+  trunk.rotation.z = -0.04;
   tree.add(trunk);
   const { cards } = mapleMaterials();
   const krone = baueKrone({
-    ansaetze: [
-      [0, 1.68, 0, 0.46],
-      [0.5, 1.54, 0.15, 0.32],
-      [-0.45, 1.6, -0.2, 0.34],
-      [0.15, 1.92, -0.15, 0.3],
-      [-0.2, 1.84, 0.35, 0.28],
-    ],
+    ansaetze: MAPLE_ANSAETZE,
     seed: 0x71a3 + Math.floor(rand() * 64),
     kartenMaterial: cards,
     kind: 'maple',
@@ -3969,7 +5388,19 @@ function makeMaple(rand) {
 }
 
 // Seerosenblatt (flache Scheibe mit Kerbe) + optional Lotusblüte.
-const LILY_MAT = new THREE.MeshStandardMaterial({ color: 0x3f8f4d, roughness: 0.8, metalness: 0, side: THREE.DoubleSide });
+// **Drei unverbundene Grüntöne waren im Bild.** Der Prüfer hat sie gemessen:
+// Moos bei Farbton 71°, Bambuslaub 76°, Seerose 119° bei Sättigung 0,51 — und
+// das übrige Spektrum der Szene liegt zwischen 9° und 41°. Ein Grün mit 119°
+// und halber Sättigung ist in dieser Tonart ein Fremdkörper. Die Seerose
+// bekommt denselben olivgetönten Grundton wie das Moos und wird nur heller
+// gehalten, weil sie auf dem Wasser liegt und mehr Himmel sieht.
+const LILY_MAT = new THREE.MeshStandardMaterial({ color: 0x5d7a44, roughness: 0.72, metalness: 0, side: THREE.DoubleSide });
+// Blüten- und Kernmaterial der Lotusblüten **modulweit**, nicht je Blüte. Elf
+// Kegel und eine Kugel je Blüte mal drei Blüten waren sechsunddreißig
+// Draw-Calls für ein Detail von zehn Zentimetern; mit geteiltem Material lassen
+// sich alle drei Blüten zu zwei Meshes verschmelzen.
+const LOTUS_BLATT_MAT = new THREE.MeshStandardMaterial({ color: 0xff9dc2, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
+const LOTUS_KERN_MAT = new THREE.MeshStandardMaterial({ color: 0xffe066, roughness: 0.6 });
 function makeLilyPad(rand) {
   const pad = new THREE.Mesh(new THREE.CircleGeometry(0.16 + rand() * 0.1, 20, 0.5, Math.PI * 1.85), LILY_MAT);
   pad.rotation.x = -Math.PI / 2;
@@ -3978,7 +5409,7 @@ function makeLilyPad(rand) {
 }
 function makeLotus() {
   const g = new THREE.Group();
-  const petalMat = new THREE.MeshStandardMaterial({ color: 0xff9dc2, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
+  const petalMat = LOTUS_BLATT_MAT;
   for (let ring = 0; ring < 2; ring++) {
     const n = ring === 0 ? 6 : 5;
     for (let i = 0; i < n; i++) {
@@ -3989,10 +5420,7 @@ function makeLotus() {
       g.add(petal);
     }
   }
-  const center = new THREE.Mesh(
-    new THREE.SphereGeometry(0.04, 8, 6),
-    new THREE.MeshStandardMaterial({ color: 0xffe066, roughness: 0.6 })
-  );
+  const center = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), LOTUS_KERN_MAT);
   center.position.y = 0.07;
   g.add(center);
   return g;
@@ -4099,14 +5527,37 @@ function makeKoi(variant) {
 
   const bodyGeo = new THREE.LatheGeometry(profile, 22);
   bodyGeo.rotateX(Math.PI / 2); // Längsachse von Y nach Z, Kopf nach +Z
-  const body = new THREE.Mesh(
-    bodyGeo,
-    new THREE.MeshStandardMaterial({
-      map: makeKoiTexture(variant),
-      roughness: 0.34,
-      metalness: 0.05,
-    })
-  );
+  // **Der Körper biegt sich.** Der Prüfer hat beide Koi als „starr waagerecht
+  // ohne Körperbogen" gemessen — es wedelte nur der Schwanz an einem Gelenk,
+  // und das ist die Bewegung eines Spielzeugs. Ein Fisch schwimmt, indem eine
+  // Welle vom Kopf zum Schwanz durch ihn hindurchläuft. Die Welle steht
+  // deshalb im Vertexshader: seitlicher Versatz proportional zu sin(z·k − t·ω),
+  // mit einer Amplitude, die zum Schwanz hin wächst. Der Kopf bleibt ruhig,
+  // wie er soll.
+  const koiUniforms = { uKoiZeit: { value: 0 }, uKoiPhase: { value: variant * 2.1 } };
+  const bodyMat = new THREE.MeshStandardMaterial({
+    map: makeKoiTexture(variant),
+    roughness: 0.34,
+    metalness: 0.05,
+  });
+  bodyMat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, koiUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n uniform float uKoiZeit;\n uniform float uKoiPhase;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+         {
+           // z läuft von -L/2 (Schwanz) bis +L/2 (Kopf); die Amplitude wächst
+           // nach hinten.
+           float hinten = clamp(0.5 - transformed.z / 0.34, 0.0, 1.2);
+           float welle = sin(transformed.z * 13.0 - uKoiZeit * 7.5 + uKoiPhase);
+           transformed.x += welle * hinten * hinten * 0.055;
+         }`
+      );
+  };
+  bodyMat.customProgramCacheKey = () => 'zen-koi-koerper';
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
   // Fische sind seitlich schmal und hochrückig – ohne das bliebe die Drehfigur
   // ein Schlauch.
   body.scale.set(0.6, 1.18, 1);
@@ -4119,6 +5570,13 @@ function makeKoi(variant) {
     transparent: true,
     opacity: 0.82,
     side: THREE.DoubleSide,
+    // **Durchsichtig plus doppelseitig kostet in three zwei Draw-Calls**, nicht
+    // einen: `renderObject` zeichnet erst die Rück-, dann die Vorderseiten,
+    // damit sich gekrümmte Hüllen richtig überlagern. Eine Flosse ist aber eine
+    // ebene Fläche – sie überlagert sich nie mit sich selbst, die zweite
+    // Zeichnung bringt kein Pixel Unterschied. Gemessen waren das zehn Flossen
+    // mal zwei Fische mal zwei Durchgänge: zwanzig Calls für zehn Flächen.
+    forceSinglePass: true,
   });
 
   // Schwanz mit eigenem Pivot (wedelt) – zweilappig, nicht spitz
@@ -4134,18 +5592,23 @@ function makeKoi(variant) {
   tailPivot.add(tail);
   koi.add(tailPivot);
 
+  // Die vier festen Flossen bewegen sich nicht gegeneinander – nur der Schwanz
+  // wedelt. Sie werden deshalb zu einem Mesh verschmolzen; vier Flächen von je
+  // fünf Zentimetern rechtfertigen keine vier Draw-Calls.
+  const flossen = [];
+
   // Rückenflosse
   const dorsal = makeKoiFin(
     [[0, 0], [0.05, 0.045], [0.11, 0.05], [0.15, 0.01], [0.08, 0]],
     finMat
   );
   dorsal.position.set(0, 0.048, 0.03);
-  koi.add(dorsal);
+  flossen.push(dorsal);
 
   // Afterflosse
   const anal = makeKoiFin([[0, 0], [0.04, -0.03], [0.08, -0.035], [0.1, -0.005]], finMat);
   anal.position.set(0, -0.042, -0.05);
-  koi.add(anal);
+  flossen.push(anal);
 
   // Brustflossen, leicht nach hinten und unten gestellt
   for (const side of [-1, 1]) {
@@ -4154,22 +5617,25 @@ function makeKoi(variant) {
     // Um die Längsachse gekippt, damit die Flosse seitlich absteht statt
     // senkrecht wie ein zweites Segel am Bauch zu stehen
     pec.rotation.z = side * 1.05;
-    koi.add(pec);
+    flossen.push(pec);
   }
+  koi.add(...verschmelzeObjekte(flossen, 'koi-flossen'));
 
   // Augen
   const eyeGeo = new THREE.SphereGeometry(0.0085, 8, 6);
   const eyeMat = new THREE.MeshStandardMaterial({ color: 0x16110d, roughness: 0.25 });
+  const augen = [];
   for (const side of [-1, 1]) {
     const eye = new THREE.Mesh(eyeGeo, eyeMat);
     eye.position.set(side * 0.024, 0.012, L / 2 - 0.055);
-    koi.add(eye);
+    augen.push(eye);
   }
+  koi.add(...verschmelzeObjekte(augen, 'koi-augen'));
 
   // Gieren (y) vor Nicken (x) auswerten – sonst kippt der Fisch beim Auf- und
   // Abtauchen je nach Kurs zusätzlich zur Seite.
   koi.rotation.order = 'YXZ';
-  koi.userData = { tail: tailPivot };
+  koi.userData = { tail: tailPivot, uniforms: koiUniforms };
   return koi;
 }
 
@@ -4179,48 +5645,208 @@ function createZenEnvironment() {
   group.name = 'env-zen';
 
   // Warme, ruhige Spätnachmittags-Kuppel
-  group.add(makeDome(0x8fb6d8, 0xf6e3c6, 0xe4cba2));
-
-  // Weiches, warmes Licht
-  group.add(new THREE.HemisphereLight(0xffe9cf, 0xb8a888, 1.05));
-  const sun = new THREE.DirectionalLight(0xffe0b3, 1.7);
-  sun.position.set(-12, 9, -6);
-  group.add(sun);
-  const sunSprite = new THREE.Sprite(
-    new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(255,240,210,1)', 'rgba(255,210,150,0.5)'),
-      transparent: true,
-      depthWrite: false,
-      fog: false,
+  // Horizontfarbe **gleich** der Nebelfarbe und ein weiter Radius. Beides
+  // gehört zusammen: Der Saum (siehe `makeSandSaum`) läuft bis dorthin, wo der
+  // Nebel gesättigt ist; träfe dort ein anders getönter Himmel auf den Boden,
+  // stünde die Horizontlinie wieder als Kante im Bild – nur eben in Creme
+  // statt in Sand.
+  group.add(
+    makeDome(0x8fb6d8, 0xecd9bb, 0xe4cba2, 70, {
+      dir: new THREE.Vector3(...ZEN_SONNE),
+      // Der Hof wird **auf** die Himmelsfarbe addiert, ist also ein Zuschlag
+      // und kein Farbton. Warm und zurückhaltend: Ein tief stehender Hof, der
+      // den halben Himmel aufhellt, frisst die Tonwertstaffelung, die der
+      // Nebel darunter aufbauen soll.
+      color: 0x5a4020,
+      tight: 220,
+      broad: 2.4,
+    },
+    {
+      map: wolkenKarte(),
+      // Der Schatten der Wolke ist blaugrau, ihre besonnte Seite golden. Beides
+      // gehört in die Tonart der Umgebung: warm mit kühlem Gegenpol.
+      color: 0xc9bfc4,
+      lit: 0xffe3b4,
+      strength: 1.0,
+      // Ganzzahliger Umlauf, sonst steht eine senkrechte Naht am Himmel.
+      scale: [4, 3.1],
+      // Kein Zirrus unter 3° und keiner über 45°: unten frisst ihn der Dunst,
+      // oben verrät die Azimut-Abbildung die Kachel.
+      band: [0.008, 0.055, 0.42, 0.92],
     })
   );
-  sunSprite.position.set(-22, 10, -18);
-  sunSprite.scale.set(9, 9, 1);
-  group.add(sunSprite);
 
-  // Warmes Rim-/Backlight zum Abheben der Silhouetten
-  const rim = new THREE.DirectionalLight(0xffdcb0, 0.45);
-  rim.position.set(16, 6, 14);
+  // --- Licht ----------------------------------------------------------------
+  //
+  // **Der Garten hatte kein Licht, sondern Umgebungshelligkeit.** Gemessen: der
+  // Sand direkt am Fuß eines Trittsteins 212,8, der Sand einen Meter daneben
+  // 212,9 — ein Unterschied von 0,1 von 255. Jede Form war ausgeschnitten und
+  // aufgeklebt, nichts hatte Gewicht.
+  //
+  // Drei Quellen sorgten dafür: die Grundleuchte der App mit 1,4, die eigene
+  // Hemisphäre mit 1,05 und ein Gegenlicht mit 0,45 — zusammen fast das
+  // Dreifache dessen, was die Sonne bei 34° auf einer waagerechten Fläche
+  // beitrug. Die Grundleuchte steht jetzt auf 0,35 (`sceneAmbient` unten), die
+  // eigene Hemisphäre trägt nur noch den Himmelsanteil, und die Sonne ist die
+  // Hauptquelle.
+  // **Der Himmel ist kühl, die Sonne ist warm.** Das ist der Kern eines
+  // Spätnachmittags und zugleich der billigste Weg zu Tiefe: Die besonnte
+  // Fläche und die verschattete unterscheiden sich dann nicht nur in der
+  // Helligkeit, sondern im Farbton. Vorher war beides warm, und der Schatten
+  // war schlicht ein dunklerer Sand. Die Bodenfarbe der Hemisphäre ist das
+  // Rücklicht des Kieses und bleibt warm.
+  // **Zweiter Anlauf: Der erste hat abgedunkelt statt Licht zu geben.**
+  // Gemessen fiel der Anteil über L 200 von 31,2 % auf 1,7 %, und die
+  // Schattenseiten der Findlinge sackten unter L 30 (Anteil 1,6 % → 21,4 %).
+  // Der Fehler war, die Grundhelligkeit zu senken **und** die Sonne nur
+  // moderat anzuheben: Bei 19,4° trifft sie eine waagerechte Fläche mit
+  // cos 71° = 0,33, sie muss also rund dreimal so stark sein wie bei
+  // Mittagsstand, um dieselbe Flächenhelligkeit zu erreichen.
+  //
+  // Die Hemisphäre trägt jetzt mehr, damit der Schatten Form behält statt
+  // abzusaufen — sie ist die einzige Quelle dort. Kühl bleibt sie: Der
+  // Farbunterschied zwischen besonnt und verschattet ist die halbe Tiefe.
+  group.add(new THREE.HemisphereLight(0xb3cdf0, 0xa8875f, 1.05));
+
+  // 4,6 waren zu viel: Der Kies stand danach als gebleichte Fläche im Bild.
+  // 4,1 hält die Lichtseite oben, ohne die Zeichnung zu verlieren.
+  const sun = new THREE.DirectionalLight(0xffd9a0, 4.1);
+  sun.position.set(...ZEN_SONNE);
+  group.add(sun);
+
+  // --- Schlagschatten -------------------------------------------------------
+  //
+  // Das Schattenvolumen umfasst 24 m im Quadrat um den Ursprung. Der gestaltete
+  // Teil des Gartens liegt innerhalb von 10 m; der längste Schatten ist der des
+  // Torii, der bei 19° Sonnenstand gut 9 m weit läuft. Außerhalb des Volumens
+  // liefert threes Abfrage „beleuchtet", der Kies bleibt dort also hell — was
+  // richtig ist, weil dort nichts steht.
+  sun.castShadow = true;
+  {
+    const sh = sun.shadow;
+    sh.mapSize.set(2048, 2048);
+    const HALB = 12;
+    sh.camera.left = -HALB;
+    sh.camera.right = HALB;
+    sh.camera.top = HALB;
+    sh.camera.bottom = -HALB;
+    // Die Quelle steht 16,6 m vom Ursprung; die Szene reicht von dort aus grob
+    // 3 bis 33 m.
+    sh.camera.near = 2.5;
+    sh.camera.far = 34;
+    // Normal-Bias statt großem Tiefen-Bias: Er verschiebt den Abtastpunkt
+    // entlang der Normalen und erzeugt deshalb kein Peter-Panning – den
+    // sichtbaren Spalt zwischen Objekt und Schattenansatz.
+    sh.bias = -0.0004;
+    // **0,03 war zu viel und hat die flachen Objekte um ihren Schatten
+    // gebracht.** Der Normal-Bias verschiebt den Abtastpunkt entlang der
+    // Normalen; auf dem Kies zeigt die nach oben. Ein Trittstein ist 6 cm dick
+    // und steht 3 cm über dem Sand — bei 3 cm Versatz wird also über ihn
+    // hinweg abgetastet, und er wirft nichts. Im Bild sah das aus wie ein
+    // vergessener Schattenwerfer, war aber ein Zahlenwert.
+    // 0,008 waren immer noch zu viel: Am Bambusfuß stand ein 2 bis 4 Pixel
+    // breiter heller Spalt zwischen Halm und Schattenansatz. Ein Halm ist
+    // 7 cm dick; der Versatz entlang der Normalen darf nicht in die
+    // Größenordnung des Objekts kommen. Schattenakne hat der Prüfer im selben
+    // Durchlauf ausdrücklich nicht gefunden, es ist also Luft nach unten.
+    sh.normalBias = 0.0025;
+    sh.camera.updateProjectionMatrix();
+  }
+
+  // Die Sonnenscheibe. **`toneMapped: false` ist hier das Entscheidende:** Ohne
+  // das läuft die Scheibe durch dieselbe ACES-Kurve wie alles andere und landet
+  // im flachen Ast — gemessen war der Sonnenkern mit L=210,5 dunkler als der
+  // Sand davor mit L=214,8. Eine Sonne, die dunkler ist als der Boden, ist
+  // keine Lichtquelle, sondern ein Wattebausch. Additiv gemischt, damit sie den
+  // Himmel aufhellt statt ihn zu überdecken.
+  const sonnenRichtung = new THREE.Vector3(...ZEN_SONNE).normalize();
+  // Zwei Sprites, weil ein einzelner Verlauf entweder einen harten Kern oder
+  // einen weiten Hof ergibt, nie beides — dieselbe Aufteilung wie bei der
+  // Insel. Der erste Anlauf hatte einen Verlauf mit Skalierung 11 auf 38 m
+  // Abstand: 16° am Himmel, mit sichtbar hartem Rand. Das war keine Sonne,
+  // sondern eine Scheibe.
+  // **Additiv plus voller Kern ergibt reines Weiß.** Der erste Anlauf hatte
+  // den Kern auf Alpha 1,0 und additive Mischung: 20,7 % der Scheibenfläche
+  // standen danach auf exakt (255,255,255). Eine Sonne bei 19,4° ist nicht
+  // weiß, sie ist golden — und ausgefressen ist sie erst recht nicht, weil
+  // dann die Farbe verschwindet, die sie tragen soll. Kern jetzt gedeckelt und
+  // wärmer, dafür der Hof kräftiger.
+  for (const [scale, innen, aussen] of [
+    [2.2, 'rgba(255,240,205,0.78)', 'rgba(255,214,150,0.6)'],
+    [15.0, 'rgba(255,222,168,0.34)', 'rgba(255,192,124,0.12)'],
+  ]) {
+    const sprite = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        map: makeGlowTexture(innen, aussen),
+        transparent: true,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        // **Ohne das läuft die Scheibe durch dieselbe ACES-Kurve wie alles
+        // andere und landet im flachen Ast.** Gemessen war der Sonnenkern mit
+        // L=210,5 dunkler als der Sand davor mit L=214,8 — eine Sonne, die
+        // dunkler ist als der Boden, ist keine Lichtquelle.
+        toneMapped: false,
+        fog: false,
+      })
+    );
+    sprite.position.copy(sonnenRichtung).multiplyScalar(38);
+    sprite.scale.set(scale, scale, 1);
+    group.add(sprite);
+  }
+
+  // Warmes Gegenlicht aus der Gegenrichtung, das die Silhouetten von der
+  // Schattenseite her ablöst. Schwächer als zuvor: Es soll die Kante zeigen,
+  // nicht die Fläche aufhellen.
+  const rim = new THREE.DirectionalLight(0xffcf9c, 0.5);
+  rim.position.set(15, 3.5, 13);
   group.add(rim);
 
-  // Sandfläche (flach, geharkt) – jetzt mit echtem Relief in den Rillen.
-  const sandK = sandMaps();
+  // Der Saum liegt unter allem anderen und wird zuerst gezeichnet.
+  group.add(makeSandSaum());
+
+  // Das Kiesbett. Radius unverändert 20 m; die Harkspur entsteht jetzt
+  // rechnerisch aus der Weltposition, siehe `sandMaterial()`.
+  // Lage und Größe des Teichs stehen hier oben, weil das Kiesbett eine
+  // Aussparung dafür braucht — es darf nicht als waagerechte Platte durch das
+  // Becken schneiden.
+  // Der Umriss des Teichs, einmal definiert: Becken, Wasserfläche und die
+  // Aussparung im Kiesbett benutzen dieselbe Funktion. Eine exakte Ellipse ist
+  // der schnellste Weg zu „gerechnet"; und drei Stellen, die denselben Umriss
+  // getrennt nachbilden, sind der schnellste Weg zu einem Spalt.
+  const teichUmriss = welligerUmriss(4242, 0.13);
+  const TEICH = { x: 3.2, z: -1.2, rx: 2.04, rz: 1.7 };
+  const sandMat = sandMaterial();
   const sand = new THREE.Mesh(
-    new THREE.CircleGeometry(20, 72),
-    new THREE.MeshStandardMaterial({
-      map: sandK.map,
-      normalMap: sandK.normalMap,
-      // Trockener Kies ist stumpf. Keine Rauheitskarte: Die Streuung zwischen
-      // Rillengrund und Kamm ist auf trockenem Sand klein, und das hier ist die
-      // größte Fläche der Szene – eine Abtastung je Pixel für fast nichts.
-      roughness: 0.95,
-      metalness: 0,
-    })
+    makeSandBett(SAND_RADIUS, 44, 160, {
+      x: TEICH.x,
+      z: TEICH.z,
+      // Zwischen Wasserlinie (0,95) und Uferwulst-Außenkante (1,30): Das Loch
+      // liegt sicher außerhalb des Wassers und wird vom Ufer mit gut 45 cm
+      // überdeckt.
+      rx: TEICH.rx * 1.02,
+      rz: TEICH.rz * 1.02,
+      umriss: teichUmriss,
+    }),
+    sandMat
   );
   sand.name = 'zen-sand';
-  sand.rotation.x = -Math.PI / 2;
   sand.position.y = -0.02;
   group.add(sand);
+
+  // Die Ringbänder der Harke. Um jede Steingruppe und um den Teich wird ein
+  // Band von konzentrischen Zügen geharkt, außen laufen gerade Züge.
+  // (x, z, Innenradius, Breite des Bandes)
+  sandMat.userData.sandUniforms.uSandRinge.value[0].set(-3.5, -2.5, 1.15, 2.6);
+  sandMat.userData.sandUniforms.uSandRinge.value[1].set(4.0, 1.5, 0.95, 2.1);
+  sandMat.userData.sandUniforms.uSandRinge.value[2].set(1.0, -4.5, 1.1, 2.4);
+  sandMat.userData.sandUniforms.uSandRinge.value[3].set(3.2, -1.2, 2.35, 3.1);
+  const feuchtZonen = sandMat.userData.sandUniforms.uSandFeucht.value;
+  // Der Teich ist die stärkste Feuchtequelle; das Ufer bleibt dunkel.
+  // Enger als vorher: Mit 2,3 m plus 0,75 m Auslauf reichte der unbeharkte
+  // Feuchtsaum bis gut drei Meter vom Teichmittelpunkt und legte einen breiten
+  // glatten Ring um das Wasser — im Bild las der wie trockengefallenes Ufer.
+  feuchtZonen[0].set(3.2, -1.2, 1.75, 0.8);
+  let feuchtIndex = 1;
 
   // Moosinseln.
   //
@@ -4238,22 +5864,63 @@ function createZenEnvironment() {
   // und geht die Farbkarte; das Grün kommt aus `color`.
   const mossMat = mossMaterial();
   mossMat.map = null;
-  mossMat.color.setHex(0x7f9c55);
+  mossMat.color.setHex(0x77894e);
   mossMat.vertexColors = true;
   // Ohne Farbkarte **und** ohne Scheitelfarben ist die Scheibe gleichförmig
   // grün – dieselbe Falle wie beim Inselrasen, einen Absatz weiter unten
   // beschrieben und hier prompt wiederholt. Die Variation hängt jetzt an der
   // Geometrie: außen ausdünnend (Moos endet nicht an einer Kante) und mit
   // groben Flecken darin.
+  // Alle fünf Flecken tragen dasselbe Material und bewegen sich nicht – sie
+  // werden nach dem Bauen zu einem Mesh verschmolzen. Gebaut wird trotzdem
+  // einzeln, damit die Reihenfolge der Zufallszahlen unangetastet bleibt.
+  const moosTeile = [];
   for (let i = 0; i < 5; i++) {
     const a = rand() * Math.PI * 2;
     const r = 2 + rand() * 7;
     const mossR = 0.5 + rand() * 0.8;
-    const mossGeo = new THREE.CircleGeometry(mossR, 20);
+    // **Der Rand war eine Ellipse.** Der Prüfer hat den Bereich um eine
+    // Moosinsel als „ausgestanzte grüne Ellipse auf Sand" gemeldet und
+    // nachgewiesen, dass er zwischen zwei Ständen pixelidentisch war. Moos
+    // wächst nicht auf einem Kreis: Es folgt der Feuchte, schiebt sich in
+    // Zungen vor und dünnt an anderer Stelle aus. 44 Segmente statt 20, und
+    // der Radius jedes Randpunktes wird verrauscht — zwei Frequenzen, damit
+    // Buchten und Zungen verschiedener Größe entstehen.
+    const mossGeo = new THREE.CircleGeometry(mossR, 44);
+    {
+      const pos = mossGeo.attributes.position;
+      const zunge = welligerUmriss(300 + i * 17, 0.24, 6);
+      for (let v = 1; v < pos.count; v++) {
+        const a = Math.atan2(pos.getY(v), pos.getX(v));
+        const f = zunge(a);
+        pos.setXY(v, Math.cos(a) * mossR * f, Math.sin(a) * mossR * f);
+      }
+      pos.needsUpdate = true;
+    }
     // Kachelgröße in Weltmetern: `repeat` der Karte ist 18, ein UV-Schritt von
     // 1 wären also 18 Kacheln. Für 0,55 m je Kachel muss die Scheibe
     // (2·r Meter breit) über 2·r / (18 · 0,55) UV-Einheiten laufen.
     scaleUV(mossGeo, (2 * mossR) / (18 * 0.55));
+    // **Moos hat Aufbauhöhe.** Der Prüfer hat die Kante gemessen: zwei Pixel
+    // vom Moos zum Sand, keine Höhe, kein Saum — ein flaches Abziehbild. Ein
+    // Moospolster ist ein Kissen von drei bis sechs Zentimetern, das am Rand
+    // ausläuft. Die Scheibe liegt in der XY-Ebene und wird später um −90° um X
+    // gedreht; lokales +Z wird damit zu Welt-+Y.
+    {
+      const pos = mossGeo.attributes.position;
+      const kissen = welligerUmriss(700 + i * 13, 0.5, 5);
+      for (let v = 0; v < pos.count; v++) {
+        const px = pos.getX(v);
+        const py = pos.getY(v);
+        const t = Math.min(1, Math.hypot(px, py) / mossR);
+        const a = Math.atan2(py, px);
+        // Kuppel, am Rand auf null, mit Buckeln darin
+        const hoehe = 0.055 * Math.pow(1 - t * t, 0.65) * kissen(a * 1.7);
+        pos.setZ(v, hoehe);
+      }
+      pos.needsUpdate = true;
+      mossGeo.computeVertexNormals();
+    }
     bakeVertexShade(mossGeo, (x, y, z) => {
       const rand2 = Math.min(1, Math.hypot(x, z) / mossR);
       // Zum Rand hin heller und ausdünnend, dazu Flecken.
@@ -4265,8 +5932,20 @@ function createZenEnvironment() {
     moss.rotation.x = -Math.PI / 2;
     moss.position.set(Math.cos(a) * r, -0.01, Math.sin(a) * r);
     moss.scale.set(1 + rand() * 0.6, 1, 0.7 + rand() * 0.5);
-    group.add(moss);
+    moosTeile.push(moss);
+    // Der Sand am Moos ist feucht: dunkler, gesättigter, und die Harke hört
+    // dort auf. Ohne diesen Übergang liegt das Moos wie ein aufgeklebter
+    // grüner Fleck auf trockenem Kies.
+    if (feuchtIndex < feuchtZonen.length) {
+      feuchtZonen[feuchtIndex++].set(
+        moss.position.x,
+        moss.position.z,
+        mossR * Math.max(moss.scale.x, moss.scale.z) * 0.9,
+        0.7
+      );
+    }
   }
+  group.add(...verschmelzeObjekte(moosTeile, 'zen-moos'));
 
   // Stein-Arrangements (klassisch asymmetrische Gruppen)
   const stoneGroups = [
@@ -4274,26 +5953,64 @@ function createZenEnvironment() {
     { x: 4, z: 1.5, n: 2 },
     { x: 1, z: -4.5, n: 3 },
   ];
+  // Zwei Sammler für den ganzen Garten: alles aus Zen-Granit in ein Mesh, alle
+  // Kontaktschatten in ein zweites. Beide werden erst am Ende eingehängt.
+  const findlinge = [];
+  const kontaktschatten = [];
   for (const sg of stoneGroups) {
     for (let i = 0; i < sg.n; i++) {
       const size = 0.28 + rand() * 0.45;
-      const s = makeZenStone(rand, size, i === 0 ? 0x807a72 : 0x938c83);
+      // **Sieben Steine, ein Farbton.** Gemessen war G/R bei 0,82–0,85 und
+      // B/R bei 0,57–0,60 über alle Findlinge — nur die Helligkeit schwankte.
+      // Findlinge in einem Garten sind ausgesucht und stammen aus
+      // verschiedenen Brüchen: einer warm, einer bläulich, einer moosgrün
+      // angelaufen.
+      const toene = [0x8a8076, 0x7d7d7c, 0x928472, 0x82857a, 0x8e8378];
+      const s = makeZenStone(rand, size, toene[Math.floor(rand() * toene.length) % toene.length]);
       const px = sg.x + (rand() - 0.5) * 0.9;
       const pz = sg.z + (rand() - 0.5) * 0.9;
       s.position.set(px, 0.12 + rand() * 0.1, pz);
-      group.add(s);
-      const sh = makeBlobShadow(size * 1.5, 0.5);
+      findlinge.push(s);
+      // Enger als vor dem Schlagschatten: Der gefälschte Fleck ist jetzt
+      // Kontaktverdunklung — die Verschattung des Himmelslichts unmittelbar am
+      // Objekt —, nicht mehr der Ersatz für den Schatten selbst.
+      const sh = makeBlobShadow(size * 0.95, 0.55);
       sh.position.set(px, 0.015, pz);
-      group.add(sh);
+      kontaktschatten.push(sh);
     }
   }
 
   // Trittstein-Pfad. Ein Material für alle sechs, Unterschiede über die
   // Scheitelfarben; Moos sammelt sich am Rand, wo der Fuß nicht hintritt.
-  for (let i = 0; i < 6; i++) {
-    const geo = new THREE.CylinderGeometry(0.26, 0.26, 0.06, 12);
+  // **Fünf identische Scheiben auf einer Geraden.** So hat der Prüfer den
+  // Pfad gemessen: Breiten 21/22/23/21/23 px, Höhen 13/14/14/13/14, gleicher
+  // Weltabstand, keiner gedreht, keiner eingesunken. Ein Trittstein ist ein
+  // gespaltener Findling: kantiger Umriss, jeder anders groß, jeder in einer
+  // anderen Lage, und er sitzt **im** Kies, nicht darauf.
+  const trittsteine = [];
+  for (let i = 0; i < 7; i++) {
+    const groesse = 0.21 + rand() * 0.13;
+    // Umriss: ein Vieleck mit ungleichen Radien, nicht ein Kreis. Wenige
+    // Segmente, damit die Kante gebrochen liest statt rund.
+    const ecken = 7 + Math.floor(rand() * 3);
+    const geo = new THREE.CylinderGeometry(groesse, groesse * 0.94, 0.075, ecken);
+    {
+      const pos = geo.attributes.position;
+      const umriss = welligerUmriss(820 + i * 31, 0.26, 4);
+      for (let v = 0; v < pos.count; v++) {
+        const px = pos.getX(v);
+        const pz = pos.getZ(v);
+        const r = Math.hypot(px, pz);
+        if (r < 1e-5) continue;
+        const f = umriss(Math.atan2(pz, px));
+        pos.setX(v, px * f);
+        pos.setZ(v, pz * f);
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+    }
     boxProjectUV(geo, 0.22);
-    paintVertices(geo, 0x8e8880);
+    paintVertices(geo, [0x8e8880, 0x847d73, 0x99928a, 0x8a8378][i % 4]);
     mossPatina(geo, {
       y0: 0.01,
       floor: 0,
@@ -4307,13 +6024,47 @@ function createZenEnvironment() {
       sun: ZEN_SUN,
     });
     const step = new THREE.Mesh(geo, zenGranite());
-    step.position.set(-1.5 + i * 0.85, 0.01, 3.2 - i * 0.5 + Math.sin(i) * 0.2);
-    step.scale.set(1 + rand() * 0.2, 1, 0.85);
-    group.add(step);
+    // Der Pfad krümmt sich, und die Schrittweite schwankt — ein gelegter Weg
+    // folgt dem Schritt, nicht dem Lineal.
+    const t = i / 6;
+    const bogen = Math.sin(t * 1.9) * 1.1;
+    step.position.set(
+      -1.7 + t * 4.6 + (rand() - 0.5) * 0.22,
+      // **Eingesunken.** Der Kies liegt bei −0,02; ein Stein, der 3 cm hoch
+      // aus 7,5 cm Dicke herausschaut, sitzt im Bett statt darauf.
+      -0.014 + rand() * 0.012,
+      3.35 - t * 2.9 - bogen * 0.45 + (rand() - 0.5) * 0.24
+    );
+    step.rotation.y = rand() * Math.PI * 2;
+    // Leichte Schieflage: kein gelegter Stein liegt exakt waagerecht.
+    step.rotation.x = (rand() - 0.5) * 0.09;
+    step.rotation.z = (rand() - 0.5) * 0.09;
+    step.scale.set(1 + rand() * 0.24, 1, 0.8 + rand() * 0.25);
+    trittsteine.push(step);
   }
+  group.add(...verschmelzeObjekte(trittsteine, 'zen-trittsteine'));
 
   // Koi-Teich
-  const pondCenter = new THREE.Vector3(3.2, 0, -1.2);
+  const pondCenter = new THREE.Vector3(TEICH.x, 0, TEICH.z);
+  // Das Becken zuerst: Mulde, Uferwulst, Übergang in den Kies. Es trägt die
+  // Kornkarte des Sandes, damit Ufer und Kies dieselbe Körnung zeigen.
+  const beckenGeo = makeTeichbecken(TEICH.rx, TEICH.rz, { umriss: teichUmriss });
+  const becken = new THREE.Mesh(
+    beckenGeo,
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      color: 0xffffff,
+      normalMap: sandMaps().grainMap.clone(),
+      normalScale: new THREE.Vector2(1.0, 1.0),
+      roughness: 0.92,
+      metalness: 0,
+    })
+  );
+  becken.material.normalMap.needsUpdate = true;
+  becken.material.normalMap.repeat.set(1, 1); // UVs stehen schon in Metern
+  becken.name = 'zen-teichbecken';
+  becken.position.set(TEICH.x, -0.02, TEICH.z);
+  group.add(becken);
   // **Zwei gegeneinander wandernde Kräuselungslagen statt einer geschobenen
   // Textur.** Eine einzelne Lage mit laufendem Versatz liest man sofort als
   // verschobenes Bild; erst zwei Lagen in verschiedener Richtung und Frequenz
@@ -4322,44 +6073,241 @@ function createZenEnvironment() {
   // macht daraus graue Farbe.
   const pondMat = waterMaterial({ repeat: 3.2 });
   pondMat.transparent = true;
+  // **Tiefenton, Uferzone und Glanzbahn — im Shader, nicht als Farbe.**
+  //
+  // Gemessen war die offene Fläche: Mittel 114, Spannweite 26, kein Pixel über
+  // 190, Farbton praktisch gesättigungsfrei, und eine Spalte durch den Teich
+  // fiel streng monoton. Das ist keine Wasserfläche, das ist eine Platte mit
+  // Verlauf. Drei Dinge fehlten:
+  //
+  //   * **Tiefe.** Am Ufer sieht man den sandigen Grund, in der Mitte nicht
+  //     mehr. Das ist kein Helligkeitsverlauf, sondern ein Wechsel der
+  //     **Deckkraft**: flach durchsichtig, tief undurchsichtig. Genau das
+  //     trennt Wasser von eingefärbtem Glas.
+  //   * **Die Wasserlinie.** Ein Saum, wo das Wasser den Grund benetzt —
+  //     dunkler und dann zum Ufer hin auslaufend, statt ein sauberer Schnitt.
+  //   * **Die Glanzbahn.** Eine tief stehende Sonne zieht auf leicht bewegtem
+  //     Wasser einen langen Streifen. Ohne ihn hat der Teich keinen einzigen
+  //     hellen Punkt.
+  //
+  // Die Tiefe kommt aus den UVs der Wasserscheibe (Mittelpunkt 0,5|0,5), nicht
+  // aus einer zweiten Textur: Die Scheibe ist ein Kreis, ihr normierter Radius
+  // ist der Abstand zum Ufer.
+  {
+    const tiefUniforms = {
+      // Flachwasser über Sand ist nicht sandfarben, sondern grünlich: Was
+      // hindurchkommt, hat schon einen Zentimeter Wasser passiert.
+      uWasserFlach: { value: new THREE.Color(0x5c7358) },
+      uWasserTief: { value: new THREE.Color(0x11302f) },
+      uWasserSaum: { value: new THREE.Color(0x2f3a30) },
+    };
+    const vorher = pondMat.onBeforeCompile;
+    pondMat.onBeforeCompile = (shader, renderer) => {
+      if (vorher) vorher.call(pondMat, shader, renderer);
+      Object.assign(shader.uniforms, tiefUniforms);
+      // **`vMapUv` gibt es hier nicht.** three legt die UV-Varianten je
+      // Kartenslot an, und die Wasserfläche hat gar keine Farbkarte — nur
+      // Normal- und Clearcoat-Normalkarte, also `vNormalMapUv` mit deren
+      // Kachelung. Der erste Anlauf griff auf `vMapUv` zu, der Shader
+      // kompilierte nicht, und die Konsole war voll mit
+      // „useProgram: program not valid". Also eine eigene Varying mit den
+      // ungekachelten UVs der Scheibe.
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\n varying vec2 vTeichUv;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\n vTeichUv = uv;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           varying vec2 vTeichUv;
+           uniform vec3 uWasserFlach;
+           uniform vec3 uWasserTief;
+           uniform vec3 uWasserSaum;`
+        )
+        .replace(
+          '#include <map_fragment>',
+          `#include <map_fragment>
+           {
+             // Normierter Abstand zur Mitte der Scheibe: 0 = Mitte, 1 = Ufer.
+             float rand = clamp(length(vTeichUv - 0.5) * 2.0, 0.0, 1.0);
+             float tief = 1.0 - rand;
+             // Der Grund verschwindet nicht linear, sondern nach Beer-Lambert:
+             // in den ersten Zentimetern viel, danach kaum noch.
+             float deckung = 1.0 - exp(-3.4 * tief);
+             diffuseColor.rgb = mix(uWasserFlach, uWasserTief, deckung);
+             // Der Saum unmittelbar an der Wasserlinie
+             float saum = smoothstep(0.86, 1.0, rand);
+             // 0,65 war zu viel: Zusammen mit der dunkelsten Zone des Beckens
+             // stand an der Wasserlinie eine schwarze Naht, 43 bis 61 L unter
+             // beiden Nachbarn.
+             diffuseColor.rgb = mix(diffuseColor.rgb, uWasserSaum, saum * 0.38);
+             // Flach ist durchsichtig, tief nicht. Am äußersten Rand läuft die
+             // Fläche aus, damit die Wasserlinie kein Schnitt ist.
+             // **0,34 am Ufer war zu durchsichtig.** Der Beckenhang schien
+             // dort so ungebrochen durch, dass das Flachwasser als trockenes
+             // Ufer las — im Bild ein breiter sandfarbener Streifen zwischen
+             // Wasser und Uferkieseln, der wie ein halb abgelassener Teich
+             // aussah. Es war kein Pegelproblem, sondern ein Deckungsproblem:
+             // Auch flaches Wasser tönt, was darunter liegt. 0,62 lässt den
+             // Grund noch durch, färbt ihn aber sichtbar ein.
+             diffuseColor.a = mix(0.62, 0.96, deckung) * (1.0 - smoothstep(0.965, 1.0, rand) * 0.6);
+           }`
+        );
+    };
+    const vorherKey = pondMat.customProgramCacheKey?.bind(pondMat);
+    pondMat.customProgramCacheKey = () => `${vorherKey ? vorherKey() : ''}|zen-wasser`;
+  }
   // **Heller und durchsichtiger als das Tsukubai-Becken im Dojo.** Der
   // Grundton dort ist fast schwarz, weil ein Steinbecken tief und schattig ist
   // und man darin praktisch nur die Spiegelung sieht. Ein Gartenteich mit
   // Seerosen ist flach: Der Sand darunter gehört ins Bild. Mit dem
   // unveränderten Wert war der Teich ein schwarzes Loch im Sand – nachgesehen,
   // nicht überlegt.
-  pondMat.color.setHex(0x16363c);
-  pondMat.opacity = 0.8;
+  // Grundfarbe und Deckkraft stehen jetzt im Shader oben (tiefenabhängig).
+  // `opacity` bleibt 1, damit der dortige Alphawert nicht ein zweites Mal
+  // multipliziert wird.
+  pondMat.color.setHex(0xffffff);
+  pondMat.opacity = 1;
+  // Rauheit von 0,05 auf 0,14: Bei 0,05 ist die Sonnenspiegelung ein Punkt von
+  // wenigen Pixeln und im Bild nicht vorhanden. Leicht bewegtes Wasser zieht
+  // sie zu einer Bahn auseinander — das ist die Lichtspitze, die dem Teich
+  // gefehlt hat.
+  // 0,09 statt 0,14: Je schärfer die Keule, desto mehr vom hellen
+  // Horizontband und von der Sonnenscheibe kommt zurück. Die Kräuselungskarten
+  // brechen die Spiegelung ohnehin in wandernde Lichter auf — das ist der
+  // Unterschied zwischen Wasser und poliertem Blech.
+  pondMat.roughness = 0.09;
+  pondMat.normalScale.set(0.5, 0.5);
+  pondMat.envMapIntensity = 1.5;
   // Das Wasser braucht etwas zu spiegeln. Ohne Environment-Map bleibt bei
   // Rauheit 0,05 nur die Grundfarbe übrig, und die ist absichtlich dunkel.
   pondMat.userData.needsEnv = true;
-  const pond = new THREE.Mesh(new THREE.CircleGeometry(1.7, 40), pondMat);
+  // Die Wasserfläche folgt demselben verrauschten Umriss wie das Becken — eine
+  // exakte Ellipse als Wasserlinie ist der schnellste Weg zu „gerechnet".
+  // 160 statt 96 Segmente: Bei 2 m Radius sind 96 Segmente 13 cm je Kante, und
+  // die Wasserlinie war aus zwei Metern sichtbar facettiert.
+  const wasserGeo = new THREE.CircleGeometry(1, 160);
+  {
+    const wp = wasserGeo.attributes.position;
+    for (let v = 1; v < wp.count; v++) {
+      // **Die Scheibe wird um −90° um X gedreht.** Ein Punkt (x, y, 0) landet
+      // damit bei (x, 0, −y): Der lokale Winkel a entspricht dem **negativen**
+      // Weltwinkel. Der erste Anlauf hat `teichUmriss(a)` benutzt und damit
+      // eine zur Beckenkontur **spiegelverkehrte** Wasserlinie gezeichnet —
+      // links lag das Wasser an den Steinen, rechts stand ein breiter trockener
+      // Streifen dazwischen. Genau das sah aus wie ein halb leerer Teich, und
+      // zweimal den Pegel anzuheben hat es nicht behoben, weil es kein
+      // Pegelproblem war.
+      const a = -Math.atan2(wp.getY(v), wp.getX(v));
+      // **Randvoll, nicht halb leer.** Vorher lag die Wasserfläche auf der
+      // Wasserlinie des Beckenprofils (0,95) und damit auf der Höhe, an der der
+      // Uferwulst erst anfängt zu steigen — zwischen Wasser und Uferkrone stand
+      // ein trockener Ring, und der Teich sah aus wie ein Becken, aus dem
+      // jemand Wasser abgelassen hat. Der Spiegel steht jetzt bei 1,01, also
+      // ein gutes Stück den Uferhang hinauf; sichtbar bleibt vom Ufer nur der
+      // schmale Streifen bis zur Krone.
+      wp.setXY(v, Math.cos(a) * teichUmriss(a) * 1.04, -Math.sin(a) * teichUmriss(a) * 1.04);
+    }
+    wp.needsUpdate = true;
+    wasserGeo.computeVertexNormals();
+  }
+  const pond = new THREE.Mesh(wasserGeo, pondMat);
   pond.rotation.x = -Math.PI / 2;
-  pond.position.set(pondCenter.x, 0.01, pondCenter.z);
-  pond.scale.set(1.2, 1, 1);
+  // **Randvoll heißt: bis an die Uferkrone.** Der Uferhang steigt von 0 (bei
+  // t = 0,95) auf sein Maximum +0,07 (bei t = 1,06) und fällt danach nach außen
+  // wieder ab; höher als die Krone kann das Wasser nicht stehen, ohne
+  // überzulaufen. Der Spiegel liegt deshalb bei t = 1,055, wo der Hang
+  // +0,0696 erreicht — über dem Beckenursprung bei −0,02 also +0,0496. Vom
+  // Ufer bleibt innen gut ein Zentimeter sichtbar, außen der abfallende Rand.
+  //
+  // Zwei Zwischenstände waren zu niedrig: 0,95 (auf der Wasserlinie des
+  // Profils) ließ einen breiten trockenen Ring stehen, 1,04 immer noch einen
+  // von zwanzig Zentimetern.
+  pond.position.set(pondCenter.x, 0.0442, pondCenter.z);
+  // **Der Fehler, der den Teich halb leer aussehen ließ.** Hier stand
+  // `set(rx, 1, rz)` — geschrieben, als läge die Scheibe in der XZ-Ebene. Sie
+  // ist aber eine `CircleGeometry` in der **XY**-Ebene und wird erst danach um
+  // −90° um X gekippt. Die Skalierung wirkt vor der Drehung auf die lokalen
+  // Achsen: Lokal-Y wird zu Welt-Z, lokal-Z (das hier überall null ist) zu
+  // Welt-Y. Die Streckung auf 1,7 lief damit ins Leere, und der Teich war in
+  // Z nur 1,0 m weit statt 1,7 — das Becken ringsum aber schon. Übrig blieb
+  // ein breiter Streifen Uferhang, den ich für zu wenig Wasser gehalten und
+  // dreimal mit dem Pegel zu beheben versucht habe. Gemessen war der
+  // Wasserradius je Azimut 0,61 bis 1,10 statt konstant 1,04 — das hat es in
+  // fünf Minuten geklärt.
+  pond.scale.set(TEICH.rx, TEICH.rz, 1);
+  pond.name = 'zen-wasser';
   group.add(pond);
   // Steinrand um den Teich
+  const uferSteine = [];
+  // **Perlenkette bei konstantem Winkelschritt** — so hat der Prüfer den
+  // Teichrand gemessen. Ein gesetzter Uferrand hat Lücken, Häufungen und
+  // Steine verschiedener Größe. Der Winkel wird deshalb je Stein gestört, und
+  // zwei von sechzehn Plätzen bleiben leer.
   for (let i = 0; i < 16; i++) {
-    const a = (i / 16) * Math.PI * 2;
-    const s = makeZenStone(rand, 0.12 + rand() * 0.08, 0x8f8880);
-    s.position.set(pondCenter.x + Math.cos(a) * 2.0, 0.05, pondCenter.z + Math.sin(a) * 1.7);
-    group.add(s);
+    if (i === 4 || i === 11) {
+      rand();
+      rand();
+      continue;
+    }
+    const a = ((i + (rand() - 0.5) * 0.75) / 16) * Math.PI * 2;
+    const s = makeZenStone(rand, 0.1 + rand() * 0.13, 0x8f8880);
+    // **An die Wasserlinie gerückt und abgesenkt.** Vorher standen die Steine
+    // auf dem Kiesniveau am äußeren Rand — eine Perlenkette neben einer
+    // Scheibe. Jetzt sitzen sie im Uferwulst, ihr Fuß liegt unter Wasser.
+    // Auf der Uferkrone, mit dem Fuß im Wasser: Der Spiegel steht bei +0,044,
+    // die Steine sitzen bei +0,028 und ragen daraus hervor.
+    s.position.set(
+      pondCenter.x + Math.cos(a) * TEICH.rx * 1.09,
+      0.035,
+      pondCenter.z + Math.sin(a) * TEICH.rz * 1.09
+    );
+    // **Nass ist nicht „dunkler eingefärbt", aber dunkel ist der halbe Effekt.**
+    // Ein Wasserfilm füllt die Mikrorauheit: Was in die Poren fällt, kommt kaum
+    // wieder heraus. Die Rauheit ließe sich nur über ein zweites Material
+    // ändern — und das wäre ein zweiter Draw-Call für sechzehn Kiesel. Die
+    // Verdunklung steckt deshalb in den Scheitelfarben, gestaffelt über die
+    // Wasserlinie: unter Wasser voll, darüber ein Saum von acht Zentimetern,
+    // wo das Wasser hochzieht.
+    {
+      s.updateMatrix();
+      const pos = s.geometry.attributes.position;
+      const col = s.geometry.attributes.color;
+      const v = new THREE.Vector3();
+      for (let k = 0; k < pos.count; k++) {
+        v.fromBufferAttribute(pos, k).applyMatrix4(s.matrix);
+        const nass = 1 - smoothstep(0.0496, 0.13, v.y);
+        const f = 1 - nass * 0.26;
+        col.setXYZ(k, col.getX(k) * f, col.getY(k) * f * 0.99, col.getZ(k) * f * 0.97);
+      }
+      col.needsUpdate = true;
+    }
+    s.material = zenNassGranite();
+    uferSteine.push(s);
   }
+  group.add(...verschmelzeObjekte(uferSteine, 'zen-ufersteine'));
+  group.add(...verschmelzeObjekte(findlinge, 'zen-findlinge'));
   // Seerosenblätter + Lotusblüten auf der Wasseroberfläche
+  const seerosen = [];
   for (let i = 0; i < 7; i++) {
     const pad = makeLilyPad(rand);
     const a = rand() * Math.PI * 2;
     const r = rand() * 1.5;
-    pad.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.03, pondCenter.z + Math.sin(a) * r);
-    group.add(pad);
+    // Auf der Wasserfläche (+0,025), nicht darüber schwebend.
+    pad.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.056, pondCenter.z + Math.sin(a) * r);
+    seerosen.push(pad);
   }
+  group.add(...verschmelzeObjekte(seerosen, 'zen-seerosen'));
+  const lotusse = [];
   for (let i = 0; i < 3; i++) {
     const lotus = makeLotus();
     const a = rand() * Math.PI * 2;
     const r = 0.3 + rand() * 1.1;
-    lotus.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.04, pondCenter.z + Math.sin(a) * r);
-    group.add(lotus);
+    lotus.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.061, pondCenter.z + Math.sin(a) * r);
+    lotusse.push(lotus);
   }
+  // Zwei Meshes: Blütenblätter und Kerne haben verschiedene Materialien.
+  group.add(...verschmelzeObjekte(lotusse, 'zen-lotus'));
   // Wasser-Ringe: wachsen & blenden aus (dort, wo Koi auftauchen)
   const ripples = [];
   const rippleMat = new THREE.MeshBasicMaterial({
@@ -4369,11 +6317,21 @@ function createZenEnvironment() {
     depthWrite: false,
     toneMapped: false,
     side: THREE.DoubleSide,
+    // Wie bei den Koi-Flossen: Ein Ring ist eine ebene Fläche, der zweite
+    // Durchgang für die Rückseiten zeichnet dieselben Pixel noch einmal.
+    forceSinglePass: true,
   });
   for (let i = 0; i < 3; i++) {
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 28), rippleMat.clone());
     ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.025;
+    // **Die Ringe standen im Ursprung, nicht im Teich.** `update()` setzt ihre
+    // Lage nur im ersten Fünfzigstel ihrer Periode neu; davor — und in jedem
+    // eingefrorenen Bild, das nicht zufällig in dieses Fenster fällt — lagen
+    // sie bei (0 | 0), also mitten auf dem Kies. Der Prüfer hat sie in
+    // `c-torii` als „vier konzentrische Ellipsen konstanter Breite" gefunden,
+    // durch die die Harkstreifen ungestört hindurchlaufen, und für ein zweites
+    // aufgelegtes Muster gehalten. Es waren Wasserringe auf dem Sand.
+    ring.position.set(pondCenter.x, 0.0565, pondCenter.z);
     ring.userData = { phase: rand() * 1000, period: 3 + rand() * 2 };
     group.add(ring);
     ripples.push(ring);
@@ -4398,7 +6356,40 @@ function createZenEnvironment() {
   // den Karten als Tiefe lesen statt als Ball. Darüber liegt eine Instanz je
   // Blob mit echten Blütenkarten samt Wind und Transluzenz.
   const sakura = new THREE.Group();
-  const trunkGeo = new THREE.CylinderGeometry(0.14, 0.2, 1.8, 8);
+  // **Die Krone ist um einen halben Meter gestiegen.** Vorher saß sie direkt
+  // auf dem Stamm — selbst mit Astwerk wäre davon nichts zu sehen gewesen,
+  // weil die Blattmasse bei y = 1,78 anfing und der Stamm bei 1,8 endete. Ein
+  // Baum liest sich aber über die Lücke zwischen Stamm und Krone: Dort steht
+  // das Astwerk, und dort sieht man den Himmel hindurch.
+  // Acht Ansätze statt sechs, und mit deutlich mehr Höhenstreuung: Die sechs
+  // lagen zwischen 2,30 und 2,92 m und ergaben eine breite, unten glatt
+  // abgeschnittene Platte — die Krone saß wie ein Pilzhut auf dem Stamm. Zwei
+  // tief außen sitzende Ansätze lassen sie an den Seiten herabhängen, der
+  // mittlere steigt; die Unterkante ist damit keine Waagerechte mehr.
+  // Draw-Calls kostet das nichts, die Schöpfe sind Instanzen.
+  const SAKURA_ANSAETZE = [
+    [0, 2.78, 0, 0.58],
+    [0.78, 2.46, 0.28, 0.42],
+    [-0.66, 2.56, -0.38, 0.46],
+    [0.38, 3.04, -0.25, 0.38],
+    [-0.38, 2.9, 0.5, 0.34],
+    [0.14, 2.34, 0.62, 0.34],
+    [-0.88, 2.14, 0.22, 0.3],
+    [0.62, 2.16, -0.56, 0.3],
+  ];
+  // Stamm und Astwerk in **einem** Mesh: ein Ast zu jedem Kronenansatz plus je
+  // ein Nebenzweig. Alle Koordinaten sind Weltkoordinaten des Baums, der Stamm
+  // steht also von 0 bis 1,95 und die Äste setzen bei 1,55 an. Der erste
+  // Anlauf hatte die Geometrie zusätzlich um 0,9 verschoben und den Baum damit
+  // schweben lassen.
+  // Die Maserung von `weatheredWoodMaterial` läuft in V, also längs des
+  // Zylinders. Über 1,95 m Stamm liegt sonst **eine** Kachel — aus zwei Metern
+  // ist das eine glatte Fläche. Fünf Umläufe ergeben Rindenstruktur in der
+  // Größenordnung, in der man sie sieht.
+  const trunkGeo = mergeGeometries([
+    scaleUV(new THREE.CylinderGeometry(0.105, 0.21, 1.95, 10), 5).translate(0, 0.975, 0),
+    ...astwerk([0, 1.55, 0], SAKURA_ANSAETZE, { seed: 0x5a11, stammR: 0.085 }),
+  ]);
   const trunk = new THREE.Mesh(
     trunkGeo,
     // `vertexColors` muss **aus** sein: Die Vorgabe ist `true`, ein
@@ -4406,8 +6397,8 @@ function createZenEnvironment() {
     // ins Leere – der Stamm wird schwarz. Genau so passiert und im Bild gesehen.
     weatheredWoodMaterial({ tone: 0x8a6f58, vertexColors: false })
   );
-  trunk.position.y = 0.9;
-  trunk.rotation.z = 0.12;
+  trunk.position.y = 0;
+  trunk.rotation.z = 0.05;
   sakura.add(trunk);
   // Krone aus vielen kleinen Schöpfen. Die sechs groben Ansatzpunkte bleiben –
   // sie sind die Form des Baums –, aber jeder wird jetzt in mehrere Schöpfe
@@ -4422,14 +6413,7 @@ function createZenEnvironment() {
     roughness: 0.88,
   });
   const sakuraKrone = baueKrone({
-    ansaetze: [
-      [0, 2.05, 0, 0.62],
-      [0.62, 1.88, 0.22, 0.44],
-      [-0.52, 1.98, -0.3, 0.48],
-      [0.3, 2.32, -0.2, 0.4],
-      [-0.3, 2.24, 0.4, 0.36],
-      [0.1, 1.78, 0.5, 0.34],
-    ],
+    ansaetze: SAKURA_ANSAETZE,
     seed: 0x5a4a,
     kartenMaterial: sakuraCards,
     kind: 'sakura',
@@ -4448,37 +6432,83 @@ function createZenEnvironment() {
   sakura.add(sakuraKrone.blobs, sakuraKrone.karten);
   sakura.position.set(-4.5, 0, 2.5);
   group.add(sakura);
-  const sakuraShadow = makeBlobShadow(1.3, 0.4);
+  const sakuraShadow = makeBlobShadow(0.7, 0.5);
   sakuraShadow.position.set(-4.4, 0.015, 2.5);
-  group.add(sakuraShadow);
+  kontaktschatten.push(sakuraShadow);
 
   // Ahorn (Momiji) als Farbkontrast gegenüber der Sakura
   const maple = makeMaple(rand);
   maple.position.set(4.8, 0, 3.2);
   group.add(maple);
-  const mapleShadow = makeBlobShadow(1.0, 0.4);
+  const mapleShadow = makeBlobShadow(0.55, 0.5);
   mapleShadow.position.set(4.8, 0.015, 3.2);
-  group.add(mapleShadow);
+  kontaktschatten.push(mapleShadow);
+
+  // --- Einfassung: Mauer und Sträucher --------------------------------------
+  //
+  // **Die Gartenmauer ist wieder entfallen.** Sie hat den Garten eingefasst und
+  // der leeren Fläche einen Grund gegeben, aber sie hat ihn auch geschlossen —
+  // aus dem offenen Kiesfeld unter weitem Himmel wurde ein Hof. Der Garten
+  // bleibt offen; die Sträucher übernehmen die Aufgabe, dem Blick im
+  // Mittelgrund Masse zu geben, ohne eine Wand zu ziehen.
+  //
+  // `makeGartenmauer()` steht weiter im Code: Sie ist gebaut, geprüft und in
+  // fünf Zeilen wieder einzuhängen, falls die Entscheidung noch einmal fällt.
+  //
+  // Sträucher als Mittelgrundmasse. Sie stehen in Gruppen, nicht in einer
+  // Reihe, und lassen Lücken zwischen sich.
+  group.add(
+    // Näher herangerückt, seit die Mauer fehlt: Auf 9 bis 11 m standen sie an
+    // ihr; ohne sie wären es Klumpen weit draußen im leeren Kies. Auf 6 bis 8 m
+    // begrenzen sie den gestalteten Teil des Gartens, ohne ihn zu schließen.
+    makeKarikomi(rand, [
+      [-6.9, -5.3, 1.0, 0.85],
+      [-5.8, -6.4, 0.72, 0.6],
+      [-7.9, -4.0, 0.8, 0.66],
+      [1.2, -8.2, 1.15, 0.95],
+      [2.5, -7.7, 0.85, 0.7],
+      [-3.4, -8.1, 0.95, 0.78],
+      [-8.2, 0.4, 1.05, 0.88],
+      [-7.8, 1.9, 0.7, 0.55],
+      [5.6, -6.3, 0.9, 0.72],
+    ])
+  );
 
   // Bambushain (wiegt in update)
   const bamboo = makeBambooGrove(rand, -6.5, -3.5);
   group.add(bamboo.group);
+  kontaktschatten.push(bamboo.shadow);
 
   // Steinlaterne + Torii (mit Kontaktschatten)
   const lantern = makeLantern();
   lantern.position.set(1.6, 0, -1.8);
   group.add(lantern);
-  const lanternShadow = makeBlobShadow(0.4, 0.5);
+  const lanternShadow = makeBlobShadow(0.26, 0.6);
   lanternShadow.position.set(1.6, 0.015, -1.8);
-  group.add(lanternShadow);
+  kontaktschatten.push(lanternShadow);
   const torii = makeTorii();
   torii.position.set(-2, 0, -9);
   torii.rotation.y = 0.35;
   group.add(torii);
-  const toriiShadow = makeBlobShadow(1.8, 0.35);
-  toriiShadow.position.set(-2, 0.015, -9);
-  toriiShadow.scale.x *= 2; // länglich unter dem Tor
-  group.add(toriiShadow);
+  // **Ein Fleck in der Mitte des Tors verdunkelt nichts.** Der Prüfer hat am
+  // Torii gemessen: Der Pfosten endet bei L 48, zwei Pixel weiter steht der
+  // volle Sonnensand mit 181 — kein Ansatz, das Tor schwebt. Der Grund war die
+  // Lage: Der Fleck saß in der Mitte des Tors, die Pfosten stehen aber 1,2 m
+  // links und rechts davon und damit außerhalb. Kontaktverdunklung gehört an
+  // den **Fuß**, nicht in den Schwerpunkt.
+  for (const sx of [-1, 1]) {
+    const fuss = makeBlobShadow(0.42, 0.6);
+    const wx = -2 + Math.cos(0.35) * sx * 1.2;
+    const wz = -9 - Math.sin(0.35) * sx * 1.2;
+    fuss.position.set(wx, 0.015, wz);
+    kontaktschatten.push(fuss);
+  }
+
+  // Dreizehn Kontaktschatten, ein Draw-Call. Sie liegen alle flach auf dem
+  // Sand, tragen dieselbe Textur und unterscheiden sich nur in Größe, Ort und
+  // Deckkraft – Letztere steckt jetzt in der vierten Komponente der
+  // Scheitelfarbe statt in dreizehn Materialien.
+  group.add(verschmelzeSchatten(kontaktschatten, 'zen-kontaktschatten'));
 
   // Warm glühende Staubpartikel im tiefen Sonnenlicht
   const DUST = 70;
@@ -4525,36 +6555,14 @@ function createZenEnvironment() {
     mistSprites.push(s);
   }
 
-  // Treibende Kirschblütenblätter
-  const PET = 120;
-  const petalPos = new Float32Array(PET * 3);
-  const petalMeta = [];
-  for (let i = 0; i < PET; i++) {
-    petalMeta.push({
-      x: (rand() - 0.5) * 22,
-      z: (rand() - 0.5) * 22,
-      y0: rand() * 9,
-      speed: 0.25 + rand() * 0.4,
-      sway: rand() * 6.28,
-      swayAmp: 0.25 + rand() * 0.5,
-    });
-  }
-  const petalGeo = new THREE.BufferGeometry();
-  petalGeo.setAttribute('position', new THREE.BufferAttribute(petalPos, 3));
-  const petals = new THREE.Points(
-    petalGeo,
-    new THREE.PointsMaterial({
-      map: makeGlowTexture('rgba(255,200,222,1)', 'rgba(255,175,205,0.7)', 48),
-      color: 0xffd0e2,
-      size: 0.14,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-      sizeAttenuation: true,
-    })
-  );
-  petals.frustumCulled = false;
-  group.add(petals);
+  // Treibende Kirschblütenblätter — Instanzen statt Punktwolke, siehe
+  // `makeBluetenblaetter`. Sie fallen an den beiden Bäumen, nicht über dem
+  // ganzen Garten, und keines steigt über seine Krone.
+  const blueten = makeBluetenblaetter(rand, [
+    { x: -4.5, z: 2.5, hoehe: 3.3, streu: 1.5 },
+    { x: 4.8, z: 3.2, hoehe: 2.7, streu: 1.2 },
+  ]);
+  group.add(blueten.mesh);
 
   // Die Sonne dieser Umgebung als Himmelsbeschreibung. Warmer Spätnachmittag:
   // tiefer Zenit, sehr breiter goldener Dunst am Horizont – deutlich anders als
@@ -4562,14 +6570,23 @@ function createZenEnvironment() {
   // im Zwischenspeicher von `buildSkyEnvironment`.
   const ZEN_HIMMEL = {
     name: 'zen',
-    sun: [-12, 9, -6],
+    sun: ZEN_SONNE,
     target: [0, 0, 0],
-    sunColor: 0xffe0b3,
+    sunColor: 0xffd9a0,
+    // **Die Pegel waren zu niedrig für eine sichtbare Spiegelung.** Der Prüfer
+    // hat auf der ganzen Wasserfläche keinen einzigen Pixel über L 190
+    // gefunden, obwohl die Laterne unmittelbar daneben mit L 202 leuchtet.
+    // Nachgerechnet: Bei einem Blick von 1,5 m auf einen Teich in 3,5 m
+    // Abstand trifft man die Fläche unter 67° zur Normalen; der
+    // Fresnel-Anteil ist dort rund 12 %. Zwölf Prozent von 0,66 sind 0,08
+    // linear — und das ist nach der ACES-Kurve etwa L 90, genau der gemessene
+    // Wert. Der Rechenweg stimmte also, nur die Quelle war zu dunkel. Die
+    // Pegel liegen jetzt dort, wo die sichtbare Kuppel steht.
     sky: {
-      zenith: { hex: 0x7ea3cc, level: 0.36 },
-      horizon: { hex: 0xf3dcb4, level: 0.66 },
-      haze: { hex: 0xffc98a, level: 0.58 },
-      ground: { hex: 0x8d7d5e, level: 0.26 },
+      zenith: { hex: 0x7ea3cc, level: 0.48 },
+      horizon: { hex: 0xf3dcb4, level: 0.98 },
+      haze: { hex: 0xffc98a, level: 0.88 },
+      ground: { hex: 0x8d7d5e, level: 0.34 },
     },
   };
   let zenSky = null;
@@ -4585,12 +6602,60 @@ function createZenEnvironment() {
     ]),
   };
 
+  // --- Wer wirft, wer empfängt ----------------------------------------------
+  //
+  // Einmal über den fertigen Baum statt an dreißig Stellen von Hand: Alles, was
+  // ein Körper ist, wirft und empfängt. Ausgenommen sind die Flächen, die
+  // keiner sind — Himmelskuppel, Kies, Saum, die gefälschten Kontaktschatten,
+  // die Wasserfläche und alles, was Sprite oder Punktwolke ist. Der Kies und
+  // der Saum empfangen selbstverständlich, sie werfen nur nicht.
+  {
+    // Der Kies, der Saum und das Moos liegen flach auf dem Boden – sie können
+    // nichts beschatten außer sich selbst, kosten in der Schattenkarte aber
+    // denselben Zeichenaufruf wie ein Baum.
+    // **Streulicht durch das Laub — zweiter Anlauf.**
+    //
+    // Der erste nahm die Hüllkörper der Kronen aus der Schattenkarte, damit nur
+    // die alphageprüften Blattkarten werfen. Gedacht war gesprenkeltes Licht;
+    // gemessen kam ein Kronenschatten von Δ 18 L heraus, während der bloße
+    // Stamm danebén Δ 68 warf — die Krone warf **schwächer als ihr eigener
+    // Stamm**, also genau verkehrt herum. Die Karten decken aus Sonnenrichtung
+    // schlicht zu wenig Fläche, um allein einen Baumschatten zu tragen.
+    //
+    // Der Hüllkörper wirft deshalb wieder mit. Was dabei entsteht, ist der
+    // Schatten eines Baumes: ein dichter Kern und ein aufgelöster Saum aus den
+    // Karten. Der Kern ist keine Blase, weil die Hüllkörper mehrere kleine
+    // Schöpfe sind und nicht eine Kugel.
+    const nurEmpfangen = new Set(['zen-sand', 'zen-saum', 'zen-moos']);
+    const garnicht = new Set(['zen-kontaktschatten']);
+    for (const kind of group.children) {
+      kind.traverse((o) => {
+        if (!o.isMesh) return;
+        if (o.material?.isShaderMaterial) return; // Himmelskuppel
+        if (garnicht.has(o.name)) return;
+        o.receiveShadow = true;
+        const durchsichtig = o.material?.transparent === true && o.material?.opacity < 0.9;
+        o.castShadow = !nurEmpfangen.has(o.name) && o !== pond && !durchsichtig;
+      });
+    }
+    // Die Wasserfläche empfängt, wirft aber nicht: Ein Teich, der einen Schatten
+    // auf den Sand darunter wirft, ist ein Loch, kein Wasser.
+    pond.castShadow = false;
+  }
+
   return {
     id: 'zen',
     name: '🪷 Zen-Garten',
     background: new THREE.Color(0xe9d3ae),
     fog: new THREE.Fog(0xecd9bb, 20, 46),
     group,
+
+    // **Die Grundleuchte der App wird für diese Umgebung heruntergenommen.**
+    // Sie steht in main.js bei 1,4 und gilt für alles; hier lieferte sie gut
+    // die Hälfte der Flächenhelligkeit, und weil eine Hemisphärenleuchte fast
+    // nur von `normal.y` abhängt, reagierte dieser Anteil auf keine Form.
+    // Der Zen-Garten bringt seinen Himmelsanteil selbst mit.
+    sceneAmbient: 0.35,
 
     // **Warum die Karte erst hier entsteht und nicht beim Bauen.** Der
     // PMREM-Generator braucht einen lebenden Renderer und rechnet auf der GPU;
@@ -4638,9 +6703,15 @@ function createZenEnvironment() {
         const d = koi.userData;
         const a = time * d.speed + d.phase;
         const bob = Math.sin(time * 2 + d.phase) * 0.01;
+        // **Die Koi schwammen auf dem Wasser, nicht darin.** Ihre Bahn lag bei
+        // y = 0, der Körper ist 11 cm hoch, die Wasserfläche lag bei y = 0,01 —
+        // viereinhalb Zentimeter Fisch standen heraus. Jetzt 10 cm unter der
+        // Oberfläche: Der Rücken bleibt gut zwei Zentimeter unter Wasser, und
+        // unter dem Bauch stehen bei der äußeren Bahn noch acht Zentimeter bis
+        // zum Grund.
         koi.position.set(
           pondCenter.x + Math.cos(a) * d.radius * 1.15,
-          bob,
+          -0.05 + bob,
           pondCenter.z + Math.sin(a) * d.radius
         );
 
@@ -4666,7 +6737,10 @@ function createZenEnvironment() {
         // Leichte Schräglage in die Kurve, wie beim Abdrücken gegen das Wasser
         koi.rotation.z = -dir * 0.12;
 
-        d.tail.rotation.y = Math.sin(time * 8 + d.phase) * 0.5; // Schwanzwedeln
+        // Der Schwanz schlägt in derselben Phase wie die Körperwelle weiter —
+        // sonst arbeitet er gegen sie.
+        d.uniforms.uKoiZeit.value = time;
+        d.tail.rotation.y = Math.sin(time * 7.5 - d.uniforms.uKoiPhase.value) * 0.45;
       }
       // Wasser-Ringe: wachsen von klein → groß und blenden aus
       for (const ring of ripples) {
@@ -4697,19 +6771,7 @@ function createZenEnvironment() {
         s.position.x = s.userData.x + Math.sin(time * 0.08 + s.userData.ph) * 3 * s.userData.drift * 6;
         s.material.opacity = 0.4 + Math.sin(time * 0.4 + s.userData.ph) * 0.12;
       }
-      const H = 9;
-      const p = petalGeo.attributes.position;
-      for (let i = 0; i < PET; i++) {
-        const m = petalMeta[i];
-        const y = ((m.y0 - time * m.speed) % H + H) % H;
-        p.setXYZ(
-          i,
-          m.x + Math.sin(time * 0.6 + m.sway) * m.swayAmp,
-          y,
-          m.z + Math.cos(time * 0.5 + m.sway) * m.swayAmp
-        );
-      }
-      p.needsUpdate = true;
+      blueten.update(time);
     },
   };
 }

@@ -74,7 +74,23 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x334455, 1.4));
+// **Das Grundlicht der App, und warum es je Umgebung regelbar sein muss.**
+//
+// Diese eine Hemisphärenleuchte gilt für alles: Passthrough, Desktop-Ansicht
+// und jede der fünf Welten. Mit 1,4 ist sie so kräftig, dass eine Umgebung
+// darunter kaum noch modellieren kann – der Zen-Garten kam auf gut die Hälfte
+// seiner Flächenhelligkeit aus dieser Quelle, und weil eine Hemisphärenleuchte
+// fast nur von `normal.y` abhängt, reagiert dieser Anteil auf keine
+// Oberflächenform. Gemessen hatte der Sand dort über die ganze Fläche eine
+// Spannweite von 17 Luminanzstufen.
+//
+// three kennt keine Beleuchtung je Objekt (Layer filtern nur kameraweit), also
+// ist die Stärke der einzige Hebel. Sie liegt jetzt bei der Umgebung: Wer
+// nichts angibt, bekommt weiterhin 1,4 – die vier anderen Welten und beide
+// Nicht-Welt-Zustände ändern sich dadurch um kein Pixel.
+const AMBIENT_STANDARD = 1.4;
+const ambientLight = new THREE.HemisphereLight(0xffffff, 0x334455, AMBIENT_STANDARD);
+scene.add(ambientLight);
 
 // Umgebungen: Passthrough/Weiß (-1) sowie die virtuellen Welten aus
 // environments.js, per 🌐-Button zyklisch durchschaltbar.
@@ -122,8 +138,10 @@ function applyEnvironment() {
     // hat.
     env.ensureEnvironment?.(renderer);
     scene.environment = env.environment ?? null;
+    ambientLight.intensity = env.sceneAmbient ?? AMBIENT_STANDARD;
     desktopFloor.visible = false;
   } else if (inPassthrough) {
+    ambientLight.intensity = AMBIENT_STANDARD;
     scene.background = null;
     scene.fog = null;
     scene.environment = null;
@@ -132,6 +150,7 @@ function applyEnvironment() {
     scene.background = DESKTOP_BG;
     scene.fog = null;
     scene.environment = null;
+    ambientLight.intensity = AMBIENT_STANDARD;
     desktopFloor.visible = true;
   }
 }
