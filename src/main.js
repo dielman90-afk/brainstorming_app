@@ -15,7 +15,6 @@ import {
   recognizeSpeech,
   setXRPresenting,
   speechUnavailableReason,
-  VoiceCommands,
 } from './speech.js';
 import { Haptics } from './haptics.js';
 import { requestAI, requestIdeas } from './ai.js';
@@ -566,10 +565,6 @@ async function handleAction(action) {
       cycleCardFont();
       return;
     }
-    if (action === 'voice') {
-      toggleVoiceCommands();
-      return;
-    }
     if (action === 'flow-node') {
       newFlowNode();
       return;
@@ -866,59 +861,15 @@ function updateFontButton() {
   if (lbl) lbl.textContent = `Schrift: ${cardManager.fontStep.label}`;
 }
 
-// --- Sprachbefehle ---
+// **Sprachbefehle gibt es nicht mehr.**
 //
-// Dauerhaftes Zuhören ist bewusst abschaltbar und startet nie von selbst: Ein
-// Mikrofon, das ungefragt mithört, will niemand – und jede Erkennung kostet
-// Netzwerk (die Web Speech API verarbeitet serverseitig).
-const voice = new VoiceCommands({
-  onCommand: ({ action, text }) => {
-    // Kommandos mit mitgesprochenem Text legen die Karte direkt beschriftet an,
-    // statt anschließend noch nach der Eingabe zu fragen.
-    if (action === 'new' && text) {
-      cardManager.spawnIdeas([capitalize(text)], camera);
-      commit('Neue Karte (Sprache)');
-      setStatus(`🎙 Karte angelegt: „${capitalize(text)}"`);
-      return;
-    }
-    if (action === 'topic' && text) {
-      startTopic(capitalize(text));
-      return;
-    }
-    setStatus(`🎙 Befehl erkannt: ${action}`);
-    handleAction(action);
-  },
-  onError: (message) => setStatus(`🎙 ${message}`, 6000),
-  onStateChange: (active) => {
-    const button = document.getElementById('btn-voice');
-    if (button) {
-      const lbl = button.querySelector('.lbl');
-      if (lbl) lbl.textContent = active ? 'Sprachbefehle: an' : 'Sprachbefehle: aus';
-      button.classList.toggle('active', active);
-    }
-  },
-});
-
-function capitalize(text) {
-  return text ? text[0].toUpperCase() + text.slice(1) : text;
-}
-
-function toggleVoiceCommands() {
-  if (voice.active) {
-    voice.stop();
-    setStatus('🎙 Sprachbefehle aus.');
-    return;
-  }
-  if (!voice.available) {
-    setStatus(speechUnavailableReason(), 8000);
-    return;
-  }
-  voice.start();
-  setStatus(
-    '🎙 Sprachbefehle an – z. B. „neue Karte Fahrradständer", „Cluster", „rückgängig".',
-    7000
-  );
-}
+// Hier stand ein `VoiceCommands`-Erkenner, der dauerhaft zuhörte und gut
+// zwanzig Kommandos auf dieselben Aktions-IDs abbildete, die auch das Menü
+// auslöst. Er ist ersatzlos raus: Ein Mikrofon, das die ganze Sitzung
+// mitschneidet und jede Äußerung serverseitig verarbeiten lässt (die Web
+// Speech API tut genau das), ist ein hoher Preis für einen zweiten Weg zu
+// Knöpfen, die ohnehin danebenstehen. Das Diktat bleibt – es macht etwas, das
+// kein Knopf ersetzt, und läuft nur, solange man es gedrückt hält.
 
 // --- Prozessflussdiagramm ---
 //
@@ -1073,7 +1024,7 @@ async function buildFlowFromText() {
   }
 }
 
-// Themen-Start mit bereits bekanntem Thema (aus einem Sprachbefehl).
+// Themen-Start mit bereits bekanntem Thema.
 async function startTopic(topic) {
   if (busy) {
     setStatus('Claude arbeitet noch – einen Moment.');
@@ -1204,7 +1155,6 @@ async function toggleDesktopDictation() {
   }
   const controller = new AbortController();
   dictateAbort = controller;
-  voice.pause(); // nicht gleichzeitig auf Befehle horchen
   const before = input.value.trim();
   if (dictateButton) {
     const lbl = dictateButton.querySelector('.lbl');
@@ -1227,7 +1177,6 @@ async function toggleDesktopDictation() {
     setStatus(err.message, 6000);
   } finally {
     dictateAbort = null;
-    voice.resume();
     if (dictateButton) {
       const lbl = dictateButton.querySelector('.lbl');
       if (lbl) lbl.textContent = 'Diktieren';
@@ -1237,19 +1186,19 @@ async function toggleDesktopDictation() {
 }
 
 dictateButton?.addEventListener('click', toggleDesktopDictation);
-document.getElementById('btn-voice')?.addEventListener('click', () => handleAction('voice'));
 
-// Auf einer Brille verschwinden beide Knöpfe ganz.
+// Auf einer Brille verschwindet der ganze Abschnitt „Sprache".
 //
-// Sie stehen im Desktop-Overlay, das auf der Quest vor dem Start der Sitzung
-// als normale Webseite sichtbar ist – dort wären sie erreichbar, könnten aber
+// Er steht im Desktop-Overlay, das auf der Quest vor dem Start der Sitzung als
+// normale Webseite sichtbar ist – dort wäre „Diktieren" erreichbar, könnte aber
 // nur scheitern: Spracherkennung gibt es auf dem Gerät nicht. Ein Knopf, der
 // bestenfalls eine Fehlermeldung ausgibt und schlimmstenfalls den Browser
 // mitreißt, gehört nicht in die Oberfläche.
+//
+// Entfernt wird der **Abschnitt**, nicht der Knopf: Vorher blieb die
+// Überschrift „Sprache" ohne Inhalt stehen.
 if (isHeadsetBrowser()) {
-  for (const id of ['btn-dictate', 'btn-voice']) {
-    document.getElementById(id)?.remove();
-  }
+  document.getElementById('speech-section')?.remove();
 }
 document.getElementById('btn-fontsize')?.addEventListener('click', () => handleAction('fontsize'));
 
@@ -1559,7 +1508,6 @@ renderer.xr.addEventListener('sessionstart', () => {
   // Spracherkennung für die Dauer der Sitzung sperren – siehe speech.js.
   // Läuft ein Erkenner noch aus dem Desktop-Betrieb, wird er hier beendet.
   setXRPresenting(true);
-  voice.stop();
   controls.enabled = false;
   // Sparsame Fassung in der Brille. Gemessen kostet allein die IBL-Abtastung
   // ein Viertel der Frame-Zeit; welche Umgebung das betrifft, entscheidet sie
@@ -1803,7 +1751,6 @@ window.__app = {
   cardManager,
   connectionManager,
   keyboard,
-  voice,
   flow: {
     layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera, scene),
     types: FLOW_TYPES,
