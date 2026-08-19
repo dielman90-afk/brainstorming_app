@@ -4151,7 +4151,7 @@ function sandMaterial() {
            // um ±5 m.
            float r = length(p);
            float az = atan(p.y, p.x);
-           float grenze = 13.5 + 3.2 * sin(az * 2.3 + 1.1) + 1.8 * sin(az * 5.1 - 0.4);
+           float grenze = 12.1 + 1.5 * sin(az * 2.3 + 1.1) + 0.9 * sin(az * 5.1 - 0.4);
            float rand = 1.0 - smoothstep(grenze - 3.0, grenze + 3.0, r);
            // Der Druck auf der Harke ist nicht konstant. Zwei langwellige
            // Terme lassen die Rille stellenweise tief und stellenweise fast
@@ -4420,6 +4420,298 @@ function makeTeichbecken(rx, rz, { tiefe = 0.42, seed = 4242, umriss } = {}) {
   geo.setIndex(idx);
   geo.computeVertexNormals();
   return geo;
+}
+
+// --- Fallende Blütenblätter --------------------------------------------------
+//
+// **Der Prüfer hat sie als Staub gemessen:** 28 Partikel, mittlere Breite
+// 4,5 px, Seitenverhältnis **1,06** — runde, richtungslose, gleich große
+// Punkte. Ihre Dichte war gegenläufig zum Baum verteilt (doppelt so viele auf
+// der vom Sakura abgewandten Seite), und sie schwebten bis an den oberen
+// Bildrand, also weit über jeder Baumkrone.
+//
+// Ein Blütenblatt ist kein Punkt: Es hat eine Längsachse, es taumelt um sie,
+// und es fällt dort, wo der Baum steht. Eine Punktwolke kann davon nichts —
+// `PointsMaterial` zeichnet immer achsenparallele Quadrate. Also
+// Instanzen mit eigener Lage.
+function blattTextur() {
+  const size = 64;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  // Kirschblütenblatt: eiförmig mit der charakteristischen Kerbe an der Spitze
+  const g = ctx.createLinearGradient(0, 0, 0, size);
+  g.addColorStop(0, 'rgba(255,228,238,1)');
+  g.addColorStop(0.6, 'rgba(255,205,224,1)');
+  g.addColorStop(1, 'rgba(246,178,203,1)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.moveTo(size * 0.5, size * 0.96);
+  ctx.bezierCurveTo(size * 0.06, size * 0.72, size * 0.1, size * 0.16, size * 0.42, size * 0.06);
+  // Die Kerbe
+  ctx.lineTo(size * 0.5, size * 0.2);
+  ctx.lineTo(size * 0.58, size * 0.06);
+  ctx.bezierCurveTo(size * 0.9, size * 0.16, size * 0.94, size * 0.72, size * 0.5, size * 0.96);
+  ctx.closePath();
+  ctx.fill();
+  const t = new THREE.CanvasTexture(canvas);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function makeBluetenblaetter(rand, quellen, anzahl = 320) {
+  const geo = new THREE.PlaneGeometry(0.062, 0.078);
+  const mat = new THREE.MeshLambertMaterial({
+    map: blattTextur(),
+    transparent: true,
+    alphaTest: 0.45,
+    side: THREE.DoubleSide,
+    // Ebene Fläche: der zweite Durchgang für die Rückseiten zeichnet dieselben
+    // Pixel noch einmal.
+    forceSinglePass: true,
+    depthWrite: true,
+  });
+  const mesh = new THREE.InstancedMesh(geo, mat, anzahl);
+  mesh.name = 'zen-blueten';
+  mesh.frustumCulled = false;
+  const meta = [];
+  for (let i = 0; i < anzahl; i++) {
+    // **Die Blätter fallen dort, wo ein Baum steht.** Jede Instanz bekommt eine
+    // Quelle zugelost; ihre Streuung um den Stamm wächst nach unten, weil der
+    // Wind sie auf dem Weg vertreibt.
+    const q = quellen[Math.floor(rand() * quellen.length) % quellen.length];
+    meta.push({
+      qx: q.x,
+      qz: q.z,
+      hoehe: q.hoehe,
+      streu: q.streu,
+      a: rand() * Math.PI * 2,
+      r: Math.sqrt(rand()),
+      y0: rand(),
+      // Jedes Blatt fällt anders schnell und taumelt anders — nichts im
+      // Gleichtakt.
+      fall: 0.22 + rand() * 0.3,
+      dreh: (rand() - 0.5) * 3.4,
+      kipp: rand() * Math.PI * 2,
+      kippTempo: 0.8 + rand() * 1.9,
+      schwing: rand() * Math.PI * 2,
+      schwingWeite: 0.18 + rand() * 0.45,
+      groesse: 0.75 + rand() * 0.6,
+    });
+  }
+  const m = new THREE.Matrix4();
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const pos = new THREE.Vector3();
+  const skal = new THREE.Vector3();
+  return {
+    mesh,
+    update(time) {
+      for (let i = 0; i < anzahl; i++) {
+        const d = meta[i];
+        // Fallhöhe läuft von der Krone bis zum Boden und beginnt oben neu.
+        const t = ((d.y0 + 1 - ((time * d.fall) / d.hoehe) % 1) % 1);
+        const y = t * d.hoehe;
+        // Je tiefer, desto weiter vom Stamm weg
+        const weite = d.streu * (0.35 + (1 - t) * 0.9);
+        pos.set(
+          d.qx + Math.cos(d.a) * d.r * weite + Math.sin(time * 0.7 + d.schwing) * d.schwingWeite,
+          y + 0.02,
+          d.qz + Math.sin(d.a) * d.r * weite + Math.cos(time * 0.55 + d.schwing) * d.schwingWeite
+        );
+        e.set(
+          Math.sin(time * d.kippTempo + d.kipp) * 1.5,
+          time * d.dreh + d.kipp,
+          Math.cos(time * d.kippTempo * 0.7 + d.kipp) * 1.1
+        );
+        q.setFromEuler(e);
+        skal.setScalar(d.groesse);
+        m.compose(pos, q, skal);
+        mesh.setMatrixAt(i, m);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    },
+  };
+}
+
+// --- Gartenmauer und geschnittene Sträucher ---------------------------------
+//
+// **Der schwerste Kompositionsbefund: Der Garten hat keine Grenze.** In der
+// Totale lagen die Objekte als lose Reihe quer über eine Fläche, die nach allen
+// Seiten ins Nichts lief; der Prüfer hat das Bildviertel links unten mit 98,9 %
+// strukturlosem Sand gemessen und die Objektlage als „gleichmäßig über den
+// Kreis verstreut, ohne Führung" beschrieben.
+//
+// Das ist kein Streuungsproblem, sondern ein **Rahmenproblem**. Ein
+// Karesansui ist immer eingefasst — von einer verputzten Lehmmauer mit
+// Ziegeldach, einer Hecke oder einem Bambuszaun. Die Einfassung leistet drei
+// Dinge auf einmal:
+//
+//   * Sie gibt der leeren Fläche einen **Grund**: Aus „da ist nichts" wird
+//     „da ist absichtlich nichts" — das *ma*, um das es geht.
+//   * Sie legt eine **waagerechte Linie** ins Bild, gegen die alle Silhouetten
+//     stehen. Vorher stand alles gegen Himmel.
+//   * Sie trennt Mittelgrund von Ferne und macht die Tiefenstaffelung sichtbar.
+//
+// Die Mauer läuft nur über den hinteren Bogen. Rundherum wäre ein Kasten; so
+// bleibt die Öffnung nach vorn, aus der man in den Garten blickt.
+function makeGartenmauer(radius, vonGrad, bisGrad, { hoehe = 1.75, seed = 3131 } = {}) {
+  const SEG = 96;
+  const von = (vonGrad * Math.PI) / 180;
+  const bis = (bisGrad * Math.PI) / 180;
+  const wand = [];
+  const dach = [];
+  const rand = mulberry32(seed);
+
+  // Die Mauer schwankt leicht in Radius und Höhe — eine Lehmmauer ist von Hand
+  // aufgezogen und sackt über die Jahre.
+  const welle = welligerUmriss(seed, 0.035, 4);
+  const punkt = (t, r, y) => {
+    const a = von + (bis - von) * t;
+    const rr = r * welle(a * 3);
+    return new THREE.Vector3(Math.cos(a) * rr, y, Math.sin(a) * rr);
+  };
+
+  for (let i = 0; i < SEG; i++) {
+    const t0 = i / SEG;
+    const t1 = (i + 1) / SEG;
+    const senk = 1 - Math.abs(t0 - 0.5) * 0.06; // Enden minimal niedriger
+    const h = hoehe * senk * (0.985 + rand() * 0.03);
+    // Wandkörper: ein Quader zwischen zwei Bogenpunkten
+    for (const [d, dy, farbe] of [
+      [0.17, 0, 'sockel'],
+      [0.13, 0, 'wand'],
+    ]) {
+      const unten = farbe === 'sockel' ? 0 : 0.28;
+      const oben = farbe === 'sockel' ? 0.3 : h;
+      const a0 = punkt(t0, radius, 0);
+      const a1 = punkt(t1, radius, 0);
+      const mitte = a0.clone().add(a1).multiplyScalar(0.5);
+      const laenge = a0.distanceTo(a1) * 1.06;
+      const winkel = Math.atan2(a1.z - a0.z, a1.x - a0.x);
+      const g = new THREE.BoxGeometry(laenge, oben - unten, d * 2);
+      g.rotateY(-winkel);
+      g.translate(mitte.x, unten + (oben - unten) / 2, mitte.z);
+      g.userData = { farbe };
+      wand.push(g);
+    }
+    // Ziegeldach mit Überstand
+    {
+      const a0 = punkt(t0, radius, 0);
+      const a1 = punkt(t1, radius, 0);
+      const mitte = a0.clone().add(a1).multiplyScalar(0.5);
+      const laenge = a0.distanceTo(a1) * 1.06;
+      const winkel = Math.atan2(a1.z - a0.z, a1.x - a0.x);
+      const g = new THREE.BoxGeometry(laenge, 0.1, 0.52);
+      g.rotateY(-winkel);
+      g.translate(mitte.x, h + 0.05, mitte.z);
+      dach.push(g);
+      // Firstrundung: ein flacher Halbzylinder oben drauf
+      const f = new THREE.CylinderGeometry(0.07, 0.07, laenge, 6, 1, false, 0, Math.PI);
+      f.rotateZ(Math.PI / 2);
+      f.rotateY(-winkel);
+      f.translate(mitte.x, h + 0.1, mitte.z);
+      dach.push(f);
+    }
+  }
+
+  const bauTeil = (liste, unten, oben) => {
+    const geo = mergeGeometries(liste.map((g) => (g.index ? g.toNonIndexed() : g)));
+    const pos = geo.attributes.position;
+    const farben = new Float32Array(pos.count * 3);
+    const c = new THREE.Color();
+    for (let v = 0; v < pos.count; v++) {
+      const y = pos.getY(v);
+      const t = THREE.MathUtils.clamp((y - 0) / hoehe, 0, 1);
+      c.copy(unten).lerp(oben, t);
+      // Verwitterung: Regenstreifen und Flecken
+      const f =
+        0.9 +
+        hashNoise(pos.getX(v) * 1.7, y * 0.6, pos.getZ(v) * 1.7) * 0.14 -
+        Math.max(0, 0.45 - t) * 0.22;
+      farben[v * 3] = c.r * f;
+      farben[v * 3 + 1] = c.g * f;
+      farben[v * 3 + 2] = c.b * f;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    return geo;
+  };
+
+  // **Abschlusspfeiler.** Ohne sie endet die Mauer als glatte Schnittfläche
+  // gegen den Himmel — im Bild eine Kante ohne Grund. Ein gemauerter Abschluss
+  // ist etwas dicker, etwas höher und trägt seine eigene Dachkappe.
+  for (const t of [0, 1]) {
+    const a = von + (bis - von) * t;
+    const rr = radius * welle(a * 3);
+    const px = Math.cos(a) * rr;
+    const pz = Math.sin(a) * rr;
+    const pf = new THREE.BoxGeometry(0.42, hoehe + 0.16, 0.42);
+    pf.rotateY(-a);
+    pf.translate(px, (hoehe + 0.16) / 2, pz);
+    wand.push(pf);
+    const kappe = new THREE.BoxGeometry(0.58, 0.11, 0.58);
+    kappe.rotateY(-a);
+    kappe.translate(px, hoehe + 0.22, pz);
+    dach.push(kappe);
+  }
+
+  const gruppe = new THREE.Group();
+  const wandMesh = new THREE.Mesh(
+    bauTeil(wand, new THREE.Color(0x6d6152), new THREE.Color(0xcfc2a6)),
+    new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.94, metalness: 0 })
+  );
+  wandMesh.name = 'zen-mauer';
+  const dachMesh = new THREE.Mesh(
+    bauTeil(dach, new THREE.Color(0x4a4e55), new THREE.Color(0x5d626b)),
+    new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.6, metalness: 0 })
+  );
+  dachMesh.name = 'zen-mauer-dach';
+  gruppe.add(wandMesh, dachMesh);
+  return gruppe;
+}
+
+// Geschnittene Sträucher (Karikomi) als Mittelgrundmasse vor der Mauer.
+// Runde, dichte Polster — sie sind das Gegenstück zur harten Waagerechten der
+// Mauer und geben dem Blick etwas, woran er vor der Ferne hängenbleibt.
+function makeKarikomi(rand, plaetze) {
+  const teile = [];
+  for (const [x, z, r, hoehe] of plaetze) {
+    const geo = new THREE.SphereGeometry(r, 14, 10);
+    const pos = geo.attributes.position;
+    const beule = welligerUmriss(Math.floor(x * 97 + z * 31) & 0xffff, 0.14, 4);
+    for (let v = 0; v < pos.count; v++) {
+      const px = pos.getX(v);
+      const py = pos.getY(v);
+      const pz = pos.getZ(v);
+      const f = beule(Math.atan2(pz, px)) * (0.94 + hashNoise(px * 4, py * 4, pz * 4) * 0.12);
+      pos.setXYZ(v, px * f, Math.max(0, py) * (hoehe / r) * f, pz * f);
+    }
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    // Scheitelfarben: oben lichter, unten im Eigenschatten des Polsters
+    const farben = new Float32Array(pos.count * 3);
+    const oben = new THREE.Color(0x7f8f52);
+    const unten = new THREE.Color(0x3d4a2b);
+    const c = new THREE.Color();
+    for (let v = 0; v < pos.count; v++) {
+      const t = THREE.MathUtils.clamp(pos.getY(v) / hoehe, 0, 1);
+      c.copy(unten).lerp(oben, Math.pow(t, 0.6));
+      const f = 0.9 + hashNoise(pos.getX(v) * 6, pos.getY(v) * 6, pos.getZ(v) * 6) * 0.2;
+      farben[v * 3] = c.r * f;
+      farben[v * 3 + 1] = c.g * f;
+      farben[v * 3 + 2] = c.b * f;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    geo.translate(x, -0.03, z);
+    teile.push(geo);
+  }
+  const mesh = new THREE.Mesh(
+    mergeGeometries(teile.map((g) => (g.index ? g.toNonIndexed() : g))),
+    new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.88, metalness: 0 })
+  );
+  mesh.name = 'zen-karikomi';
+  return mesh;
 }
 
 // Der Saum jenseits des Kiesbetts.
@@ -5176,14 +5468,37 @@ function makeKoi(variant) {
 
   const bodyGeo = new THREE.LatheGeometry(profile, 22);
   bodyGeo.rotateX(Math.PI / 2); // Längsachse von Y nach Z, Kopf nach +Z
-  const body = new THREE.Mesh(
-    bodyGeo,
-    new THREE.MeshStandardMaterial({
-      map: makeKoiTexture(variant),
-      roughness: 0.34,
-      metalness: 0.05,
-    })
-  );
+  // **Der Körper biegt sich.** Der Prüfer hat beide Koi als „starr waagerecht
+  // ohne Körperbogen" gemessen — es wedelte nur der Schwanz an einem Gelenk,
+  // und das ist die Bewegung eines Spielzeugs. Ein Fisch schwimmt, indem eine
+  // Welle vom Kopf zum Schwanz durch ihn hindurchläuft. Die Welle steht
+  // deshalb im Vertexshader: seitlicher Versatz proportional zu sin(z·k − t·ω),
+  // mit einer Amplitude, die zum Schwanz hin wächst. Der Kopf bleibt ruhig,
+  // wie er soll.
+  const koiUniforms = { uKoiZeit: { value: 0 }, uKoiPhase: { value: variant * 2.1 } };
+  const bodyMat = new THREE.MeshStandardMaterial({
+    map: makeKoiTexture(variant),
+    roughness: 0.34,
+    metalness: 0.05,
+  });
+  bodyMat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, koiUniforms);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\n uniform float uKoiZeit;\n uniform float uKoiPhase;')
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+         {
+           // z läuft von -L/2 (Schwanz) bis +L/2 (Kopf); die Amplitude wächst
+           // nach hinten.
+           float hinten = clamp(0.5 - transformed.z / 0.34, 0.0, 1.2);
+           float welle = sin(transformed.z * 13.0 - uKoiZeit * 7.5 + uKoiPhase);
+           transformed.x += welle * hinten * hinten * 0.055;
+         }`
+      );
+  };
+  bodyMat.customProgramCacheKey = () => 'zen-koi-koerper';
+  const body = new THREE.Mesh(bodyGeo, bodyMat);
   // Fische sind seitlich schmal und hochrückig – ohne das bliebe die Drehfigur
   // ein Schlauch.
   body.scale.set(0.6, 1.18, 1);
@@ -5261,7 +5576,7 @@ function makeKoi(variant) {
   // Gieren (y) vor Nicken (x) auswerten – sonst kippt der Fisch beim Auf- und
   // Abtauchen je nach Kurs zusätzlich zur Seite.
   koi.rotation.order = 'YXZ';
-  koi.userData = { tail: tailPivot };
+  koi.userData = { tail: tailPivot, uniforms: koiUniforms };
   return koi;
 }
 
@@ -6013,6 +6328,31 @@ function createZenEnvironment() {
   mapleShadow.position.set(4.8, 0.015, 3.2);
   kontaktschatten.push(mapleShadow);
 
+  // --- Einfassung: Mauer und Sträucher --------------------------------------
+  //
+  // Die Mauer läuft von 130° bis 400°, also über zweihundertsiebzig Grad. Die
+  // Lücke liegt bei rund 85° — genau dort, wo man in den Garten hineinblickt.
+  // Ein Karesansui ist eingefasst, aber nicht zugemauert: Die Öffnung ist die
+  // Seite, von der aus er gesehen werden soll. Radius 13,5 m, damit die Mauer
+  // außerhalb aller gesetzten Steine und Bäume steht und die geharkte Fläche
+  // an ihr endet.
+  group.add(makeGartenmauer(13.5, 130, 400));
+  // Sträucher vor die Mauer und als Mittelgrundmasse. Sie stehen in Gruppen,
+  // nicht in einer Reihe, und lassen zwischen sich Lücken auf die Mauer.
+  group.add(
+    makeKarikomi(rand, [
+      [-9.4, -7.2, 1.0, 0.85],
+      [-8.0, -8.4, 0.72, 0.6],
+      [-10.6, -5.6, 0.8, 0.66],
+      [1.6, -11.4, 1.15, 0.95],
+      [3.1, -10.8, 0.85, 0.7],
+      [-4.6, -11.2, 0.95, 0.78],
+      [-11.4, 0.6, 1.05, 0.88],
+      [-10.9, 2.4, 0.7, 0.55],
+      [7.4, -8.6, 0.9, 0.72],
+    ])
+  );
+
   // Bambushain (wiegt in update)
   const bamboo = makeBambooGrove(rand, -6.5, -3.5);
   group.add(bamboo.group);
@@ -6094,36 +6434,14 @@ function createZenEnvironment() {
     mistSprites.push(s);
   }
 
-  // Treibende Kirschblütenblätter
-  const PET = 120;
-  const petalPos = new Float32Array(PET * 3);
-  const petalMeta = [];
-  for (let i = 0; i < PET; i++) {
-    petalMeta.push({
-      x: (rand() - 0.5) * 22,
-      z: (rand() - 0.5) * 22,
-      y0: rand() * 9,
-      speed: 0.25 + rand() * 0.4,
-      sway: rand() * 6.28,
-      swayAmp: 0.25 + rand() * 0.5,
-    });
-  }
-  const petalGeo = new THREE.BufferGeometry();
-  petalGeo.setAttribute('position', new THREE.BufferAttribute(petalPos, 3));
-  const petals = new THREE.Points(
-    petalGeo,
-    new THREE.PointsMaterial({
-      map: makeGlowTexture('rgba(255,200,222,1)', 'rgba(255,175,205,0.7)', 48),
-      color: 0xffd0e2,
-      size: 0.14,
-      transparent: true,
-      opacity: 0.95,
-      depthWrite: false,
-      sizeAttenuation: true,
-    })
-  );
-  petals.frustumCulled = false;
-  group.add(petals);
+  // Treibende Kirschblütenblätter — Instanzen statt Punktwolke, siehe
+  // `makeBluetenblaetter`. Sie fallen an den beiden Bäumen, nicht über dem
+  // ganzen Garten, und keines steigt über seine Krone.
+  const blueten = makeBluetenblaetter(rand, [
+    { x: -4.5, z: 2.5, hoehe: 3.3, streu: 1.5 },
+    { x: 4.8, z: 3.2, hoehe: 2.7, streu: 1.2 },
+  ]);
+  group.add(blueten.mesh);
 
   // Die Sonne dieser Umgebung als Himmelsbeschreibung. Warmer Spätnachmittag:
   // tiefer Zenit, sehr breiter goldener Dunst am Horizont – deutlich anders als
@@ -6298,7 +6616,10 @@ function createZenEnvironment() {
         // Leichte Schräglage in die Kurve, wie beim Abdrücken gegen das Wasser
         koi.rotation.z = -dir * 0.12;
 
-        d.tail.rotation.y = Math.sin(time * 8 + d.phase) * 0.5; // Schwanzwedeln
+        // Der Schwanz schlägt in derselben Phase wie die Körperwelle weiter —
+        // sonst arbeitet er gegen sie.
+        d.uniforms.uKoiZeit.value = time;
+        d.tail.rotation.y = Math.sin(time * 7.5 - d.uniforms.uKoiPhase.value) * 0.45;
       }
       // Wasser-Ringe: wachsen von klein → groß und blenden aus
       for (const ring of ripples) {
@@ -6329,19 +6650,7 @@ function createZenEnvironment() {
         s.position.x = s.userData.x + Math.sin(time * 0.08 + s.userData.ph) * 3 * s.userData.drift * 6;
         s.material.opacity = 0.4 + Math.sin(time * 0.4 + s.userData.ph) * 0.12;
       }
-      const H = 9;
-      const p = petalGeo.attributes.position;
-      for (let i = 0; i < PET; i++) {
-        const m = petalMeta[i];
-        const y = ((m.y0 - time * m.speed) % H + H) % H;
-        p.setXYZ(
-          i,
-          m.x + Math.sin(time * 0.6 + m.sway) * m.swayAmp,
-          y,
-          m.z + Math.cos(time * 0.5 + m.sway) * m.swayAmp
-        );
-      }
-      p.needsUpdate = true;
+      blueten.update(time);
     },
   };
 }
