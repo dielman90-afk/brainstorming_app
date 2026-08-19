@@ -123,9 +123,58 @@ export const ZEN_SHOTS = [
   },
 ];
 
+// Feste Kameras des Nachthimmels. Maßstab 1:1 (kein WORLD_SCALE), Bodenfläche
+// 96 × 96 m, Nebel 22–48 m, Kuppel r = 44, Mond bei [14 | 16 | −24].
+// DIESE WERTE DÜRFEN SICH ÜBER ALLE DURCHLÄUFE NICHT ÄNDERN – sonst sind die
+// Vergleichsbilder wertlos. Eingefroren mit dem Ausgangsstand night-00.
+export const NIGHT_SHOTS = [
+  {
+    name: 'a-eyelevel',
+    title: 'Augenhöhe, Blick über den Regolith zum Mond',
+    pos: [-4.0, 1.6, 8.0],
+    look: [11.0, 7.0, -20.0],
+    fov: 70,
+  },
+  {
+    name: 'b-moon',
+    title: 'Der Mond im Bild',
+    pos: [0, 1.6, 4.0],
+    look: [14.0, 16.0, -24.0],
+    fov: 60,
+  },
+  {
+    name: 'c-crater',
+    title: 'Blick in den großen Krater',
+    pos: [-3.0, 1.7, 12.0],
+    look: [-11.0, -0.6, 5.0],
+    fov: 70,
+  },
+  {
+    name: 'd-aerial',
+    title: 'Totale von schräg oben (Komposition)',
+    pos: [18.0, 14.0, 22.0],
+    look: [0, -0.5, 0],
+    fov: 55,
+  },
+  {
+    name: 'e-ground',
+    title: 'Flache Nahsicht auf den Regolith',
+    pos: [2.0, 0.45, 5.0],
+    look: [-2.0, -0.15, -3.0],
+    fov: 60,
+  },
+  {
+    name: 'f-hills',
+    title: 'Horizonthügel gegen den Sternhimmel',
+    pos: [1.0, 1.6, 1.0],
+    look: [-22.0, 3.5, -24.0],
+    fov: 70,
+  },
+];
+
 // Kamerasätze je Umgebung. `SHOTS` bleibt der Inselsatz, damit die alten
 // Inselbilder vergleichbar bleiben.
-export const ENV_SHOTS = { island: SHOTS, zen: ZEN_SHOTS };
+export const ENV_SHOTS = { island: SHOTS, zen: ZEN_SHOTS, night: NIGHT_SHOTS };
 
 export function shotsFor(envId) {
   const set = ENV_SHOTS[envId];

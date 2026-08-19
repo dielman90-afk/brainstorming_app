@@ -3591,6 +3591,83 @@ function marsRockMaterial() {
   return _marsRock;
 }
 
+// --- Kontaktverdunklung ------------------------------------------------------
+//
+// Ein Schlagschatten sagt, **wo** die Sonne (hier: der Mond) nicht hinkommt.
+// Er sagt nicht, dass ein Brocken den Boden *berührt*. Genau das ist der
+// Unterschied zwischen einem Objekt, das steht, und einem, das schwebt: der
+// schmale, richtungslose Saum Verdunklung direkt am Fuß, den in Wahrheit die
+// gegenseitige Verdeckung des Himmelslichts macht.
+//
+// Warum ein eigener Bauer statt `makeBlobShadow`: Die geteilte Blob-Scheibe ist
+// eine **ebene** 1x1-Fläche. Der Regolith ist es nicht — über 90 cm Radius
+// wandert er hier um bis zu 14 cm. Eine ebene Scheibe steckt damit an einer
+// Seite im Boden und schwebt an der anderen. Diese Scheiben bekommen ihre
+// Scheitelpunkte auf die Geländehöhe gelegt und liegen deshalb auf.
+//
+// Alles zusammen ist **ein** Draw-Call: Deckkraft steckt in der vierten
+// Komponente des Farbattributs (three setzt dann USE_COLOR_ALPHA), Farbe ist
+// überall Schwarz.
+let _kontaktMaterial = null;
+function makeKontaktAO(stellen, heightAt) {
+  if (!stellen.length) return null;
+  if (!_kontaktMaterial) {
+    _kontaktMaterial = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      depthWrite: false,
+      vertexColors: true,
+      // Nicht tone-gemappt: Das hier ist keine Lichtmenge, sondern eine
+      // Abdunklung des fertigen Bildes.
+      toneMapped: false,
+    });
+  }
+  const SEG = 12;
+  const RINGE = [0, 0.42, 0.74, 1]; // Radiusanteile
+  const ALPHA = [1, 0.62, 0.22, 0]; // Deckkraft je Ring
+  const pos = [];
+  const col = [];
+  const idx = [];
+  for (const { x, z, r, staerke } of stellen) {
+    const basis = pos.length / 3;
+    for (let ring = 0; ring < RINGE.length; ring++) {
+      const rr = RINGE[ring] * r;
+      const a = ALPHA[ring] * staerke;
+      const n = ring === 0 ? 1 : SEG;
+      for (let k = 0; k < n; k++) {
+        const w = (k / SEG) * Math.PI * 2;
+        const px = x + Math.cos(w) * rr;
+        const pz = z + Math.sin(w) * rr;
+        pos.push(px, heightAt(px, pz) + 0.02, pz);
+        col.push(0, 0, 0, a);
+      }
+    }
+    // Fächer vom Mittelpunkt auf Ring 1
+    for (let k = 0; k < SEG; k++) {
+      idx.push(basis, basis + 1 + k, basis + 1 + ((k + 1) % SEG));
+    }
+    // Ringbänder
+    for (let ring = 1; ring < RINGE.length - 1; ring++) {
+      const a0 = basis + 1 + (ring - 1) * SEG;
+      const b0 = a0 + SEG;
+      for (let k = 0; k < SEG; k++) {
+        const k1 = (k + 1) % SEG;
+        idx.push(a0 + k, b0 + k, b0 + k1);
+        idx.push(a0 + k, b0 + k1, a0 + k1);
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, _kontaktMaterial);
+  mesh.name = 'kontaktverdunklung';
+  mesh.renderOrder = 1; // knapp über dem opaken Boden
+  return mesh;
+}
+
 function makeMarsGround(rand) {
   const group = new THREE.Group();
 
@@ -3621,7 +3698,19 @@ function makeMarsGround(rand) {
   const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
-  const base = new THREE.Color(0x9c4a2b);
+  // **Warum der Regolith entsättigt wird, obwohl das ein Bodenthema ist.**
+  // Ein Albedo von 0x9c4a2b hat linear (0,331 | 0,070 | 0,024) – im Blaukanal
+  // sieben Prozent des Rotkanals. Auf so einer Fläche kann ein kühles
+  // Himmelslicht nichts ausrichten: Es wird weggefiltert, bevor es im Bild
+  // ankommt. Gerechnet ergab die Schattenseite unter der neuen Beleuchtung
+  // (31 | 7 | 4) – also weiterhin rot, nur dunkler. Der geforderte kalte
+  // Gegenpol ist mit dieser Farbe physikalisch nicht herstellbar.
+  //
+  // Entsättigt auf 0x8f5a42 – linear (0,270 | 0,101 | 0,057) – trägt der
+  // Blaukanal das Zweieinhalbfache. Das Rot bleibt: Es steht jetzt dort, wo es
+  // hingehört, nämlich in der warmen Rückstrahlung (Bodenfarbe der
+  // Hemisphärenleuchte) und in der Ferne über den Nebel.
+  const base = new THREE.Color(0x7a4c38);
   const col = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
@@ -3645,10 +3734,30 @@ function makeMarsGround(rand) {
   const ground = new THREE.Mesh(geo, marsGroundMaterial());
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.03;
+  // Empfänger **und** Werfer: Die Hügel am Horizont und die Kraterwälle sind
+  // die einzigen Formen, die bei 30° Lichthöhe überhaupt lange Schatten auf
+  // die Ebene legen können. Ohne castShadow auf dem Gelände steht die
+  // Landschaft wieder auf statt zu stehen.
+  ground.castShadow = true;
+  ground.receiveShadow = true;
   group.add(ground);
 
   // Verstreute Felsbrocken (mehr Facetten = Stein statt Kristall, flach gelagert)
-  const rockColors = [0x843d24, 0x6f331f, 0x5a281a, 0x92472b];
+  // Farben mit derselben Begründung entsättigt wie der Boden: Ein Stein, der
+  // im Blaukanal nichts hat, kann kein Mondlicht zeigen.
+  const rockColors = [0x6b4030, 0x5a382a, 0x4a2e23, 0x744838];
+  const aoStellen = [];
+  // **Warum die Brocken jetzt verschmolzen werden, obwohl das Paket „Licht"
+  // heißt.** Der Schattendurchgang zeichnet jeden Werfer ein zweites Mal. Mit
+  // dreißig einzelnen Brocken sprang die Szene damit von 40 auf 78 Draw-Calls –
+  // im Budget (120), aber sechzig davon für dreißig Steine, und fünf Pakete
+  // sollen noch etwas hinzufügen. Verschmolzen sind es zwei.
+  //
+  // Gebaut wird **vor** dem Verschmelzen, nicht danach: `mulberry32` ist ein
+  // gesäter Generator, und ein zusätzlicher `rand()`-Aufruf verschöbe jede
+  // Position danach. Die Reihenfolge der Ziehungen bleibt deshalb exakt wie
+  // vorher, verschmolzen wird erst am Ende der Schleife.
+  const brocken = [];
   for (let i = 0; i < 30; i++) {
     const a = rand() * Math.PI * 2;
     const r = 3.5 + rand() * 16;
@@ -3668,17 +3777,67 @@ function makeMarsGround(rand) {
     // wäre hier genau die Sorte gedankenloser Wiederverwendung, die man den
     // Werkzeugen später ansieht.
     boxProjectUV(geoR, 0.22);
-    paintVertices(geoR, rockColors[Math.floor(rand() * rockColors.length)]);
+    const rockHex = rockColors[Math.floor(rand() * rockColors.length)];
     const rock = new THREE.Mesh(geoR, marsRockMaterial());
     rock.position.set(bx, heightAt(bx, bz) - 0.03 + s * 0.25, bz);
     rock.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
     rock.scale.set(1 + rand() * 0.5, 0.45 + rand() * 0.4, 1 + rand() * 0.5);
-    group.add(rock);
+
+    // **Kontaktverdunklung am Objekt, nicht nur am Boden.** Die untersten
+    // Scheitelpunkte werden abgedunkelt – dort sieht ein Punkt der Oberfläche
+    // fast nur noch Boden statt Himmel, bekommt also kaum Himmelslicht ab.
+    // Das ist der Anteil, den eine Schattenkarte prinzipiell nicht liefert.
+    //
+    // Gerechnet wird in **Weltausrichtung**: Die Brocken sind um alle drei
+    // Achsen zufällig gedreht, „unten" ist in ihren lokalen Koordinaten also
+    // jedes Mal woanders. Ohne die Drehung mitzurechnen säße der dunkle Saum
+    // bei jedem Stein an einer anderen Flanke – ein Fehler, der als
+    // willkürliche Fleckigkeit lesbar wäre.
+    const drehung = new THREE.Quaternion().setFromEuler(rock.rotation);
+    const v = new THREE.Vector3();
+    const rp2 = geoR.attributes.position;
+    let yMin = Infinity;
+    let yMax = -Infinity;
+    const yWelt = new Float32Array(rp2.count);
+    for (let vi = 0; vi < rp2.count; vi++) {
+      v.fromBufferAttribute(rp2, vi).multiply(rock.scale).applyQuaternion(drehung);
+      yWelt[vi] = v.y;
+      if (v.y < yMin) yMin = v.y;
+      if (v.y > yMax) yMax = v.y;
+    }
+    const c = new THREE.Color(rockHex);
+    const farben = new Float32Array(rp2.count * 3);
+    for (let vi = 0; vi < rp2.count; vi++) {
+      const t = (yWelt[vi] - yMin) / Math.max(1e-4, yMax - yMin);
+      const f = 0.52 + 0.48 * smoothstep(0.0, 0.55, t);
+      farben[vi * 3] = c.r * f;
+      farben[vi * 3 + 1] = c.g * f;
+      farben[vi * 3 + 2] = c.b * f;
+    }
+    geoR.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+
+    rock.castShadow = true;
+    rock.receiveShadow = true;
+    brocken.push(rock);
+    aoStellen.push({
+      x: bx,
+      z: bz,
+      r: s * (1.9 + rand() * 0.6),
+      staerke: 0.42,
+    });
   }
+  for (const m of verschmelzeObjekte(brocken, 'nacht-brocken')) {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    group.add(m);
+  }
+  const kontakt = makeKontaktAO(aoStellen, heightAt);
+  if (kontakt) group.add(kontakt);
 
   // Weiche, natürliche Hügel am Horizont (teilweise „vergrabene" Kuppeln) –
   // ersetzt die alten kastenförmigen Tafelberge.
-  const hillMat = new THREE.MeshStandardMaterial({ color: 0x7a3820, roughness: 1, metalness: 0 });
+  const hillMat = new THREE.MeshStandardMaterial({ color: 0x63432f, roughness: 1, metalness: 0 });
+  const huegel = [];
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + rand() * 0.6;
     const r = 26 + rand() * 12;
@@ -3695,8 +3854,19 @@ function makeMarsGround(rand) {
     hill.scale.y = flat;
     // So weit eingraben, dass nur eine sanfte Kuppe herausschaut
     hill.position.set(Math.cos(a) * r, -R * flat * 0.62, Math.sin(a) * r);
-    group.add(hill);
+    huegel.push(hill);
   }
+  for (const m of verschmelzeObjekte(huegel, 'nacht-huegel')) {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    group.add(m);
+  }
+
+  // Die Geländefunktion wird von späteren Paketen gebraucht (Staub, Fernfelsen,
+  // Kartenplatzierung); sie hängt am Gruppenobjekt statt in einem Modul-Global,
+  // damit sie zum konkreten Gelände gehört und nicht zu „irgendeinem".
+  group.userData.heightAt = heightAt;
+  group.userData.craters = craters;
 
   return group;
 }
@@ -3763,15 +3933,80 @@ function createNightEnvironment() {
   moonGlow.scale.set(8, 8, 1);
   group.add(moonGlow);
 
-  // Beleuchtung, damit der Mars-Untergrund plastisch (rötlich) erscheint
-  group.add(new THREE.HemisphereLight(0x3a4a72, 0x2a120a, 0.7));
-  const moonLight = new THREE.DirectionalLight(0xcdd9ff, 0.7);
+  // --- Licht -----------------------------------------------------------------
+  //
+  // **Der Befund, der dieses Paket ausgelöst hat.** `main.js` hält eine globale
+  // Hemisphärenleuchte (0xffffff über 0x334455, Stärke 1,4), die für jede
+  // Umgebung gilt. Sie war hier nicht heruntergeregelt. Über den Weg
+  // `irradiance × BRDF_Lambert` steuerte sie beim aufwärts gerichteten
+  // Bodennormalenvektor rund **1,4 von 1,72** Einheiten Bestrahlung bei – 82 %
+  // des gesamten Lichts der Szene kam aus einer weißen Quelle, die nur von
+  // `normal.y` abhängt und deshalb auf **keine** Oberflächenform reagiert.
+  //
+  // Genau das steht im Bild: Der Boden hatte in `night-00/e-ground.png` über
+  // den Bereich (100,400)–(1180,700) einen Tonwertumfang von p05 31 bis p95 63,
+  // also 32 von 255 Stufen, und kein einziges Pixel über 190. Eine Fläche, die
+  // drei Viertel des Bildes füllt, war damit praktisch ein Farbfeld.
+  //
+  // Die Konsequenz ist nicht „weniger Licht", sondern **dieselbe Menge Licht
+  // aus einer Quelle, die eine Richtung hat**: Das globale Grundlicht geht auf
+  // 0, das Mondlicht bekommt die Stärke, die vorher die Hemisphäre hatte, und
+  // ist ab hier die einzige gerichtete Quelle der Szene – mit Schattenkarte.
+  //
+  // Die Zahlen unten sind vorwärts gerechnet, nicht geraten. Aus dem
+  // Ausgangsstand ließ sich der Zusammenhang zwischen Bestrahlung und Bildwert
+  // ablesen (R = 115 bei Σ 1,72 Einheiten ⇒ 0,0665 linear je Einheit im
+  // Rotkanal, inklusive Albedo, Belichtung 1,1 und ACES). Daraus:
+  //
+  //   * Schattenseite soll bei R ≈ 30 liegen  ⇒  Σ_r ≈ 0,32  (Himmelslicht)
+  //   * mondzugewandte Flanke bei R ≈ 130     ⇒  Σ_r ≈ 2,12
+  //
+  // Was **nicht** passiert: heller werden. Der Bildmittelwert bleibt unten, die
+  // Spanne wächst. Eine Nacht lebt von Modulation im unteren Drittel.
+
+  // Himmelslicht: der kühle Gegenpol. Oben mondblau, unten die warme
+  // Rückstrahlung des Regoliths – damit steckt das geforderte Regolithrot in
+  // der Aufhellung nach unten und nicht mehr flächig im Albedo.
+  // **Der Farbton der Aufhellung ist gerechnet, nicht gegriffen.** Der erste
+  // Anlauf stand auf 0x6a86c8; im Bild kam an der hellsten Bodenstelle
+  // (113 | 88 | 94) heraus – Blau **über** Grün, also ein Magentastich. Der
+  // Grund steht in den Zahlen: Der Regolith hat linear G:B = 1,88, die Leuchte
+  // aber G:B = 0,41; das Produkt 0,77 kippt den Kanal. Mondlicht im Bild ist
+  // kühl, aber nie magenta – es liegt zwischen Blau und Cyan. Mit 0x7595b4
+  // (G:B = 0,66) steht das Produkt bei 1,23 und Grün führt wieder.
+  const skyFill = new THREE.HemisphereLight(0x7595b4, 0x412012, 2.0);
+  group.add(skyFill);
+
+  // **Eine** gerichtete Quelle. Der Mond steht bei [14 | 16 | −24], das sind
+  // 32,1 m Abstand und 29,9° über dem Horizont – flach genug für Streiflicht
+  // auf den Kanten, hoch genug, dass die Schatten nicht das halbe Bild füllen.
+  const moonLight = new THREE.DirectionalLight(0xd8e2ff, 3.1);
   moonLight.position.copy(moon.position);
+  moonLight.target.position.set(0, 0, 0);
+  group.add(moonLight.target);
+  moonLight.castShadow = true;
+  moonLight.shadow.mapSize.set(2048, 2048);
+  {
+    // Orthokamera ±40 m: Das ist 3,9 cm je Texel und deckt alles ab, was vor
+    // dem Nebelende bei 48 m liegt. Weiter draußen ist ohnehin alles zu 100 %
+    // Nebelfarbe, ein fehlender Schatten dort ist unsichtbar.
+    const sc = moonLight.shadow.camera;
+    sc.left = -40;
+    sc.right = 40;
+    sc.top = 40;
+    sc.bottom = -40;
+    sc.near = 0.5;
+    sc.far = 120;
+    sc.updateProjectionMatrix();
+    // Der Normal-Bias darf nicht in die Größenordnung der Objekte kommen – im
+    // Zen-Garten hat 0,03 die 6 cm dicken Trittsteine um ihren Schatten
+    // gebracht. Die kleinsten Brocken hier sind 14 cm groß; 0,008 ist gut 5 %
+    // davon und reicht gegen das Streifenmuster auf der fast waagerechten
+    // Ebene.
+    moonLight.shadow.bias = -0.0004;
+    moonLight.shadow.normalBias = 0.008;
+  }
   group.add(moonLight);
-  // Warmes, sehr schwaches Bodenlicht für die typische Marsröte
-  const groundGlow = new THREE.DirectionalLight(0xff7a4d, 0.25);
-  groundGlow.position.set(-8, 3, 6);
-  group.add(groundGlow);
 
   group.add(makeMarsGround(rand));
 
@@ -3781,6 +4016,12 @@ function createNightEnvironment() {
     background: new THREE.Color(0x0a0605),
     fog: new THREE.Fog(0x1c0d09, 22, 48),
     group,
+
+    // Das globale Grundlicht aus main.js aus. Begründung oben beim Lichtblock:
+    // Es war mit 1,4 die mit Abstand stärkste Quelle der Szene, weiß, und ohne
+    // jede Richtungsabhängigkeit. Die anderen vier Umgebungen sind davon nicht
+    // berührt – jede liest ihren eigenen Wert.
+    sceneAmbient: 0,
 
     // **Hier gibt es bewusst nichts auszudünnen.** Der Nachthimmel hat keine
     // Blattkarten, keine additiven Lagen über Bildschirmgröße und keine
