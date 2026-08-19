@@ -33,6 +33,7 @@ import { Timer } from './timer.js';
 import { Locomotion } from './locomotion.js';
 import { History } from './history.js';
 import { Hud } from './hud.js';
+import { FLAT_WALK } from './walkable.js';
 
 // --- Szene & Renderer ---
 
@@ -312,7 +313,13 @@ const locomotion = new Locomotion({
 });
 
 const UP = new THREE.Vector3(0, 1, 0);
-const moveKeys = { forward: false, back: false, left: false, right: false, up: false, down: false };
+// **Es gibt keine Hoch/Runter-Tasten mehr.** Q und E waren ein Freiflug ohne
+// jede Grenze: Man stieg durch Baumkronen, schwebte unter die Insel und ueber
+// das Dojo-Dach hinaus — und weil es keine Kollision gibt, landete man dabei
+// regelmaessig IN einem Objekt statt davor. Die Hoehe kommt jetzt aus dem Boden
+// unter dem Nutzer (walkable.js); die Blickhoehe bleibt ueber die Orbit-Maus
+// regelbar, aber nur innerhalb eines Bandes ueber diesem Boden.
+const moveKeys = { forward: false, back: false, left: false, right: false };
 const MOVE_KEYMAP = {
   KeyW: 'forward',
   ArrowUp: 'forward',
@@ -322,8 +329,6 @@ const MOVE_KEYMAP = {
   ArrowLeft: 'left',
   KeyD: 'right',
   ArrowRight: 'right',
-  KeyE: 'up',
-  KeyQ: 'down',
 };
 function isTypingTarget() {
   const tag = document.activeElement?.tagName;
@@ -387,8 +392,7 @@ const _moveDelta = new THREE.Vector3();
 function updateDesktopMovement(dt) {
   const f = (moveKeys.forward ? 1 : 0) - (moveKeys.back ? 1 : 0);
   const s = (moveKeys.right ? 1 : 0) - (moveKeys.left ? 1 : 0);
-  const u = (moveKeys.up ? 1 : 0) - (moveKeys.down ? 1 : 0);
-  if (!f && !s && !u) return;
+  if (!f && !s) return;
   camera.getWorldDirection(_moveFwd);
   _moveFwd.y = 0;
   if (_moveFwd.lengthSq() < 1e-6) _moveFwd.set(0, 0, -1);
@@ -398,7 +402,6 @@ function updateDesktopMovement(dt) {
   if (_moveDelta.lengthSq() > 0) _moveDelta.normalize();
   const speed = 3.4;
   _moveDelta.multiplyScalar(speed * dt);
-  _moveDelta.y += u * speed * dt;
   camera.position.add(_moveDelta);
   controls.target.add(_moveDelta);
 }
@@ -1636,55 +1639,31 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-const _boundsHead = new THREE.Vector3();
+const _walkHead = new THREE.Vector3();
+const _walkZiel = { x: 0, z: 0 };
 
-// --- Begehbarer Bereich aus mehreren Zonen -----------------------------------
-//
-// Eine einzige Box reicht nicht mehr, seit der Garten betretbar sein soll: Raum,
-// Türdurchgang, Veranda, Stufe und Kiesbeet sind zusammen ein L, kein Rechteck.
-// Eine Box um beides ließe den Nutzer **neben** der Tür durch die Südwand
-// laufen.
-//
-// **Warum nicht „die Zone mit der kleinsten Korrektur".** Das war der erste
-// Entwurf und er ist falsch: Steht man im Raum bei x = 1,5 vor der geschlossenen
-// Wand und drückt nach Süden, dann liegt der nächste Punkt der Verandazone
-// näher als der Raumrand – man würde durch die Wand geschoben. Die Sperre ist
-// eine Projektion, kein Kollisionssystem; sie kennt keinen Weg.
-//
-// **Kette statt Nähe.** Man wechselt nur in eine Zone, in der man bereits
-// **steht**. Sonst wird auf die aktuelle Zone geklemmt. Benachbarte Zonen
-// überlappen sich deshalb großzügig – ohne Überlappung käme man nie hinüber,
-// und bei zu knapper Überlappung springt man bei hoher Geschwindigkeit darüber
-// hinweg (3,4 m/s mal 0,1 s Bildabstand sind 34 cm pro Bild).
-//
-// Damit entsteht ein Korridor ohne Wegfindung: Aus dem Raum erreicht man die
-// Veranda nur durch den Türdurchgang, weil nur dessen Zone den Streifen
-// dazwischen abdeckt.
-let _zoneIndex = 0;
-let _zoneEnv = -1;
-let _floorY = 0;
+// Welcher begehbare Bereich zuletzt galt, und wie hoch der Boden gerade liegt.
+// `null` heisst "noch nicht gesetzt": Beim Umgebungswechsel wird die neue
+// Bodenhoehe uebernommen, statt aus der alten dorthin zu gleiten.
+let _walkEnv = -2;
+let _floorY = null;
 
-function resolveBounds(bounds, px, pz) {
-  const zones = bounds.zones;
-  if (!zones) {
-    return {
-      x: Math.min(Math.max(px, bounds.minX), bounds.maxX),
-      z: Math.min(Math.max(pz, bounds.minZ), bounds.maxZ),
-      floorY: 0,
-    };
-  }
-  const inside = (z) => px >= z.minX && px <= z.maxX && pz >= z.minZ && pz <= z.maxZ;
-  if (!inside(zones[_zoneIndex])) {
-    const k = zones.findIndex(inside);
-    if (k >= 0) _zoneIndex = k;
-  }
-  const z = zones[_zoneIndex];
-  return {
-    x: Math.min(Math.max(px, z.minX), z.maxX),
-    z: Math.min(Math.max(pz, z.minZ), z.maxZ),
-    floorY: z.floorY ?? 0,
-  };
-}
+// Wie weit die Desktop-Kamera ueber ihrem Boden stehen darf.
+//
+// Am Desktop gibt es keine Kopfpose; die Blickhoehe kommt aus der Orbit-Maus.
+// Das Band ersetzt die weggefallenen Tasten Q/E: Man kann das Board weiterhin
+// von schraeg oben ansehen, aber nicht mehr davonfliegen. Die Untergrenze haelt
+// den Blick ueber dem Boden, statt in ihn hinein.
+const AUGE_MIN = 0.4;
+const AUGE_MAX = 2.6;
+
+// Ausstieg für den Mess- und Bildharness. Dessen feste Kamerapositionen liegen
+// bewusst außerhalb des begehbaren Bereichs – die Totale steht 24 m über der
+// Insel, der Kantenblick knapp jenseits der Abbruchkante. Ohne diesen Schalter
+// zöge die Sperre sie jedes Bild auf Augenhöhe zurück und die Vergleichsbilder
+// wären wertlos. Im Normalbetrieb wird er nie angefasst.
+let walkEnabled = true;
+
 // THREE.Timer statt des abgekündigten THREE.Clock (three ≥ r180 warnt sonst bei
 // jedem Start). Mit connect(document) liefert er nach einem Tab-Wechsel kein
 // riesiges Delta mehr – Karten und Animationen springen dadurch nicht.
@@ -1717,40 +1696,47 @@ renderer.setAnimationLoop(() => {
     updateDesktopMovement(dt);
     controls.update();
   }
-  // Den Nutzer im Raum halten.
+  // Den Nutzer auf dem Boden und im begehbaren Bereich halten.
   //
-  // Eine geschlossene Umgebung kann eine Begrenzung angeben; wer sie hat,
-  // bekommt sie jeden Frame durchgesetzt. Ohne das laeuft man mit dem Stick
-  // durch die Wand und steht im schwarzen Nichts hinter der Szene – was in VR
-  // besonders unangenehm ist, weil nichts mehr Orientierung gibt.
+  // Jede Umgebung beschreibt ihren begehbaren Bereich selbst (walkable.js);
+  // wer nichts angibt, bekommt `FLAT_WALK` — unbegrenzt auf y = 0. Das gilt
+  // auch fuer Passthrough und die weisse Desktop-Ansicht und ist dort ein
+  // Nichtstun in x/z.
   //
-  // Geklemmt wird das **Rig**, nicht die Kamera: Die Kamera ist Kind des Rigs
-  // und traegt in XR zusaetzlich die Kopfpose. Die Kamera zu verschieben wuerde
-  // gegen das Headset-Tracking arbeiten und Uebelkeit ausloesen.
-  const activeBounds = envIndex >= 0 ? environments[envIndex].bounds : null;
-  if (activeBounds) {
-    if (_zoneEnv !== envIndex) {
-      _zoneEnv = envIndex;
-      _zoneIndex = 0;
-      _floorY = activeBounds.zones?.[0]?.floorY ?? 0;
+  // Der Block laeuft deshalb JEDES Bild, nicht nur wenn es eine Grenze gibt:
+  // Seine zweite Aufgabe ist die Hoehe, und die braucht auch eine Welt ohne
+  // Grenze. Vorher lief der Nutzer immer auf y = 0 — auf der Insel also durch
+  // den Randwall hindurch und ueber die Abbruchkante hinaus, im Nachthimmel
+  // durch die Duenen.
+  //
+  // Geklemmt wird in XR das **Rig**, nicht die Kamera: Die Kamera ist Kind des
+  // Rigs und traegt in XR zusaetzlich die Kopfpose. Die Kamera zu verschieben
+  // wuerde gegen das Headset-Tracking arbeiten und Uebelkeit ausloesen.
+  const walk = (envIndex >= 0 ? environments[envIndex].walk : null) ?? FLAT_WALK;
+  if (!walkEnabled) {
+    _walkEnv = -2; // beim Wiedereinschalten neu einmessen
+  } else {
+    if (_walkEnv !== envIndex) {
+      _walkEnv = envIndex;
+      walk.reset?.();
+      _floorY = null; // neue Bodenhoehe uebernehmen statt dorthin gleiten
     }
-    const head = camera.getWorldPosition(_boundsHead);
-    const ziel = resolveBounds(activeBounds, head.x, head.z);
-    const dx = ziel.x - head.x;
-    const dz = ziel.z - head.z;
 
-    // Bodenhöhe weich nachführen. Der Kies liegt 42 cm unter dem Raumboden;
-    // als Sprung ist das in der Brille unangenehm, über ein paar Bilder
-    // verteilt liest es sich als Stufe.
-    const dy = (ziel.floorY - _floorY) * Math.min(1, dt * 7);
+    const head = camera.getWorldPosition(_walkHead);
+    walk.limit(head.x, head.z, _walkZiel);
+    const dx = _walkZiel.x - head.x;
+    const dz = _walkZiel.z - head.z;
+
+    // Bodenhöhe weich nachführen. Die Dojo-Stufe liegt 42 cm unter dem Raumboden
+    // und der Inselwall steigt über mehrere Meter; als Sprung ist beides in der
+    // Brille unangenehm, über ein paar Bilder verteilt liest es sich als Stufe
+    // bzw. als Anstieg.
+    const zielY = walk.floorAt(_walkZiel.x, _walkZiel.z);
+    if (_floorY === null) _floorY = zielY;
+    const dy = (zielY - _floorY) * Math.min(1, dt * 7);
     _floorY += dy;
 
     if (renderer.xr.isPresenting) {
-      // In XR wird das **Rig** verschoben, nie die Kamera: Die Kamera ist Kind
-      // des Rigs und trägt zusätzlich die Kopfpose. Sie zu verschieben würde
-      // gegen das Headset-Tracking arbeiten und Übelkeit auslösen. Der Versatz
-      // zwischen Rig und Kopf bleibt dabei erhalten, weil die Korrektur aus der
-      // **Kopf**position stammt und auf das Rig angewendet wird.
       player.position.x += dx;
       player.position.z += dz;
       // Der Rig steht auf dem Boden; die Augenhöhe kommt aus der Brille.
@@ -1775,10 +1761,10 @@ renderer.setAnimationLoop(() => {
       // sessionend.
       camera.position.x += dx;
       camera.position.z += dz;
-      camera.position.y = Math.min(
-        Math.max(camera.position.y + dy, _floorY + 0.25),
-        activeBounds.maxY
-      );
+      // Das Band wandert mit dem Boden mit: `+ dy` erhält die relative Blickhöhe
+      // beim Anstieg, die Grenzen fangen ab, wer aus ihm herausorbitet.
+      const decke = walk.maxY !== undefined ? Math.min(_floorY + AUGE_MAX, walk.maxY) : _floorY + AUGE_MAX;
+      camera.position.y = Math.min(Math.max(camera.position.y + dy, _floorY + AUGE_MIN), decke);
       controls.target.x += dx;
       controls.target.z += dz;
       controls.target.y += dy;
@@ -1837,5 +1823,17 @@ window.__app = {
   hud,
   boardToJSON,
   applyBoardJSON,
-  env: { environments, desktopFloor, current: () => envIndex, cycle: cycleEnvironment },
+  env: {
+    environments,
+    desktopFloor,
+    current: () => envIndex,
+    cycle: cycleEnvironment,
+    // Der begehbare Bereich der aktiven Umgebung – damit ein Testskript ihn
+    // ohne Umweg über die Bildschleife befragen kann.
+    walk: () => (envIndex >= 0 ? environments[envIndex].walk : null) ?? FLAT_WALK,
+    floorY: () => _floorY,
+    setWalkEnabled: (v) => {
+      walkEnabled = Boolean(v);
+    },
+  },
 };
