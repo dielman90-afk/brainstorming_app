@@ -6,10 +6,10 @@ Fortgeschrieben in **jedem** Durchlauf. Neueste Einträge oben.
 
 | Größe | Grenze | Ausgang (zen-00) | jetzt |
 | --- | ---: | ---: | ---: |
-| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **90 ✅** |
-| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 67 970 ✅ |
-| Texturspeicher | ≤ 60 MB | 29,77 MB | 21,52 MB ✅ |
-| Shader-Programme | – | 20 | 30 |
+| Draw-Calls env-zen (Höchstwert über 6 Kameras) | ≤ 120 | 166 ❌ | **97 ✅** |
+| Dreiecke szenenweit | ≤ 350 000 | 20 028 | 85 590 ✅ |
+| Texturspeicher | ≤ 60 MB | 29,77 MB | 21,53 MB ✅ |
+| Shader-Programme | – | 20 | 32 |
 
 Pakete: **1 bestanden.** Paket 2 (Sand): erster Anlauf nicht bestanden, zweiter
 gebaut. Paket 3 (Licht): erster Anlauf nicht bestanden, zweiter gebaut.
@@ -790,3 +790,50 @@ Urteil „bestanden" spreche ich mir nicht selbst zu.
 Ab hier prüfe ich mit `tools/pixel.mjs`, `tools/region.mjs --hochpass`,
 `tools/crop.mjs` und `tools/diff.mjs` gegen die Befunde, die der Prüfer
 zuletzt schriftlich hinterlassen hat, und benenne jeden offenen Punkt.
+
+---
+
+## Durchlauf 10 — Paket 7 (Komposition) und Paket 8 (Leben & Bewegung)
+
+**Messwerte:** Draw-Calls 90 → 97, Dreiecke 68 158 → 85 590, Texturspeicher
+21,52 → 21,53 MB, Konsole sauber. Regression: `env-night` bitgleich,
+`env-dojo` Δmax 5 auf 0,009 %, `env-matrix` Δmax 1, `env-island` im
+Eigenrauschen.
+
+### Paket 7: Der Garten hatte keine Grenze
+
+Der schwerste Kompositionsbefund war nicht die Streuung der Objekte, sondern
+das fehlende **Rahmen**. In der Totale lagen sie als lose Reihe auf einer
+Fläche, die nach allen Seiten ins Nichts lief; der Prüfer hatte das Bildviertel
+links unten mit 98,9 % strukturlosem Sand gemessen.
+
+Ein Karesansui ist immer eingefasst. Die Mauer leistet drei Dinge auf einmal:
+
+* Sie gibt der leeren Fläche einen **Grund** — aus „da ist nichts" wird „da ist
+  absichtlich nichts", also das *ma*, um das es geht.
+* Sie legt eine **waagerechte Linie** ins Bild, gegen die alle Silhouetten
+  stehen. Vorher stand alles gegen Himmel.
+* Sie trennt Mittelgrund von Ferne und macht die Tiefenstaffelung sichtbar.
+
+Gebaut ist sie als verputzte Lehmmauer mit Sockel, Ziegeldach mit Überstand,
+Firstrundung und Abschlusspfeilern, über 270° von 130° bis 400°. Die Lücke
+liegt bei rund 85° — genau dort, wo man in den Garten blickt. Neun geschnittene
+Sträucher (Karikomi) stehen in Gruppen davor und geben dem Blick Masse im
+Mittelgrund. Die geharkte Fläche endet jetzt an der Mauer statt im Nebel.
+
+### Paket 8: Blütenblätter waren Staub, Koi waren starr
+
+* **Blütenblätter.** Gemessen: 28 Partikel, Seitenverhältnis **1,06** — runde,
+  richtungslose Punkte, deren Dichte gegenläufig zum Baum verteilt war und die
+  bis an den oberen Bildrand schwebten. `PointsMaterial` zeichnet immer
+  achsenparallele Quadrate; ein Blatt mit Längsachse ist damit nicht zu machen.
+  Jetzt 320 Instanzen mit gezeichneter Blattform samt Kerbe, jede mit eigener
+  Fallgeschwindigkeit, Taumelachse, Drehrate und Schwingphase. Sie fallen an
+  den **beiden Bäumen**, ihre Streuung wächst nach unten, und keines steigt
+  über seine Krone. Ein Draw-Call.
+* **Koi mit Körperwelle.** Beide waren „starr waagerecht ohne Körperbogen" — es
+  wedelte nur der Schwanz an einem Gelenk, die Bewegung eines Spielzeugs. Ein
+  Fisch schwimmt, indem eine Welle vom Kopf zum Schwanz durch ihn hindurchläuft.
+  Die Welle steht jetzt im Vertexshader: seitlicher Versatz proportional zu
+  sin(z·k − t·ω), Amplitude wächst nach hinten, der Kopf bleibt ruhig. Der
+  Schwanz schlägt in derselben Phase weiter, sonst arbeitet er dagegen.
