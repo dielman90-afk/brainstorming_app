@@ -1759,7 +1759,7 @@ function addGrassDecoration(group, rand, shape) {
   }
   // Belegte Plätze (Findlinge) und der steil abfallende Rand sind tabu; beides
   // steckt in shape.frei, das buildIsland aufbaut.
-  const frei = (x, z) => !shape.frei || shape.frei(x, z);
+  const frei = (x, z) => !shape.frei || shape.frei(x, z, 0.03);
   // Gibt null zurueck, wenn der Platz belegt ist - der Aufrufer ueberspringt
   // die Instanz dann, statt sie irgendwohin zu setzen.
   const imNest = (nest) => {
@@ -2900,16 +2900,40 @@ function buildIsland(
   // der GELAENDEhoehe, die Bloecke liegen darueber - ein Horst an derselben
   // Stelle waechst sichtbar aus dem Stein heraus oder schwebt davor.
   shape.blocked = [];
-  shape.frei = (x, z) => {
+  // Die Wasserfläche selbst ist tabu.
+  //
+  // Gemessen, nicht geschätzt: Der äußerste Scheitel des Bandes liegt bei 0,251
+  // von der Lauflinie (makeWaterfall, halbe Breite 0,12 an der Quelle bis 0,25
+  // an der Lippe). Dazu kommt der Fußabdruck der Pflanze selbst – ein Busch mit
+  // 0,16 Radius braucht mehr Abstand als ein Pilz –, deshalb nimmt `frei` ihn
+  // als dritten Wert entgegen.
+  //
+  // **Warum 0,40 und nicht 0,27.** Mit 0,27 stand nachweislich nichts mehr IM
+  // Wasser – die nächste Blume saß bei 0,303, also 5 cm hinter der Uferlinie.
+  // Aus Augenhöhe liest sich das trotzdem als „steht im Bach": Der Stiel
+  // überlappt aus flachem Blickwinkel das Band dahinter. 0,40 lässt gut 0,15
+  // freies Ufer je Seite – bei WORLD_SCALE 4 rund 60 cm neben einem zwei Meter
+  // breiten Bach, also eine Uferböschung, wie ein Bach sie hat.
+  //
+  // Weiter darf es nicht gehen: Einen Streuradius, den man ansehen kann, hält
+  // diese Insel schon einmal nicht aus (siehe die 0,96 weiter unten).
+  const WASSER = 0.40;
+  shape.frei = (x, z, r = 0) => {
     for (const b of shape.blocked) {
       if ((x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r) return false;
     }
+    if (shape.riverDist(x, z) < WASSER + r) return false;
     // 0,96 statt 0,90: Bei 0,90 endete JEDER Bewuchs schlagartig entlang einer
     // Linie, und darunter lag bis zur Abbruchkante ein völlig glatter, kahler
     // Streifen – ein Streuradius, den man ansehen kann. Die steile Kante selbst
     // hält shape.frei ohnehin frei, weil dort die Grasnarbe abfällt.
     return Math.hypot(x, z) < shape.radius * shape.outline(Math.atan2(x, z)) * 0.96;
   };
+
+  // Der Quelltopf ist breiter als der Bach: Becken mit 0,32 Radius plus
+  // Steinkranz bis 0,40 (makeWaterfall). `riverDist` misst nur zur Lauflinie
+  // und kennt ihn nicht.
+  if (river != null) shape.blocked.push({ x: 0.1, z: 0.2, r: 0.46 });
 
   island.add(buildIslandBody(shape, { detail }));
 
@@ -3078,7 +3102,10 @@ function addUndergrowth(group, rand, shape) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   const shadowBucket = new GeoBucket();
-  const spot = (min, max) => {
+  // `fuss` ist der Radius, den das Gewächs am Boden einnimmt. Er geht in die
+  // Freiflächenprüfung ein, damit ein breiter Busch weiter vom Wasser
+  // wegrückt als ein Pilz.
+  const spot = (min, max, fuss = 0) => {
     for (let versuch = 0; versuch < 8; versuch++) {
       const angle = rand() * TAU;
       const r = shape.radius * shape.outline(angle) * (min + rand() * (max - min));
@@ -3086,9 +3113,10 @@ function addUndergrowth(group, rand, shape) {
       const z = Math.cos(angle) * r;
       // Findlinge liegen ueber der Gelaendehoehe; ein Busch oder Pilz an
       // derselben Stelle waechst sichtbar aus dem Stein.
-      if (!shape.frei || shape.frei(x, z)) return [x, shape.heightAt(x, z), z];
+      if (!shape.frei || shape.frei(x, z, fuss)) return [x, shape.heightAt(x, z), z];
     }
-    return [0, shape.heightAt(0, 0), 0];
+    // Achter Fehlversuch: lieber gar nicht setzen als in den Bach.
+    return null;
   };
 
   // --- Büsche ---------------------------------------------------------------
@@ -3104,8 +3132,12 @@ function addUndergrowth(group, rand, shape) {
   const buschAnsaetze = [];
   const BUESCHE = 14;
   for (let i = 0; i < BUESCHE; i++) {
-    const [x, y, z] = spot(0.24, 0.90);
+    // Größe VOR dem Platz würfeln: Der Fußabdruck entscheidet mit, wo der
+    // Busch stehen darf.
     const s = 0.085 + rand() * 0.075;
+    const platz = spot(0.24, 0.90, s * 1.7);
+    if (!platz) continue;
+    const [x, y, z] = platz;
     // Zwei bis drei Ansätze je Busch: ein Strauch ist kein Ball.
     const n = 2 + Math.floor(rand() * 2);
     for (let k = 0; k < n; k++) {
@@ -3171,7 +3203,16 @@ function addUndergrowth(group, rand, shape) {
   mushrooms.name = 'mushrooms';
   mushrooms.userData.fullCount = mushrooms.count;
   for (let i = 0; i < mushrooms.count; i++) {
-    const [x, y, z] = spot(0.2, 0.9);
+    const platz = spot(0.2, 0.9, 0.07);
+    if (!platz) {
+      dummy.position.set(0, -999, 0);
+      dummy.scale.setScalar(0);
+      dummy.updateMatrix();
+      mushrooms.setMatrixAt(i, dummy.matrix);
+      dummy.scale.setScalar(1);
+      continue;
+    }
+    const [x, y, z] = platz;
     dummy.position.set(x, y, z);
     dummy.scale.setScalar(0.45 + rand() * 0.4);
     dummy.rotation.set(0, rand() * Math.PI, 0);
