@@ -174,3 +174,135 @@ und sie bleiben stehen.
 **Merke für Paket 2:** Wer den Sternen einen Namen gibt, nimmt ihnen damit
 diesen Schutz und blendet sie in der Brille aus. Namen nur zusammen mit einem
 passenden `additivBehalten`.
+
+### Urteil des Prüfers, Durchlauf 1
+
+**1 von 8 Kriterien bestanden: Licht.** Wörtlich: „Das Paket hat genau das getan,
+was es angekündigt hat, und die Wirkung ist die größte, die eine einzelne
+Maßnahme in dieser Szene erzielen konnte." Die übrigen sieben nicht bestanden.
+
+Die zwölf Mängel, nach visueller Wirkung sortiert (gekürzt):
+
+1. Rechteckgitter der Bodentextur, jetzt das auffälligste Merkmal der Szene
+2. Der Himmel ist ein einfarbiges Feld über 55–60 % der Bildfläche (p05 2, p95 3)
+3. Kein Objekt steht gegen den Sternhimmel; Horizontamplitude in `f-hills` 30 px auf 1280 px
+4. Belichteter Boden magentastichig und unbunt (B−G = +4…+10; Sättigung 66 % → 15 %)
+5. Brocken und Boden materiell nicht unterscheidbar (ΔL 2,2)
+6. Kein Streiflicht auf mondzugewandten Kanten
+7. Kontaktverdunklung ist eine Vignette (Abfall über 95 px bei 80 px Brockenbreite)
+8. Tiefenbänder nicht geordnet (Ferne 63,7 / Mitte 73,2 / Nah 60,9)
+9. Vier von sechs Bildern ohne Motiv; `b-moon` hat den Mond exakt im Bullauge
+10. Brocken als Ikosaeder lesbar, Schattenseiten laufen zu
+11. `c-crater` noch zu 52 % in einem Tonwerteimer
+12. Einzige Bewegung: 1500 Sterne drehen sich starr im Gleichtakt
+
+### **Mein Fehler, vom Prüfer gefunden**
+
+Er hat die A/B-Vergleichbarkeit angezweifelt, bevor er irgendetwas beurteilt
+hat — zu Recht. Ich hatte in der Brockenschleife einen zusätzlichen `rand()`-Zug
+eingebaut (`r: s * (1.9 + rand() * 0.6)` für den Radius der Kontaktverdunklung).
+`mulberry32` ist ein gesäter Generator; ab dem ersten Brocken stand damit
+**alles** danach woanders. Beleg des Prüfers an `e-ground`: (280,420) sprang von
+L 9,2 (Brocken) auf L 60,0 (Boden), (990,415) von L 12,2 auf L 74,1 — das Bild
+hatte seine gesamte Vordergrundgruppe verloren.
+
+**Das steht wörtlich in der Liste der bezahlten Lehren, die ich vor dem ersten
+Zeilenwechsel gelesen habe, und ich habe es trotzdem gemacht.** Die Lehre dort
+lautet „erst bauen, dann verschmelzen"; sie ist zu eng formuliert. Richtig ist:
+*jeder* zusätzliche Zug aus dem gesäten Strom verschiebt alles danach — auch
+einer, der nur einen Radius bestimmen soll.
+
+---
+
+## Durchlauf 2 — Paket 1 „Licht", zweiter Anlauf
+
+Alle sieben Änderungen dieses Durchlaufs gehen auf den Prüfbericht zurück.
+
+1. **Der `rand()`-Zug ist weg.** Der Radius der Kontaktverdunklung kommt jetzt
+   aus der **Geometrie**: die waagerechte Ausdehnung des gedrehten und
+   skalierten Brockens (`xzMax`, im selben Scheitelpunkt-Durchlauf mitgerechnet,
+   der schon für die Fußabdunklung läuft), mal 1,35.
+2. **Bodentextur neu** — siehe unten, eigener Abschnitt.
+3. **Magentastich an der richtigen Quelle behoben.** Der erste Anlauf hatte ihn
+   in der Hemisphärenleuchte gesucht; er blieb, nur verschoben (113|88|94 →
+   121|103|110). Die hellen Stellen kommen aber von der **gerichteten** Quelle,
+   und 0xd8e2ff ist selbst (216|226|255), also B über G um 29 Stufen. Jetzt
+   0xe2eaf0.
+4. **Sättigung zurück:** Bodenalbedo 0x7a4c38 → 0x854c33 (linear +20 % Rot,
+   −16 % Blau), Brocken und Hügel entsprechend.
+5. **Kontaktverdunklung enger und steiler:** Ringe [0, 0.46, 0.76, 1] statt
+   [0, 0.42, 0.74, 1], Deckkraft [1, 0.44, 0.11, 0] statt [1, 0.62, 0.22, 0].
+6. **Materialtrennung über die Rauheit:** Fels 0,72 gegen 0,95 am Boden. Das ist
+   zugleich die einzige Form von Streiflicht, die eine facettierte, flach
+   schattierte Geometrie hergibt — eine Fresnel-Kante würde dort zur
+   Flächenhelligkeit statt zur Kante.
+7. **Aufhellung von unten** 0x412012 → 0x4e2a1c, damit Brockenschattenseiten
+   nicht zulaufen.
+
+### Warum die Bodentextur in diesem Paket neu gebaut wurde
+
+Sie gehört eigentlich zu Paket 4. Aber der Tell ist ein **Preis dieses
+Lichtpakets**: Die alte Höhenfunktion war
+
+    rausch(x >> 4, y >> 4) * 0.5 + rausch(x >> 2, y >> 2) * 0.34 + rausch(x, y) * 0.16
+
+— drei ungefilterte Wertrauschlagen auf einem achsenparallelen Gitter mit 16-,
+4- und 1-Texel-Blöcken, ohne jede Interpolation. Unter dem alten flächigen Licht
+unsichtbar, unter streifendem Mondlicht das dominante Muster der Szene. Ihn vier
+Pakete weiterzureichen hieße, den Stand schlechter zu übergeben, als er war.
+
+Das Rezept steht im selben Haus, bei `kornCanvas()` für den Zen-Sand: **Körner
+sind keine Frequenz, sondern Objekte.** Gesetzt werden jetzt weiche runde Kuppen
+in drei Größenklassen an zufälligen Positionen, jede um ±Kachelbreite
+mitgezeichnet. Kein Gitter, also keine Vorzugsrichtung. Auflösung 512 statt 256
+(3,1 mm je Texel bei 1,6 m Kachel), Stärke 1,15 statt 1,9 — die Kuppen haben
+eine echte Flanke, das Blockrauschen hatte nur an den Blockkanten eine Ableitung.
+
+| Bereich, Hochpass \|d\| | night-00 | night-01 | night-02 |
+| --- | ---: | ---: | ---: |
+| `e-ground` (100,400)–(1180,700) | 1,86 | 7,29 | **2,25** |
+| dieselbe Fläche, Kante senkrecht | 2,45 | 9,85 | **3,01** |
+| `d-aerial` Flachzone (180,380)–(430,470) | 0,36 | 2,11 | **0,65** |
+
+### A/B-Vergleichbarkeit: nachgewiesen statt behauptet
+
+Deckung der Brocken-Silhouetten gegen `night-00` (Maske = Pixel unter L 30 im
+Bodenbereich, Schnitt über Vereinigung):
+
+| Bild | night-01 | night-02 |
+| --- | ---: | ---: |
+| `a-eyelevel` (y ≥ 460) | 11,2 % | **61,3 %** |
+| `e-ground` (y ≥ 300) | 20,1 % | **44,3 %** |
+
+Wichtiger als die Quote selbst: In `a-eyelevel` sind **90 %** der dunklen Pixel
+des Ausgangsstands auch im neuen Stand dunkel (30 424 von 33 709) gegen 18 %
+in Durchlauf 1. Der Rest der Differenz ist Absicht — Schlagschatten sind
+hinzugekommen und liegen ebenfalls unter L 30.
+
+### Farbe
+
+| Ort | night-01 | night-02 | Sättigung 02 |
+| --- | --- | --- | ---: |
+| `a-eyelevel` (640,540) | (121\|103\|110) B−G **+7** | (128\|97\|88) B−G **−9** | 31 % |
+| `b-moon` (640,700) | (128\|115\|125) B−G **+10** | (132\|107\|100) B−G **−7** | 24 % |
+| `a-eyelevel` (200,650) | (89\|63\|61) | (102\|63\|51) | 50 % |
+
+Blau führt an keiner gemessenen Stelle mehr über Grün.
+
+### Messung und Regression
+
+| Größe | Grenze | night-00 | night-01 | night-02 |
+| --- | ---: | ---: | ---: | ---: |
+| Draw-Calls (max) | 120 | 40 | 12 | **12** |
+| Dreiecke (max) | 350 000 | 51 842 | 105 898 | **105 898** |
+| Texturspeicher | 60 MB | 0,77 | 0,77 | **2,77** |
+| Shader-Programme | – | 7 | 7 | 7 |
+
+Bildmittel / p99 über die sechs Kameras (night-00 → night-02):
+`a-eyelevel` 21,9/69,9 → **24,7/98,7** · `b-moon` 7,7/72,4 → **9,0/103,4** ·
+`c-crater` 35,4/64,6 → **39,6/83,8** · `d-aerial` 34,8/62,3 → **37,1/74,5** ·
+`e-ground` 30,4/68,4 → **32,1/97,8** · `f-hills` 25,4/67,2 → **28,5/90,7**.
+Der Mittelwert steigt um 2–4 Stufen, die Spitze um 20–43. Es bleibt Nacht.
+
+Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
+0,594 % (Rauschband). Build grün, Konsole ohne Errors und Warnings.

@@ -3528,22 +3528,87 @@ function craterProfile(t) {
 let _marsMaps = null;
 function marsMaps() {
   if (_marsMaps) return _marsMaps;
-  const size = 256;
-  // Regolith: feiner Staub mit eingestreuten Steinchen. Zwei Frequenzen, weil
-  // eine allein entweder Grieß (nur hoch) oder Dünen (nur tief) ergibt.
-  const rausch = (x, y, k) => {
-    const s = Math.sin(x * 12.9898 + y * 78.233 + k * 3.7) * 43758.5453;
-    return s - Math.floor(s);
-  };
+  const size = 512;
+
+  // **Warum diese Karte neu gebaut werden musste, obwohl der Boden erst in
+  // Paket 4 dran ist.** Die alte Höhenfunktion war
+  //
+  //     rausch(x >> 4, y >> 4) * 0.5 + rausch(x >> 2, y >> 2) * 0.34 + rausch(x, y) * 0.16
+  //
+  // — drei ungefilterte Wertrauschlagen auf einem **achsenparallelen Gitter**
+  // mit 16-, 4- und 1-Texel-Blöcken und ohne jede Interpolation. Unter dem
+  // alten flächigen Grundlicht war das unsichtbar. Unter dem neuen streifenden
+  // Mondlicht wurde es zum auffälligsten Merkmal der ganzen Szene: Der Prüfer
+  // hat im Nahboden ein Rechteck- und L-Muster in genau zwei zueinander
+  // senkrechten Richtungen gefunden, mit einem Autokorrelations-Nebengipfel
+  // bei **32 px (+0,042** gegen −0,005 vorher). Das ist ein Programmierer-Tell,
+  // und er ist ein Preis dieses Lichtpakets — also wird er hier bezahlt und
+  // nicht vier Pakete weitergereicht.
+  //
+  // Das Rezept steht schon im Haus, bei `kornCanvas()` für den Zen-Sand:
+  // **Körner sind keine Frequenz, sondern Objekte.** Ein Wertrauschen auf
+  // einem Gitter hat immer eine Vorzugsrichtung — die Interpolation zwischen
+  // den Zellen. Gesetzte Tupfen an zufälligen Stellen haben keine, weil es
+  // kein Gitter gibt. Hier wird nicht gefärbt, sondern **Höhe** gesetzt: weiche
+  // runde Kuppen in drei Größenklassen, jede um ±Kachelbreite mitgezeichnet,
+  // damit die Karte nahtlos bleibt.
+  //
+  // Auflösung 512 statt 256. Die Karte deckt 1,6 m ab, ein Texel also 3,1 mm.
+  // Sichtbar ist nach der Erfahrung des Zen-Gartens, was gröber als etwa ein
+  // Zentimeter ist — die kleinste Kuppe hat 1,9 cm Durchmesser und liegt damit
+  // knapp darüber. Speicher: 512² × 2 Karten = 2,1 MB von 60.
+  const feld = new Float32Array(size * size);
+  {
+    const kr = mulberry32(90210);
+    const wrap = (v) => ((v % size) + size) % size;
+    const kuppe = (cx, cy, r, amp) => {
+      const ri = Math.ceil(r);
+      for (let dy = -ri; dy <= ri; dy++) {
+        for (let dx = -ri; dx <= ri; dx++) {
+          const d2 = (dx * dx + dy * dy) / (r * r);
+          if (d2 >= 1) continue;
+          const f = (1 - d2) * (1 - d2); // weich auslaufend, C1-stetig am Rand
+          feld[wrap(cy + dy) * size + wrap(cx + dx)] += amp * f;
+        }
+      }
+    };
+    // Drei Größenklassen. Die grobe trägt die Verwehung, die mittlere das
+    // Korn, die feine den Grieß. Anzahl so gewählt, dass jede Klasse die
+    // Fläche gut zwei- bis dreimal überdeckt — darunter sieht man einzelne
+    // Tupfen, darüber mittelt sich alles zu Grau.
+    const klassen = [
+      { n: 260, r: 17, amp: 0.5 },
+      { n: 2600, r: 6.5, amp: 0.26 },
+      { n: 16000, r: 3.1, amp: 0.13 },
+    ];
+    for (const k of klassen) {
+      for (let i = 0; i < k.n; i++) {
+        kuppe(
+          Math.floor(kr() * size),
+          Math.floor(kr() * size),
+          k.r * (0.65 + kr() * 0.7),
+          k.amp * (0.6 + kr() * 0.8)
+        );
+      }
+    }
+    // Auf 0…1 normieren, damit die Rauheitsfunktion unten denselben
+    // Wertebereich sieht wie vorher.
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const v of feld) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    const spanne = Math.max(1e-6, hi - lo);
+    for (let i = 0; i < feld.length; i++) feld[i] = (feld[i] - lo) / spanne;
+  }
   const { normalMap, roughnessMap, field } = heightToMaps({
     size,
-    strength: 1.9,
-    height: (x, y) => {
-      const grob = rausch(x >> 4, y >> 4, 1) * 0.5;
-      const mittel = rausch(x >> 2, y >> 2, 2) * 0.34;
-      const fein = rausch(x, y, 3) * 0.16;
-      return grob + mittel + fein;
-    },
+    // Schwächer als die alten 1,9: Die Kuppen haben eine echte Flanke, während
+    // das Blockrauschen nur an den Blockkanten überhaupt eine Ableitung hatte.
+    // Bei gleicher Stärke stünde die Fläche voll Kratern.
+    strength: 1.15,
+    height: (x, y) => feld[y * size + x],
     // Staub ist stumpf, die freigewehten Steinchen etwas weniger. Die Streuung
     // ist klein, aber sie ist es, die eine Fläche vor dem Plastikeindruck
     // bewahrt.
@@ -3582,7 +3647,21 @@ function marsRockMaterial() {
       vertexColors: true,
       normalMap: m.normalMap,
       roughnessMap: m.roughnessMap,
-      roughness: 1,
+      // **Der Prüfer konnte belichteten Fels und belichteten Boden nicht
+      // unterscheiden**: c-crater Brockenfacette (775,538) = (91|58|53) gegen
+      // Boden (900,430) = (90|61|57) — ΔL 2,2, größte Kanaldifferenz 4. Beide
+      // Materialien teilen sich `marsMaps()`, und der einzige Unterschied war
+      // `normalScale`.
+      //
+      // Die Rauheit ist der Hebel, der hier trägt und nichts kostet: Staub ist
+      // stumpf, eine frische Bruchfläche ist es nicht. `roughness` multipliziert
+      // die Karte, 0,72 bringt den Fels auf gut 0,70 gegen 0,95 am Boden. Damit
+      // hat die Glanzkeule auf mondzugewandten Facetten überhaupt eine Chance —
+      // und das ist zugleich die einzige Form von Streiflicht, die eine
+      // facettierte, flach schattierte Geometrie hergibt. Eine Fresnel-Kante
+      // würde hier zur Flächenhelligkeit, nicht zur Kante (siehe die Notiz zu
+      // `flatShading` in den bezahlten Lehren).
+      roughness: 0.72,
       metalness: 0,
       // Kräftiger als am Boden: Ein Brocken ist rauer als der Staub um ihn.
       normalScale: new THREE.Vector2(1.4, 1.4),
@@ -3623,8 +3702,12 @@ function makeKontaktAO(stellen, heightAt) {
     });
   }
   const SEG = 12;
-  const RINGE = [0, 0.42, 0.74, 1]; // Radiusanteile
-  const ALPHA = [1, 0.62, 0.22, 0]; // Deckkraft je Ring
+  // Enger und steiler als im ersten Anlauf ([0, 0.42, 0.74, 1] /
+  // [1, 0.62, 0.22, 0]). Der Prüfer hat den alten Verlauf als Vignette
+  // gelesen, nicht als Naht: Abfall über 95 px bei 80 px Brockenbreite. Eine
+  // Kontaktverdunklung endet dort, wo das Objekt aufhört.
+  const RINGE = [0, 0.46, 0.76, 1]; // Radiusanteile
+  const ALPHA = [1, 0.44, 0.11, 0]; // Deckkraft je Ring
   const pos = [];
   const col = [];
   const idx = [];
@@ -3710,7 +3793,13 @@ function makeMarsGround(rand) {
   // Blaukanal das Zweieinhalbfache. Das Rot bleibt: Es steht jetzt dort, wo es
   // hingehört, nämlich in der warmen Rückstrahlung (Bodenfarbe der
   // Hemisphärenleuchte) und in der Ferne über den Nebel.
-  const base = new THREE.Color(0x7a4c38);
+  // Zweiter Anlauf: 0x7a4c38 war zu weit entsättigt. Gemessen brach die
+  // Sättigung des **belichteten** Bodens von 66 % (Ausgangsstand) auf 15 % ein
+  // — im Licht war das Material kein Regolith mehr, sondern grauer Flieder.
+  // 0x854c33 hat linear 20 % mehr Rot und 16 % weniger Blau als 0x7a4c38 und
+  // liegt damit zwischen beiden Ständen: genug Blaukanal, damit kühles Licht
+  // ankommt, genug Rot, damit das Material erkennbar bleibt.
+  const base = new THREE.Color(0x854c33);
   const col = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
@@ -3745,7 +3834,7 @@ function makeMarsGround(rand) {
   // Verstreute Felsbrocken (mehr Facetten = Stein statt Kristall, flach gelagert)
   // Farben mit derselben Begründung entsättigt wie der Boden: Ein Stein, der
   // im Blaukanal nichts hat, kann kein Mondlicht zeigen.
-  const rockColors = [0x6b4030, 0x5a382a, 0x4a2e23, 0x744838];
+  const rockColors = [0x744131, 0x63392a, 0x522f23, 0x7f4a37];
   const aoStellen = [];
   // **Warum die Brocken jetzt verschmolzen werden, obwohl das Paket „Licht"
   // heißt.** Der Schattendurchgang zeichnet jeden Werfer ein zweites Mal. Mit
@@ -3798,18 +3887,21 @@ function makeMarsGround(rand) {
     const rp2 = geoR.attributes.position;
     let yMin = Infinity;
     let yMax = -Infinity;
+    let xzMax = 0; // waagerechte Ausdehnung, für den Fuß der Verdunklung
     const yWelt = new Float32Array(rp2.count);
     for (let vi = 0; vi < rp2.count; vi++) {
       v.fromBufferAttribute(rp2, vi).multiply(rock.scale).applyQuaternion(drehung);
       yWelt[vi] = v.y;
       if (v.y < yMin) yMin = v.y;
       if (v.y > yMax) yMax = v.y;
+      const q = Math.hypot(v.x, v.z);
+      if (q > xzMax) xzMax = q;
     }
     const c = new THREE.Color(rockHex);
     const farben = new Float32Array(rp2.count * 3);
     for (let vi = 0; vi < rp2.count; vi++) {
       const t = (yWelt[vi] - yMin) / Math.max(1e-4, yMax - yMin);
-      const f = 0.52 + 0.48 * smoothstep(0.0, 0.55, t);
+      const f = 0.62 + 0.38 * smoothstep(0.0, 0.5, t);
       farben[vi * 3] = c.r * f;
       farben[vi * 3 + 1] = c.g * f;
       farben[vi * 3 + 2] = c.b * f;
@@ -3819,11 +3911,25 @@ function makeMarsGround(rand) {
     rock.castShadow = true;
     rock.receiveShadow = true;
     brocken.push(rock);
+    // **Kein `rand()` an dieser Stelle.** Der erste Anlauf hat hier
+    // `s * (1.9 + rand() * 0.6)` gezogen — ein zusätzlicher Zug aus dem
+    // gesäten Strom, mitten in der Brockenschleife. Damit stand ab dem ersten
+    // Brocken **alles** danach woanders: Der Prüfer hat es an `e-ground`
+    // nachgewiesen, wo (280,420) von L 9,2 (Brocken) auf L 60,0 (Boden)
+    // sprang, und der ganze Vordergrund verschwunden war. Genau der Fehler,
+    // vor dem die Notiz zu `mulberry32` warnt, und ich habe ihn trotzdem
+    // gemacht.
+    //
+    // Der Radius kommt jetzt aus der **Geometrie**: die waagerechte Ausdehnung
+    // des gedrehten und skalierten Brockens, mal 1,35. Das ist zugleich die
+    // Antwort auf den Befund, dass die Verdunklung breiter war als das Objekt
+    // (Abfall über 95 px bei 80 px Brockenbreite) — sie sitzt jetzt am Fuß
+    // statt als Hof darum.
     aoStellen.push({
       x: bx,
       z: bz,
-      r: s * (1.9 + rand() * 0.6),
-      staerke: 0.42,
+      r: xzMax * 1.35,
+      staerke: 0.5,
     });
   }
   for (const m of verschmelzeObjekte(brocken, 'nacht-brocken')) {
@@ -3836,7 +3942,7 @@ function makeMarsGround(rand) {
 
   // Weiche, natürliche Hügel am Horizont (teilweise „vergrabene" Kuppeln) –
   // ersetzt die alten kastenförmigen Tafelberge.
-  const hillMat = new THREE.MeshStandardMaterial({ color: 0x63432f, roughness: 1, metalness: 0 });
+  const hillMat = new THREE.MeshStandardMaterial({ color: 0x6b432c, roughness: 1, metalness: 0 });
   const huegel = [];
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + rand() * 0.6;
@@ -3974,13 +4080,25 @@ function createNightEnvironment() {
   // aber G:B = 0,41; das Produkt 0,77 kippt den Kanal. Mondlicht im Bild ist
   // kühl, aber nie magenta – es liegt zwischen Blau und Cyan. Mit 0x7595b4
   // (G:B = 0,66) steht das Produkt bei 1,23 und Grün führt wieder.
-  const skyFill = new THREE.HemisphereLight(0x7595b4, 0x412012, 2.0);
+  const skyFill = new THREE.HemisphereLight(0x7595b4, 0x4e2a1c, 2.0);
   group.add(skyFill);
 
   // **Eine** gerichtete Quelle. Der Mond steht bei [14 | 16 | −24], das sind
   // 32,1 m Abstand und 29,9° über dem Horizont – flach genug für Streiflicht
   // auf den Kanten, hoch genug, dass die Schatten nicht das halbe Bild füllen.
-  const moonLight = new THREE.DirectionalLight(0xd8e2ff, 3.1);
+  // **Zweiter Anlauf, und diesmal an der richtigen Quelle.** Der erste hat den
+  // Magentastich in der Hemisphärenleuchte gesucht und dort auch korrigiert —
+  // der Stich blieb trotzdem, nur verschoben: hellste Bodenstelle vorher
+  // (113 | 88 | 94), danach (121 | 103 | 110). Blau führt in beiden über Grün.
+  //
+  // Der Grund ist, dass die hellen Stellen gar nicht von der Aufhellung
+  // kommen, sondern von der **gerichteten** Quelle — und 0xd8e2ff ist selbst
+  // (216 | 226 | 255), also B über G um 29 Stufen. Wer den Stich dort nicht
+  // wegnimmt, nimmt ihn nirgends weg.
+  //
+  // 0xe2eaf0 ist (226 | 234 | 240): immer noch kühl, aber zwischen Blau und
+  // Cyan statt darüber hinaus. Linear fällt Blau um 13 %, Rot steigt um 10 %.
+  const moonLight = new THREE.DirectionalLight(0xe2eaf0, 3.1);
   moonLight.position.copy(moon.position);
   moonLight.target.position.set(0, 0, 0);
   group.add(moonLight.target);
