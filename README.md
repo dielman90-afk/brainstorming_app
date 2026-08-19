@@ -334,11 +334,11 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   ab, auf jedem Gerät – eine Zeichenkette im User-Agent ist eine wacklige
   Grundlage für etwas, das den Browser abschießt (aus „Oculus Browser" wurde
   2024 „Meta Quest Browser").
-  Entsprechend gibt es in XR **keine Mikrofon-Taste** auf der Tastatur und
-  **keinen Eintrag „Sprachbefehle"** im Hand-Menü; auf einem Brillen-Browser
-  verschwinden auch die beiden Overlay-Knöpfe ganz. Ein Knopf, der bestenfalls
+  Entsprechend gibt es in XR **keine Mikrofon-Taste** auf der Tastatur; auf
+  einem Brillen-Browser verschwindet der **ganze Overlay-Abschnitt „Sprache"**
+  – Überschrift und Knopf –, nicht nur der Knopf. Ein Knopf, der bestenfalls
   eine Fehlermeldung ausgibt und schlimmstenfalls den Browser mitreißt, gehört
-  nicht in die Oberfläche.
+  nicht in die Oberfläche; eine Überschrift ohne Inhalt darunter ebenso wenig.
   *Der Umweg über die Systemtastatur der Brille – deren Mikrofon-Taste kann
   diktieren – war ein Versuch, dort doch noch Diktat anzubieten. Auf echter
   Hardware hat er nicht getragen und ist wieder raus.*
@@ -347,18 +347,6 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Zwischenergebnisse laufen live mit, ein zweiter Druck bricht ab. Von dort geht
   es mit Enter oder jedem KI-Knopf normal weiter. Braucht Chrome oder Edge und
   eine Mikrofon-Freigabe.
-- **🎙 Sprachbefehle – nur am Desktop** (`src/speech.js`): dauerhaftes Zuhören,
-  ein-/ausschaltbar über den Overlay-Knopf – **standardmäßig aus**, ein ungefragt
-  mithörendes Mikrofon will niemand. Erkannt werden u. a. *„neue Karte …"*,
-  *„Thema …"*, *„verwandte Ideen"*, *„Kritiker"*, *„Cluster"*,
-  *„zusammenfassen"*, *„verbinden"*, *„Karte löschen"*, *„rückgängig"*,
-  *„Umgebung"*, *„Schrift"*. Bei *„neue Karte"* und *„Thema"* wird das
-  Gesprochene direkt als Text übernommen – *„neue Karte Fahrradständer bauen"*
-  legt die beschriftete Karte in einem Rutsch an.
-  Ein Befehl zählt nur **am Satzanfang** und ohne Nachgeplapper, damit ein
-  beiläufiges „…das können wir alles löschen…" im Gespräch nichts auslöst.
-  Während eines Diktats pausiert die Befehlserkennung – zwei Erkenner streiten
-  sich sonst um das Mikrofon. Der Start einer XR-Sitzung beendet sie ganz.
 - **🔠 Kartenschrift** (Barrierefreiheit): drei Stufen (*Normal · Groß · Sehr
   groß*) über „Schrift" im Menü bzw. den Knopf im Overlay. Angepasst wird nur
   die Textgröße, die Kartenfläche bleibt gleich; die Stufe gilt auch für neue
@@ -426,7 +414,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── history.js          Undo/Redo (Board-Snapshots)
 │   ├── hud.js              Statuszeile, Ladeanzeige und Fehlerkarte im Blickfeld
 │   ├── keyboard.js         Virtuelle 3D-Tastatur (XR, ohne Spracheingabe)
-│   ├── speech.js           Diktat + Sprachbefehle – nur Desktop (Web Speech API)
+│   ├── speech.js           Diktat – nur Desktop (Web Speech API)
 │   ├── haptics.js          Controller-Rumble (Greifen, Klick, Verbinden, Löschen)
 │   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
@@ -468,12 +456,11 @@ Einfach `https://localhost:5173` öffnen:
 | Aktion | Bedienung |
 |---|---|
 | Umschauen | Linke Maustaste ziehen (Orbit), Scrollen = Zoom |
-| **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, **Q / E** runter / hoch (Orbit-Ansicht bleibt erhalten) |
+| **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft (Orbit-Ansicht bleibt erhalten). Kein Hoch/Runter – die Höhe kommt aus dem Boden, siehe `src/walkable.js` |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
 | **Prozessdiagramm** | Eigene **umrandete Gruppenbox „Prozessdiagramm"** im Overlay: Formleiste (*Start · Schritt · Entscheidung · Ende · Karte*, jede mit ihrer Miniaturform als Icon) setzt die Form der **ausgewählten** Karte direkt, dazu *Pfeil ziehen*, *Zweig*, *Anordnen*, *Aus Text*, *Mermaid*. Per **Rechtsklick auf eine Karte** gibt es dieselbe Formleiste und „Pfeil ziehen zu…" |
 | **Diktieren** | **„Diktieren"** in der Overlay-Gruppe **„Sprache"** (direkt unter dem Eingabefeld) – das Gesprochene landet im Ideen-Feld (nochmal drücken = abbrechen). Chrome/Edge, nicht in XR |
-| **Sprachbefehle** | **„Sprachbefehle"** in derselben Gruppe **„Sprache"** ein-/ausschalten. Chrome/Edge, nicht in XR |
 | **Kartenschrift** | **„Schrift: …"** im Overlay – Normal → Groß → Sehr groß |
 | Karte bearbeiten | **Doppelklick** auf die Karte (oder F2 bei ausgewählter Karte) |
 | Kartengröße | **Mausrad über der Karte** oder **+ / −** bei ausgewählter Karte |
@@ -617,20 +604,14 @@ Der Server erzwingt das jeweilige Format über Structured Outputs
   angefragt).
 - **Spracheingabe fehlt in der Brille:** Das ist Absicht. Der Quest-Browser hat
   keine funktionierende Spracherkennung – der Versuch, sie zu nutzen, hat den
-  Browser abgeschossen. Deshalb gibt es in XR **keine Mikrofon-Taste und keinen
-  Sprachbefehl-Eintrag**, und auf einem Brillen-Browser fehlen auch die beiden
-  Overlay-Knöpfe. In XR wird über die virtuelle Tastatur getippt; diktieren geht
-  am Desktop.
+  Browser abgeschossen. Deshalb gibt es in XR **keine Mikrofon-Taste**, und auf
+  einem Brillen-Browser fehlt der **ganze Abschnitt „Sprache"** im Overlay. In
+  XR wird über die virtuelle Tastatur getippt; diktieren geht am Desktop.
 - **Spracheingabe reagiert nicht (Desktop):** Chrome oder Edge nötig – Firefox
   kann die Web Speech API gar nicht. Dazu eine **Mikrofon-Freigabe**
   (Adressleiste → Mikrofon zulassen) und eine Internetverbindung, weil die
   Erkennung serverseitig läuft; offline meldet sie „Spracherkennung braucht
-  Internet". Startet man eine XR-Sitzung, wird ein laufender Erkenner beendet
-  und bleibt bis zum Sitzungsende aus.
-- **Sprachbefehl wird nicht erkannt:** Ein Kommando zählt nur am **Satzanfang**
-  und ohne Zusatz dahinter – „Cluster" wirkt, „mach mal Cluster" und „Cluster
-  bitte" nicht. Ausnahmen sind „neue Karte …" und „Thema …", bei denen alles
-  Folgende als Text übernommen wird.
+  Internet". In einer XR-Sitzung ist sie in jedem Fall gesperrt.
 - **In VR sind nur das Menü, aber keine Karten sichtbar:** Beim Session-Start
   werden alle Karten automatisch in einem Halbkreis vor dich geholt (sobald die
   Headset-Pose bekannt ist). Falls sie mal außer Sicht geraten (z. B. weit

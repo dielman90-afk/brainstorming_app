@@ -57,11 +57,8 @@ export const ICONS = {
   // der Silhouette den Rest, der sie auch klein eindeutig macht.
   mic:
     'M12 3a3.5 3.5 0 0 1 3.5 3.5v4a3.5 3.5 0 0 1-7 0v-4A3.5 3.5 0 0 1 12 3zM5.5 11.5V12a6.5 6.5 0 0 0 13 0v-.5M12 18.5V21M8.5 21h7',
-  // Sprachbefehle: Schallwellen – bewusst anders als das Diktier-Mikrofon,
-  // die beiden Knöpfe stehen direkt untereinander. Fünf Balken mit dem
-  // höchsten in der Mitte; vorher lag die Spitze rechts daneben und die
-  // engeren Abstände liefen bei 16 px zu einem Fleck zusammen.
-  voice: 'M4 10v4M8.5 6.5v11M13 4.5v15M17.5 7.5v9M21 10v4',
+  // (Hier stand das Schallwellen-Icon der Sprachbefehle. Die gibt es nicht
+  // mehr; das Diktier-Mikrofon oben bleibt.)
   // Themen-Start: Zielscheibe – der Ausgangspunkt, um den sich alles anordnet.
   topic:
     'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM12 16.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9zM12 12.01',
