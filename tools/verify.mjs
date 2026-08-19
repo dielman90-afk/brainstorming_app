@@ -1,7 +1,7 @@
 // Ein Kommando für einen kompletten Prüfdurchlauf:
 //   Build → Screenshots (Insel + Regressionsbilder) → Messung → Budget-Urteil.
 //
-//   node tools/verify.mjs <run-id>       z.B. node tools/verify.mjs run-01
+//   node tools/verify.mjs <run-id> [env]   z.B. node tools/verify.mjs run-01 zen
 //
 // Bilder landen in tools/shots/<run-id>/, Messwerte in tools/metrics/<run-id>.json.
 
@@ -11,6 +11,7 @@ import path from 'node:path';
 import { ROOT } from './harness-common.mjs';
 
 const runId = process.argv[2] || 'latest';
+const envId = process.argv[3] || 'zen';
 const step = (label, fn) => {
   process.stdout.write(`\n=== ${label} ===\n`);
   return fn();
@@ -32,7 +33,7 @@ if (!buildOk) process.exit(1);
 let shotsOk = true;
 step('Screenshots', () => {
   try {
-    const out = execFileSync('node', ['tools/screenshots.mjs', '--out', `tools/shots/${runId}`, '--all-envs'], {
+    const out = execFileSync('node', ['tools/screenshots.mjs', '--out', `tools/shots/${runId}`, '--env', envId, '--all-envs'], {
       cwd: ROOT,
       encoding: 'utf8',
       stdio: 'pipe',
@@ -45,7 +46,7 @@ step('Screenshots', () => {
 });
 
 step('Messung', () => {
-  const out = execFileSync('node', ['tools/measure.mjs', '--out', `tools/metrics/${runId}.json`], {
+  const out = execFileSync('node', ['tools/measure.mjs', '--out', `tools/metrics/${runId}.json`, '--env', envId], {
     cwd: ROOT,
     encoding: 'utf8',
     stdio: 'pipe',
@@ -54,12 +55,12 @@ step('Messung', () => {
 });
 
 // Vergleich mit dem Ausgangsstand
-const basePath = path.join(ROOT, 'tools/metrics/run-00.json');
+const basePath = path.join(ROOT, `tools/metrics/${envId === 'island' ? 'run-00' : 'zen-00'}.json`);
 const nowPath = path.join(ROOT, `tools/metrics/${runId}.json`);
 if (fs.existsSync(basePath) && fs.existsSync(nowPath) && basePath !== nowPath) {
   const a = JSON.parse(fs.readFileSync(basePath, 'utf8')).summary;
   const b = JSON.parse(fs.readFileSync(nowPath, 'utf8')).summary;
-  process.stdout.write('\n=== Gegen run-00 ===\n');
+  process.stdout.write(`\n=== Gegen ${path.basename(basePath, '.json')} ===\n`);
   for (const k of ['drawCallsMax', 'trianglesMax', 'programs', 'textureMB', 'renderMsWorst']) {
     process.stdout.write(`${k.padEnd(14)} ${String(a[k]).padStart(9)} → ${String(b[k]).padStart(9)}\n`);
   }
