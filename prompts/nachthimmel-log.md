@@ -306,3 +306,113 @@ Der Mittelwert steigt um 2–4 Stufen, die Spitze um 20–43. Es bleibt Nacht.
 
 Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
 0,594 % (Rauschband). Build grün, Konsole ohne Errors und Warnings.
+
+### Urteil des Prüfers, Durchlauf 2
+
+**3 von 8 bestanden** (Licht, Farbharmonie, Tiefenstaffelung), vorher 1 von 8.
+Die drei Selbstverschuldungen des ersten Anlaufs sind je einzeln mit Zahlen
+abgenommen:
+
+| Änderung | Abnahme |
+| --- | --- |
+| `rand()`-Zug raus, A/B wieder gültig | **erledigt** — Deckung der dunklen Brockenpixel von night-00: `a-eyelevel` 19,5 % → **97,1 %**, `c-crater` 28,7 % → 95,8 %, `e-ground` 22,0 % → 88,9 %, `f-hills` 34,0 % → 75,8 % |
+| Bodentextur ohne Gitter | **erledigt** — Hochpass 7,29 → 2,25; Autokorrelation über (600,480)–(950,660) ohne Nebengipfel bei jedem Versatz 1…24, waagerecht wie senkrecht |
+| Magentastich | **erledigt** — Anteil B > G bei hellen Pixeln (L > 60): `a-eyelevel` 53,40 % → **1,79 %**, `e-ground` 55,94 % → 0,23 %. Seltener als im Ausgangsstand |
+| Sättigung | **teilweise** — Median beleuchteter Boden `e-ground` 0,819 → 0,392 → **0,573** |
+| Kontaktverdunklung enger | **erledigt** — kein Hof mehr; Boden liegt bis an die Brockenkante auf L 73…77 |
+| Materialtrennung Fels/Boden | **teilweise** — Trennung da (Fels L 81…91 gegen Boden ≤ 77), aber „Trennung gewonnen, Körper verloren" |
+| Aufhellung von unten | **nicht erledigt** — s. u. |
+
+Zwei Punkte hat er ausdrücklich in einen dritten Anlauf verwiesen, nicht in ein
+späteres Paket:
+
+* **Brockenschattenseiten laufen unter Himmelsniveau zu.** Anteil der
+  Brockenfläche unter L 2,6 (Himmelsmedian): `e-ground` 0,0 % → 0,3 % →
+  **28,6 %**, `a-eyelevel` 1,3 % → 0,0 % → **24,5 %**. „Ein Brocken ist damit
+  kein Körper mehr, sondern ein schwarzer Ausschnitt."
+* **Facettenkontrast innerhalb eines Objekts 16:1** (Spalte x=880 in
+  `a-eyelevel`: 10 → 53 → 81 → 48 → 7) gegen 4,75:1 im Ausgangsstand. „Ein
+  Dreistufen-Plakat statt eines Steins."
+
+Außerdem ein Befund über **mein Messwerkzeug**: `tools/silhouette.mjs` sprang
+unter dem neuen Licht von 18 auf 101 Treffer (`c-crater`) bzw. von 10 auf 179
+(`e-ground`) — sämtlich Felsfacetten bei L 47…70, keine Sterne. Ein Werkzeug,
+das auf eine Beleuchtungsänderung reagiert, misst nicht mehr das, wofür es
+gebaut ist.
+
+Tonwertumfang p05…p95 der Bodenfläche, sein Vorher/Nachher:
+
+| Bild | night-00 | night-01 | night-02 |
+| --- | --- | --- | --- |
+| `a-eyelevel` (200,520)–(900,700) | 20…66 (46) | 26…95 (69) | **5…91 (86)** |
+| `c-crater` (100,420)–(900,700) | 46…60 (**14**) | 13…73 (60) | **32…74 (42)** |
+| `f-hills` (100,450)–(1250,700) | 38…64 (26) | 39…81 (42) | **15…82 (67)** |
+
+---
+
+## Durchlauf 3 — Paket 1 „Licht", dritter Anlauf
+
+Nur die beiden offenen Punkte plus das Werkzeug. Sonst nichts.
+
+### Brockenkörper: die Ursache war nachgerechnet, nicht geraten
+
+Für eine mondabgewandte Flanke: Bestrahlung 0,254 × Albedo 0,084 ×
+Vertexfaktor 0,62 → Bildwert **2,5 von 255**. Der Himmel zwischen den Sternen
+liegt bei 2,6. Die Rechnung trifft die Messung des Prüfers auf die Stelle.
+
+**Warum die Hemisphäre der falsche Hebel gewesen wäre.** Sie rechnet nur mit
+`normal.y`. Eine senkrechte Felsflanke steht bei ihr auf halbem Weg zwischen
+Himmels- und Bodenfarbe und weiß nichts von der Fläche, die zwei Handbreit
+daneben im vollen Mondlicht liegt — obwohl genau die den Brocken in Wahrheit
+von unten anstrahlt. Sie anzuheben hätte die Bodenfläche mit aufgehellt, und
+die Szene soll nicht heller werden.
+
+Drei Maßnahmen, alle nur am Fels:
+
+* **Eigenleuchten 0x170d07** am Felsmaterial — die übliche stilisierte
+  Ersatzdarstellung für Bodenrückstrahlung, warm getönt, weil das Licht von
+  unten vom Regolith kommt. Rechnerisch landet es bei Bildwert ≈ 16 im
+  Rotkanal.
+* **Vertexverlauf am Fuß 0,62 → 0,82** und kürzer. Er war ursprünglich der
+  einzige Kontaktschatten; seit es Schlagschatten und Verdunklungsscheiben
+  gibt, zählte er doppelt.
+* **Brockenfarben aufgehellt** (0x522f23 → 0x67402f usw.). Sie waren dunkler
+  als der Boden, auf dem sie liegen.
+
+| Bereich, Anteil unter L 2,6 / L 5 | 00 | 01 | 02 | 03 |
+| --- | --- | --- | --- | --- |
+| `e-ground` (200,370)–(360,465) | 0,0 / 0,5 % | 0,3 / 1,3 % | **28,6 / 38,0 %** | **0,0 / 0,0 %** |
+| `a-eyelevel` (340,590)–(440,700) | 1,3 / 4,5 % | 0,0 / 0,0 % | **24,5 / 28,0 %** | **0,0 / 0,0 %** |
+
+### Glanz: Rauheit 0,72 → 0,84
+
+Spalte x=880 in `a-eyelevel`, y = 640/660/680/700:
+
+| Stand | Werte | Verhältnis |
+| --- | --- | ---: |
+| night-00 | 34,3 · 21,7 · 22,1 · 8,2 | 4,2 : 1 |
+| night-02 | 65,3 · 5,4 · 6,4 · 0,9 | **72 : 1** |
+| night-03 | 60,9 · 16,7 · 17,5 · 8,8 | **6,9 : 1** |
+
+Mehr Umfang als der Ausgangsstand, aber ein lesbarer Verlauf statt drei Stufen.
+
+### Das Messwerkzeug, das falsch gemessen hat
+
+Die erste Fassung von `tools/silhouette.mjs` verlangte „Umgebung < 32 und Punkt
+> Umgebung + 18". Ein Stern vor dem Gelände ist aber ein **sehr** heller Punkt
+in einer **sehr** dunklen Umgebung (gemessen L 129…135 bei Umgebung 13…17); eine
+belichtete Felsfacette ist zwar heller als ihre Umgebung, aber ihre Umgebung ist
+es auch. Jetzt drei harte Bedingungen: Punkt > 100, Umgebung < 30, Abstand > 40.
+
+Ergebnis über alle vier Stände: `d-aerial` **18**, `c-crater` 0, `e-ground` 0,
+`f-hills` 0 — unverändert über drei Beleuchtungswechsel. Das ist die
+Eigenschaft, die vorher fehlte.
+
+### Messung und Regression
+
+Draw-Calls 12/120, Dreiecke 105 898/350 000, Texturspeicher 2,77/60 MB,
+7 Programme. Bildmittel gegenüber Durchlauf 2 um 0,2 bis 0,6 Stufen gestiegen,
+p99 unverändert — die Aufhellung trifft nur die Brocken.
+
+Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
+0,762 % (Rauschband 0,6–0,9 %). Build grün, Konsole ohne Errors und Warnings.

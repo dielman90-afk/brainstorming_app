@@ -3661,10 +3661,36 @@ function marsRockMaterial() {
       // facettierte, flach schattierte Geometrie hergibt. Eine Fresnel-Kante
       // würde hier zur Flächenhelligkeit, nicht zur Kante (siehe die Notiz zu
       // `flatShading` in den bezahlten Lehren).
-      roughness: 0.72,
+      // 0,72 im zweiten Anlauf hat die Materialtrennung gebracht und die Form
+      // gekostet: Der Prüfer maß **16:1** Kontrast zwischen zwei Facetten
+      // desselben Brockens (10 → 53 → 81 → 48 → 7 über 15 px), gegen 4,75:1 im
+      // Ausgangsstand. Eine Glanzkante, ein Mittelton, schwarzer Rest — ein
+      // Dreistufen-Plakat statt eines Steins. 0,84 gegen 0,95 am Boden hält die
+      // Trennung und nimmt der Keule die Spitze.
+      roughness: 0.84,
       metalness: 0,
       // Kräftiger als am Boden: Ein Brocken ist rauer als der Staub um ihn.
       normalScale: new THREE.Vector2(1.4, 1.4),
+      // **Bodenrückstrahlung, die eine Hemisphärenleuchte nicht liefern kann.**
+      //
+      // Ein Brocken auf einer hell beschienenen Ebene bekommt von unten und
+      // von der Seite kräftig Licht zurückgeworfen. Eine Hemisphärenleuchte
+      // rechnet aber nur mit `normal.y`: Bei einer senkrechten Flanke steht sie
+      // auf halbem Weg zwischen Himmels- und Bodenfarbe und weiß nichts von der
+      // Fläche, die zwei Handbreit daneben im vollen Mondlicht liegt.
+      //
+      // Nachgerechnet ergab das für eine mondabgewandte Flanke: Bestrahlung
+      // 0,254 × Albedo 0,084 × Vertexfaktor 0,62 → Bildwert **2,5 von 255**.
+      // Der Himmel zwischen den Sternen liegt bei 2,6. Der Prüfer hat genau das
+      // gemessen: 28,6 % der Brockenfläche in `e-ground` **unter** Himmelsniveau
+      // — ein Brocken war damit kein Körper mehr, sondern ein Loch im Bild.
+      //
+      // Die Hemisphäre anzuheben wäre der falsche Hebel: Sie hellt die
+      // Bodenfläche mit auf, und die Szene soll nicht heller werden. Ein kleiner
+      // Eigenleuchtwert trifft **nur** die Brocken und ist die übliche
+      // stilisierte Ersatzdarstellung für genau diese Rückstrahlung. Warm
+      // getönt, weil das Licht, das von unten kommt, vom Regolith kommt.
+      emissive: new THREE.Color(0x170d07),
     });
   }
   return _marsRock;
@@ -3834,7 +3860,10 @@ function makeMarsGround(rand) {
   // Verstreute Felsbrocken (mehr Facetten = Stein statt Kristall, flach gelagert)
   // Farben mit derselben Begründung entsättigt wie der Boden: Ein Stein, der
   // im Blaukanal nichts hat, kann kein Mondlicht zeigen.
-  const rockColors = [0x744131, 0x63392a, 0x522f23, 0x7f4a37];
+  // Aufgehellt gegenüber dem zweiten Anlauf (0x744131 / 0x63392a / 0x522f23 /
+  // 0x7f4a37). Sie waren dunkler als der Boden, auf dem sie liegen — bei
+  // seitlicher Beleuchtung ergab das die schwarzen Ausschnitte oben.
+  const rockColors = [0x87513e, 0x774835, 0x67402f, 0x915b45];
   const aoStellen = [];
   // **Warum die Brocken jetzt verschmolzen werden, obwohl das Paket „Licht"
   // heißt.** Der Schattendurchgang zeichnet jeden Werfer ein zweites Mal. Mit
@@ -3901,7 +3930,11 @@ function makeMarsGround(rand) {
     const farben = new Float32Array(rp2.count * 3);
     for (let vi = 0; vi < rp2.count; vi++) {
       const t = (yWelt[vi] - yMin) / Math.max(1e-4, yMax - yMin);
-      const f = 0.62 + 0.38 * smoothstep(0.0, 0.5, t);
+      // Der Verlauf war ursprünglich der einzige Kontaktschatten, den es gab.
+      // Seit es Schlagschatten und Verdunklungsscheiben am Boden gibt, zählt er
+      // doppelt — deshalb nur noch ein Hauch (0,82 statt 0,62 am Fuß) und
+      // kürzer.
+      const f = 0.82 + 0.18 * smoothstep(0.0, 0.35, t);
       farben[vi * 3] = c.r * f;
       farben[vi * 3 + 1] = c.g * f;
       farben[vi * 3 + 2] = c.b * f;
