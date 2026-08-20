@@ -43,7 +43,7 @@ export const PAGES = [
       // nicht messen (SwiftShader hat keine Textur-Abtasteinheiten), also
       // bekommt der Nutzer den Schalter statt einer geratenen Zahl.
       { id: 'quality', label: 'Bildqualität', icon: 'quality' },
-      // Kein Eintrag für Sprachbefehle: In der Brille gibt es keine
+      // Kein Eintrag für Spracheingabe: In der Brille gibt es keine
       // Spracherkennung (siehe speech.js) – der Knopf konnte dort nur
       // scheitern. Am Desktop steht er weiterhin im Overlay.
       { id: 'export', label: 'Als Datei', icon: 'export' },
@@ -305,7 +305,7 @@ export class WristMenu {
         button.mesh.position.set(x, y, 0.002);
         flatLayer(button.mesh, 21);
         button.mesh.userData.onClick = () => this.onAction(action.id);
-        // Umschaltbare Aktionen (z. B. Sprachbefehle) färben sich, solange sie
+        // Umschaltbare Aktionen färben sich, solange sie
         // aktiv sind – setActionActive() hinterlegt dafür die Farben.
         const entry = { panel: button, base, hover };
         button.mesh.userData.setHover = (hovered) =>
