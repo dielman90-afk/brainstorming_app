@@ -416,3 +416,97 @@ p99 unverändert — die Aufhellung trifft nur die Brocken.
 
 Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
 0,762 % (Rauschband 0,6–0,9 %). Build grün, Konsole ohne Errors und Warnings.
+
+### Der Prüfer ist ausgefallen
+
+Der Prüfdurchlauf 3 ist abgebrochen: **„You've hit your monthly spend limit"** —
+dasselbe Ausgabelimit des Kontos, das im Auftrag als bekannter Ausfallgrund
+genannt ist. Er hat keine einzige Messung mehr geliefert. Weitere Sub-Agenten
+scheitern damit ebenfalls; ab hier gibt es keinen unbefangenen Prüfer mehr.
+
+Nach der Vorgabe des Auftrags gilt deshalb: **selbst weiterprüfen, mit denselben
+Werkzeugen und gegen seine letzte schriftliche Liste — und nicht „bestanden"
+ins Protokoll schreiben.** Das Folgende ist eine Eigenprüfung. Sie kann
+belegen, dass zwei benannte Mängel behoben sind; sie kann **nicht** das Paket
+abnehmen.
+
+#### Eigenprüfung Durchlauf 3 gegen seine Teil-C-Fragen
+
+**Frage 1 — laufen Brockenschattenseiten noch unter Himmelsniveau zu?** Nein.
+
+| Bereich, Anteil unter L 2,6 / L 5 | 00 | 01 | 02 | 03 |
+| --- | --- | --- | --- | --- |
+| `e-ground` (200,370)–(360,465) | 0,0 / 0,5 % | 0,3 / 1,3 % | 28,6 / 38,0 % | **0,0 / 0,0 %** |
+| `a-eyelevel` (340,590)–(440,700) | 1,3 / 4,5 % | 0,0 / 0,0 % | 24,5 / 28,0 % | **0,0 / 0,0 %** |
+
+**Frage 2 — ist der Facettenkontrast wieder lesbar?** Ja, an drei Brocken in
+drei verschiedenen Bildern nachgemessen (hellste zu dunkelster Abtastung):
+
+| Brocken | night-00 | night-02 | night-03 |
+| --- | ---: | ---: | ---: |
+| `a-eyelevel` Spalte x=880 | 4,2 : 1 | **72 : 1** | **6,9 : 1** |
+| `c-crater` Spalte x=400 | 2,6 : 1 | 9,6 : 1 | **3,8 : 1** |
+| `e-ground` Spalte x=270 | 6,7 : 1 | 50 : 1 | **10,4 : 1** |
+
+Alle drei liegen jetzt zwischen dem Ausgangsstand und dem übersteuerten
+Durchlauf 2 — mehr Umfang als vorher, aber ein Verlauf statt drei Stufen.
+
+**Frage 3 — sind neue Fehler entstanden? Verrät sich das Eigenleuchten?**
+Der entscheidende Test ist, ob ein Brocken heller wird als seine Umgebung, wo
+er dunkler sein müsste. Er wird es nicht:
+
+| | Brocken-Dunkelseite | Boden daneben |
+| --- | ---: | ---: |
+| `a-eyelevel` (880,660) / (700,660) | L 16,7 | L 32,8 |
+| `c-crater` (400,320) / (470,345) | L 18,1 | L 67,1 |
+
+Der Brocken bleibt in seiner Nachbarschaft das Dunkelste. Auch flächig:
+Brockenbereich `c-crater` (380,300)–(420,330) p05 = 18 gegen Boden p05 = 63.
+
+**Hat die Materialtrennung unter der zurückgenommenen Rauheit gelitten?** Nein
+— und dies ist die Zahl, die den ganzen Punkt trägt:
+
+| | night-00 | night-02 | night-03 |
+| --- | ---: | ---: | ---: |
+| hellste Felsfacette `a-eyelevel` (840,620)–(920,700) | 65,0 | 127,1 | **100,8** |
+| hellster Boden ringsum (600,600)–(800,700) | 65,8 | 87,4 | **87,4** |
+| Differenz Fels − Boden | **−0,8** | +39,7 | **+13,4** |
+
+Im Ausgangsstand war die hellste Felsfläche **dunkler** als der hellste Boden —
+genau die Ununterscheidbarkeit, die der Prüfer in Durchlauf 1 mit ΔL 2,2
+gemessen hatte. Sie ist weg und bleibt weg.
+
+**Frage 4 — meldet `silhouette.mjs` über alle vier Stände denselben Wert?** Ja:
+`d-aerial` 18, `c-crater` 0, `e-ground` 0, `f-hills` 0 — über drei
+Beleuchtungswechsel unverändert.
+
+**Farbe:** Blau führt an keiner von fünf gemessenen Stellen über Grün
+((128|97|88), (117|92|85), (102|63|51), (132|107|100), (109|81|73)).
+
+**Tonwertumfang Boden, seine vier Prüfbereiche, p05…p95 in Durchlauf 3:**
+`a-eyelevel` 15…90 · `c-crater` 32…74 · `e-ground` 22…87 · `f-hills` 21…83.
+Gegenüber Durchlauf 2 etwas enger — das ist die beabsichtigte Folge davon, dass
+die zugelaufenen Schwarzwerte wieder hochgekommen sind.
+
+#### Stand des Pakets „Licht"
+
+Drei Anläufe, alle offenen Punkte des letzten Prüfberichts messbar erledigt.
+**Abgenommen ist es trotzdem nicht** — es gibt niemanden mehr, der es
+unbefangen abnehmen könnte. Es geht als *nicht abgenommen* zum nächsten Paket.
+
+Was aus seiner Mängelliste bewusst offen bleibt und wohin es gehört:
+
+| Mangel | Paket |
+| --- | --- |
+| Himmel ein einfarbiges Feld (p05 2, p95 3 über 55–60 % der Fläche) | 2 |
+| Sterne stehen vor dem Gelände (18 Punkte in `d-aerial`) | 2 |
+| Sterne als achsenparallele 2×2-Quadrate | 2 |
+| Mond ohne Oberfläche (L 224 konstant über 50 px) | 3 |
+| Mond exakt in der Bildmitte | 3 / 7 |
+| Kornstärke entfernungsunabhängig | 4 |
+| Horizontkante als gezogener Strich (`c-crater` 10 px auf 260 px) | 5 |
+| Krater als wiederholte Ellipsen | 5 |
+| Brocken als Ikosaeder lesbar | 6 |
+| nur zwei Materialien im Inventar | 4 / 6 |
+| vier von sechs Bildern ohne Motiv | 7 |
+| einzige Bewegung: 1500 Sterne im Gleichtakt | 8 |
