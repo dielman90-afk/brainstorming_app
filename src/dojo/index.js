@@ -6,6 +6,7 @@ import { buildExterior } from './exterior.js';
 import { applyQuality } from './quality.js';
 import { buildSkyEnvironment, applySkyTo } from './skylight.js';
 import { ROOM, EXTERIOR } from './layout.js';
+import { makeZonesWalk } from '../walkable.js';
 
 // **Warum 4,5 und nicht 1.**
 //
@@ -102,10 +103,10 @@ export function createDojoEnvironment() {
     //
     // **Eine Box reicht nicht mehr.** Raum, Türdurchgang, Engawa, Stufe und
     // Kiesbeet sind zusammen ein L; eine Box um alles ließe den Nutzer neben
-    // der Tür durch die Südwand laufen. Die Sperre in main.js arbeitet deshalb
-    // als **Kette**: Man wechselt nur in eine Zone, in der man bereits steht,
-    // sonst wird auf die aktuelle geklemmt. Damit entsteht ein Korridor ohne
-    // Wegfindung – aus dem Raum erreicht man die Veranda nur durch den
+    // der Tür durch die Südwand laufen. `makeZonesWalk` (walkable.js) arbeitet
+    // deshalb als **Kette**: Man wechselt nur in eine Zone, in der man bereits
+    // steht, sonst wird auf die aktuelle geklemmt. Damit entsteht ein Korridor
+    // ohne Wegfindung – aus dem Raum erreicht man die Veranda nur durch den
     // Türdurchgang, weil nur dessen Zone den Streifen dazwischen abdeckt.
     //
     // **Die Überlappungen sind Pflicht, nicht Toleranz.** Ohne sie käme man nie
@@ -117,6 +118,9 @@ export function createDojoEnvironment() {
     // dem Kies; main.js führt sie über wenige Bilder weich nach, damit die
     // Stufe keine Sprungschaltung wird.
     //
+    // `minY` stand hier früher und wurde nie gelesen – die Untergrenze ergibt
+    // sich aus `floorY` der jeweiligen Zone.
+    //
     // Die Maße stammen aus der Architektur, nicht aus dem Augenmaß:
     // Deck bei y −0,06 plus 0,06 Dicke (architecture.js), Stufe bei y −0,17 plus
     // 0,11, Gartenboden bei EXTERIOR.ground.y + 0,045 Kies. Die lichte
@@ -126,8 +130,8 @@ export function createDojoEnvironment() {
     // **Was hier nicht drinsteht:** Kollision mit Laterne und Becken. Es gibt
     // kein Kollisionssystem; man kann durch beide hindurchgehen. Das ist eine
     // bekannte Lücke und keine übersehene.
-    bounds: {
-      zones: [
+    walk: makeZonesWalk(
+      [
         { minX: -5.55, maxX: 5.55, minZ: -6.05, maxZ: 7.05, floorY: 0 },
         // Türdurchgang: schmaler als die lichte Öffnung, damit man nicht am
         // Pfosten schrammt, und weit genug nach innen und außen gezogen, dass
@@ -142,9 +146,10 @@ export function createDojoEnvironment() {
         // Blickdistanz gebaut, nicht zum Hindurchlaufen.
         { minX: -4.6, maxX: 4.6, minZ: 8.6, maxZ: 12.4, floorY: EXTERIOR.ground.y + 0.045 },
       ],
-      minY: EXTERIOR.ground.y,
-      maxY: ROOM.ranmaTop - 0.4,
-    },
+      // Decke fuer die Desktop-Kamera. Ein Raum hat eine, eine Insel unter
+      // offenem Himmel nicht — deshalb steht sie hier und nicht in walkable.js.
+      { maxY: ROOM.ranmaTop - 0.4 }
+    ),
 
     // Wird von `applyEnvironment` beim Aktivieren aufgerufen. Ohne die
     // Environment-Map rendern Klingen, Beschläge und Lack **schwarz** – ein
