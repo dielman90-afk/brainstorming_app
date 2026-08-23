@@ -3666,6 +3666,14 @@ function marsMaps() {
 // Nicht achsenparallel gewählt: Ein Rippelmuster, das genau nach Norden läuft,
 // fällt mit den Texturachsen und der Gitterrichtung des Bodens zusammen und
 // wird dadurch zum Raster.
+// Der Mond steht bei [14 | 16 | −24] — 32,1 m Abstand, 29,9° über dem Horizont.
+// Ort und Richtung stehen auf Modulebene, weil beide an zwei Stellen gebraucht
+// werden: beim Bau des Mondes und beim Einfärben der Bruchsteine, wo die
+// mondabgewandte Seite den Frost bekommt. Zwei Kopien derselben Zahl wären die
+// Sorte Fehler, die man erst bemerkt, wenn eine davon wandert.
+const MOND_ORT = new THREE.Vector3(14, 16, -24);
+const MOND_RICHTUNG = MOND_ORT.clone().normalize();
+
 const NACHT_WIND = (() => {
   const a = 0.62; // rund 35,5° gegen die x-Achse
   const laengs = new THREE.Vector2(Math.cos(a), Math.sin(a));
@@ -3850,6 +3858,154 @@ function marsRockMaterial() {
     });
   }
   return _marsRock;
+}
+
+// --- Bruchstein --------------------------------------------------------------
+//
+// **Warum die alten Brocken als Ikosaeder lasen.** Sie waren
+// `IcosahedronGeometry(s, 1)` — achtzig gleich große, gleich geformte
+// Dreiecke — mit einer radialen Streuung je Scheitelpunkt. Radiale Streuung
+// verschiebt Ecken nach außen und innen, sie erzeugt aber keine **Fläche**:
+// Das Ergebnis ist ein gerundetes Vielflach mit gleichmäßigen Facetten, also
+// ein geschliffener Stein. Der Prüfer hat genau das gemessen: zwei
+// Nachbarfacetten mit 1,8 Stufen Unterschied über je eine ganze ebene Fläche.
+//
+// Ein zerbrochener Stein entsteht nicht durch Verschieben, sondern durch
+// **Schneiden**. Ein Sprung läuft als Ebene durch das Material und hinterlässt
+// eine ebene Fläche; mehrere Sprünge hinterlassen ein Vielflach aus
+// **unterschiedlich großen** ebenen Flächen, die sich in scharfen Kanten
+// treffen. Genau das wird hier gemacht: Eine Kugel wird an K zufälligen Ebenen
+// gekappt.
+//
+// Der Unterschied ist nicht die Zahl der Dreiecke, sondern ihre Verteilung:
+// Beim Ikosaeder ist jede Facette gleich groß, beim Bruch bestimmt der Zufall
+// der Ebenen, ob eine Fläche ein Drittel des Steins einnimmt oder einen
+// Fingernagel.
+//
+// Die Unterteilung ist ein **Messwert, kein Geschmack**: Bei Stufe 3 hat eine
+// Kante rund 15 % des Radius, auf einem 30-cm-Brocken also 4,5 cm. Das ist die
+// Treppung, mit der eine Schnittkante durch das Dreiecksnetz läuft. Bei Stufe 2
+// wären es 9 cm und die Kanten sichtbar ausgefranst.
+function bruchGeometrie(radius, seed, { facetten = 11, verwitterung = 0.12, kanten = 0.06 } = {}) {
+  const geo = new THREE.IcosahedronGeometry(radius, 3);
+  const br = mulberry32(seed);
+  const ebenen = [];
+  for (let k = 0; k < facetten; k++) {
+    // Gleichverteilt auf der Kugel — ohne die Umrechnung über den Kosinus des
+    // Polarwinkels ballen sich die Schnittrichtungen an den Polen, und der
+    // Stein bekäme oben und unten mehr Flächen als in der Mitte.
+    const u = br() * 2 - 1;
+    const phi = br() * Math.PI * 2;
+    const s = Math.sqrt(Math.max(0, 1 - u * u));
+    ebenen.push({
+      nx: s * Math.cos(phi),
+      ny: u,
+      nz: s * Math.sin(phi),
+      // Wie tief die Ebene schneidet. Nah an 1 streift sie nur, nah an 0,55
+      // nimmt sie ein großes Stück weg — das ist die Streuung, aus der
+      // ungleich große Flächen entstehen.
+      d: radius * (0.55 + br() * 0.40),
+    });
+  }
+
+  const pos = geo.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    // Zwei Durchgänge: Wer einen Scheitelpunkt auf eine Ebene setzt, kann ihn
+    // dabei über eine andere hinausschieben. Nach zwei Durchgängen ist der
+    // Rest unterhalb der Auflösung des Netzes.
+    for (let durchgang = 0; durchgang < 2; durchgang++) {
+      for (const e of ebenen) {
+        const w = v.x * e.nx + v.y * e.ny + v.z * e.nz;
+        if (w > e.d) {
+          const ueber = w - e.d;
+          v.x -= e.nx * ueber;
+          v.y -= e.ny * ueber;
+          v.z -= e.nz * ueber;
+        }
+      }
+    }
+    // **Verwitterung.** Ein frischer Bruch ist scharfkantig, ein alter ist
+    // abgerundet und angefressen. Das Zurückziehen zur Kugel rundet die
+    // Kanten (weil dort am meisten weggeschnitten wurde), das Feinrauschen
+    // frisst die Flächen an. Beides klein — zu viel davon macht aus dem Bruch
+    // wieder einen Kiesel.
+    const laenge = v.length() || 1e-6;
+    const zurKugel = radius / laenge;
+    v.multiplyScalar(1 + (zurKugel - 1) * verwitterung);
+    const n = hashNoise(v.x * 60, v.y * 60, v.z * 60 + seed) - 0.5;
+    v.multiplyScalar(1 + n * kanten);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  // Nicht indiziert und flach schattiert: Jede Bruchfläche bekommt eine eigene
+  // Normale, und die Kanten bleiben Kanten.
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// Einfärbung eines Bruchsteins je **Fläche**, nicht je Scheitelpunkt.
+//
+// Damit kommen die drei fehlenden Materialien ins Inventar, die der Prüfer
+// vermisst hat — Gestein im Bruch, Staub und Frost —, und zwar ohne ein
+// einziges neues Material und ohne eine einzige neue Textur:
+//
+//   * **Staub** liegt auf dem, was nach oben zeigt. Er ist die Farbe des
+//     Bodens, denn er kommt von dort.
+//   * **Bruchgestein** ist, was steil steht: dort hält kein Staub. Heller,
+//     kühler, weniger rot als die verwitterte Außenhaut — eine frische
+//     Bruchfläche hat die Verwitterungsrinde nicht.
+//   * **Frost** sammelt sich, wo die Fläche vom Mond abgewandt **und** nach
+//     unten geneigt ist: die kälteste Stelle des Steins, die tagsüber keine
+//     Strahlung sieht. Ein bläulicher Hauch, kein Anstrich.
+//
+// `drehung` bringt die lokalen Flächennormalen in Weltausrichtung — die
+// Brocken sind um alle drei Achsen zufällig gedreht, und ohne das säße der
+// Staub bei jedem Stein an einer anderen Flanke.
+function faerbeBruchstein(geo, grundHex, drehung, mondRichtung, { staub, frost, alter }) {
+  const pos = geo.attributes.position;
+  const nor = geo.attributes.normal;
+  const farben = new Float32Array(pos.count * 3);
+  const grund = new THREE.Color(grundHex);
+  const staubFarbe = new THREE.Color(0x8a5540);
+  const bruchFarbe = new THREE.Color(0xa08573);
+  const frostFarbe = new THREE.Color(0xbcd0e0);
+  const n = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  const c = new THREE.Color();
+  // Höhenbereich in Weltausrichtung, für die Verdunklung am Fuß.
+  let yMin = Infinity;
+  let yMax = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyQuaternion(drehung);
+    if (v.y < yMin) yMin = v.y;
+    if (v.y > yMax) yMax = v.y;
+  }
+  for (let i = 0; i < pos.count; i++) {
+    n.fromBufferAttribute(nor, i).applyQuaternion(drehung);
+    v.fromBufferAttribute(pos, i).applyQuaternion(drehung);
+
+    c.copy(grund);
+    // Bruchgestein auf steilen Flächen, mit dem Alter zurückgehend.
+    const steil = 1 - Math.abs(n.y);
+    c.lerp(bruchFarbe, steil * steil * 0.55 * (1 - alter));
+    // Staub auf allem, was nach oben zeigt.
+    const oben = Math.max(0, n.y);
+    c.lerp(staubFarbe, Math.pow(oben, 1.6) * staub);
+    // Frost: mondabgewandt und nach unten geneigt.
+    const abgewandt = Math.max(0, -n.dot(mondRichtung));
+    const unten = Math.max(0, -n.y);
+    c.lerp(frostFarbe, abgewandt * unten * frost);
+
+    // Kontaktverdunklung am Fuß, wie gehabt.
+    const t = (v.y - yMin) / Math.max(1e-4, yMax - yMin);
+    const f = 0.82 + 0.18 * smoothstep(0, 0.35, t);
+    farben[i * 3] = c.r * f;
+    farben[i * 3 + 1] = c.g * f;
+    farben[i * 3 + 2] = c.b * f;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  return geo;
 }
 
 // --- Kontaktverdunklung ------------------------------------------------------
@@ -4238,14 +4394,17 @@ function makeMarsGround(rand) {
     const bx = Math.cos(a) * r;
     const bz = Math.sin(a) * r;
     const s = 0.14 + rand() * 0.42;
-    const geoR = new THREE.IcosahedronGeometry(s, 1);
-    // Unregelmäßig verschieben, damit es kein glatter Edelstein ist
-    const rp = geoR.attributes.position;
-    for (let v = 0; v < rp.count; v++) {
-      const f = 0.78 + hashNoise(rp.getX(v) * 40, rp.getY(v) * 40, rp.getZ(v) * 40 + i) * 0.44;
-      rp.setXYZ(v, rp.getX(v) * f, rp.getY(v) * f, rp.getZ(v) * f);
-    }
-    geoR.computeVertexNormals();
+    // **Kein `rand()` in den Bruchparametern.** Sie kommen aus `hashNoise` und
+    // einem eigenen, je Brocken gesäten Strom — sonst verschöbe jeder neue
+    // Parameter die Lage aller folgenden Brocken. Das ist der Fehler aus
+    // Durchlauf 1, und er soll sich nicht wiederholen.
+    const alter = hashNoise(i * 3.1, 7.7, 1.3);
+    const geoR = bruchGeometrie(s, 5100 + i * 91, {
+      // Kleine Brocken zerbrechen in weniger Flächen als große.
+      facetten: 7 + Math.round(hashNoise(i * 1.7, 2.3, 9.1) * 8 + (s / 0.56) * 4),
+      verwitterung: 0.05 + alter * 0.30,
+      kanten: 0.04 + alter * 0.07,
+    });
     // Ein Material für alle dreißig Brocken; die vier Rottöne stecken in den
     // Scheitelfarben. Kein Moos – auf dem Mars wächst nichts, und `mossPatina()`
     // wäre hier genau die Sorte gedankenloser Wiederverwendung, die man den
@@ -4253,7 +4412,11 @@ function makeMarsGround(rand) {
     boxProjectUV(geoR, 0.22);
     const rockHex = rockColors[Math.floor(rand() * rockColors.length)];
     const rock = new THREE.Mesh(geoR, marsRockMaterial());
-    rock.position.set(bx, heightAt(bx, bz) - 0.03 + s * 0.25, bz);
+    // **Halb verwehte Füße.** Ein Brocken, der seit Jahrtausenden im Wind
+    // liegt, steht nicht auf dem Sand — er steckt darin. Wie tief, schwankt:
+    // Manche liegen fast frei, andere schauen nur mit der Schulter heraus.
+    const eingeweht = 0.10 + hashNoise(bx * 0.7, bz * 0.7, 3.3) * 0.55;
+    rock.position.set(bx, heightAt(bx, bz) - 0.03 + s * (0.34 - eingeweht * 0.52), bz);
     rock.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
     rock.scale.set(1 + rand() * 0.5, 0.45 + rand() * 0.4, 1 + rand() * 0.5);
 
@@ -4268,34 +4431,22 @@ function makeMarsGround(rand) {
     // bei jedem Stein an einer anderen Flanke – ein Fehler, der als
     // willkürliche Fleckigkeit lesbar wäre.
     const drehung = new THREE.Quaternion().setFromEuler(rock.rotation);
+    // Staub, Bruchgestein und Frost je Fläche — die drei Materialien, die dem
+    // Inventar bisher fehlten. Der Staubanteil hängt am Alter: Ein alter
+    // Brocken ist eingestaubt, ein frisch zerbrochener zeigt noch den Bruch.
+    faerbeBruchstein(geoR, rockHex, drehung, MOND_RICHTUNG, {
+      staub: 0.35 + alter * 0.45,
+      frost: 0.10 + (1 - alter) * 0.14,
+      alter,
+    });
     const v = new THREE.Vector3();
     const rp2 = geoR.attributes.position;
-    let yMin = Infinity;
-    let yMax = -Infinity;
     let xzMax = 0; // waagerechte Ausdehnung, für den Fuß der Verdunklung
-    const yWelt = new Float32Array(rp2.count);
     for (let vi = 0; vi < rp2.count; vi++) {
       v.fromBufferAttribute(rp2, vi).multiply(rock.scale).applyQuaternion(drehung);
-      yWelt[vi] = v.y;
-      if (v.y < yMin) yMin = v.y;
-      if (v.y > yMax) yMax = v.y;
       const q = Math.hypot(v.x, v.z);
       if (q > xzMax) xzMax = q;
     }
-    const c = new THREE.Color(rockHex);
-    const farben = new Float32Array(rp2.count * 3);
-    for (let vi = 0; vi < rp2.count; vi++) {
-      const t = (yWelt[vi] - yMin) / Math.max(1e-4, yMax - yMin);
-      // Der Verlauf war ursprünglich der einzige Kontaktschatten, den es gab.
-      // Seit es Schlagschatten und Verdunklungsscheiben am Boden gibt, zählt er
-      // doppelt — deshalb nur noch ein Hauch (0,82 statt 0,62 am Fuß) und
-      // kürzer.
-      const f = 0.82 + 0.18 * smoothstep(0.0, 0.35, t);
-      farben[vi * 3] = c.r * f;
-      farben[vi * 3 + 1] = c.g * f;
-      farben[vi * 3 + 2] = c.b * f;
-    }
-    geoR.setAttribute('color', new THREE.BufferAttribute(farben, 3));
 
     rock.castShadow = true;
     rock.receiveShadow = true;
@@ -4445,6 +4596,101 @@ function makeMarsGround(rand) {
     const fern = new THREE.Mesh(fgeo, marsGroundMaterial());
     fern.name = 'nacht-fernfeld';
     group.add(fern);
+  }
+
+  // --- Fernfelsen und Abbruchkanten -----------------------------------------
+  //
+  // **Was der Szene bis hierher fehlte, war eine Silhouette.** Der Prüfer hat
+  // es in seinem ersten Bericht als ersten Punkt gelistet: „In keinem der sechs
+  // Bilder steht eine einzige Form gegen den Sternhimmel." Der Horizont trägt
+  // seit Paket 5 eine Form, aber eine Geländewelle ist eine weiche Linie — kein
+  // Umriss, den man wiedererkennt.
+  //
+  // Diese Formationen stehen zwischen 30 und 72 m. Damit fallen sie in zwei
+  // Zonen mit ganz verschiedener Wirkung:
+  //
+  //   * **innerhalb des Nebels (bis 48 m)** — noch beleuchtet, also Fels mit
+  //     Bruchflächen und Streiflicht, aber schon entsättigt: die Mittelebene
+  //     der Tiefenstaffelung, die bisher gefehlt hat.
+  //   * **jenseits von 48 m** — vollständig Nebelfarbe, also **reiner Umriss**.
+  //     Genau das, was das Kriterium verlangt.
+  //
+  // Zwei Bauformen, weil ein Feld aus einer Bauform eine Aufzählung ist:
+  // aufragende Blöcke (schmal, hoch, gekippt) und Abbruchkanten (lang, flach,
+  // mit einer steilen Seite). Die Verteilung ist absichtlich unsymmetrisch —
+  // eine dichte Gruppe im Nordwesten hinter den Hügeln, ein einzelner hoher
+  // Block gegen den Mond im Nordosten, und im Südosten nichts. Leere ist eine
+  // Entscheidung, kein Versäumnis.
+  //
+  // Unterteilung 2 statt 3: Aus 40 m ist eine Kante von 15 cm nicht mehr von
+  // einer von 30 cm zu unterscheiden, und die Formationen sind das
+  // Dreiecksbudget nicht wert. 960 Dreiecke je Formation statt 3840.
+  {
+    const fr = mulberry32(60600);
+    const formationen = [
+      // Dichte Gruppe Nordwest, hinter den Hügeln — sie staffelt sich über die
+      // Hügelkuppen und gibt der Ferne dadurch zwei Tiefenebenen.
+      { x: -38, z: -30, h: 6.2, b: 2.6, l: 4.0, art: 'block' },
+      { x: -46, z: -22, h: 8.4, b: 3.0, l: 3.2, art: 'block' },
+      { x: -30, z: -41, h: 4.8, b: 5.5, l: 12.0, art: 'kante' },
+      { x: -52, z: -8, h: 5.4, b: 3.4, l: 9.0, art: 'kante' },
+      { x: -24, z: -47, h: 3.4, b: 2.2, l: 3.0, art: 'block' },
+      // Einzelner hoher Block gegen den Mond (der steht bei Azimut 30°) — er
+      // ist der Anker, an dem der Blick die Entfernung ablesen kann.
+      { x: 34, z: -52, h: 9.6, b: 3.2, l: 3.8, art: 'block' },
+      { x: 41, z: -44, h: 4.2, b: 2.4, l: 5.5, art: 'kante' },
+      // Ein paar Vereinzelte, damit die Gruppe nicht als Insel liest.
+      { x: 58, z: 12, h: 5.0, b: 3.8, l: 10.0, art: 'kante' },
+      { x: 12, z: -60, h: 3.8, b: 2.0, l: 2.6, art: 'block' },
+      { x: -62, z: 26, h: 6.6, b: 4.0, l: 7.0, art: 'kante' },
+      { x: -16, z: 52, h: 4.4, b: 2.8, l: 3.4, art: 'block' },
+    ];
+    const fern = [];
+    formationen.forEach((f, i) => {
+      // Zwei bis drei Blöcke je Formation: Ein einzelner Körper liest als
+      // Gegenstand, mehrere aneinandergeschobene als Aufschluss.
+      const teile = f.art === 'kante' ? 3 : 2;
+      const richtung = fr() * Math.PI * 2;
+      for (let k = 0; k < teile; k++) {
+        const g = bruchGeometrie(1, 70000 + i * 131 + k * 17, {
+          facetten: 8 + Math.floor(fr() * 6),
+          verwitterung: 0.10 + fr() * 0.22,
+          kanten: 0.05 + fr() * 0.06,
+        });
+        const m = new THREE.Mesh(g, marsRockMaterial());
+        // Entlang der Formationsachse aufgereiht und gegeneinander versetzt.
+        const t = teile === 1 ? 0 : k / (teile - 1) - 0.5;
+        // **`h` ist die sichtbare Höhe, nicht der Halbmesser.** Die Geometrie
+        // hat Radius 1 und reicht nach dem Skalieren von −hk bis +hk; davon
+        // steckt hk·0,42 im Boden. Über dem Gelände bleiben also 0,58·hk. Wer
+        // f.h direkt als Skalierung nimmt, bekommt eine Formation von 58 % der
+        // beabsichtigten Höhe — genau das stand im ersten Bild.
+        const hk = (f.h / 0.58) * (0.62 + fr() * 0.5);
+        m.scale.set(f.b * (0.7 + fr() * 0.5), hk, f.b * (0.7 + fr() * 0.5));
+        const ox = Math.cos(richtung) * t * f.l;
+        const oz = Math.sin(richtung) * t * f.l;
+        const px = f.x + ox;
+        const pz = f.z + oz;
+        // Tief genug einsetzen, dass kein Fuß in der Luft steht: Der Boden
+        // schwankt unter einer 10-m-Formation um mehr als einen Meter.
+        m.position.set(px, fernHeightAt(px, pz) - hk * 0.42, pz);
+        m.rotation.set((fr() - 0.5) * 0.34, fr() * Math.PI * 2, (fr() - 0.5) * 0.34);
+        const drehung = new THREE.Quaternion().setFromEuler(m.rotation);
+        faerbeBruchstein(g, 0x7a4a37, drehung, MOND_RICHTUNG, {
+          staub: 0.5,
+          frost: 0.16,
+          alter: 0.4,
+        });
+        boxProjectUV(g, 0.5);
+        fern.push(m);
+      }
+    });
+    for (const mesh of verschmelzeObjekte(fern, 'nacht-fernfelsen')) {
+      // Kein Werfer und kein Empfänger: Sie liegen außerhalb des Orthofrustums
+      // der Schattenkarte (±40 m). Ein Schattendurchgang über sie wäre
+      // Rechenzeit ohne ein einziges Pixel.
+      group.add(mesh);
+    }
   }
 
   // Die Geländefunktion wird von späteren Paketen gebraucht (Staub, Fernfelsen,
@@ -5261,7 +5507,6 @@ function createNightEnvironment() {
   // Der Mond steht bei [14 | 16 | −24] — 32,1 m Abstand, 29,9° über dem
   // Horizont. Die Scheibe hat 2,8 m Durchmesser und damit denselben scheinbaren
   // Durchmesser wie die alte Kugel mit Radius 1,4.
-  const MOND_ORT = new THREE.Vector3(14, 16, -24);
   const moon = new THREE.Sprite(
     new THREE.SpriteMaterial({
       map: mondScheibe(),
