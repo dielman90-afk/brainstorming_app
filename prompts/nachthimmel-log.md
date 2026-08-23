@@ -1064,3 +1064,93 @@ liegen außerhalb des Bildes.
 Sterne vor dem Gelände: **0**. Regression: Zen bitgleich, Konstrukt Δmax 1,
 Dojo Δ ≥ 8 in 0,000 %, Insel 0,729 % (Rauschband). Build grün, Konsole ohne
 Errors und Warnings.
+
+---
+
+## Durchlauf 9 — Paket 7 „Komposition"
+
+Weiterhin ohne Prüfer. Eigenprüfung, **nicht abgenommen**.
+
+### Was gemessen war
+
+Neues Werkzeug `tools/komposition.mjs`. Es zählt drei Dinge, die der Prüfer
+bemängelt hat: die Masseverteilung (über die **Dunkelheit** gewichtet, weil in
+einer Nachtszene die dunklen Massen tragen), den Helligkeitsschwerpunkt und den
+Kantenanteil im unteren Bilddrittel — also die Frage, ob es überhaupt einen
+Vordergrund gibt.
+
+Ausgangslage über alle sechs Kameras: Masse links zu rechts **1,01 · 1,01 ·
+1,01 · 1,01 · 1,06 · 1,02**, Kantenanteil im unteren Drittel **0,08 bis
+1,80 %**. Beide Hälften gleich schwer, die untere Bildhälfte Fläche.
+
+### Drei Findlinge als Leitlinie zum Mond
+
+Der Mond steht bei Azimut atan2(−24, 14) = **−59,7°**, seine Richtung in der
+Ebene ist (0,504 | −0,864). Die Linie von (−9 | 13) über (−6 | 8) nach
+(−3 | 3) hat die Richtung (6 | −10), normiert (0,514 | −0,857) — dieselbe
+Achse auf ein Grad genau. Der Blick, der den Steinen folgt, landet beim Mond.
+
+Sie werden zum Betrachter hin größer (0,60 → 0,78 → 0,95 m); zusammen mit der
+Perspektive ergibt das eine Staffelung in die Tiefe statt einer Reihe. Jeder
+besteht aus einem Hauptstein und zwei kleineren Begleitern — ein Monolith
+allein liest als aufgestellt, eine Gruppe als etwas, das beim Aufschlag
+zersprungen und liegen geblieben ist.
+
+Der nächste steht **4,2 m** vom Ursprung. Näher wäre er im Weg: Der Nutzer
+steht im Ursprung, und die Karten ordnen sich bei 1,15 bis 1,5 m um ihn an. Ein
+Findling darf Anker sein, nicht Hindernis.
+
+| | night-08 | night-09 |
+| --- | --- | --- |
+| Kantenanteil unteres Drittel `a-eyelevel` | 1,80 % | **2,27 %** |
+| dasselbe `c-crater` | 0,22 % | **0,92 %** |
+| dasselbe `e-ground` | 0,27 % | **0,85 %** |
+| Lichtschwerpunkt `c-crater` (x / y) | 55,5 % / 22,1 % | **57,8 % / 47,9 %** |
+| Lichtschwerpunkt `e-ground` | 87,0 % / 49,4 % | **64,2 % / 57,2 %** |
+
+### Zwei Fehler, einer davon nur durch Lesen gefunden
+
+1. **Die Findlinge bekamen keine Kontaktverdunklung und keine Staubfahne.** Der
+   Aufruf `makeKontaktAO(aoStellen)` stand direkt hinter der Brockenschleife;
+   die Findlinge tragen ihre Stellen aber später ein. Ein Fehler, den **kein
+   Bild gezeigt hätte** — es hätte nur etwas gefehlt, das man nicht vermisst,
+   wenn man es nie gesehen hat. Gefunden beim Lesen der Aufrufreihenfolge, nicht
+   im Bild.
+2. **Sie standen wie Marmor in der Szene.** Gemessen L 109,3 an der beleuchteten
+   Fläche gegen L 67,7 am hellsten Boden und L 47,3 an einem verstreuten
+   Brocken — das Anderthalbfache des hellsten Bodens, also ein anderes Material
+   statt eines größeren Steins. Grundton dunkler, Alter höher (das halbiert den
+   Anteil frischen Bruchgesteins), Staub zurück: jetzt L 91,8. Sie stechen
+   heraus, ohne aus der Szene zu fallen.
+
+### Was **nicht** gelöst ist, und warum ich es so lasse
+
+**Die Masse links zu rechts bleibt bei 1,00 bis 1,06.** Das ist unverändert und
+wird sich mit Mitteln, die ich für richtig halte, auch nicht ändern. Der Grund
+ist grundsätzlich: Dies ist eine **VR-Umgebung**. Der Nutzer dreht den Kopf; es
+gibt kein festes Bildformat, für das man ausbalancieren könnte. Die Welt hat
+eine Asymmetrie — die Hügelgruppe im Nordwesten, die Felsengruppe dahinter, die
+bewusste Leere im Südosten, die Findlingsachse zum Mond. Über sechs beliebig
+gerichtete 16:9-Ausschnitte mittelt sich das heraus.
+
+Ein Bild links schwerer zu machen hieße, für den Prüfstand zu komponieren statt
+für die Welt. Wer das misst, misst die Kameras.
+
+**`b-moon` hat den Mond bei 50,0 % / 49,9 %, also im Bullauge.** Auch das
+bleibt: Die Kamera ist mit `look = [14, 16, −24]` definiert, also **auf den
+Mond gerichtet**. Ihre Zentrierung ist eine Eigenschaft des Prüfstands, keine
+der Szene. Der Mond dorthin zu verschieben, wo er in dieser einen Kamera besser
+säße, würde die Vorgabe brechen und in den anderen fünf Kameras nichts
+verbessern.
+
+### Messung
+
+| Größe | Grenze | 00 | 08 | 09 |
+| --- | ---: | ---: | ---: | ---: |
+| Draw-Calls (max) | 120 | 40 | 13 | **15** |
+| Dreiecke (max) | 350 000 | 51 842 | 128 328 | **135 168** |
+| Texturspeicher | 60 MB | 0,77 | 6,33 | **6,33** |
+
+Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
+0,833 % (oberer Rand des Rauschbands). Build grün, Konsole ohne Errors und
+Warnings.
