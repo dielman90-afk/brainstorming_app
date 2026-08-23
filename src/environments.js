@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createDojoEnvironment } from './dojo/index.js';
+import { makeIslandWalk, makeHeightFieldWalk } from './walkable.js';
 import { heightToMaps, scaleUV } from './dojo/materials.js';
 import { mossMaterial, waterMaterial, updateWater } from './dojo/ground.js';
 import {
@@ -930,10 +931,11 @@ const pick = (rand, list) => list[Math.floor(rand() * list.length) % list.length
 // Beschreibung. Geometrie und Objektplatzierung benutzen dieselben Funktionen –
 // dadurch kann nichts schweben und nichts im Boden stecken.
 //
-// Wichtige Einschränkung: Die Fortbewegung (locomotion.js) kennt kein Gelände,
-// der Nutzer läuft immer auf y = 0. Die begehbare Innenfläche bleibt deshalb
-// bewusst eben; die Höhenentwicklung setzt erst außerhalb davon ein und geht in
-// den felsigen Randwall über, der ohnehin nicht zum Betreten einlädt.
+// Die Fortbewegung nutzt dieselbe Beschreibung: `walk` der Insel-Umgebung
+// klemmt auf `outline` und liest die Standhöhe aus `heightAt` (walkable.js).
+// Der Nutzer läuft damit wirklich auf dem Gelände – über die ebene Innenfläche,
+// den Randwall hinauf und bis an die Abbruchkante, aber nicht darüber hinaus.
+// Früher lief er stur auf y = 0 und damit durch den Wall hindurch.
 const ISLAND_TOP_Y = -0.02; // Höhe der ebenen Grasfläche (Bestand beibehalten)
 // Weltmaßstab der ganzen Insel-Gruppe. Steht auf Modulebene, weil auch das
 // Schattenvolumen ihn braucht – und das wird gesetzt, bevor die Gruppe skaliert
@@ -1730,56 +1732,24 @@ function bodyColor(out, zone, shape, p, t, a) {
 }
 
 
-// Blumen und Grasbüschel auf der Hauptinsel (InstancedMesh = 2 Draw-Calls).
+// Streudekoration der Wiese: Blumen (EIN InstancedMesh, ein Draw-Call).
+//
 // Alle Instanzen sitzen auf der tatsächlichen Geländehöhe (shape.heightAt) und
-// bleiben innerhalb des tatsächlichen, unrunden Umrisses.
-// Ein Grashorst: mehrere schmale, gebogene Halme aus einem Punkt.
+// bleiben innerhalb des tatsächlichen, unrunden Umrisses. Sie stehen in Nestern
+// statt gleichmäßig gestreut – die Verteilung ist damit kein Rauschen, sondern
+// folgt derselben Regel wie die Farbe des Bodens.
 //
-// Vorher war jeder „Büschel" EIN Kegel. Aus zwei Metern liest sich das als
-// grüner Zapfen, und weil alle gleich groß waren und gleichmäßig gestreut,
-// entstand das Raster, das die Messlatte ausschließt. Ein Horst aus fünf
-// Halmen kostet 60 Dreiecke statt 12 – bei einem Budget, das zur Hälfte frei
-// ist, ist das der richtige Tausch.
-function tuftGeometry(rand) {
-  const halme = [];
-  const n = 4 + Math.floor(rand() * 3);
-  for (let i = 0; i < n; i++) {
-    const h = 0.075 + rand() * 0.075;
-    const g = new THREE.CylinderGeometry(0.002, 0.011, h, 3, 3);
-    const p = g.attributes.position;
-    // Neigung nach außen, mit Krümmung: ein Halm steht nicht senkrecht.
-    const a = (i / n) * TAU + rand() * 0.8;
-    const lean = 0.35 + rand() * 0.5;
-    for (let v = 0; v < p.count; v++) {
-      const f = 0.5 + p.getY(v) / h; // 0 unten … 1 Spitze
-      const bow = f * f * lean * h;
-      p.setX(v, p.getX(v) + Math.cos(a) * bow);
-      p.setZ(v, p.getZ(v) + Math.sin(a) * bow);
-    }
-    g.computeVertexNormals();
-    g.translate(0, h / 2, 0);
-    halme.push(g);
-  }
-  return mergeGeometries(halme);
-}
-
-// Streudekoration der Wiese: Grashorste und Blumen.
+// **Die Grashorste sind raus.** Sie standen hier als zweites InstancedMesh aus
+// je vier bis sechs gebogenen Halmen, 240 Stück. Im Bild lasen sie sich nicht
+// als Gras, sondern als Schilf: Ein Horst maß bis 0,15 Einheiten – bei
+// WORLD_SCALE 4 also gut 60 cm – und war damit aus Augenhöhe die dominierende
+// Form im Vordergrund, vor Bach, Findlingen und Bäumen. Die Wiese trägt ihre
+// Zeichnung ohnehin über die Bodenfarbe und die Kontaktverdunklung.
 //
-// Beides steht jetzt in Horsten und Nestern statt gleichmäßig gestreut, und
-// beides richtet sich nach der Feuchte – Gras wächst dichter am Bach, Blumen
-// auf den trockenen Rücken. Damit ist die Verteilung kein Rauschen mehr,
-// sondern folgt derselben Regel wie die Farbe des Bodens.
+// Die Nester bleiben auch ohne sie richtig: Blumen wachsen in Gruppen.
 function addGrassDecoration(group, rand, shape) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
-  // Kontaktverdunklung für die Horste. Bäume, Findlinge, Büsche und Pilze
-  // hatten sie; die Grasbüschel als einzige nicht – und sie sind das, was im
-  // Nahbild direkt vor dem Nutzer steht. Gemessen lag der Boden 15 px neben
-  // einem Büschelfuß eine einzige Luminanzstufe unter der freien Fläche, der
-  // Horst saß also mit haarscharfer Kante auf vollwertig hellem Gras. Alle
-  // Verdunklungen zusammen sind EIN Draw-Call.
-  const horstSchatten = new GeoBucket();
-
   // Nester statt Gleichverteilung: erst ein Zentrum würfeln, dann darum streuen.
   const nester = [];
   for (let i = 0; i < 26; i++) {
@@ -1789,7 +1759,7 @@ function addGrassDecoration(group, rand, shape) {
   }
   // Belegte Plätze (Findlinge) und der steil abfallende Rand sind tabu; beides
   // steckt in shape.frei, das buildIsland aufbaut.
-  const frei = (x, z) => !shape.frei || shape.frei(x, z);
+  const frei = (x, z) => !shape.frei || shape.frei(x, z, 0.03);
   // Gibt null zurueck, wenn der Platz belegt ist - der Aufrufer ueberspringt
   // die Instanz dann, statt sie irgendwohin zu setzen.
   const imNest = (nest) => {
@@ -1802,67 +1772,6 @@ function addGrassDecoration(group, rand, shape) {
     }
     return null;
   };
-
-  // --- Grashorste ---------------------------------------------------------
-  const HORSTE = 240;
-  const tufts = new THREE.InstancedMesh(
-    tuftGeometry(rand),
-    addWind(new THREE.MeshStandardMaterial({ roughness: 0.92, metalness: 0 }), {
-      strength: 0.055,
-      speed: 1.35,
-    }),
-    HORSTE
-  );
-  tufts.name = 'tufts';
-  tufts.userData.fullCount = HORSTE;
-  tufts.castShadow = false;
-  tufts.receiveShadow = true;
-  const halmTon = [0x5c9a44, 0x6aa84f, 0x4e8b3c, 0x74ad57, 0x568f40];
-  for (let i = 0; i < HORSTE; i++) {
-    const nest = nester[Math.floor(rand() * nester.length)];
-    const platz = imNest(nest);
-    if (!platz) {
-      dummy.position.set(0, -999, 0);
-      dummy.scale.setScalar(0);
-      dummy.updateMatrix();
-      tufts.setMatrixAt(i, dummy.matrix);
-      dummy.scale.setScalar(1);
-      continue;
-    }
-    const [x, y, z] = platz;
-    // Am Bach steht das Gras höher und satter.
-    const nass = 1 - smoothstep(0, 1.6, shape.riverDist(x, z));
-    dummy.position.set(x, y - 0.012, z);
-    dummy.rotation.set((rand() - 0.5) * 0.22, rand() * TAU, (rand() - 0.5) * 0.22);
-    dummy.scale.setScalar((0.6 + rand() * 0.9) * (1 + 0.45 * nass));
-    dummy.updateMatrix();
-    tufts.setMatrixAt(i, dummy.matrix);
-    color.setHex(pick(rand, halmTon));
-    if (nass > 0) color.offsetHSL(0.015 * nass, 0.10 * nass, -0.05 * nass);
-    tufts.setColorAt(i, color);
-    addContactShadow(horstSchatten, shape, x, z, 0.115 * dummy.scale.x, true);
-  }
-  tufts.instanceMatrix.needsUpdate = true;
-  if (tufts.instanceColor) tufts.instanceColor.needsUpdate = true;
-  group.add(tufts);
-
-  const horstSchattenMesh = horstSchatten.mesh(
-    new THREE.MeshBasicMaterial({
-      map: shadowTexture(),
-      transparent: true,
-      // Schwächer als unter Büschen und Findlingen: Ein Grasbüschel verdeckt
-      // wenig Himmel, und dreihundert kräftige Flecken würden die Wiese
-      // scheckig machen.
-      opacity: 0.32,
-      depthWrite: false,
-      toneMapped: false,
-    }),
-    'tuft-shade'
-  );
-  if (horstSchattenMesh) {
-    horstSchattenMesh.renderOrder = 1;
-    group.add(horstSchattenMesh);
-  }
 
   // --- Blumen -------------------------------------------------------------
   //
@@ -1958,9 +1867,8 @@ function makeWaterfall(rand, shape) {
   group.name = 'waterfall';
   const angle = shape.riverAngle;
   const curve = shape.riverCurve;
-  const end = curve.getPoint(1);
-  const edgeX = end.x;
-  const edgeZ = end.z;
+  // Quer zur Fließrichtung (die läuft auf (sin a, 0, cos a)) – die Breite des
+  // Bandes und des Strahls wird darauf abgetragen.
   const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
 
   const waterTex = makeWaterTexture();
@@ -1998,31 +1906,82 @@ function makeWaterfall(rand, shape) {
   );
   if (stones) group.add(stones);
 
-  // --- Flussbett als Band entlang der geteilten Kurve: Es folgt exakt der
-  // Rinne, die auch ins Gelände eingeschnitten ist, und liegt knapp darüber. ---
+  // --- Flussbett als Band entlang der geteilten Kurve ----------------------
+  //
+  // Das Band folgt exakt der Rinne, die auch ins Gelände eingeschnitten ist,
+  // und liegt knapp darüber.
+  //
+  // **Es endet an der Lippe, nicht auf der Abbruchkante.** Zwischen 0,88 und
+  // 1,0 des Umrisses bricht die Grasnarbe in Zungen und Kerben ab (`relief`:
+  // `tear`, `fineTear`, `sod`). Ein Wasserband, das bis dorthin läuft, franst
+  // mit ihr aus – und weil die Breite zur Kante hin auf das Dreifache anwuchs
+  // und die Höhe je Querschnitt aus dem NIEDRIGEREN der beiden Ufer kam, kippte
+  // der letzte Abschnitt in eine breite, facettierte Zunge. Genau das war die
+  // gemeldete „komische Form am Ende des Laufs". Ab der Lippe übernimmt der
+  // Sturz.
+  const LIPPE = 0.985; // Anteil des Umrisses, an dem das Band aufhört
+  const rrAuf = (t) => {
+    const p = curve.getPoint(t);
+    return Math.hypot(p.x, p.z) / (shape.radius * shape.outline(Math.atan2(p.x, p.z)));
+  };
+  // Die Kurve ist nicht nach Bogenlänge parametrisiert; der Punkt, an dem sie
+  // die Lippe erreicht, wird deshalb gesucht statt gerechnet.
+  let tLo = 0;
+  let tHi = 1;
+  for (let k = 0; k < 24; k++) {
+    const mid = (tLo + tHi) / 2;
+    if (rrAuf(mid) < LIPPE) tLo = mid;
+    else tHi = mid;
+  }
+  const tLippe = tLo;
+
+  // Halbe Bandbreite an der Lippe. Der Sturz beginnt mit derselben Breite –
+  // ohne das setzt der Strahl sichtbar abgesetzt unter dem Bach an.
+  const LIPPEN_HALBBREITE = 0.25;
   const SEG = 64;
   const up = new THREE.Vector3(0, 1, 0);
   const riverPos = [];
   const riverUv = [];
   const riverIdx = [];
+  let lippeX = 0;
+  let lippeZ = 0;
+  let lippeY = 0;
   for (let i = 0; i <= SEG; i++) {
-    const t = i / SEG;
+    const f = i / SEG;
+    const t = f * tLippe;
     const p = curve.getPoint(t);
     const tan = curve.getTangent(t);
     const side = new THREE.Vector3().crossVectors(tan, up).normalize();
-    const halfW = 0.14 + t * 0.34; // schmal an der Quelle, breiter zur Klippe
-    const yl = shape.heightAt(p.x - side.x * halfW, p.z - side.z * halfW) + 0.03;
-    const yr = shape.heightAt(p.x + side.x * halfW, p.z + side.z * halfW) + 0.03;
-    const yc = Math.min(yl, yr);
-    riverPos.push(
-      p.x - side.x * halfW, yc, p.z - side.z * halfW,
-      p.x + side.x * halfW, yc, p.z + side.z * halfW
-    );
-    const v = t * 8;
+    const halbW = 0.12 + f * (LIPPEN_HALBBREITE - 0.12);
+    // **Der Spiegel liegt auf dem HÖCHSTEN der drei Bodenpunkte, nicht auf dem
+    // niedrigsten.** Ein Wasserspiegel ist über seine Breite waagerecht – so
+    // weit war die alte Fassung richtig. Falsch war `Math.min(yl, yr)`: Damit
+    // stand der Spiegel unter dem höheren Ufer, das Band verschwand dort im
+    // Boden und die Grasnarbe stach als Keil hindurch. Genau das passiert an
+    // der Lippe am stärksten, weil der Boden dort über die Kante rollt.
+    //
+    // Mit dem Maximum aus linkem Ufer, Sohle und rechtem Ufer liegt der Spiegel
+    // immer über dem Grund. Der Preis ist ein Schweben von wenigen Zentimetern
+    // über dem tieferen Ufer – bei einer Rinne von 0,09 Tiefe und einer halben
+    // Breite von 0,25 sind das rund 3 cm lokal, gut 12 cm in Weltmaß, und das
+    // liest sich als randvolle Rinne statt als Fehler.
+    const xl = p.x - side.x * halbW;
+    const zl = p.z - side.z * halbW;
+    const xr = p.x + side.x * halbW;
+    const zr = p.z + side.z * halbW;
+    const y =
+      Math.max(shape.heightAt(xl, zl), shape.heightAt(p.x, p.z), shape.heightAt(xr, zr)) + 0.025;
+    riverPos.push(xl, y, zl, xr, y, zr);
+    const v = f * 8;
     riverUv.push(0, v, 1, v);
     if (i < SEG) {
       const a = i * 2;
       riverIdx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+    if (i === SEG) {
+      lippeX = p.x;
+      lippeZ = p.z;
+      lippeY = y;
     }
   }
   const riverGeo = new THREE.BufferGeometry();
@@ -2031,47 +1990,88 @@ function makeWaterfall(rand, shape) {
   riverGeo.setIndex(riverIdx);
   riverGeo.computeVertexNormals();
   const river = new THREE.Mesh(riverGeo, waterMat);
+  river.name = 'island-bach';
   group.add(river);
 
-  // --- Auffangbecken an der Kante, kurz bevor das Wasser stürzt ---
-  const edgeY = shape.heightAt(edgeX, edgeZ) + 0.03;
-  const pond = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), waterMat);
-  pond.rotation.x = -Math.PI / 2;
-  pond.position.set(edgeX, edgeY, edgeZ);
-  pond.scale.x = 1.4;
-  group.add(pond);
+  // **Das Auffangbecken an der Kante ist ersatzlos entfallen.** Es war eine
+  // liegende Kreisscheibe (r = 0,5, in x auf 1,4 gestreckt) auf der Höhe des
+  // Umrisspunktes – und weil der Boden dort schon abgebrochen ist, hing ihre
+  // äußere Hälfte als flache blaue Zunge frei über dem Abgrund, quer zur
+  // Fließrichtung, weil die Streckung an der Weltachse hing und nicht am Lauf.
+  // Ein Bach, der über eine Kante geht, braucht kein Becken; die Lippe ist die
+  // letzte Bandbreite.
 
-  // --- Der Sturz selbst: eine fallende Wasserfläche ------------------------
+  // --- Der Sturz: eine fallende Wasserfläche, die der Wand folgt -----------
   //
-  // Bisher bestand der „Wasserfall" nur aus 150 Punkten. Von außen betrachtet
-  // war das eine dünne Reihe weißer Tupfen – und sie fielen dazu INNERHALB des
-  // Felsens, weil sie senkrecht von der Kante starteten, während sich die Wand
-  // darunter einzieht. Was fehlt, ist der Strahl.
+  // Bisher war der Strahl ein Band, dessen HÖHE frei gewählt war (`FALL_H`,
+  // beschleunigt) und dessen RADIUS aus der Flanke kam – zwei voneinander
+  // unabhängige Größen. Beim gemessenen Stand fiel er dadurch 7,5 Einheiten
+  // tief, während sein Radius nur der Wand bis t = 0,44 folgte: Das Band lag
+  // damit auf Höhen, auf denen der Fels längst weiter innen steht, und schnitt
+  // auf halber Strecke durch ihn hindurch.
   //
-  // Er wird deshalb als Band gebaut, das der Wand folgt: An jedem Punkt der
-  // Fallhöhe wird der tatsächliche Flankenradius abgetastet und das Band knapp
-  // davor gesetzt. Es verbreitert sich nach unten (der Strahl fächert auf) und
-  // wird durchsichtiger, bis es im Dunst verschwindet.
+  // Jetzt ist die Flankenkoordinate `t` die EINZIGE Laufvariable, genau wie im
+  // Inselkörper (`buildIslandBody`):
+  //
+  //     Höhe    y(t) = edgeY(a) − sideDepth(t, a)
+  //     Radius  R(t) = radius · outline(a) · sideRadius(t, a)  + Schieflage
+  //
+  // Der Strahl übernimmt beides und ersetzt nur `sideRadius` durch dessen
+  // LAUFENDES MAXIMUM. Das hat zwei Wirkungen zugleich: Wo die Wand ausbaucht
+  // (Gesims, Bank), legt er sich an sie an; wo sie sich einzieht – und der Keil
+  // zieht sich nach unten fast überall ein –, fällt er frei weiter außen, so
+  // wie Wasser es tut, das eine Kante verlassen hat. Ein Durchschneiden ist
+  // damit ausgeschlossen, ohne dass es geprüft werden müsste.
+  const T_FALL = 0.62;
+  const R_HALB = shape.radius * 0.5;
+  const kanteY = shape.edgeY(angle);
+  const wandR = (t, a) => shape.radius * shape.outline(a) * shape.sideRadius(t, a);
+  // Das Maximum läuft über die Tiefe UND über die Winkelbreite des Strahls:
+  // `sideRadius` trägt Bruchrauschen, das mit dem Winkel schwankt, und der
+  // Strahl ist keine Linie.
+  const dA = (LIPPEN_HALBBREITE + 0.35) / (shape.radius * shape.outline(angle));
+  const mittellinie = []; // Stützpunkte für Gischt und Nebel
   {
-    const FALL_H = 7.5;
-    const SEGV = 22;
+    const SEGV = 26;
+    // **Der Strahl beginnt am letzten Querschnitt des Bandes.** Rechnete er
+    // seinen ersten Punkt aus der Flanke (`t = 0`), lag der ein Stück weiter
+    // außen und tiefer als das Bandende – dazwischen klaffte eine Lücke, und
+    // das Band hörte sichtbar als stumpfes Rechteck in der Luft auf. Über die
+    // ersten 18 % blendet der Strahl deshalb von der Lippe auf die Wandkurve
+    // über; danach gilt nur noch die Wand.
     const pos = [];
     const uv = [];
     const idx = [];
     const alpha = [];
+    let rMax = 0;
     for (let i = 0; i <= SEGV; i++) {
       const f = i / SEGV;
-      // Tiefe entlang der Flanke, dieselbe Parametrisierung wie der Fels.
-      const t = Math.min(0.85, 0.02 + f * 0.42);
-      const rf = shape.sideRadius(t, angle) + 0.035;
-      const rr = shape.radius * shape.outline(angle) * rf;
-      const cx = Math.sin(angle) * rr;
-      const cz = Math.cos(angle) * rr;
-      const y = edgeY - 0.02 - FALL_H * (f * 0.55 + f * f * 0.45); // beschleunigt
-      const halfW = 0.17 + f * 0.17;
+      const t = T_FALL * f;
+      for (let k = -2; k <= 2; k++) {
+        rMax = Math.max(rMax, wandR(t, angle + (k / 2) * dA));
+      }
+      // 0,09 Abstand zur Wand: nah genug, dass der Strahl an ihr klebt, weit
+      // genug, dass die facettierte Oberfläche nicht durch ihn hindurchsticht.
+      const r = rMax + 0.09;
+      const lean = shape.leanAt(t);
+      const wx = Math.sin(angle) * r + shape.leanX * lean * R_HALB;
+      const wz = Math.cos(angle) * r + shape.leanZ * lean * R_HALB;
+      const wy = kanteY - shape.sideDepth(t, angle);
+      // Kurz überblenden, nicht lang: Über 18 % der Fallhöhe lag der Ansatz
+      // fast waagerecht über der Kante und las sich als blasse Schürze statt
+      // als Sturz. Sechs Prozent sind gut anderthalb Segmente – genug, um die
+      // Lücke zwischen Bandende und Wand zu schließen, kurz genug, dass das
+      // Wasser sofort abkippt.
+      const ab = smoothstep(0, 0.06, f);
+      const cx = lippeX + (wx - lippeX) * ab;
+      const cz = lippeZ + (wz - lippeZ) * ab;
+      const y = lippeY + (wy - lippeY) * ab;
+      mittellinie.push(new THREE.Vector3(cx, y, cz));
+      // Der Strahl fächert nach unten auf.
+      const halbW = LIPPEN_HALBBREITE + f * 0.34;
       pos.push(
-        cx - tangent.x * halfW, y, cz - tangent.z * halfW,
-        cx + tangent.x * halfW, y, cz + tangent.z * halfW
+        cx - tangent.x * halbW, y, cz - tangent.z * halbW,
+        cx + tangent.x * halbW, y, cz + tangent.z * halbW
       );
       const v = f * 5;
       uv.push(0, v, 1, v);
@@ -2106,8 +2106,13 @@ function makeWaterfall(rand, shape) {
     fadeCanvas.height = 64;
     const fc = fadeCanvas.getContext('2d');
     const grad = fc.createLinearGradient(0, 0, 0, 64);
+    // Oben bleibt der Strahl deckend – ein Wasserfall ist an der Lippe am
+    // dichtesten. Erst im unteren Drittel löst er sich in Gischt auf. Vorher
+    // begann die Ausblendung sofort, und der obere Teil war so blass, dass die
+    // Grasnarbe dahinter durchschien.
     grad.addColorStop(0, '#ffffff');
-    grad.addColorStop(0.55, '#cccccc');
+    grad.addColorStop(0.42, '#ffffff');
+    grad.addColorStop(0.72, '#bbbbbb');
     grad.addColorStop(1, '#000000');
     fc.fillStyle = grad;
     fc.fillRect(0, 0, 4, 64);
@@ -2137,15 +2142,19 @@ function makeWaterfall(rand, shape) {
     group.add(fall);
   }
 
-  // --- Gischt: Partikelstrom vor dem Strahl ---
+  // --- Gischt: Partikelstrom auf dem Strahl ---
+  //
+  // Die Tropfen liefen bisher senkrecht von der Kante nach unten, auf einer
+  // eigenen, fest gerechneten Achse – also neben dem Strahl, sobald der der
+  // Wand folgte. Jetzt laufen sie auf DESSEN Mittellinie: dieselben
+  // Stützpunkte, nur mit seitlichem Versatz und Zittern.
   const count = 150;
-  const fallLength = 6;
   const positions = new Float32Array(count * 3);
   const meta = [];
   for (let i = 0; i < count; i++) {
     meta.push({
-      speed: 1.7 + rand() * 0.9,
-      offset: rand() * fallLength,
+      speed: 0.10 + rand() * 0.06, // Anteil der Fallstrecke je Sekunde
+      offset: rand(),
       side: (rand() - 0.5) * 0.7,
       jitter: (rand() - 0.5) * 0.1,
     });
@@ -2165,7 +2174,18 @@ function makeWaterfall(rand, shape) {
   drops.frustumCulled = false;
   group.add(drops);
 
-  // Feiner Sprühnebel am Fuß des Wasserfalls
+  // Punkt auf der Mittellinie des Strahls, 0 = Lippe, 1 = Fuß.
+  const _mp = new THREE.Vector3();
+  const aufStrahl = (f) => {
+    const k = Math.min(mittellinie.length - 1, Math.max(0, f * (mittellinie.length - 1)));
+    const i0 = Math.floor(k);
+    const i1 = Math.min(mittellinie.length - 1, i0 + 1);
+    return _mp.copy(mittellinie[i0]).lerp(mittellinie[i1], k - i0);
+  };
+
+  // Feiner Sprühnebel am Fuß des Wasserfalls – dort, wo der Strahl tatsächlich
+  // endet, nicht auf einer zweiten, unabhängig gerechneten Stelle.
+  const fuss = mittellinie[mittellinie.length - 1];
   const mist = new THREE.Sprite(
     new THREE.SpriteMaterial({
       map: makeGlowTexture('rgba(255,255,255,0.5)', 'rgba(220,240,255,0.2)'),
@@ -2174,15 +2194,11 @@ function makeWaterfall(rand, shape) {
       opacity: 0.55,
     })
   );
-  // Fußpunkt des Sturzes: knapp außerhalb der tatsächlichen Abbruchkante
-  const outR = shape.radius * shape.outline(angle) * (shape.sideRadius(0.16, angle) + 0.06);
-  const outX = Math.sin(angle) * outR;
-  const outZ = Math.cos(angle) * outR;
-  mist.position.set(outX, edgeY - 1.4, outZ);
+  mist.position.copy(fuss);
   mist.scale.set(2.4, 2.4, 1);
   group.add(mist);
 
-  // Schaum an der Abbruchkante (pulsierendes weiches Glühen)
+  // Schaum an der Lippe (pulsierendes weiches Glühen)
   const foam = new THREE.Sprite(
     new THREE.SpriteMaterial({
       map: makeGlowTexture('rgba(255,255,255,0.95)', 'rgba(235,248,255,0.5)'),
@@ -2192,10 +2208,9 @@ function makeWaterfall(rand, shape) {
       fog: false,
     })
   );
-  foam.position.set(edgeX, edgeY + 0.02, edgeZ);
+  foam.position.set(lippeX, lippeY + 0.02, lippeZ);
   foam.scale.set(1.3, 0.5, 1);
   group.add(foam);
-
   return {
     group,
     update(time) {
@@ -2204,12 +2219,13 @@ function makeWaterfall(rand, shape) {
       const pos = geometry.attributes.position;
       for (let i = 0; i < count; i++) {
         const m = meta[i];
-        const fall = (m.offset + time * m.speed) % fallLength;
+        const f = (m.offset + time * m.speed) % 1;
+        const p = aufStrahl(f);
         pos.setXYZ(
           i,
-          outX + tangent.x * m.side + m.jitter * Math.sin(time * 3 + i),
-          edgeY - 0.05 - fall,
-          outZ + tangent.z * m.side + m.jitter * Math.cos(time * 3 + i)
+          p.x + tangent.x * m.side + m.jitter * Math.sin(time * 3 + i),
+          p.y,
+          p.z + tangent.z * m.side + m.jitter * Math.cos(time * 3 + i)
         );
       }
       pos.needsUpdate = true;
@@ -2884,16 +2900,40 @@ function buildIsland(
   // der GELAENDEhoehe, die Bloecke liegen darueber - ein Horst an derselben
   // Stelle waechst sichtbar aus dem Stein heraus oder schwebt davor.
   shape.blocked = [];
-  shape.frei = (x, z) => {
+  // Die Wasserfläche selbst ist tabu.
+  //
+  // Gemessen, nicht geschätzt: Der äußerste Scheitel des Bandes liegt bei 0,251
+  // von der Lauflinie (makeWaterfall, halbe Breite 0,12 an der Quelle bis 0,25
+  // an der Lippe). Dazu kommt der Fußabdruck der Pflanze selbst – ein Busch mit
+  // 0,16 Radius braucht mehr Abstand als ein Pilz –, deshalb nimmt `frei` ihn
+  // als dritten Wert entgegen.
+  //
+  // **Warum 0,40 und nicht 0,27.** Mit 0,27 stand nachweislich nichts mehr IM
+  // Wasser – die nächste Blume saß bei 0,303, also 5 cm hinter der Uferlinie.
+  // Aus Augenhöhe liest sich das trotzdem als „steht im Bach": Der Stiel
+  // überlappt aus flachem Blickwinkel das Band dahinter. 0,40 lässt gut 0,15
+  // freies Ufer je Seite – bei WORLD_SCALE 4 rund 60 cm neben einem zwei Meter
+  // breiten Bach, also eine Uferböschung, wie ein Bach sie hat.
+  //
+  // Weiter darf es nicht gehen: Einen Streuradius, den man ansehen kann, hält
+  // diese Insel schon einmal nicht aus (siehe die 0,96 weiter unten).
+  const WASSER = 0.40;
+  shape.frei = (x, z, r = 0) => {
     for (const b of shape.blocked) {
       if ((x - b.x) ** 2 + (z - b.z) ** 2 < b.r * b.r) return false;
     }
+    if (shape.riverDist(x, z) < WASSER + r) return false;
     // 0,96 statt 0,90: Bei 0,90 endete JEDER Bewuchs schlagartig entlang einer
     // Linie, und darunter lag bis zur Abbruchkante ein völlig glatter, kahler
     // Streifen – ein Streuradius, den man ansehen kann. Die steile Kante selbst
     // hält shape.frei ohnehin frei, weil dort die Grasnarbe abfällt.
     return Math.hypot(x, z) < shape.radius * shape.outline(Math.atan2(x, z)) * 0.96;
   };
+
+  // Der Quelltopf ist breiter als der Bach: Becken mit 0,32 Radius plus
+  // Steinkranz bis 0,40 (makeWaterfall). `riverDist` misst nur zur Lauflinie
+  // und kennt ihn nicht.
+  if (river != null) shape.blocked.push({ x: 0.1, z: 0.2, r: 0.46 });
 
   island.add(buildIslandBody(shape, { detail }));
 
@@ -2911,6 +2951,14 @@ function buildIsland(
     // Die Inselmitte bleibt frei. Dort steht der Nutzer, und dort landen die
     // Karten im Halbkreis – ein Baum an dieser Stelle verstellt nicht nur die
     // Sicht, er steht mitten im Arbeitsbereich.
+    //
+    // **Hier fehlt `outline(angle)`, anders als bei Findlingen und Knöcheln.**
+    // Das ist bewusst so belassen: Mit dem Faktor wandert JEDER Baum, und die
+    // sechs festen Prüfkameras (harness-common.mjs) zeigen dann eine andere
+    // Insel – eine davon stand danach im Geäst. Mit dem festen Seed steht kein
+    // Stamm außerhalb des Umrisses; nur Kronen kragen über die Kante, was ein
+    // Baum am Abbruch auch tut. Wer den Seed ändert, muss den Faktor
+    // nachziehen und die Vergleichsbilder neu einfrieren.
     const r = radius * (clustered ? 0.70 + rand() * 0.20 : 0.60 + rand() * 0.28);
     const tx = Math.sin(angle) * r;
     const tz = Math.cos(angle) * r;
@@ -2933,6 +2981,10 @@ function buildIsland(
     const rf = 0.92 + rand() * 0.12;
     const kx = Math.sin(a) * radius * shape.outline(a) * rf;
     const kz = Math.cos(a) * radius * shape.outline(a) * rf;
+    // Nicht in die Rinne. Ein Knöchel genau auf der Lippe steht dem Bach im
+    // Weg und teilt den Sturz – gemessen saß einer mittig im Abfluss und
+    // spaltete das Band in zwei Zungen.
+    if (shape.riverDist(kx, kz) < 0.62) continue;
     const s = 0.11 + rand() * 0.20;
     const g = boulderGeometry(rand, s);
     g.scale(1.0 + rand() * 0.45, 0.55 + rand() * 0.45, 1.0 + rand() * 0.45);
@@ -2962,9 +3014,19 @@ function buildIsland(
     // also mitten darin. Im Prüfbild „Nahaufnahme Bodenvegetation" füllte ein
     // einzelner Block dadurch 69,8 % des Rahmens, und in der Anwendung stünde
     // er zwischen Nutzer und Karten.
-    const r = radius * (rand() > 0.4 ? 0.72 + rand() * 0.20 : 0.62 + rand() * 0.10);
+    //
+    // **`outline(angle)` ist Pflicht, kein Feinschliff.** Der Umriss schwankt
+    // zwischen 0,6 und 1,3 des Radius (Landzunge, Bucht, Einschnitt). Ohne den
+    // Faktor ist `0,92 · radius` in der Bucht das 1,5-fache der dortigen
+    // Kante – und der Block hängt frei im Himmel neben der Insel. Genau das war
+    // der gemeldete fliegende Stein: gemessen saß ein Findling bei 1,18 des
+    // Umrisses. Die Felsknöchel weiter oben haben den Faktor immer gehabt.
+    const r =
+      radius * shape.outline(angle) * (rand() > 0.4 ? 0.72 + rand() * 0.20 : 0.62 + rand() * 0.10);
     const sx = Math.sin(angle) * r;
     const sz = Math.cos(angle) * r;
+    // Aus demselben Grund wie bei den Knöcheln: nicht in den Bachlauf.
+    if (shape.riverDist(sx, sz) < 0.62 + s) continue;
     shape.blocked.push({ x: sx, z: sz, r: s * 1.9 });
     const g = boulderGeometry(rand, s);
     g.translate(sx, shape.heightAt(sx, sz) + s * 0.30, sz);
@@ -3040,7 +3102,10 @@ function addUndergrowth(group, rand, shape) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   const shadowBucket = new GeoBucket();
-  const spot = (min, max) => {
+  // `fuss` ist der Radius, den das Gewächs am Boden einnimmt. Er geht in die
+  // Freiflächenprüfung ein, damit ein breiter Busch weiter vom Wasser
+  // wegrückt als ein Pilz.
+  const spot = (min, max, fuss = 0) => {
     for (let versuch = 0; versuch < 8; versuch++) {
       const angle = rand() * TAU;
       const r = shape.radius * shape.outline(angle) * (min + rand() * (max - min));
@@ -3048,9 +3113,10 @@ function addUndergrowth(group, rand, shape) {
       const z = Math.cos(angle) * r;
       // Findlinge liegen ueber der Gelaendehoehe; ein Busch oder Pilz an
       // derselben Stelle waechst sichtbar aus dem Stein.
-      if (!shape.frei || shape.frei(x, z)) return [x, shape.heightAt(x, z), z];
+      if (!shape.frei || shape.frei(x, z, fuss)) return [x, shape.heightAt(x, z), z];
     }
-    return [0, shape.heightAt(0, 0), 0];
+    // Achter Fehlversuch: lieber gar nicht setzen als in den Bach.
+    return null;
   };
 
   // --- Büsche ---------------------------------------------------------------
@@ -3066,8 +3132,12 @@ function addUndergrowth(group, rand, shape) {
   const buschAnsaetze = [];
   const BUESCHE = 14;
   for (let i = 0; i < BUESCHE; i++) {
-    const [x, y, z] = spot(0.24, 0.90);
+    // Größe VOR dem Platz würfeln: Der Fußabdruck entscheidet mit, wo der
+    // Busch stehen darf.
     const s = 0.085 + rand() * 0.075;
+    const platz = spot(0.24, 0.90, s * 1.7);
+    if (!platz) continue;
+    const [x, y, z] = platz;
     // Zwei bis drei Ansätze je Busch: ein Strauch ist kein Ball.
     const n = 2 + Math.floor(rand() * 2);
     for (let k = 0; k < n; k++) {
@@ -3133,7 +3203,16 @@ function addUndergrowth(group, rand, shape) {
   mushrooms.name = 'mushrooms';
   mushrooms.userData.fullCount = mushrooms.count;
   for (let i = 0; i < mushrooms.count; i++) {
-    const [x, y, z] = spot(0.2, 0.9);
+    const platz = spot(0.2, 0.9, 0.07);
+    if (!platz) {
+      dummy.position.set(0, -999, 0);
+      dummy.scale.setScalar(0);
+      dummy.updateMatrix();
+      mushrooms.setMatrixAt(i, dummy.matrix);
+      dummy.scale.setScalar(1);
+      continue;
+    }
+    const [x, y, z] = platz;
     dummy.position.set(x, y, z);
     dummy.scale.setScalar(0.45 + rand() * 0.4);
     dummy.rotation.set(0, rand() * Math.PI, 0);
@@ -3440,7 +3519,6 @@ function createIslandEnvironment() {
       ['island-ranken-laub', 0.45],
       ['island-krone', 0.6],
       ['flowers', 0.45],
-      ['tufts', 0.45],
       ['bushes', 0.7],
       ['mushrooms', 0.6],
     ]),
@@ -3452,6 +3530,25 @@ function createIslandEnvironment() {
     background: new THREE.Color(0x9fc6e2),
     fog,
     group,
+
+    // --- Begehbarer Bereich ---------------------------------------------
+    //
+    // Begehbar ist die **Hauptinsel**, und zwar ganz: über die ebene
+    // Innenfläche, den Randwall hinauf, über den Höhenrücken und bis an die
+    // Abbruchkante. Grundriss und Standhöhe kommen aus derselben Formbeschreibung,
+    // aus der auch die Geometrie und die Objektplatzierung entstehen
+    // (`makeIslandShape`) – die Sperre kann deshalb nicht von dem abweichen, was
+    // man sieht.
+    //
+    // **0,99 statt 1,0.** Genau an der Kante ist Schluss; das letzte Prozent
+    // deckt die Sodenplatte ab, die dort über den Fels ragt und auf der man
+    // sonst in der Luft stünde.
+    //
+    // Die Mini-Inseln bleiben unerreichbar. Sie stehen 14 bis 26 Einheiten
+    // entfernt, haben eigene Maßstäbe, eine Schieflage und schweben zusätzlich
+    // auf und ab – sie sind Horizont, kein Ziel.
+    walk: makeIslandWalk(shape, WORLD_SCALE, 0.99),
+
     setQuality(stufe) {
       applyQuality(group, null, stufe, ISLAND_QUALITAET);
       return null;
@@ -4368,6 +4465,15 @@ function makeMarsGround(rand) {
   ground.castShadow = true;
   ground.receiveShadow = true;
   group.add(ground);
+
+  // Standhöhe für die Fortbewegung, in WELTkoordinaten dieser Gruppe.
+  //
+  // **Achsen aufpassen.** Das Gitter ist eine PlaneGeometry mit
+  // `rotation.x = -PI/2`; damit bildet lokal (x, y, z) auf (x, z, −y) ab. Das
+  // oben `z` genannte `pos.getY(i)` ist also das NEGIERTE Welt-z, und die
+  // Auslenkung `pos.setZ(i, h)` landet auf der Welt-Höhe. Ohne das Minuszeichen
+  // liegen die Krater gespiegelt unter den Füßen.
+  group.userData.floorAt = (x, z) => heightAt(x, -z) + ground.position.y;
 
   // Verstreute Felsbrocken (mehr Facetten = Stein statt Kristall, flach gelagert)
   // Farben mit derselben Begründung entsättigt wie der Boden: Ein Stein, der
@@ -6108,6 +6214,11 @@ function createNightEnvironment() {
     // jede Richtungsabhängigkeit. Die anderen vier Umgebungen sind davon nicht
     // berührt – jede liest ihren eigenen Wert.
     sceneAmbient: 0,
+    // Begehbar ohne Grenze, aber ÜBER den Dünen statt hindurch. Das Höhenfeld
+    // ist dasselbe, aus dem das Gitter entsteht – es kann deshalb nicht davon
+    // abweichen, und es gilt auch jenseits der 96-m-Platte, wo ohnehin keine
+    // sichtbare Geometrie mehr liegt.
+    walk: makeHeightFieldWalk(marsGround.userData.floorAt),
 
     // **Hier gibt es bewusst nichts auszudünnen.** Der Nachthimmel hat keine
     // Blattkarten, keine additiven Lagen über Bildschirmgröße und keine
