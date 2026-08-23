@@ -4504,8 +4504,6 @@ function makeMarsGround(rand) {
     m.receiveShadow = true;
     group.add(m);
   }
-  const kontakt = makeKontaktAO(aoStellen, heightAt);
-  if (kontakt) group.add(kontakt);
 
   // --- Das Fernfeld: die Kante bei 48 m auflösen -----------------------------
   //
@@ -4692,6 +4690,109 @@ function makeMarsGround(rand) {
       group.add(mesh);
     }
   }
+
+  // --- Vordergrundanker: drei Findlinge als Leitlinie zum Mond ---------------
+  //
+  // **Was die Bilder bisher nicht hatten, war ein Vordergrund.** Gemessen lag
+  // der Kantenanteil im unteren Bilddrittel zwischen 0,08 und 1,80 % — die
+  // untere Bildhälfte war Fläche, sonst nichts. Ein Blick, der nichts Nahes
+  // findet, hat keinen Ausgangspunkt für die Tiefe.
+  //
+  // **Und sie hatten keine Achse.** Masse links zu rechts: 1,01 · 1,01 · 1,01 ·
+  // 1,01 · 1,06 · 1,02. Ein Bild, dessen Hälften gleich viel Gewicht tragen,
+  // führt den Blick nirgendwohin.
+  //
+  // Beides beantwortet dieselbe Maßnahme: drei große Findlinge, aufgereiht auf
+  // einer Linie, **die zum Mond zeigt**. Der Mond steht bei Azimut
+  // atan2(−24, 14) = −59,7°, seine Richtung in der Ebene ist (0,504 | −0,864).
+  // Die Linie von (−9 | 13) über (−6 | 8) nach (−3 | 3) hat die Richtung
+  // (6 | −10), normiert (0,514 | −0,857) — dieselbe Achse auf ein Grad genau.
+  //
+  // Sie werden zum Betrachter hin größer (0,8 → 1,05 → 1,4 m). Zusammen mit der
+  // Perspektive ergibt das eine Staffelung, die in die Tiefe zieht, statt drei
+  // gleich große Steine, die als Reihe lesen.
+  //
+  // **Der nächste steht 4,2 m vom Ursprung entfernt.** Näher wäre er im Weg:
+  // Der Nutzer steht im Ursprung, und die Karten ordnen sich bei 1,15 bis 1,5 m
+  // um ihn an. Ein Findling darf Anker sein, nicht Hindernis.
+  {
+    const findlinge = [
+      // **Zweiter Anlauf, kleiner.** Mit 1,40 / 1,05 / 0,80 m Halbmesser
+      // beherrschte der nächste Findling in `c-crater` die halbe untere
+      // Bildhälfte. Ein Anker hält den Blick, er verstellt ihn nicht.
+      { x: -3.0, z: 3.0, r: 0.95, seed: 88100, kippen: 0.22 },
+      { x: -6.0, z: 8.0, r: 0.78, seed: 88200, kippen: 0.10 },
+      { x: -9.0, z: 13.0, r: 0.60, seed: 88300, kippen: 0.31 },
+    ];
+    const stuecke = [];
+    for (const f of findlinge) {
+      const fr = mulberry32(f.seed);
+      // Ein Monolith allein liest als aufgestellt. Ein Hauptstein mit zwei
+      // kleineren Begleitern liest als das, was er sein soll: ein Brocken, der
+      // beim Aufschlag zersprungen ist und liegen geblieben ist.
+      const teile = [
+        { s: 1.0, dx: 0, dz: 0, tief: 0.34 },
+        { s: 0.42, dx: f.r * 1.35, dz: f.r * 0.5, tief: 0.55 },
+        { s: 0.26, dx: -f.r * 0.7, dz: -f.r * 1.25, tief: 0.62 },
+      ];
+      for (const t of teile) {
+        const g = bruchGeometrie(f.r * t.s, f.seed + Math.round(t.s * 1000), {
+          facetten: 9 + Math.floor(fr() * 5),
+          verwitterung: 0.08 + fr() * 0.16,
+          kanten: 0.05 + fr() * 0.05,
+        });
+        const m = new THREE.Mesh(g, marsRockMaterial());
+        const px = f.x + t.dx;
+        const pz = f.z + t.dz;
+        m.scale.set(1 + fr() * 0.35, 0.72 + fr() * 0.4, 1 + fr() * 0.35);
+        m.rotation.set((fr() - 0.5) * f.kippen * 2, fr() * Math.PI * 2, (fr() - 0.5) * f.kippen * 2);
+        m.position.set(px, heightAt(px, pz) - f.r * t.s * t.tief, pz);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        const drehung = new THREE.Quaternion().setFromEuler(m.rotation);
+        // **Gemessen war der erste Anlauf zu hell.** Die beleuchtete Fläche
+        // eines Findlings stand bei L 109,3 gegen L 67,7 am hellsten Boden und
+        // L 47,3 an einem verstreuten Brocken — das Anderthalbfache des
+        // hellsten Bodens, und damit ein anderes Material statt eines größeren
+        // Steins. Ein Anker darf herausstechen; er darf nicht aus der Szene
+        // fallen. Grundton dunkler, Alter höher (das halbiert den Anteil
+        // frischen Bruchgesteins), Staub zurück.
+        faerbeBruchstein(g, 0x6d4432, drehung, MOND_RICHTUNG, {
+          staub: 0.34,
+          frost: 0.16,
+          alter: 0.5,
+        });
+        boxProjectUV(g, 0.3);
+        stuecke.push(m);
+        aoStellen.push({ x: px, z: pz, r: f.r * t.s * 1.5, staerke: 0.5 });
+        aoStellen.push({
+          x: px,
+          z: pz,
+          r: f.r * t.s * 1.3,
+          staerke: 0.26,
+          farbe: 0xcaa78e,
+          zug: {
+            x: -NACHT_WIND.laengs.x,
+            y: -NACHT_WIND.laengs.y,
+            laenge: f.r * t.s * 3.2,
+          },
+        });
+      }
+    }
+    for (const mesh of verschmelzeObjekte(stuecke, 'nacht-findlinge')) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  }
+
+  // **Erst hier, nachdem alles eingetragen ist.** Der Aufruf stand vorher direkt
+  // hinter der Brockenschleife — die Findlinge tragen ihre Stellen aber später
+  // ein, und ihre Verdunklung und ihre Staubfahne wären dadurch nie gebaut
+  // worden. Ein Fehler, den kein Bild gezeigt hätte: Es hätte nur etwas
+  // gefehlt, das man nicht vermisst, wenn man es nie gesehen hat.
+  const kontakt = makeKontaktAO(aoStellen, heightAt);
+  if (kontakt) group.add(kontakt);
 
   // Die Geländefunktion wird von späteren Paketen gebraucht (Staub, Fernfelsen,
   // Kartenplatzierung); sie hängt am Gruppenobjekt statt in einem Modul-Global,
