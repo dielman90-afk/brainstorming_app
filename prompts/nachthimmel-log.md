@@ -1506,6 +1506,24 @@ Bogenabstand, und der Mond steht in Azimut 150°.
   zwei Meter, die man nicht raten kann.
 * `tools/rundgang.mjs` und `tools/karten-planet.mjs` — siehe oben.
 
+### Eine Silhouette für `f-kante`, in zwei Anläufen
+
+Im Blick vom Mond weg stand keine einzige Form gegen den Sternhimmel — das
+Kriterium, mit dem der Prüfer seinerzeit seinen ersten Bericht eröffnet hat. In
+dieser Richtung lag die nächste Formation bei 36 m Bogen.
+
+Der erste Anlauf setzte eine auf 19 m und rechnete die Sichtweite aus der Kugel
+allein: 8,9 + sqrt(2 · 25 · 5,2) = 25 m, also bequem sichtbar. **Im Bild war sie
+weiterhin nicht da.** Nachgemessen an der Geometrie steht ihre Spitze bei 20,8 m
+Bogen und 30,0 m Radius, das sind 16,9° unter Augenhöhe; der nächstgelegene
+Geländerücken verdeckt in dieser Richtung alles unter 16,5°. Sie fehlte um vier
+Zehntelgrad.
+
+**Die Formel vergisst das Gelände.** Sie gilt für eine glatte Kugel, und das
+Höhenfeld schwankt um ±2 m — auf 6 m Abstand sind das mehrere Grad. Bei 15 m
+Bogen steht dieselbe Spitze auf 6,8° und damit klar über dem Rücken; im Bild
+steht sie jetzt als dunkler Umriss vor der Milchstraße.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
@@ -1517,6 +1535,10 @@ Bogenabstand, und der Mond steht in Azimut 150°.
   Rippelphase aus x/z, ein Himmelshorizont auf Augenhöhe, `+Y` als „oben" für
   jeden Stein: vier Stellen, an denen der Code weiterlief und nichts mehr
   aussagte.
+* **Eine geschlossene Formel für Sichtbarkeit ist eine Untergrenze, kein
+  Beweis.** „Aus 25 m Bogen sichtbar" galt für eine glatte Kugel; das Gelände
+  darauf schwankt um ±2 m und macht daraus mehrere Grad. Was zählt, ist die
+  gemessene Höhe der Spitze gegen die gemessene Höhe des Rückens davor.
 * **Eine Kugel hat immer einen Terminator.** Alles, was auf der Platte unter
   30° Lichteinfall getestet war — Schattenbias, Kontaktverdunklung, aufgemalte
   Staubfahnen —, sieht sich hier einmal je Rundgang streifendem Licht gegenüber.
