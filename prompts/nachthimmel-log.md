@@ -1381,3 +1381,142 @@ eine Zustandsbeschreibung mit Belegen, kein Urteil.
   nach einem Szenenfehler aus.
 * **Backticks in Shader-Kommentaren.** Dreimal in einer Runde. Jetzt gibt es
   `tools/shaderlint.mjs`.
+
+---
+
+## Durchlauf 12–14: Der Nachthimmel wird ein Planet
+
+Nach dem Abschluss der neun Pakete hat der Auftraggeber eine neue Frage
+gestellt: ob aus der flachen Platte eine **Kugel** werden kann, die man in gut
+einer Minute umrundet. Der Plan dazu steht in
+`/root/.claude/plans/so-ich-hab-mal-glimmering-sloth.md`; entschieden wurden
+Halbmesser 25 m, Karten bleiben am Planeten liegen, der Mond geht unter.
+
+**Der Ansatz: die Welt dreht sich, nicht der Spieler.** Den Spieler auf der
+Kugel aufzurichten hätte jede Y-oben-Annahme der App auf einmal gebrochen —
+`Locomotion` rechnet mit UP = (0,1,0), `cards.js` ordnet Karten auf einem
+Zylinder an und richtet sie mit gleichbleibendem y auf, Whiteboard und Zonen
+sind flach und achsenparallel. Stattdessen bleibt der Spieler am Nordpol und
+`weltGruppe` dreht sich unter ihm. Optisch dieselbe Relativbewegung, nur trägt
+eine andere Matrix sie.
+
+Die Umrechnung sitzt vollständig in `makePlanetWalk` (src/walkable.js):
+`limit()` bekommt ohnehin jedes Bild die Weltposition des Kopfes und schiebt sie
+zurück — auf dem Planeten wird der Abstand vom Pol vorher in eine Weltdrehung
+umgerechnet. **`Locomotion` und `updateDesktopMovement` sind unverändert und
+wissen nichts von Kugeln.** 90 cm Freiraum bleiben für Raumskala-Bewegung; erst
+was darüber hinausgeht, dreht die Welt.
+
+### Sieben gemessene Fehler
+
+| Befund im Bild | Ursache | Beleg |
+| --- | --- | --- |
+| Ball aus 3-m-Facetten | `detail` in three ist **kein** Rekursionsgrad: `PolyhedronGeometry` zerlegt jede Grundfläche in (detail+1)², nicht in 4^detail | 2940 Scheitel gemessen statt 245 760; jetzt detail 63 |
+| Flickenteppich aus 40-cm-Rauten | `computeVertexNormals()` auf **nicht-indizierter** Geometrie ist Flat-Shading | blieb ohne Normalenkarte, Rauheitskarte und Scheitelfarben stehen; Normalen kommen jetzt analytisch aus dem Höhenfeld |
+| schwarze Kuppel von 40° mitten im Bild | `camera.far` = 260 gegen Kuppel bei 300; die Fernebene schneidet nach **Sichttiefe**, nicht nach Abstand | Loch zeigte exakt die Hintergrundfarbe (10\|6\|5); mit far = 5000 füllte es sich auf (30\|32\|38). cos 29,9° = 260/300 |
+| breiter schwarzer Streifen über dem Boden | der Himmelsverlauf hatte seinen Horizont auf Augenhöhe; auf der Kugel liegt er 20,0° tiefer | Strahl traf `nacht-kuppel` bei dir.y = −0,046, also im Ast `unten` |
+| Kamm aus parallelen Strichen quer über den Terminator | Schattenakne: `normalBias` 0,008 reicht nicht, wenn das Licht streift — und auf einer Kugel streift es immer irgendwo | Reihe 0,008 / 0,03 / 0,06 / 0,10; ab 0,06 verschwindet der Kamm, die Schlagschatten bleiben |
+| Kamm aus Strichen auf der Fläche selbst | die Windrippel zogen ihre Phase aus der waagerechten Projektion der Weltkoordinate — am Äquator der Y-Achse werden daraus Meterabstände | Strahl traf `nacht-planet` bei (25,04 \| 4,78 \| 2,78). Feld jetzt zonal um `WIND_POL`, Kammzahl **ganzzahlig** (462), damit keine Naht vom Pol zum Pol entsteht |
+| Fuß des Staubteufels auf reinem Weiß | 420 Körner additiv auf 0,22 m Fußradius; auf der Platte war er nie näher als 14 m | (255\|255\|255) gemessen; Fußradius 0,40 m und Faktor 0,25 statt 0,42 → Spitze 167 |
+
+Dazu zwei Fehler ohne Bildbefund, weil sie Geometriemenge kosteten statt Pixel:
+Die Formationen steckten mit der alten Begrabungsregel bis auf **6,3 m an den
+Planetenmittelpunkt** (26 m Körper für 7,7 m Wirkung), und ihre Breite von 11 m
+bei 3,3 m Höhe stand in der Totale wie eine Warze auf der Kugel.
+
+### Der Rundgang, gemessen (`tools/rundgang.mjs`)
+
+4712 Schritte zu 3,3 cm — das ist 2,4 m/s bei 72 Bildern je Sekunde, also genau
+das, was in der Brille passiert.
+
+| Frage | Messwert |
+| --- | --- |
+| Schließt der Rundgang? | Restwinkel 0,0297° = **1,30 cm** nach 157,07 m |
+| Steht der Boden wieder da? | Geländehöhe Start 0,3423 m, Ende 0,3417 m |
+| Steht die Sperre auf dem Gelände? | \|`walk.floorAt` − wirkliches Gelände\| max **0,000 mm** |
+| Hinkt die weiche Nachführung? | p50 2,55 cm, p95 12,18 cm, max **37,92 cm** |
+| Geht der Mond unter? | +29,9° am Start, +63,9° nach 26 m, −3,3° nach 65 m, −63,9° nach 105 m |
+| Trägt die Nachtseite Tonwert? | 6 von 12 Stationen ohne Mond, Spanne p05–p95 dort 12,4 bis 21,0 (gegen 73 bis 92 auf der Lichtseite) |
+
+**Die Vorgabe „unter einem Zentimeter" ist am Höhenfeld erfüllt und an der
+Nachführung nicht — und das ist keine Eigenschaft des Planeten.** Die weiche
+Nachführung ist ein Tiefpass erster Ordnung mit k = 7/s; sein Nachlauf bei einer
+Geländerate v ist v/k. Die größte Abweichung steht bei einer Steigung von 1,46,
+also 2,4 · 1,46 / 7 = 50 cm für eine **anhaltende** Rampe; gemessen sind 37,9 cm,
+weil die Flanke kürzer ist. Dieselbe Rechnung gilt für den Randwall der
+Himmelsinsel und die Dojo-Stufe. Wer das ändern will, ändert `dt * 7` in
+`main.js` und macht dafür jede Stufe härter — das ist eine Entscheidung über die
+ganze App, nicht über diese Umgebung, und sie ist hier nicht getroffen worden.
+
+### Karten bleiben liegen (`tools/karten-planet.mjs`)
+
+Alle sechs Prüfungen bestanden: Die Karte hängt an `nacht-welt`, wandert 52,42 m
+mit auf die Gegenseite, steht nach der ganzen Runde wieder exakt dort, der Stand
+vermerkt `frame: 'planet'`, und der gespeicherte Ort ist unabhängig davon, wo
+der Nutzer beim Speichern stand. Gegenprobe im Zen-Garten: Karten hängen dort
+weiter an der Szene, der Stand bleibt im alten Format.
+
+**Was dabei offen bleibt:** `zoneManager` und das Whiteboard hängen weiter an
+der Szene. Zonen sind flache, achsenparallele Platten — auf einer Kugel wären
+sie ohnehin falsch —, aber die Folge ist, dass die Zugehörigkeit einer Karte zu
+einer Zone sich beim Weitergehen still ändert. Das ist eine bekannte Grenze, keine
+gelöste Frage.
+
+### Budget und Regression
+
+| Größe | Budget | Platte (Durchlauf 11) | Planet |
+| --- | --- | --- | --- |
+| Draw-Calls | 120 | 18 | **18** |
+| Dreiecke | 350 000 | 135 170 | **307 234** |
+| Texturspeicher | 60 MB | 6,33 | **6,33** |
+| Sterne vor dem Gelände | 0 | 0 | **0** |
+
+Die Dreiecke sind der teure Posten: 81 920 für die Icosphere, 43 200 für 240
+Brocken, 29 880 für die Kontaktscheiben, dazu der Schattendurchgang. 42 766
+bleiben frei. `bruchGeometrie` hat dafür einen Parameter für die Unterteilung
+bekommen — Stufe 2 statt 3 sind 180 statt 320 Dreiecke je Brocken, und für einen
+Brocken von 30 cm, dessen Form aus den Schnittebenen kommt und nicht aus der
+Kugel darunter, sind die 320 Verschwendung.
+
+**Regression:** Der einzige Eingriff außerhalb des Nachthimmels ist
+`camera.far` 260 → 340. Gemessen, nicht behauptet: derselbe Stand einmal mit
+260 und einmal mit 340 gerendert ergibt Δmittel 0,001 (Insel), 0,000 (Zen),
+0,000 (Konstrukt), 0,008 (Dojo) — jeweils innerhalb des eigenen Rauschbands der
+Umgebung. Die große Abweichung gegen `night-11` (Δmittel 21,95 auf der Insel)
+stammt aus dem Zweigzusammenführung davor, nicht aus dieser Arbeit;
+`tools/shots/planet-01` ist der neue Bezugsstand.
+
+**Die sechs eingefrorenen Kameras sind ersetzt.** `f-hills` zeigte
+Horizonthügel, die es nicht mehr gibt, und `d-aerial` stand bei (18 \| 14 \| 22)
+— das liegt jetzt **innerhalb** des Planeten. Der Messvergleich gegen night-XX
+endet damit; `PLANET_SHOTS` beginnt eine neue Reihe. Zwei Zahlen bestimmen darin
+jeden Bildausschnitt: Der Horizont liegt 19,9° unter Augenhöhe und in 8,7 m
+Bogenabstand, und der Mond steht in Azimut 150°.
+
+### Neue Werkzeuge
+
+* `tools/strahl.mjs` — **was steht in diesem Pixel.** Die Lehre aus Paket 7 als
+  Werkzeug. Hat in diesem Durchlauf dreimal in einer Minute geklärt, was Raten
+  nicht geklärt hätte. Wichtig: three prüft `visible` beim Raycasting **nicht**,
+  und die abgeschalteten Umgebungen sind nur an ihrer Wurzelgruppe unsichtbar —
+  ohne die Kette nach oben meldet das Werkzeug die Wolkenschalen der Insel als
+  Treffer im Nachthimmel.
+* `tools/planetort.mjs` — **wo liegt der Boden.** Auf der Platte konnte man eine
+  Prüfkamera hinschreiben; auf der Kugel sind „am Kraterrand" und „im Krater"
+  zwei Meter, die man nicht raten kann.
+* `tools/rundgang.mjs` und `tools/karten-planet.mjs` — siehe oben.
+
+### Die Lehren dieser Runde
+
+* **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
+  `detail: 6` sah nach 81 920 Dreiecken aus und war 980. Die Zahl stand im
+  Kommentar, die Herleitung stand im Kommentar, und beide waren falsch. Was sie
+  aufgedeckt hat, war ein `verts`-Feld in einer Diagnoseausgabe.
+* **Was auf einer Ebene richtig war, ist auf einer Kugel nicht falsch, sondern
+  bedeutungslos.** Nebel 22–48 m auf einem Planeten mit 8,9 m Horizont,
+  Rippelphase aus x/z, ein Himmelshorizont auf Augenhöhe, `+Y` als „oben" für
+  jeden Stein: vier Stellen, an denen der Code weiterlief und nichts mehr
+  aussagte.
+* **Eine Kugel hat immer einen Terminator.** Alles, was auf der Platte unter
+  30° Lichteinfall getestet war — Schattenbias, Kontaktverdunklung, aufgemalte
+  Staubfahnen —, sieht sich hier einmal je Rundgang streifendem Licht gegenüber.

@@ -133,8 +133,26 @@ const environments = createEnvironments(scene);
 const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
 let envIndex = -1; // -1 = Passthrough (AR) bzw. weißer Hintergrund
 
+// **Wo Karten hängen, entscheidet die Umgebung.** Vier der fünf sind ortsfest
+// und lassen sie an der Szene; der 🌌 Nachthimmel gibt seine Weltgruppe an, weil
+// sich unter dem Nutzer der Planet dreht und eine an der Szene hängende Karte
+// mit ihm um die Kugel liefe.
+//
+// Der Umweg über eine Rückrufmethode ist nötig, weil `applyEnvironment()` schon
+// beim Aufbau der Szene läuft — lange bevor es einen `cardManager` gibt. Ein
+// direkter Zugriff wäre ein Fehler in der temporalen Totzone, und der zeigt sich
+// nicht als Fehlermeldung, sondern als Seite, die nie fertig lädt (die Lehre von
+// `bodenFarbe` in environments.js).
+let kartenHeimatZiel = null;
+let kartenHeimatSetzen = null;
+function setzeKartenHeimat(ziel) {
+  kartenHeimatZiel = ziel;
+  kartenHeimatSetzen?.(ziel);
+}
+
 function applyEnvironment() {
   const inPassthrough = renderer.xr.isPresenting && xrMode === 'immersive-ar';
+  setzeKartenHeimat((envIndex >= 0 ? environments[envIndex].kartenHeimat : null) ?? scene);
   environments.forEach((env, i) => {
     env.group.visible = i === envIndex;
   });
@@ -213,6 +231,10 @@ controls.update();
 // --- Bausteine ---
 
 const cardManager = new CardManager(scene);
+// Jetzt gibt es einen Empfänger für die Heimatwahl — und die Umgebung steht
+// schon fest, also einmal nachziehen.
+kartenHeimatSetzen = (ziel) => cardManager.setHeimat(ziel);
+kartenHeimatSetzen(kartenHeimatZiel ?? scene);
 const connectionManager = new ConnectionManager(scene, cardManager);
 // Fährt Karten sanft an neue Plätze, statt sie springen zu lassen.
 const tweener = new Tweener();

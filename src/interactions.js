@@ -193,7 +193,10 @@ export class InteractionManager {
     }
     const card = controller.userData.grabbed;
     if (card) {
-      this.scene.attach(card.group);
+      // In die **Heimat** der Karten, nicht in die Szene: Im Nachthimmel ist
+      // das die Weltgruppe des Planeten, und eine dort losgelassene Karte
+      // bleibt liegen, wenn man weitergeht.
+      (this.cardManager?.heimat ?? this.scene).attach(card.group);
       controller.userData.grabbed = null;
       const start = controller.userData.grabStart;
       if (start && card.group.position.distanceToSquared(start) > MOVE_EPSILON_SQ) {
