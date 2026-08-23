@@ -1154,3 +1154,97 @@ verbessern.
 Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
 0,833 % (oberer Rand des Rauschbands). Build grün, Konsole ohne Errors und
 Warnings.
+
+---
+
+## Durchlauf 10 — Paket 8 „Leben & Bewegung"
+
+Weiterhin ohne Prüfer. Eigenprüfung, **nicht abgenommen**.
+
+Die Szene bewegte sich in **einer** Zeile: `starsGroup.rotation.y = time * 0.004`
+— fünfzehnhundert Sterne starr als ein Körper, wörtlich das, was das Kriterium
+ausschließt. Das Sternflimmern kam in Paket 2 dazu (eigene Phase und eigenes
+Tempo je Stern); hier kommen Feinstaub, zwei Staubteufel und ein Meteor.
+
+**Die gemeinsame Regel:** Jede Bewegung bekommt ihre eigene Periode, und die
+Perioden sind zueinander teilerfremd. Zwei Bewegungen mit verwandten Perioden
+fallen regelmäßig zusammen, und genau dieser Zusammenfall liest als „gemacht".
+
+* **Feinstaub** nur auf den Kämmen — ein Punkt gilt als Kamm, wenn er höher
+  liegt als seine Nachbarn **quer zum Wind**. Jedes Korn läuft rund vier Meter
+  mit dem Wind, steigt dabei und verschwindet. Nicht weiter: Der Shader kennt
+  das Höhenfeld nicht und wüsste nach zwanzig Metern nicht, wie hoch der Boden
+  dort ist. Über vier Meter ändert er sich um Dezimeter, und das trägt.
+* **Staubteufel**, zwei, mit Radius, der mit der Höhe wächst, und einer Drehung,
+  die nach oben langsamer wird (innen und unten schnell, außen und oben träge).
+* **Ein** Meteor, alle 31 s für 1,1 s — also zu **3,5 %** der Zeit. Wer hinsieht,
+  sieht meistens keinen. Gebaut als ein langgezogenes Viereck: Der Schweif ist
+  die Streckung des Vierecks selbst, nicht ein Nachziehen mehrerer Bilder.
+
+### Ein Messwerkzeug, das erst nichts messen konnte
+
+`tools/bewegung.mjs` rendert dieselbe Kamera zu 24 Zeitpunkten und misst je
+Teil den Beitrag (einmal mit, einmal ohne). Der erste Anlauf meldete an allen
+24 Zeitpunkten **exakt denselben Wert** — min = max, für jedes Teil.
+
+Die Ursache lag im Harness, nicht in der Szene: `selectEnv` ersetzt `env.update`
+durch einen Verschluss, der sein Argument verwirft. Meine Zeitstellung ging
+also ins Leere, und die Renderschleife setzte die Uniformen ohnehin in jedem
+Bild auf `FROZEN_TIME` zurück. Die Uhr muss **umgehängt** werden, nicht gestellt:
+`env.update = () => original(t)`. `harness-common.mjs` gibt das Original jetzt
+über `env.__originalUpdate` heraus.
+
+Ein Werkzeug, das „es bewegt sich nichts" meldet, weil es selbst nichts bewegen
+kann, ist gefährlicher als gar keines.
+
+### Zwei eigene Fehler, beide im Bild
+
+1. **Die Staubteufel mauerten das Bild zu.** Gemessen deckte einer bis zu
+   **74,7 %** der Bildfläche ab. Zwei Ursachen: Ihre Bahn war ein Kreuz aus
+   zwei unabhängigen Sinus — eine Lissajous-Figur, und die läuft durch den
+   Ursprung, also durch die Kamera. Und ein Korn in zwei Metern Abstand bekam
+   375 Pixel Durchmesser. Jetzt umkreisen sie den Ursprung in 14 bis 26 m, die
+   Punktgröße ist bei 22 px gedeckelt, und im Nahfeld blenden sie aus. Neuer
+   Höchstwert: **1,6 %**.
+2. **Der Feinstaub war orangefarbener Funkenflug.** Ich hatte seine Farbe vom
+   **Boden** genommen. Das ist eine falsche Vorstellung: Der Boden ist rot, weil
+   er im Mondlicht rot **reflektiert**; ein Staubkorn in der Luft wird von
+   derselben Quelle beschienen und ist deshalb kühl und schwach. Es leuchtet
+   nicht, es wird angeleuchtet. Farbe auf 0x4c5568, Stärke von 1,6 über 0,30
+   (unsichtbar) auf 0,62.
+
+### Messung
+
+Beitrag je Teil über 24 Zeitpunkte (4,0 s bis 43,1 s), `a-eyelevel`:
+
+| Teil | Mittel | min | max |
+| --- | ---: | ---: | ---: |
+| `nacht-staub` | 0,469 % | 0,428 | 0,501 |
+| `nacht-staubteufel` | 0,589 % | 0,000 | 1,640 |
+| `nacht-sterne` | 0,377 % | 0,358 | 0,393 |
+
+Korrelation der Beitragsreihen (nahe 1 wäre Gleichtakt): Staub/Staubteufel
+**−0,088**, Staub/Sterne **−0,005**. Kein Paar läuft im Takt.
+
+Meteor, eigene Kamera und eigene Zeitpunkte (in `a-eyelevel` liegt seine Bahn
+außerhalb des Blickfelds, und ein 1,7-s-Raster trifft ein 1,1-s-Fenster meistens
+nicht — der erste Anlauf sah deshalb aus wie ein Fehler):
+
+| t | sichtbarer Anteil |
+| ---: | ---: |
+| 0,25 s | 0,000 % |
+| 0,45 s | **0,077 %** |
+| 1,05 s | **0,014 %** |
+| 1,30 s | 0,000 % |
+| 31,30 s | **0,046 %** |
+
+Genau eine Periode später wieder da.
+
+| Größe | Grenze | 00 | 09 | 10 |
+| --- | ---: | ---: | ---: | ---: |
+| Draw-Calls (max) | 120 | 40 | 15 | **18** |
+| Dreiecke (max) | 350 000 | 51 842 | 135 168 | **135 170** |
+| Texturspeicher | 60 MB | 0,77 | 6,33 | **6,33** |
+
+Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
+0,582 %. Build grün, Konsole ohne Errors und Warnings.
