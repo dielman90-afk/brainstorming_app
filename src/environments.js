@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createDojoEnvironment } from './dojo/index.js';
-import { makeIslandWalk, makeHeightFieldWalk } from './walkable.js';
+import { makeIslandWalk, makeHeightFieldWalk, makePlanetWalk } from './walkable.js';
 import { heightToMaps, scaleUV } from './dojo/materials.js';
 import { mossMaterial, waterMaterial, updateWater } from './dojo/ground.js';
 import {
@@ -3599,6 +3599,138 @@ function fbm2(x, z) {
   }
   return sum;
 }
+// --- Der Miniplanet ----------------------------------------------------------
+//
+// Aus der 96 × 96 m großen Platte wird eine **Kugel mit 25 m Halbmesser**, die
+// man in gut einer Minute umrunden kann.
+//
+//   Umfang      2π · 25       = 157,1 m
+//   Rundgang    157,1 / 2,4   =  65,5 s bei der vorhandenen Gehgeschwindigkeit
+//   Horizont    √(2 · 25 · 1,6) =   8,94 m bei 1,6 m Augenhöhe
+//   Oberfläche  4π · 25²      = 7854 m²  (die Platte hatte 9216 m²)
+//
+// **Was sich dadurch grundsätzlich ändert.** Es gibt keine Ferne mehr. Bei 8,9 m
+// Horizont sieht man einen Kreis von 250 m² — ein Vierunddreißigstel der Welt.
+// Was bisher Weite trug (Fernfeldring, Horizonthügel bei r = 26…38 m), kann
+// das nicht mehr; die Krümmung muss es tragen: der Boden, der nach unten
+// wegkippt, und die Formen, die über die Kante steigen.
+//
+// Ein Gegenstand der Höhe H bleibt sichtbar bis zur Bogendistanz
+// 8,94 + √(2 · 25 · H). Für einen 6 m hohen Felsen sind das 26,2 m — er steht
+// also noch als Silhouette am Horizont, wenn er ein Sechstel der Welt entfernt
+// ist. Das ist die Zahl, nach der die Formationen platziert werden.
+const PLANET_R = 25;
+
+// **Die drei Bausteine, an denen der ganze Umbau hängt.**
+//
+// In der Ebene war ein Ort ein Zahlenpaar und der Abstand `Math.hypot`. Auf der
+// Kugel ist ein Ort eine **Richtung** (Einheitsvektor) und der Abstand die
+// **Großkreisdistanz**. Weil Paket 5 die Geländemerkmale schon als Liste und
+// die Abstandsmessung schon hinter eine Funktion gelegt hat, ist das hier ein
+// Wechsel der Parametrisierung und keine zweite Landschaft — genau die
+// Vorkehrung, die dafür getroffen wurde.
+
+// Großkreisdistanz in Metern. `acos` wird geklemmt: Rundungsfehler bringen das
+// Skalarprodukt gelegentlich auf 1,0000001, und `Math.acos` liefert dafür NaN.
+const bogenAbstand = (a, b) => PLANET_R * Math.acos(Math.min(1, Math.max(-1, a.dot(b))));
+
+// Zwei orthonormale Vektoren, die die Tangentialebene an einer Richtung
+// aufspannen. Der Hilfsvektor wird gewechselt, wenn `d` fast senkrecht steht —
+// sonst ist das Kreuzprodukt entartet und die Ebene nicht definiert.
+function tangentialSystem(d, ost = new THREE.Vector3(), nord = new THREE.Vector3()) {
+  const hilf = Math.abs(d.y) < 0.9 ? _PY.set(0, 1, 0) : _PX.set(1, 0, 0);
+  ost.crossVectors(hilf, d).normalize();
+  nord.crossVectors(d, ost).normalize();
+  return { ost, nord };
+}
+const _PX = new THREE.Vector3();
+const _PY = new THREE.Vector3();
+const _POst = new THREE.Vector3();
+const _PNord = new THREE.Vector3();
+
+// Ein Ort, angegeben als Bogenlänge und Himmelsrichtung von einem Bezugspunkt
+// aus. Damit bleiben die Zahlen im Quelltext lesbar: „14 m nach Nordost" statt
+// eines Einheitsvektors mit fünf Nachkommastellen.
+function ortVon(bezug, bogenMeter, azimutGrad) {
+  const { ost, nord } = tangentialSystem(bezug, _POst, _PNord);
+  const th = bogenMeter / PLANET_R;
+  const az = (azimutGrad * Math.PI) / 180;
+  return bezug
+    .clone()
+    .multiplyScalar(Math.cos(th))
+    .addScaledVector(ost, Math.sin(th) * Math.cos(az))
+    .addScaledVector(nord, Math.sin(th) * Math.sin(az))
+    .normalize();
+}
+
+// **Der Wind ist auf einer Kugel ein Tangentialfeld, kein Vektor.**
+//
+// In der Ebene genügte eine Richtung für die ganze Welt. Auf der Kugel gibt es
+// keine gleichbleibende Richtung — ein Vektorfeld ohne Nullstelle existiert auf
+// der Kugel nicht (Satz vom Igel). Der einfachste brauchbare Kompromiss ist ein
+// **zonaler** Wind: Er weht entlang der Breitenkreise um einen Windpol, und
+// seine beiden Nullstellen liegen genau in diesen Polen.
+//
+// Der Windpol steht bewusst **weit vom Startpunkt** (0 | 1 | 0): Dort, wo der
+// Nutzer erscheint, soll der Wind eindeutig sein, und die beiden Stellen, an
+// denen die Rippel zusammenlaufen, sollen nicht die ersten sein, die er sieht.
+const WIND_POL = new THREE.Vector3(0.34, -0.18, 0.92).normalize();
+const STARTPUNKT = new THREE.Vector3(0, 1, 0);
+
+// Windrichtung an einem Ort, als Tangentialvektor.
+function windAn(dir, aus = new THREE.Vector3()) {
+  aus.crossVectors(WIND_POL, dir);
+  const l = aus.length();
+  // In den Windpolen selbst ist die Richtung nicht definiert; dort wird ein
+  // beliebiger Tangentialvektor genommen. Sichtbar ist das nicht — genau dort
+  // blenden die Rippel ohnehin aus.
+  if (l < 1e-4) return tangentialSystem(dir, aus, _PNord).ost;
+  return aus.multiplyScalar(1 / l);
+}
+
+// Wie weit ein Ort vom Windäquator entfernt ist, in Metern Bogenlänge. Das ist
+// die Koordinate **quer** zum Wind — entlang ihrer laufen die Rippelkämme.
+const windBreite = (dir) => PLANET_R * Math.asin(Math.min(1, Math.max(-1, dir.dot(WIND_POL))));
+
+// --- Dreidimensionales Rauschen ---------------------------------------------
+//
+// `fbm2` arbeitet auf einer Ebene. Auf einer Kugel gibt es keine Ebene, über die
+// man es spannen könnte, ohne eine Naht oder eine Verzerrung an den Polen
+// einzuhandeln. Also wird das Rauschen im **Raum** ausgewertet und die
+// Kugeloberfläche schneidet hindurch: keine Naht, keine Pole, keine
+// Vorzugsrichtung.
+function valueNoise3(x, y, z) {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const zi = Math.floor(z);
+  const u = x - xi;
+  const v = y - yi;
+  const w = z - zi;
+  const su = u * u * (3 - 2 * u);
+  const sv = v * v * (3 - 2 * v);
+  const sw = w * w * (3 - 2 * w);
+  const e = (i, j, k) => hashNoise(xi + i, yi + j, zi + k);
+  const mix = (a, b, t) => a + (b - a) * t;
+  return mix(
+    mix(mix(e(0, 0, 0), e(1, 0, 0), su), mix(e(0, 1, 0), e(1, 1, 0), su), sv),
+    mix(mix(e(0, 0, 1), e(1, 0, 1), su), mix(e(0, 1, 1), e(1, 1, 1), su), sv),
+    sw
+  );
+}
+function fbm3(x, y, z) {
+  let summe = 0;
+  let amp = 0.5;
+  let frq = 1;
+  for (let o = 0; o < 4; o++) {
+    summe += (valueNoise3(x * frq, y * frq, z * frq) - 0.5) * amp;
+    amp *= 0.5;
+    // Nicht 2,0: Bei glatter Verdopplung fallen die Oktaven auf denselben
+    // Gitterlinien zusammen und das Rauschen bekommt sichtbare Achsen.
+    frq *= 2.03;
+  }
+  return summe;
+}
+
 // Kraterprofil (t = Abstand/Radius): Mulde innen, angehobener Wall am Rand.
 // Kraterprofil (t = Abstand/Radius), vierteilig statt zweiteilig.
 //
@@ -4213,6 +4345,292 @@ function makeKontaktAO(stellen, heightAt) {
   mesh.name = 'kontaktverdunklung';
   mesh.renderOrder = 1; // knapp über dem opaken Boden
   return mesh;
+}
+
+function makeMarsPlanet(rand) {
+  const group = new THREE.Group();
+  group.name = 'nacht-welt-boden';
+
+  // --- Die Geländemerkmale als Daten, jetzt als Richtungen -------------------
+  //
+  // Vorher waren es Zahlenpaare auf einer Platte, hier sind es Orte auf einer
+  // Kugel, angegeben als **Bogenlänge und Himmelsrichtung vom Startpunkt aus**.
+  // 14 m nach Nordost bleibt 14 m nach Nordost — nur läuft die Strecke jetzt
+  // über eine Wölbung.
+  //
+  // Die Krater sind über die **ganze** Kugel verteilt, nicht mehr nur über das
+  // Sichtfeld: Man läuft überall hin, also muss überall etwas sein. Bei 8,9 m
+  // Horizont sieht man ein Vierunddreißigstel der Welt auf einmal — vierzehn
+  // Krater auf 7854 m² ergeben etwa alle zwanzig Schritte einen im Blickfeld.
+  const craters = [
+    // Nahfeld: die vier aus der Platte, die die Prüfkameras getragen haben.
+    { bogen: 11.4, az: -38, r: 3.0, depth: 0.9, wall: 1.25, alter: 0.05, strahlen: 0.9 },
+    { bogen: 12.1, az: 155, r: 4.2, depth: 1.15, wall: 0.55, alter: 0.7, strahlen: 0 },
+    { bogen: 13.2, az: 65, r: 2.4, depth: 0.7, wall: 1.4, alter: 0, strahlen: 1.0 },
+    { bogen: 14.3, az: -115, r: 3.4, depth: 0.9, wall: 0.8, alter: 0.45, strahlen: 0 },
+    { bogen: 7.0, az: 111, r: 1.15, depth: 0.34, wall: 1.5, alter: 0, strahlen: 1.0 },
+    { bogen: 18.8, az: -48, r: 1.6, depth: 0.42, wall: 1.35, alter: 0.1, strahlen: 0.7 },
+    // Mittelfeld und Rückseite — das, was man beim Rundgang findet.
+    { bogen: 34, az: 20, r: 5.0, depth: 1.3, wall: 0.35, alter: 0.85, strahlen: 0 },
+    { bogen: 41, az: -95, r: 3.6, depth: 1.0, wall: 1.1, alter: 0.15, strahlen: 0.8 },
+    { bogen: 52, az: 140, r: 2.2, depth: 0.62, wall: 1.3, alter: 0, strahlen: 1.0 },
+    { bogen: 58, az: -20, r: 4.4, depth: 1.2, wall: 0.6, alter: 0.6, strahlen: 0 },
+    { bogen: 63, az: 78, r: 1.4, depth: 0.4, wall: 1.45, alter: 0, strahlen: 0.9 },
+    { bogen: 70, az: -150, r: 3.0, depth: 0.85, wall: 0.9, alter: 0.3, strahlen: 0 },
+    { bogen: 74, az: 44, r: 1.8, depth: 0.5, wall: 1.2, alter: 0.2, strahlen: 0.5 },
+    // Einer fast auf der Gegenseite (78,5 m ist der Gegenpol).
+    { bogen: 77, az: -70, r: 4.8, depth: 1.25, wall: 0.5, alter: 0.75, strahlen: 0 },
+  ];
+  craters.forEach((c, i) => {
+    c.ort = ortVon(STARTPUNKT, c.bogen, c.az);
+    c.umriss = welligerUmriss(9001 + i * 37, 0.13 + i * 0.012, 4);
+  });
+
+  // Breite Geländeschwellen. Auf der Platte waren das die Horizonthügel bei
+  // r = 26…38 m; auf einer Kugel mit 8,9 m Horizont gibt es keinen fernen
+  // Horizont mehr, an dem sie stehen könnten. Sie werden deshalb zu dem, was
+  // sie ohnehin sind: weite Wellen im Gelände, über die man hinweggeht.
+  const huegel = [
+    { bogen: 21, az: -130, r: 13, h: 3.6 },
+    { bogen: 26, az: 165, r: 10, h: 2.7 },
+    { bogen: 24, az: -75, r: 9, h: 2.2 },
+    { bogen: 33, az: 100, r: 11, h: 3.1 },
+    { bogen: 45, az: 8, r: 8, h: 1.6 },
+    { bogen: 47, az: -160, r: 12, h: 2.4 },
+    { bogen: 60, az: 128, r: 10, h: 1.9 },
+    { bogen: 66, az: -35, r: 12, h: 3.3 },
+    { bogen: 72, az: 165, r: 9, h: 2.0 },
+  ];
+  huegel.forEach((k, i) => {
+    k.ort = ortVon(STARTPUNKT, k.bogen, k.az);
+    k.umriss = welligerUmriss(4200 + i * 53, 0.26 + i * 0.02, 5);
+  });
+
+  // --- Höhenfeld über einer Richtung -----------------------------------------
+  //
+  // Rückgabe ist der **radiale Abstand vom Sollradius** in Metern, nicht die
+  // Höhe über einer Ebene. Ein Punkt der Oberfläche liegt bei
+  // `richtung · (PLANET_R + heightAt(richtung))`.
+  //
+  // Die Dünenasymmetrie aus Paket 5 bleibt und wird nur anders ausgedrückt: Das
+  // Feld wird dort, wo es hoch ist, **windabwärts verschoben abgetastet**. In
+  // der Ebene war das eine Verschiebung in x und z; auf der Kugel ist es eine
+  // Drehung um die Achse senkrecht zu Windrichtung und Ort — also ein Schritt
+  // entlang der Oberfläche, und der ist hier das Richtige.
+  const _hn = new THREE.Vector3();
+  const _hw = new THREE.Vector3();
+  const _hachse = new THREE.Vector3();
+  const _hd = new THREE.Vector3();
+
+  const WIND_VERSATZ = 6.0;
+  const heightAt = (dir) => {
+    // Vorabtastung für die Verschiebung. Der Maßstab 0,05 je Meter aus der
+    // Ebene wird zu 0,05 · PLANET_R je Einheitsvektor, damit die Wellenlänge
+    // von 20 m erhalten bleibt.
+    const k = 0.05 * PLANET_R;
+    const vor = fbm3(dir.x * k, dir.y * k, dir.z * k);
+
+    // Einen Schritt windabwärts gehen: Drehung um die Achse senkrecht zu Ort
+    // und Windrichtung.
+    windAn(dir, _hw);
+    _hachse.crossVectors(dir, _hw).normalize();
+    _hd.copy(dir).applyAxisAngle(_hachse, (-vor * WIND_VERSATZ) / PLANET_R);
+
+    const big = fbm3(_hd.x * k, _hd.y * k, _hd.z * k) * 3.2;
+    const km = 0.16 * PLANET_R;
+    const med = fbm3(dir.x * km + 11, dir.y * km, dir.z * km - 7) * 0.9;
+    // **Kein Korn mehr in der Geometrie.** Auf der Platte stand hier ein
+    // dritter Summand: `hashNoise` je Scheitel, ±6 cm. `hashNoise` ist ein
+    // Hash, kein Rauschen — benachbarte Scheitel bekommen unabhängige Werte.
+    // Bei 0,41 m Kantenlänge ist das eine Steigung von ±16 Grad je Kante, also
+    // genau die Frequenz, die ein Gitter nicht darstellen kann. Solange die
+    // Normalen aus den Facetten kamen, ist es als Körnung durchgegangen;
+    // sobald sie aus dem Höhenfeld kommen (unten), macht es jede Normale zur
+    // Zufallszahl. Das Korn sitzt jetzt dort, wo es hingehört: in der
+    // kachelnden Normalenkarte, die 1 bis 3 cm auflöst.
+    let h = big + med;
+
+    for (const k2 of huegel) {
+      const d = bogenAbstand(dir, k2.ort);
+      if (d >= k2.r * 1.4) continue;
+      // Winkel um den Hügelmittelpunkt, für den unrunden Umriss.
+      tangentialSystem(k2.ort, _POst, _PNord);
+      const w = Math.atan2(dir.dot(_PNord), dir.dot(_POst));
+      const rEff = k2.r * k2.umriss(w);
+      if (d >= rEff) continue;
+      const u = d / rEff;
+      const q = 1 - u * u;
+      h += k2.h * q * q;
+    }
+    for (const c of craters) {
+      const d = bogenAbstand(dir, c.ort);
+      if (d >= c.r * 3.2) continue;
+      tangentialSystem(c.ort, _POst, _PNord);
+      const w = Math.atan2(dir.dot(_PNord), dir.dot(_POst));
+      const rEff = c.r * c.umriss(w);
+      h += craterProfile(d / rEff, c.wall, c.alter) * c.depth;
+    }
+    // **Kein Flachhalten des Ursprungs mehr.** Auf der Platte musste die Mitte
+    // eben sein, weil der Nutzer dort stand und nie wegkam. Auf dem Planeten
+    // steht er überall; eine flache Stelle wäre eine willkürliche Delle.
+    return h;
+  };
+
+  const strahlenAt = (dir) => {
+    let hell = 0;
+    for (const c of craters) {
+      if (!c.strahlen) continue;
+      const d = bogenAbstand(dir, c.ort);
+      const t = d / c.r;
+      if (t < 0.9 || t > 9) continue;
+      tangentialSystem(c.ort, _POst, _PNord);
+      const winkel = Math.atan2(dir.dot(_PNord), dir.dot(_POst));
+      const speiche =
+        Math.sin(winkel * 7 + c.bogen) * 0.5 +
+        Math.sin(winkel * 11 - c.az * 0.1) * 0.3 +
+        Math.sin(winkel * 17 + c.r) * 0.2;
+      const scharf = Math.max(0, speiche - 0.18) / 0.82;
+      const reichweite = (1 - smoothstep(1.5, 9, t)) * smoothstep(0.9, 1.6, t);
+      hell += scharf * scharf * reichweite * c.strahlen;
+    }
+    return Math.min(1, hell);
+  };
+
+  // --- Einfärbung -------------------------------------------------------------
+  //
+  // Wortgleich aus Paket 4 übernommen, nur dass die Verwehungen jetzt über
+  // Windbreite und Windlänge laufen statt über x und z. Die Streckung um
+  // Faktor 6,5 in Windrichtung bleibt: Verwehungen sind Bahnen, keine Flecken.
+  const base = new THREE.Color(0x854c33);
+  const bodenFarbe = (dir, h, aus) => {
+    const quer = windBreite(dir);
+    // Länge entlang des Windes: der Azimut um den Windpol, mal Radius.
+    const laengs =
+      PLANET_R * Math.atan2(dir.dot(_PY.set(0, 1, 0).cross(WIND_POL).normalize()), dir.dot(_PX.set(1, 0, 0)));
+    const verwehung = fbm3(laengs * 0.02, quer * 0.13, h * 0.4);
+
+    const exposition = smoothstep(-1.6, 2.6, h);
+    const shade =
+      0.80 +
+      exposition * 0.30 +
+      verwehung * 0.34 +
+      strahlenAt(dir) * 0.42 +
+      (hashNoise(dir.x * 52, dir.y * 52, dir.z * 52) - 0.5) * 0.10;
+    aus.copy(base).multiplyScalar(shade);
+    const kuehl = Math.max(0, exposition - 0.45) * 0.16;
+    aus.r *= 1 - kuehl * 0.9;
+    aus.b *= 1 + kuehl * 1.6;
+    return aus;
+  };
+
+  // --- Normalen aus dem Höhenfeld, nicht aus den Facetten ---------------------
+  //
+  // **`computeVertexNormals()` auf einer nicht-indizierten Geometrie ist
+  // Flat-Shading.** Ohne gemeinsame Scheitel gibt es nichts zu mitteln: Jedes
+  // Dreieck bekommt dreimal seine eigene Facettennormale. Auf der Platte fiel
+  // das nie auf, weil `PlaneGeometry` indiziert ist; die Icosphere aus
+  // `PolyhedronGeometry` ist es nicht. Im Bild stand daraufhin ein Flickenteppich
+  // aus 40-cm-Rauten — gemessen dadurch, dass er auch ohne Normalenkarte, ohne
+  // Rauheitskarte und ohne Scheitelfarben unverändert dastand.
+  //
+  // Die Normale steht analytisch zur Verfügung, weil die Fläche analytisch ist:
+  // Für P(d) = (R + h(d)) · d mit den Tangenten e1, e2 ist
+  //
+  //   N = normalize( (R + h) · d − (dh/ds1) · e1 − (dh/ds2) · e2 )
+  //
+  // wobei s1, s2 Bogenlängen sind. Die Ableitungen kommen als Vorwärtsdifferenz
+  // über 0,21 m — **etwa eine halbe Kantenlänge**. Kleiner wäre falsch: Die
+  // Normale würde dann eine Steigung beschreiben, die das Gitter gar nicht
+  // hergibt, und stünde quer zur Silhouette.
+  const _nOst = new THREE.Vector3();
+  const _nNord = new THREE.Vector3();
+  const _nHilf = new THREE.Vector3();
+  const _nAus = new THREE.Vector3();
+  const N_EPS = 0.21;
+  const schrittAuf = (dir, tang, meter, aus) =>
+    aus
+      .copy(dir)
+      .multiplyScalar(Math.cos(meter / PLANET_R))
+      .addScaledVector(tang, Math.sin(meter / PLANET_R))
+      .normalize();
+  const normalAn = (dir, h, aus) => {
+    tangentialSystem(dir, _nOst, _nNord);
+    // ACHTUNG: `heightAt` ruft `tangentialSystem` seinerseits mit _POst/_PNord.
+    // _nOst und _nNord sind eigene Vektoren; mit den geteilten Zwischenspeichern
+    // wäre die zweite Ableitung Unsinn.
+    const h1 = (heightAt(schrittAuf(dir, _nOst, N_EPS, _nHilf)) - h) / N_EPS;
+    const h2 = (heightAt(schrittAuf(dir, _nNord, N_EPS, _nHilf)) - h) / N_EPS;
+    return aus
+      .copy(dir)
+      .multiplyScalar(PLANET_R + h)
+      .addScaledVector(_nOst, -h1)
+      .addScaledVector(_nNord, -h2)
+      .normalize();
+  };
+
+  // --- Die Kugel selbst -------------------------------------------------------
+  //
+  // **Icosphere statt SphereGeometry.** Eine `SphereGeometry` ist ein
+  // Längen-/Breitengitter: An den Polen entarten ihre Dreiecke zu Nadeln, und
+  // die Dichte der Scheitelpunkte schwankt um Größenordnungen. Auf einem
+  // Planeten, den man überall betritt, ist das ein sichtbares Muster an genau
+  // zwei Stellen — und der Startpunkt liegt bei (0 | 1 | 0), also auf einem
+  // davon. Eine Icosphere hat überall fast gleich große Dreiecke.
+  //
+  // **Die Unterteilung ist ein Budgetwert, kein Geschmack** — und `detail` ist
+  // in three.js **nicht** der Rekursionsgrad, für den ich ihn gehalten habe.
+  // `PolyhedronGeometry` zerlegt jede der 20 Grundflächen in (detail + 1)²
+  // Dreiecke, nicht in 4^detail. Mit `detail: 6` standen deshalb 980 Dreiecke
+  // im Bild statt der geplanten 81 920, und die Totale zeigte einen Ball aus
+  // 3-m-Facetten (gemessen: 2940 Scheitel im Mesh, also 980 Dreiecke — die
+  // Zahl, die den Irrtum aufgedeckt hat).
+  //
+  //   Dreiecke  = 20 · (detail + 1)²
+  //   Kante     ≈ 1,0515 · R / (detail + 1)
+  //
+  //   detail 31:  20 480 Dreiecke, Kante 0,82 m — ein 1,15-m-Krater wäre 1,4
+  //               Kanten breit, also nicht darstellbar
+  //   detail 63:  81 920 Dreiecke, Kante 0,41 m — derselbe Krater 5,6 Kanten
+  //   detail 127: 327 680 Dreiecke — allein schon fast das ganze Budget, und
+  //               mit dem Schattendurchgang darüber
+  const geo = new THREE.IcosahedronGeometry(PLANET_R, 63);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const normals = new Float32Array(pos.count * 3);
+  const col = new THREE.Color();
+  const d = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    d.fromBufferAttribute(pos, i).normalize();
+    const h = heightAt(d);
+    pos.setXYZ(i, d.x * (PLANET_R + h), d.y * (PLANET_R + h), d.z * (PLANET_R + h));
+    normalAn(d, h, _nAus);
+    normals[i * 3] = _nAus.x;
+    normals[i * 3 + 1] = _nAus.y;
+    normals[i * 3 + 2] = _nAus.z;
+    bodenFarbe(d, h, col);
+    colors[i * 3] = col.r;
+    colors[i * 3 + 1] = col.g;
+    colors[i * 3 + 2] = col.b;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  // **Würfelprojektion statt Kugel-UV.** Die UV einer Icosphere hat eine Naht
+  // und an den Polen eine Singularität; die Kornkarte würde dort sichtbar
+  // gestaucht. Die Würfelprojektion hat statt dessen sechs Bereiche mit
+  // unterschiedlicher UV-Richtung — bei **reinem Rauschen** ist das
+  // unauffällig, und genau deshalb ist die Kornkarte reines Rauschen (die
+  // Begründung steht ausführlich bei `cliffMaps()` in dojo/stonework.js).
+  boxProjectUV(geo, 1.6);
+  const boden = new THREE.Mesh(geo, marsGroundMaterial());
+  boden.name = 'nacht-planet';
+  boden.castShadow = true;
+  boden.receiveShadow = true;
+  group.add(boden);
+
+  group.userData.heightAt = heightAt;
+  group.userData.bodenFarbe = bodenFarbe;
+  group.userData.craters = craters;
+  return group;
 }
 
 function makeMarsGround(rand) {
@@ -5132,33 +5550,59 @@ function milchstrassenKarte() {
 function makeFeinstaub(rand, heightAt) {
   const ANZAHL = 1400;
   const positions = new Float32Array(ANZAHL * 3);
+  const windRi = new Float32Array(ANZAHL * 3);
+  const hochRi = new Float32Array(ANZAHL * 3);
   const phasen = new Float32Array(ANZAHL);
   const groessen = new Float32Array(ANZAHL);
+  const d = new THREE.Vector3();
+  const w = new THREE.Vector3();
+  const achse = new THREE.Vector3();
+  const q1 = new THREE.Vector3();
+  const q2 = new THREE.Vector3();
   let n = 0;
   let versuche = 0;
   while (n < ANZAHL && versuche < ANZAHL * 30) {
     versuche++;
-    const a = rand() * Math.PI * 2;
-    const r = 2.5 + Math.sqrt(rand()) * 34;
-    const x = Math.cos(a) * r;
-    const z = Math.sin(a) * r;
-    // Nur auf Kämmen: Ein Punkt liegt auf einem Kamm, wenn er höher liegt als
-    // seine Umgebung. Zwei Proben quer zum Wind genügen — die Kämme stehen
-    // quer zur Windrichtung.
-    const h = heightAt(x, z);
-    const qx = NACHT_WIND.quer.x * 1.6;
-    const qz = NACHT_WIND.quer.y * 1.6;
-    const kamm = h - (heightAt(x + qx, z + qz) + heightAt(x - qx, z - qz)) * 0.5;
+    // Gleichverteilt auf der Kugel — ohne die Umrechnung über den Kosinus des
+    // Polarwinkels säße der Staub an den Polen dichter.
+    const u = rand() * 2 - 1;
+    const phi = rand() * Math.PI * 2;
+    const sp = Math.sqrt(Math.max(0, 1 - u * u));
+    d.set(sp * Math.cos(phi), u, sp * Math.sin(phi));
+
+    const h = heightAt(d);
+    // Nur auf Kämmen: höher als die Nachbarn **quer zum Wind**. Auf der Kugel
+    // ist „daneben" ein Schritt entlang der Oberfläche, also eine Drehung um
+    // die Achse senkrecht zu Ort und Schrittrichtung.
+    windAn(d, w);
+    achse.crossVectors(d, w).normalize();
+    // Quer zum Wind heißt: um die Windachse selbst drehen.
+    q1.copy(d).applyAxisAngle(w, 1.6 / PLANET_R);
+    q2.copy(d).applyAxisAngle(w, -1.6 / PLANET_R);
+    const kamm = h - (heightAt(q1) + heightAt(q2)) * 0.5;
     if (kamm < 0.06 && rand() > 0.12) continue; // die 12 % streuen das Feld auf
-    positions[n * 3] = x;
-    positions[n * 3 + 1] = h + 0.04 + rand() * 0.16;
-    positions[n * 3 + 2] = z;
+
+    const r = PLANET_R + h + 0.04 + rand() * 0.16;
+    positions[n * 3] = d.x * r;
+    positions[n * 3 + 1] = d.y * r;
+    positions[n * 3 + 2] = d.z * r;
+    // Windrichtung und Radialrichtung wandern als Attribute mit: Auf einer
+    // Kugel gibt es keine gemeinsame Windrichtung und kein gemeinsames „oben",
+    // also kann beides nicht als Uniform übergeben werden.
+    windRi[n * 3] = w.x;
+    windRi[n * 3 + 1] = w.y;
+    windRi[n * 3 + 2] = w.z;
+    hochRi[n * 3] = d.x;
+    hochRi[n * 3 + 1] = d.y;
+    hochRi[n * 3 + 2] = d.z;
     phasen[n] = rand();
     groessen[n] = 0.22 + rand() * 0.55;
     n++;
   }
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions.slice(0, n * 3), 3));
+  geo.setAttribute('windRi', new THREE.BufferAttribute(windRi.slice(0, n * 3), 3));
+  geo.setAttribute('hochRi', new THREE.BufferAttribute(hochRi.slice(0, n * 3), 3));
   geo.setAttribute('phase', new THREE.BufferAttribute(phasen.slice(0, n), 1));
   geo.setAttribute('groesse', new THREE.BufferAttribute(groessen.slice(0, n), 1));
 
@@ -5166,41 +5610,31 @@ function makeFeinstaub(rand, heightAt) {
     uniforms: {
       zeit: { value: 0 },
       pxSkala: { value: 300 },
-      wind: { value: NACHT_WIND.laengs },
-      // **Zweiter Anlauf an der Farbe, und es war ein grober Fehler.** 0x6a4a3a
-      // mal 1,6 additiv ergab orange leuchtende Punkte — im Bild las das als
-      // Funkenflug, nicht als Staub. Der Grund ist eine falsche Vorstellung:
-      // Ich hatte die Staubfarbe vom **Boden** genommen. Der Boden ist rot,
-      // weil er im Mondlicht rot **reflektiert**; ein Staubkorn in der Luft
-      // wird von derselben Quelle beschienen und ist deshalb kühl und schwach,
-      // nicht warm und hell. Es leuchtet nicht, es wird angeleuchtet.
+      // Ein Staubkorn in der Luft wird vom Mond **angeleuchtet**, es leuchtet
+      // nicht. Deshalb kühl und schwach und nicht in der Farbe des Bodens —
+      // der ist rot, weil er rot reflektiert.
       farbe: { value: new THREE.Color(0x4c5568) },
     },
     vertexShader: `
       attribute float phase;
       attribute float groesse;
+      attribute vec3 windRi;
+      attribute vec3 hochRi;
       uniform float zeit;
       uniform float pxSkala;
-      uniform vec2 wind;
       varying float vStaerke;
       void main() {
-        // Eigene Lebensdauer je Korn (2,3 bis 4,1 s), damit nichts im
-        // Gleichtakt aufsteigt.
         float dauer = 2.3 + fract(phase * 7.31) * 1.8;
         float t = fract(zeit / dauer + phase);
-        vec3 p = position;
-        p.xz -= wind * (t * 4.0 - 1.2);
-        // Aufsteigen und wieder absinken: Das Korn wird angehoben, verliert
-        // Fahrt und fällt zurueck.
-        p.y += sin(t * 3.14159) * (0.14 + fract(phase * 3.7) * 0.42);
-        // Ein- und ausblenden, damit kein Korn im Nichts erscheint.
+        // Vier Meter mit dem Wind. Weiter nicht: Der Shader kennt das
+        // Hoehenfeld nicht und wuesste nach zwanzig Metern nicht, wie hoch der
+        // Boden dort ist.
+        vec3 p = position + windRi * (t * 4.0 - 1.2)
+                          + hochRi * (sin(t * 3.14159) * (0.14 + fract(phase * 3.7) * 0.42));
         vStaerke = sin(t * 3.14159);
         vStaerke *= vStaerke;
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
         float tiefe = -mv.z;
-        // Aus demselben Grund gedeckelt wie beim Staubteufel, nur enger: Der
-        // Feinstaub liegt dem Betrachter naeher und wuerde sonst zuerst zur
-        // Wand.
         gl_PointSize = clamp(groesse * pxSkala / tiefe, 1.0, 6.0);
         vStaerke *= smoothstep(1.2, 4.0, tiefe);
         gl_Position = projectionMatrix * mv;
@@ -5212,9 +5646,7 @@ function makeFeinstaub(rand, heightAt) {
         vec2 d = gl_PointCoord - 0.5;
         float r2 = dot(d, d);
         if (r2 > 0.25) discard;
-        // 1,6 war Funkenflug, 0,30 war unsichtbar. 0,62 liegt dazwischen:
-        // gemessen rund 2,7 % veränderte Bildpunkte, also vorhanden, aber
-        // nichts, was den Blick vom Mond wegzieht.
+        // 1,6 war Funkenflug, 0,30 war unsichtbar. 0,62 liegt dazwischen.
         gl_FragColor = vec4(farbe * vStaerke * (1.0 - r2 * 4.0) * 0.62, 1.0);
       }`,
     blending: THREE.AdditiveBlending,
@@ -5230,15 +5662,29 @@ function makeFeinstaub(rand, heightAt) {
 
 // **Staubteufel.**
 //
-// Zwei Wirbel, die über die Ebene wandern. Jeder ist eine Spirale aus Körnern:
-// Der Radius wächst mit der Höhe, die Drehung wird nach oben hin langsamer
-// (Drehimpulserhaltung — innen und unten schnell, außen und oben träge).
+// Zwei Wirbel, die über den Planeten wandern. Jeder ist eine Spirale aus
+// Körnern: Der Radius wächst mit der Höhe, die Drehung wird nach oben hin
+// langsamer (Drehimpulserhaltung — innen und unten schnell, außen und oben
+// träge).
 //
-// Ihre Bahnen sind Summen zweier Sinus mit **teilerfremden** Perioden (37 s und
-// 23 s beim einen, 53 s und 29 s beim anderen). Damit wiederholt sich die Bahn
-// erst nach dem kleinsten gemeinsamen Vielfachen — praktisch nie — und die
-// beiden treffen einander nie im selben Takt.
-function makeStaubteufel(rand) {
+// **Auf der Kugel gibt es keine gemeinsame Bahnebene mehr.** Auf der Platte
+// war die Bahn ein Kreis in x/z und „oben" für beide Wirbel dieselbe Achse.
+// Beides fällt hier weg: Jeder Wirbel steht auf seiner eigenen Flächennormale,
+// und seine Bahn ist ein Kleinkreis um einen eigenen Pol. Weil sich das je
+// Bild ändert und für 840 Körner dasselbe ist, wird es **nicht** je Scheitel
+// gerechnet, sondern einmal je Bild in `setzeZeit()` und als Uniform
+// übergeben: Mittelpunktsrichtung, Ost- und Nordtangente und der Radius, auf
+// dem der Boden dort liegt.
+//
+// Die Bahnen sind Kleinkreise mit teilerfremden Perioden — 121 s für den
+// Umlauf und 37 s für das Wandern der Kreisbreite beim einen, 143 s und 53 s
+// beim anderen. Damit wiederholt sich die Bahn erst nach dem kleinsten
+// gemeinsamen Vielfachen, praktisch also nie, und die beiden treffen einander
+// nie im selben Takt.
+//
+// Ihr Tempo liegt bei rund 1,3 m/s — spürbar langsamer als die 2,4 m/s des
+// Spielers. Man holt einen Staubteufel ein, er läuft einem nicht davon.
+function makeStaubteufel(rand, heightAt) {
   const WIRBEL = 2;
   const JE = 420;
   const positions = new Float32Array(WIRBEL * JE * 3);
@@ -5247,7 +5693,11 @@ function makeStaubteufel(rand) {
     for (let i = 0; i < JE; i++) {
       const k = w * JE + i;
       // Nach oben ausdünnen: Ein Wirbel ist unten dicht und oben ein Schleier.
-      const hAnteil = Math.pow(rand(), 1.7);
+      // **1,4 statt 1,7 seit dem Planeten.** Auf der Platte standen die Wirbel
+      // 14 bis 26 m entfernt; auf der Kugel kommt man ihnen bis auf vier Meter
+      // Bogen nahe, und dann zeigt sich, wie stark 1,7 die Körner am Fuß
+      // zusammendrängt.
+      const hAnteil = Math.pow(rand(), 1.4);
       positions[k * 3] = 0;
       positions[k * 3 + 1] = 0;
       positions[k * 3 + 2] = 0;
@@ -5269,45 +5719,53 @@ function makeStaubteufel(rand) {
       // als der Feinstaub, weil ein Staubteufel dichter ist und mehr vom
       // Bodenlicht mitnimmt.
       farbe: { value: new THREE.Color(0x5e5a5e) },
+      mitteA: { value: new THREE.Vector3(0, 1, 0) },
+      ostA: { value: new THREE.Vector3(1, 0, 0) },
+      nordA: { value: new THREE.Vector3(0, 0, 1) },
+      basisA: { value: PLANET_R },
+      mitteB: { value: new THREE.Vector3(0, 1, 0) },
+      ostB: { value: new THREE.Vector3(1, 0, 0) },
+      nordB: { value: new THREE.Vector3(0, 0, 1) },
+      basisB: { value: PLANET_R },
     },
     vertexShader: `
       attribute vec3 daten;
       uniform float zeit;
       uniform float pxSkala;
+      uniform vec3 mitteA, ostA, nordA, mitteB, ostB, nordB;
+      uniform float basisA, basisB;
       varying float vStaerke;
       void main() {
         float w = daten.x;
         float hA = daten.y;
         float w0 = daten.z;
 
-        // **Bahn auf einem Ring, nicht auf einem Kreuz aus Sinus.**
-        //
-        // Der erste Anlauf hat x und z unabhängig schwingen lassen. Das ergibt
-        // eine Lissajous-Figur, und die läuft durch den Ursprung — also durch
-        // die Kamera. Gemessen deckte ein Wirbel dabei **74,7 %** der
-        // Bildfläche ab: Man stand mitten drin, und aus einem Staubteufel wurde
-        // eine Wand.
-        //
-        // Jetzt umkreist er den Ursprung in 14 bis 26 m Abstand. Der Winkel und
-        // der Radius haben eigene, teilerfremde Perioden (41 s und 26 s beim
-        // einen, 59 s und 31 s beim anderen), also wiederholt sich die Bahn
-        // praktisch nie — aber sie kommt nie herein.
-        float bAng = w < 0.5 ? zeit / 41.0 * 6.2832 : -zeit / 59.0 * 6.2832 + 2.4;
-        float bRad = w < 0.5
-          ? 20.0 + sin(zeit / 26.0 * 6.2832) * 6.0
-          : 17.0 + cos(zeit / 31.0 * 6.2832) * 5.0;
-        vec2 mitte = vec2(cos(bAng) * bRad, sin(bAng) * bRad);
+        // Der Standort des Wirbels und sein Tangentensystem kommen fertig aus
+        // setzeZeit(); hier bleibt nur die Spirale um seine eigene Achse.
+        vec3 mitte = w < 0.5 ? mitteA : mitteB;
+        vec3 ost   = w < 0.5 ? ostA   : ostB;
+        vec3 nord  = w < 0.5 ? nordA  : nordB;
+        float basis = w < 0.5 ? basisA : basisB;
 
         float hoehe = hA * (w < 0.5 ? 5.2 : 3.6);
         // Radius waechst mit der Hoehe, Drehung wird nach oben langsamer.
-        float radius = 0.22 + hA * hA * (w < 0.5 ? 1.5 : 1.05);
+        // **0,40 m Fußradius statt 0,22.** Der Fuß ist die dichteste Stelle des
+        // Wirbels, und bei additiver Mischung heißt dicht: Die Beiträge
+        // summieren sich ohne Obergrenze. Gemessen stand der Fuß in c-krater
+        // auf exakt (255|255|255) — reines Weiß, dieselbe Klippe wie einst die
+        // Sonnenscheibe des Zen-Gartens. Der doppelte Fußradius verteilt
+        // dieselbe Kornzahl auf die vierfache Fläche.
+        float radius = 0.40 + hA * hA * (w < 0.5 ? 1.5 : 1.05);
         float tempo = (w < 0.5 ? 3.1 : 4.3) / (0.35 + hA * 1.4);
         float winkel = w0 + zeit * tempo;
 
-        vec3 p;
-        p.x = mitte.x + cos(winkel) * radius;
-        p.z = mitte.y + sin(winkel) * radius;
-        p.y = hoehe;
+        // Die Wirbelachse ist die Flächennormale, also die Mittelpunkts-
+        // richtung selbst. Der Spiralversatz von höchstens 1,7 m ist gegen den
+        // Planetenradius von 25 m klein genug, dass die Tangentialebene
+        // ausreicht — die Abweichung zur Kugel liegt bei 6 cm.
+        vec3 p = mitte * (basis + hoehe)
+               + ost * (cos(winkel) * radius)
+               + nord * (sin(winkel) * radius);
 
         // Nach oben schwaecher, und der ganze Wirbel atmet mit eigener Periode.
         float atmen = 0.55 + 0.45 * sin(zeit / (w < 0.5 ? 11.0 : 17.0) * 6.2832);
@@ -5332,7 +5790,12 @@ function makeStaubteufel(rand) {
         vec2 d = gl_PointCoord - 0.5;
         float r2 = dot(d, d);
         if (r2 > 0.25) discard;
-        gl_FragColor = vec4(farbe * vStaerke * (1.0 - r2 * 4.0) * 0.42, 1.0);
+        // **0,25 statt 0,42.** Mit dem alten Betrag stand der Fuß des Wirbels
+        // auch nach dem Verbreitern noch auf 254 von 255 — einen Schritt vor
+        // dem Anschlag. Gemessen ergibt 0,25 eine Spitze um 150: hell genug,
+        // dass der Wirbel das Auge holt, dunkel genug, dass der Mond das
+        // hellste im Bild bleibt.
+        gl_FragColor = vec4(farbe * vStaerke * (1.0 - r2 * 4.0) * 0.25, 1.0);
       }`,
     blending: THREE.AdditiveBlending,
     transparent: false,
@@ -5342,6 +5805,46 @@ function makeStaubteufel(rand) {
   const punkte = new THREE.Points(geo, material);
   punkte.name = 'nacht-staubteufel';
   punkte.frustumCulled = false;
+
+  // Die beiden Bahnen. `pol` ist die Achse des Kleinkreises, `breite` sein
+  // Öffnungswinkel vom Pol aus. Die Pole sind so gewählt, dass Wirbel A dem
+  // Startpunkt bis auf 4 bis 13 m Bogen nahekommt und Wirbel B mit 11 bis 22 m
+  // draußen bleibt: einer, dem man begegnet, und einer, den man über die
+  // Krümmung steigen sieht.
+  const bahnen = [
+    { pol: new THREE.Vector3(0.72, 0.38, -0.58).normalize(), breite: 1.52, schwung: 0.17, tBreite: 37, tUmlauf: 121, phi0: 0.0 },
+    { pol: new THREE.Vector3(-0.46, 0.55, 0.7).normalize(), breite: 1.66, schwung: 0.21, tBreite: 53, tUmlauf: -143, phi0: 2.1 },
+  ];
+  for (const b of bahnen) {
+    const { ost, nord } = tangentialSystem(b.pol, new THREE.Vector3(), new THREE.Vector3());
+    b.e1 = ost;
+    b.e2 = nord;
+    b.ort = new THREE.Vector3();
+  }
+  const u = material.uniforms;
+  const ziele = [
+    { mitte: u.mitteA, ost: u.ostA, nord: u.nordA, basis: u.basisA },
+    { mitte: u.mitteB, ost: u.ostB, nord: u.nordB, basis: u.basisB },
+  ];
+  punkte.userData.setzeZeit = (t) => {
+    u.zeit.value = t;
+    for (let w = 0; w < WIRBEL; w++) {
+      const b = bahnen[w];
+      const th = b.breite + b.schwung * Math.sin((t / b.tBreite) * Math.PI * 2);
+      const ph = b.phi0 + (t / b.tUmlauf) * Math.PI * 2;
+      const d = b.ort
+        .copy(b.pol)
+        .multiplyScalar(Math.cos(th))
+        .addScaledVector(b.e1, Math.sin(th) * Math.cos(ph))
+        .addScaledVector(b.e2, Math.sin(th) * Math.sin(ph))
+        .normalize();
+      const z = ziele[w];
+      z.mitte.value.copy(d);
+      tangentialSystem(d, z.ost.value, z.nord.value);
+      z.basis.value = PLANET_R + heightAt(d);
+    }
+  };
+  punkte.userData.setzeZeit(0);
   return punkte;
 }
 
@@ -5753,9 +6256,8 @@ function mondHof(name, innen, aussen, exponent, groesse, staerke) {
 // zeichnet anschließend darüber. Genau das soll passieren.
 //
 // Reihenfolge: Kuppel (−2), Sterne (−1), alles andere (0).
-function makeSternfeld(rand) {
+function makeSternfeld(rand, R = 41) {
   const ANZAHL = 2600;
-  const R = 41; // innerhalb der Kuppel (44), außerhalb spielt es keine Rolle mehr
 
   const positions = new Float32Array(ANZAHL * 3);
   const farben = new Float32Array(ANZAHL * 3);
@@ -5836,7 +6338,10 @@ function makeSternfeld(rand) {
       // 420 im ersten Anlauf ergab bei der größten Klasse 9,3 px Durchmesser
       // — das sind keine Sterne mehr, das sind Lampen. 260 bringt die hellsten
       // auf knapp 6 px und die schwächsten auf das Minimum von 1 px.
-      pxSkala: { value: 260 },
+      // Die Punktgröße wird auf den Schalenradius bezogen: `gl_PointSize`
+      // rechnet mit 1/Abstand, und ein Stern auf einer Schale von 280 m wäre
+      // sonst sieben Mal kleiner als einer auf 41 m.
+      pxSkala: { value: (260 * R) / 41 },
       zeit: { value: 0 },
     },
     vertexShader: `
@@ -5891,7 +6396,16 @@ function makeSternfeld(rand) {
   return sterne;
 }
 
-function makeNachtKuppel() {
+// `horizontSinus` ist der Sinus des Höhenwinkels, unter dem der sichtbare
+// Horizont liegt. Auf einer Ebene ist er 0 — der Horizont steht auf Augenhöhe.
+// Auf einer Kugel mit 25 m Halbmesser steht er bei 1,6 m Augenhöhe **20,0 Grad
+// tiefer** (acos(25/26,6)), und das ist keine Feinheit: Der ganze Streifen
+// zwischen −20 und 0 Grad ist Himmel, und der lag mit dem alten Verlauf in der
+// Farbe `unten` — praktisch schwarz. Im Bild stand daraufhin eine schwarze
+// Kuppel von 40 Grad Durchmesser mitten in der Szene, durch die die Sterne
+// hindurchschienen (der Strahl durch das Pixel traf `nacht-kuppel` in 299,67 m
+// bei dir.y = −0,046).
+function makeNachtKuppel(radius = 44, horizontSinus = 0) {
   // **Die Bandlage ist gerechnet, nicht gegriffen.** Der erste Pol
   // (0,46 | 0,63 | −0,63) lag so, dass das Band in `a-eyelevel` bei einer
   // Querkoordinate von 1,9 stand — also weit außerhalb der Kachel und damit
@@ -5945,9 +6459,15 @@ function makeNachtKuppel() {
       // Größenordnung des Himmels und die hellsten Ballungen auf gut 46 von
       // 255: sichtbar, aber der Mond bleibt das hellste im Bild.
       milchStaerke: { value: 0.042 },
-      mwPol: { value: mwPol },
-      mwA: { value: mwA },
-      mwB: { value: mwB },
+      // Die drei Bandvektoren sind Uniforms, weil die Kuppel selbst **nicht**
+      // mitdreht: Der Grundverlauf und das Luftglühen gehören zum Ort des
+      // Betrachters und müssen über ihm stehen bleiben, die Milchstraße gehört
+      // zum Sternhimmel und muss mit ihm wandern. Beides in einer Fläche geht
+      // nur so.
+      mwPol: { value: mwPol.clone() },
+      mwA: { value: mwA.clone() },
+      mwB: { value: mwB.clone() },
+      hHor: { value: horizontSinus },
     },
     vertexShader: `
       varying vec3 vPos;
@@ -5966,11 +6486,18 @@ function makeNachtKuppel() {
       uniform vec3 mwPol;
       uniform vec3 mwA;
       uniform vec3 mwB;
+      uniform float hHor;
       varying vec3 vPos;
 
       void main() {
         vec3 dir = normalize(vPos);
-        float h = dir.y;
+        // Höhe über dem SICHTBAREN Horizont, auf 0…1 nach oben und 0…−1 nach
+        // unten gestreckt. Auf der Ebene (hHor = 0) ist das genau dir.y wie
+        // bisher; auf dem Planeten schiebt es den ganzen Verlauf um 20 Grad
+        // nach unten, dorthin, wo die Kante des Planeten wirklich liegt.
+        float h = dir.y > hHor
+          ? (dir.y - hHor) / (1.0 - hHor)
+          : (dir.y - hHor) / (1.0 + hHor);
 
         // Grundverlauf in drei Stufen statt zwei: Ein Nachthimmel ist am
         // Zenit nicht einfach die dunkelste Fassung der Horizontfarbe, er
@@ -6041,9 +6568,17 @@ function makeNachtKuppel() {
         gl_FragColor = vec4(mix(col * 12.92, hoch, step(0.0031308, col)), 1.0);
       }`,
   });
-  const dome = new THREE.Mesh(new THREE.SphereGeometry(44, 48, 30), material);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 30), material);
   dome.name = 'nacht-kuppel';
   dome.renderOrder = -2; // vor allem anderen, auch vor den Sternen
+  // Die Milchstraße wandert mit dem Sternhimmel, die Kuppel steht still.
+  const _mwQ = [mwPol, mwA, mwB];
+  dome.userData.setzeWeltdrehung = (q) => {
+    const u = material.uniforms;
+    u.mwPol.value.copy(_mwQ[0]).applyQuaternion(q);
+    u.mwA.value.copy(_mwQ[1]).applyQuaternion(q);
+    u.mwB.value.copy(_mwQ[2]).applyQuaternion(q);
+  };
   return dome;
 }
 
@@ -6052,16 +6587,65 @@ function createNightEnvironment() {
   const group = new THREE.Group();
   group.name = 'env-night';
 
-  group.add(makeNachtKuppel());
+  // --- Zwei Gruppen, und warum es genau zwei sind ----------------------------
+  //
+  // **Der Spieler bleibt stehen, die Welt dreht sich unter ihm.** Der
+  // naheliegende Weg wäre, den Spieler auf der Kugel aufzurichten — sein „oben"
+  // wird die Flächennormale. Das bricht jede Y-oben-Annahme der App auf einmal:
+  // `Locomotion` rechnet mit UP = (0,1,0) in `_glide`, `_snap` und
+  // `_rotateAroundHead`; `cards.js` ordnet Karten auf einem Zylinder um den
+  // Nutzer an und ruft `lookAt` mit gleichbleibendem y, damit sie senkrecht
+  // stehen; Whiteboard und Zonen sind flach und achsenparallel gebaut.
+  //
+  // Optisch ist beides dasselbe — es ist dieselbe Relativbewegung, nur trägt
+  // eine andere Matrix sie. Aber so bleibt `player` achsenparallel, und der
+  // gesamte UI-Code läuft unverändert weiter.
+  //
+  //   `weltGruppe`   trägt alles, was am Planeten hängt: Boden, Steine, Staub.
+  //                  Sie dreht sich um den Planetenmittelpunkt (den Ursprung).
+  //   `himmelGruppe` trägt Kuppel, Sterne, Mond und Mondlicht. Sie sitzt am
+  //                  **Nordpol** und übernimmt die Drehung der Weltgruppe.
+  //
+  // Weil die Himmelsgruppe dieselbe Drehung trägt wie die Welt, geht der Mond
+  // beim Rundgang von selbst unter — ohne eine einzige Sonderbehandlung.
+  const weltGruppe = new THREE.Group();
+  weltGruppe.name = 'nacht-welt';
+  group.add(weltGruppe);
+
+  // Der Himmel sitzt am Nordpol statt im Planetenmittelpunkt: Der Nutzer steht
+  // dort, und eine Kuppel, aus deren Mitte man 25 m heraussteht, hätte einen
+  // schiefen Verlauf. Ihr Radius ist mit 300 m so groß, dass die verbleibenden
+  // ein bis drei Meter Geländehöhe nicht mehr ins Gewicht fallen.
+  const himmelGruppe = new THREE.Group();
+  himmelGruppe.name = 'nacht-himmel';
+  himmelGruppe.position.set(0, PLANET_R, 0);
+  group.add(himmelGruppe);
+
+  // **Die Kuppel dreht nicht mit.** Grundverlauf, Horizontfarbe und Luftglühen
+  // sind Eigenschaften des Ortes, an dem der Betrachter steht — sie müssen über
+  // ihm stehen bleiben, während sich die Welt unter ihm dreht. Der Sternhimmel
+  // dagegen muss wandern, sonst ginge der Mond nie unter. Deshalb zwei Gruppen
+  // am selben Ort: eine feste für die Kuppel, eine mitdrehende für alles andere.
+  const kuppelGruppe = new THREE.Group();
+  kuppelGruppe.name = 'nacht-himmel-fest';
+  kuppelGruppe.position.set(0, PLANET_R, 0);
+  group.add(kuppelGruppe);
+  // 20,0 Grad unter Augenhöhe: acos(PLANET_R / (PLANET_R + 1,6)).
+  const HORIZONT_SINUS = -Math.sin(Math.acos(PLANET_R / (PLANET_R + 1.6)));
+  const kuppel = makeNachtKuppel(300, HORIZONT_SINUS);
+  kuppelGruppe.add(kuppel);
 
   const starsGroup = new THREE.Group();
-  const sternfeld = makeSternfeld(rand);
+  const sternfeld = makeSternfeld(rand, 280);
   starsGroup.add(sternfeld);
-  group.add(starsGroup);
+  himmelGruppe.add(starsGroup);
 
-  // Der Mond steht bei [14 | 16 | −24] — 32,1 m Abstand, 29,9° über dem
-  // Horizont. Die Scheibe hat 2,8 m Durchmesser und damit denselben scheinbaren
-  // Durchmesser wie die alte Kugel mit Radius 1,4.
+  // **Der Mond muss weiter weg.** Auf der Platte stand er 32,1 m entfernt; auf
+  // einem Planeten mit 25 m Halbmesser liefe man ihm beim Rundgang fast
+  // entgegen. Er steht jetzt 300 m vom Nordpol, und seine Scheibe wächst
+  // entsprechend mit: 26 m auf 300 m sind 0,0433 im Bogenmaß, gegen 2,8 m auf
+  // 32,1 m also 0,0437 — dieselbe scheinbare Größe wie bisher.
+  const MOND_FERN = 300;
   const moon = new THREE.Sprite(
     new THREE.SpriteMaterial({
       map: mondScheibe(),
@@ -6079,8 +6663,8 @@ function createNightEnvironment() {
     })
   );
   moon.name = 'nacht-mond';
-  moon.position.copy(MOND_ORT);
-  moon.scale.set(2.8, 2.8, 1);
+  moon.position.copy(MOND_RICHTUNG).multiplyScalar(MOND_FERN);
+  moon.scale.set(26, 26, 1);
 
   // Drei Hoflagen mit verschiedenen Reichweiten und Exponenten.
   //
@@ -6097,12 +6681,13 @@ function createNightEnvironment() {
     mondHof('nacht-mondhof-eng', 0xd6e2f8, 0x8098c4, 6.5, 4.6, 0.42),
   ];
   hoefe.forEach((h, i) => {
-    h.position.copy(MOND_ORT);
+    h.position.copy(moon.position);
+    h.scale.multiplyScalar(MOND_FERN / 32.06);
     h.renderOrder = 10 + i;
-    group.add(h);
+    himmelGruppe.add(h);
   });
   moon.renderOrder = 20;
-  group.add(moon);
+  himmelGruppe.add(moon);
 
   // --- Licht -----------------------------------------------------------------
   //
@@ -6145,6 +6730,10 @@ function createNightEnvironment() {
   // aber G:B = 0,41; das Produkt 0,77 kippt den Kanal. Mondlicht im Bild ist
   // kühl, aber nie magenta – es liegt zwischen Blau und Cyan. Mit 0x7595b4
   // (G:B = 0,66) steht das Produkt bei 1,23 und Grün führt wieder.
+  // Die Aufhellung bleibt in der **Umgebungsgruppe**, nicht in der
+  // Himmelsgruppe: Eine Hemisphärenleuchte rechnet mit `normal.y` in
+  // Weltkoordinaten. Sie mitzudrehen hieße, dass „oben" für sie irgendwohin
+  // wandert, während der Nutzer weiterhin nach oben schaut.
   const skyFill = new THREE.HemisphereLight(0x7595b4, 0x4e2a1c, 2.0);
   group.add(skyFill);
 
@@ -6164,22 +6753,30 @@ function createNightEnvironment() {
   // 0xe2eaf0 ist (226 | 234 | 240): immer noch kühl, aber zwischen Blau und
   // Cyan statt darüber hinaus. Linear fällt Blau um 13 %, Rot steigt um 10 %.
   const moonLight = new THREE.DirectionalLight(0xe2eaf0, 3.1);
-  moonLight.position.copy(moon.position);
-  moonLight.target.position.set(0, 0, 0);
-  group.add(moonLight.target);
+  // In der Himmelsgruppe, also dreht das Licht mit dem Mond mit: Wer um den
+  // Planeten läuft, läuft in die Nacht hinein und wieder heraus.
+  moonLight.position.copy(MOND_RICHTUNG).multiplyScalar(MOND_FERN);
+  // Ziel ist der **Planetenmittelpunkt**. Der liegt in der Himmelsgruppe bei
+  // (0 | −PLANET_R | 0), weil die Gruppe am Nordpol sitzt.
+  moonLight.target.position.set(0, -PLANET_R, 0);
+  himmelGruppe.add(moonLight.target);
   moonLight.castShadow = true;
   moonLight.shadow.mapSize.set(2048, 2048);
   {
     // Orthokamera ±40 m: Das ist 3,9 cm je Texel und deckt alles ab, was vor
     // dem Nebelende bei 48 m liegt. Weiter draußen ist ohnehin alles zu 100 %
     // Nebelfarbe, ein fehlender Schatten dort ist unsichtbar.
+    // Ortho ±30 m um den Planetenmittelpunkt: Der Planet ist 50 m breit, das
+    // deckt ihn ganz ab. 60 m auf 2048 Texel sind 2,9 cm — feiner als die
+    // 3,9 cm auf der Platte, weil eine Kugel kompakter ist als ein 96-m-Quadrat.
+    // Die Tiefengrenzen umschließen den Planeten bei 300 m Lichtabstand.
     const sc = moonLight.shadow.camera;
-    sc.left = -40;
-    sc.right = 40;
-    sc.top = 40;
-    sc.bottom = -40;
-    sc.near = 0.5;
-    sc.far = 120;
+    sc.left = -30;
+    sc.right = 30;
+    sc.top = 30;
+    sc.bottom = -30;
+    sc.near = 250;
+    sc.far = 360;
     sc.updateProjectionMatrix();
     // Der Normal-Bias darf nicht in die Größenordnung der Objekte kommen – im
     // Zen-Garten hat 0,03 die 6 cm dicken Trittsteine um ihren Schatten
@@ -6189,24 +6786,32 @@ function createNightEnvironment() {
     moonLight.shadow.bias = -0.0004;
     moonLight.shadow.normalBias = 0.008;
   }
-  group.add(moonLight);
+  himmelGruppe.add(moonLight);
 
-  const marsGround = makeMarsGround(rand);
-  group.add(marsGround);
+  const marsGround = makeMarsPlanet(rand);
+  weltGruppe.add(marsGround);
 
   // --- Leben und Bewegung ----------------------------------------------------
   const feinstaub = makeFeinstaub(rand, marsGround.userData.heightAt);
-  group.add(feinstaub);
-  const staubteufel = makeStaubteufel(rand);
-  group.add(staubteufel);
+  weltGruppe.add(feinstaub);
+  const staubteufel = makeStaubteufel(rand, marsGround.userData.heightAt);
+  weltGruppe.add(staubteufel);
+  // Der Meteor gehört zum Himmel, nicht zur Welt.
   const meteor = makeMeteor();
-  group.add(meteor);
+  himmelGruppe.add(meteor);
 
   return {
     id: 'night',
     name: '🌌 Nachthimmel',
     background: new THREE.Color(0x0a0605),
-    fog: new THREE.Fog(0x1c0d09, 22, 48),
+    // **Der Nebel ist neu vermessen, nicht neu geraten.** 22 bis 48 m stammten
+    // von der 96-m-Platte; auf einer Kugel mit 25 m Halbmesser liegt der
+    // Horizont bei 9,1 m Bogen und in Sichtlinie bei 8,9 m — der alte Bereich
+    // begann also erst weit hinter dem Rand der Welt und hat nie etwas getan.
+    // 5 bis 13 m staffeln jetzt genau die Strecke, die es noch gibt: Was auf
+    // dem eigenen Hügel steht, ist klar, was über die Krümmung steigt, sitzt im
+    // Dunst.
+    fog: new THREE.Fog(0x1c0d09, 5, 13),
     group,
 
     // Das globale Grundlicht aus main.js aus. Begründung oben beim Lichtblock:
@@ -6218,7 +6823,22 @@ function createNightEnvironment() {
     // ist dasselbe, aus dem das Gitter entsteht – es kann deshalb nicht davon
     // abweichen, und es gilt auch jenseits der 96-m-Platte, wo ohnehin keine
     // sichtbare Geometrie mehr liegt.
-    walk: makeHeightFieldWalk(marsGround.userData.floorAt),
+    // **Ein Planet, kein Höhenfeld.** Der Spieler bleibt am Nordpol stehen und
+    // die Welt dreht sich unter ihm; die Begründung steht bei `makePlanetWalk`
+    // in walkable.js. Weil die Umrechnung dort sitzt, wissen `Locomotion` und
+    // die Desktop-Steuerung nichts von der Kugel und bleiben unverändert.
+    walk: makePlanetWalk({
+      radius: PLANET_R,
+      heightAt: marsGround.userData.heightAt,
+      welt: weltGruppe,
+      // Der Himmel übernimmt die Drehung sofort und nicht erst im nächsten
+      // `update()`: Ein Bild Rückstand wären zwar nur 0,09 Grad, aber es wäre
+      // ein Rückstand, der mit dem Tempo wächst.
+      nachDrehung: (welt) => {
+        himmelGruppe.quaternion.copy(welt.quaternion);
+        kuppel.userData.setzeWeltdrehung(welt.quaternion);
+      },
+    }),
 
     // **Hier gibt es bewusst nichts auszudünnen.** Der Nachthimmel hat keine
     // Blattkarten, keine additiven Lagen über Bildschirmgröße und keine
@@ -6254,7 +6874,10 @@ function createNightEnvironment() {
       starsGroup.rotation.y = time * 0.004;
       sternfeld.material.uniforms.zeit.value = time;
       feinstaub.material.uniforms.zeit.value = time;
-      staubteufel.material.uniforms.zeit.value = time;
+      // Der Staubteufel bekommt mehr als die Zeit: Auf der Kugel hat jeder
+      // Wirbel seinen eigenen Standort samt Tangentensystem, und das wird
+      // einmal je Bild gerechnet statt 840-mal je Scheitel.
+      staubteufel.userData.setzeZeit(time);
       meteor.material.uniforms.zeit.value = time;
     },
   };

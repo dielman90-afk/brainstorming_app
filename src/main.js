@@ -45,7 +45,19 @@ scene.background = DESKTOP_BG;
 // plus Reserve; bei 60 wurden die skalierte Insel und der Konstrukt-Boden
 // abgeschnitten. near bleibt bei 5 cm – dort sitzt praktisch die gesamte
 // Tiefengenauigkeit, ein größeres far kostet sie kaum.
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 260);
+// **Die Fernebene reicht bis 340 m, seit der Nachthimmel ein Planet ist.**
+// Seine Kuppel steht 300 m vom Nordpol, das Sternfeld bei 280, der Mond bei
+// 300 — mit den alten 260 m stand mitten im Bild ein **schwarzes Loch**: Die
+// Fernebene schneidet nach Sichttiefe, nicht nach Abstand, also fiel genau der
+// Kegel von 29,9 Grad um die Blickachse weg (cos 29,9° = 260/300), während der
+// Rand der Kuppel schräg genug stand, um durchzukommen. Gemessen: Das Loch
+// zeigte exakt die Hintergrundfarbe (10|6|5), und mit far = 5000 füllte es
+// sich auf (30|32|38).
+//
+// Die Tiefenauflösung kostet das nichts. Sie hängt an 1/near − 1/far; mit
+// near = 0,05 sind das 20,0 gegen vorher 19,996 — der Unterschied liegt bei
+// zwei Zehntausendsteln.
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 340);
 camera.position.set(0, 1.6, 1.2);
 
 // Player-Rig: Kamera (und in XR die Controller) hängen hier. three.js wendet die
