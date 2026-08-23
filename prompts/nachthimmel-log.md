@@ -748,3 +748,95 @@ falsch angeschlagen und wurde daraufhin korrigiert.
 Sterne vor dem Gelände: **0** über alle sechs Kameras (unverändert).
 Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
 0,500 % (Rauschband). Build grün, Konsole ohne Errors und Warnings.
+
+---
+
+## Durchlauf 6 — Paket 4 „Boden"
+
+Weiterhin ohne Prüfer. Eigenprüfung, **nicht abgenommen**.
+
+### Die Aufteilung nach Frequenz, dieselbe wie beim Zen-Sand
+
+| Ortsfrequenz | Träger | Inhalt |
+| --- | --- | --- |
+| grob, Meter bis Zehnermeter | Scheitelfarben, 0,64 m je Zelle | Verwehungen, Ausbleichen nach Exposition |
+| mittel, 34 cm | **rechnerisch aus der Weltposition** | Windrippel |
+| fein, 1–3 cm | kachelnde Normalenkarte | Korn |
+
+Alles hat **eine** Windrichtung (35,5° gegen die x-Achse, bewusst nicht
+achsenparallel — sonst fiele das Rippelmuster mit den Textur- und Gitterachsen
+zusammen und würde zum Raster). Rippel, Verwehungen und Staubfahnen kommen aus
+derselben Richtung; drei Merkmale, die einander widersprechen, lesen als Zufall
+statt als Wetter.
+
+**Windrippel**, gerechnet: Abstand 34 cm, Sägezahnprofil statt Sinus (flache Luv-,
+steile Leeseite; ein reiner Sinus liest als Dünung), mäandernde Kämme über
+`quer += 0,35·sin(0,7·laengs)`. **Die Streuung des Abstands ist A·f = 0,245**,
+also knapp ein Viertel einer Periode — nicht A·f·Teilung, das war der Fehler,
+der auf der Insel 4 % rechnete und 90 % ins Bild stellte.
+
+Sie sind nicht überall: Sie brauchen eine flache Auflage (`normal.y`) und kommen
+in Feldern von zwanzig bis vierzig Metern. Ein flächendeckend gleich stark
+geripptes Feld ist so sehr ein Muster wie gar keines.
+
+**Verwehungen** sind entlang des Windes um Faktor 6,5 gestreckt abgetastet
+(0,020 gegen 0,130) — isotropes Rauschen gäbe Flecken, Verwehungen sind Bahnen.
+**Ausbleichen nach Exposition** läuft mit dem Licht statt gegen es: Kämme hell
+*und* beschienen, Mulden dunkel *und* im Schatten. Die freigefegten Kämme sind
+zusätzlich um wenige Prozent **kühler** — der rote Feinstaub ist dort weg. Das
+ist der Unterschied zwischen „heller" und „anderes Material".
+
+**Staubfahnen** liegen in derselben verschmolzenen Fläche wie die
+Kontaktverdunklung. Dafür trägt die Farbe jetzt je Scheitelpunkt und die
+Materialfarbe ist neutral — vorher stand sie auf Schwarz und konnte nur
+abdunkeln. Der Kegel öffnet sich **nur** stromab: Der Streckfaktor kommt aus
+dem Anteil in Windrichtung und wird bei null geklemmt; eine symmetrische
+Streckung ergäbe eine Ellipse, und die läse als Pfütze statt als Fahne.
+
+### Drei Male, in denen mich das Auge getäuscht hat und die Messung es geklärt hat
+
+Dieses Paket ist ein gutes Beispiel dafür, warum „nach zwei erfolglosen
+Anläufen nachmessen" zu spät ansetzt — hier war schon der **erste** Eindruck
+falsch.
+
+1. **„Der Shader-Einschub kommt nicht an."** Die Feinstruktur änderte sich
+   kaum (1,955 → 1,953), und meine Laufzeitprobe meldete nur ein Programm.
+   Beides war falsch gemessen: Der 5×5-Hochpass ist das falsche Instrument für
+   ein 25-Pixel-Merkmal, und `renderer.info.programs` war zu früh gelesen. Das
+   Bild zeigte die Rippel deutlich.
+2. **„Die Brocken sind verschwunden."** Nachgemessen: Δmax 21 gegen den
+   Vorstand, **kein einziges Pixel** über 24. Es hatte sich nichts bewegt — die
+   Brocken lesen nur weniger, weil der Boden jetzt beschäftigt ist.
+3. **„Die Staubfahne steht als heller Keil im Bild."** Gemessen war die Stelle
+   (97|64|54) gegen (107|66|53) daneben, also **dunkler** — der Schlagschatten
+   des Brockens. Ich hatte die Fahnen daraufhin von 0,30 auf 0,16 gedämpft; die
+   Dämpfung ist zurückgenommen (jetzt 0,24), weil ihr Grund falsch war.
+
+### Messung
+
+| | night-00 | night-05 | night-06 |
+| --- | --- | --- | --- |
+| Feinstruktur `e-ground`, nah → fern | 1,62 · 1,71 · 1,99 · 2,13 · 2,01 | 1,96 · 2,14 · 2,38 · 2,42 · 2,05 | **1,79 · 1,96 · 2,18 · 2,26 · 2,02** |
+| `e-ground` Boden, Mittel / p05…p95 | — | 50,3 / 27…84 | 44,2 / 21…78 |
+| Draw-Calls (max) | 40 | 13 | **13** |
+| Dreiecke (max) | 51 842 | 105 632 | **107 432** |
+| Texturspeicher | 0,77 MB | 6,33 MB | **6,33 MB** |
+
+**Was die Messung *nicht* zeigt, und das gehört hierher:**
+
+* Die **Entfernungsabhängigkeit des Korns** ist verbessert, aber nicht gelöst.
+  Das nahe Band fällt von 1,96 auf 1,79, die Reihe steigt aber weiterhin zur
+  Mitte hin an statt zu fallen. Der 5×5-Hochpass mischt Korn, Rippel und
+  Geländekontrast in einer Zahl; für diese Frage bräuchte es ein Maß, das an
+  einem festen **Welt**maßstab misst statt an einem festen Pixelmaßstab.
+  Offen für den Schlusspass.
+* Der **Tonwertumfang ist nicht gewachsen**, obwohl das Ausbleichen nach
+  Exposition darauf zielte: `e-ground` p05…p95 bleibt bei 57 Stufen, der
+  Mittelwert fällt um 6. Die Rippel kippen die Hälfte der Fläche vom Licht weg,
+  und das frisst auf, was die Exposition beiträgt. Kein Fehler, aber auch kein
+  Gewinn — die Behauptung „größter Hebel" hat sich für diesen Teil nicht
+  bestätigt.
+
+Sterne vor dem Gelände: **0** über alle sechs Kameras. Regression: Zen
+bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel 0,707 %
+(Rauschband). Build grün, Konsole ohne Errors und Warnings.
