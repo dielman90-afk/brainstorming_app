@@ -656,3 +656,95 @@ besser, aber nicht gut. Kandidat für den Schlusspass.
 **Regression:** Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
 0,816 % (oberer Rand des bekannten Rauschbands 0,6–0,9 %). Build grün, Konsole
 ohne Errors und Warnings.
+
+---
+
+## Durchlauf 5 — Paket 3 „Mond"
+
+Weiterhin ohne Prüfer (Konto am Ausgabelimit). Eigenprüfung, **nicht abgenommen**.
+
+### Warum eine Scheibe statt einer Kugel
+
+Aus 32,1 m Abstand hat der Mond einen scheinbaren Radius von 2,5° — er *ist*
+eine Scheibe. Die alte Kugel kostete 1216 Dreiecke, um eine Fläche zu zeigen,
+die zwei tragen. Wichtiger als die Dreiecke ist die Kontrolle: Auf einer
+Billboard-Scheibe steht jeder Bildpunkt an einer bekannten Stelle, und
+Randabdunklung, Phase und die Verkürzung der Krater zum Rand hin lassen sich
+**rechnen** statt über eine Kugel-UV zu hoffen. Gezeitengebunden ist er ohnehin.
+
+Der Aufbau ist zweistufig, weil beides seine eigene Sprache hat:
+
+* **Albedo** mit Zeichenbefehlen — Maria als zusammenhängende Becken mit
+  ausgefransten Rändern (Kernblob plus Kranz), 90 Krater mit Licht- und
+  Schattenbogen, zwei Strahlensysteme, feine Fleckigkeit des Hochlands.
+* **Beleuchtung je Pixel** — Randabdunklung, Phase und weiche Kante über die
+  Kugelnormale `z = √(R² − x² − y²)`. Das geht mit Zeichenbefehlen nicht.
+
+Die Krater werden zum Rand hin verkürzt: Einer bei 80 % Radius wird unter 37°
+gesehen. Genau diese Ellipsen machen eine flache Scheibe als Kugel lesbar.
+
+Phase: Sonnenrichtung mit z = 0,47, also rund **74 % beleuchtete Fläche** —
+genug Sichel, dass die Kugelform liest, genug Fläche, dass er die Lichtquelle
+der Szene bleiben darf. Die unbeleuchtete Seite behält 5,5 % (Erdschein), sonst
+wäre sie ein Loch im Sternhimmel.
+
+Hof: **drei** Lagen statt einer, mit sehr verschiedenen Reichweiten und
+Exponenten (1,9 / 3,2 / 6,5 bei Größe 26 / 11 / 4,6). Nachgemessen ist der
+Übergang glatt — Radialprofil bei y = 360 nach rechts: 18 · 15 · 13,2 · 13 ·
+12 · 11,9 · 11,1 · 10,8 · 10,1 · 10 · 10. Keine Stufe, kein Ring.
+
+### Messung
+
+| `b-moon`, Scheibe (615,335)–(665,385) | night-00 | night-05 |
+| --- | ---: | ---: |
+| Mittel | 191,2 | 93,9 |
+| p05 … p95 | 72 … 224 | **11 … 198** |
+| Anteil > 190 | 76,4 % | 11,0 % |
+| innere Modulation | **keine** (L 224 konstant über 50 px) | Maria, Krater, Terminator |
+| Pixel auf reinem Weiß | 0 | **0** |
+
+Der Mond ist nicht mehr die hellste Fläche, sondern der hellste **Gegenstand**.
+Dass Mittelwert und Anteil über 190 fallen, ist der Zweck: Vorher war die ganze
+Scheibe eine einzige Helligkeit.
+
+### Zwei Fehler, beide nachgemessen
+
+1. **Der enge Hof lag auf der Mondoberfläche.** Alle vier Sprites sitzen am
+   selben Ort und haben denselben Kameraabstand; three sortiert die transparente
+   Liste nach `renderOrder`, dann Tiefe, dann **Objekt-ID** — und die Scheibe
+   entsteht im Quelltext vor den Höfen. Ohne ausdrückliches `renderOrder` löschte
+   der Hof als blauweißer Fleck genau die Modulation, um die es geht.
+2. **Der erste Grundton war zu dunkel.** 0xb9bcc4 ergab nach Randabdunklung und
+   Phase Mittel 75 / p95 159 — dunkler als der Ausgangsstand. Der Mond ist der
+   Punkt, auf den die Komposition zeigt; ihn dunkler zu machen wäre das Gegenteil
+   der Aufgabe. Jetzt 0xe8eaf0, Randabdunklung von 0,60 auf 0,70 gemildert.
+
+### Ein Fund aus Paket 2, hier behoben
+
+Die hellsten Sterne standen auf exakt **(255|255|255)** — gemessen 34 Pixel in
+`b-moon` — und hatten damit keine Farbtemperatur mehr, obwohl genau die in
+Paket 2 gebaut wurde. Dieselbe bezahlte Lehre wie bei der Sonnenscheibe des
+Zen-Gartens. Der Kern wird jetzt bei 0,93 gedeckelt: **0 Pixel auf reinem Weiß**.
+
+### Backticks, zum dritten Mal — jetzt mit Prüfung
+
+Ich bin in dieser Runde **dreimal** in dieselbe Falle gelaufen: Backticks in
+einem Kommentar innerhalb eines Template-Literals brechen den Shader-String, und
+der Build-Fehler zeigt auf die Kommentarzeile. Dreimal dieselbe bezahlte Lehre
+ist keine Unachtsamkeit mehr, sondern ein fehlendes Werkzeug.
+
+`tools/shaderlint.mjs` meldet es jetzt **vor** dem Build mit Datei und Zeile.
+Es kennt maskierte Backticks (`\``) als erlaubt — die erste Fassung hat dort
+falsch angeschlagen und wurde daraufhin korrigiert.
+
+### Budget und Regression
+
+| Größe | Grenze | 00 | 04 | 05 |
+| --- | ---: | ---: | ---: | ---: |
+| Draw-Calls (max) | 120 | 40 | 11 | **13** |
+| Dreiecke (max) | 350 000 | 51 842 | 106 842 | **105 632** |
+| Texturspeicher | 60 MB | 0,77 | 4,08 | **6,33** |
+
+Sterne vor dem Gelände: **0** über alle sechs Kameras (unverändert).
+Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
+0,500 % (Rauschband). Build grün, Konsole ohne Errors und Warnings.

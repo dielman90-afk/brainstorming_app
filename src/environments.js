@@ -4177,6 +4177,292 @@ function milchstrassenKarte() {
   return tex;
 }
 
+// --- Der Mond ---------------------------------------------------------------
+//
+// Er ist die einzige gerichtete Lichtquelle, das hellste Objekt im Bild und
+// damit das, worauf jeder Blick zuerst fällt. Bisher war er eine
+// `MeshBasicMaterial`-Kugel in 0xe8ecf2: gemessen **L 224 konstant über 50 px
+// Durchmesser**, null innere Modulation, harte Kreiskante, dazu ein einzelnes
+// Sprite als Hof.
+//
+// **Warum eine Scheibe statt einer Kugel.** Aus 32 m Abstand hat der Mond einen
+// scheinbaren Radius von 2,5° — er *ist* eine Scheibe. Die alte Kugel kostete
+// 1216 Dreiecke, um eine Fläche zu zeigen, die zwei Dreiecke ebenso gut
+// tragen. Wichtiger als die Dreiecke ist aber die Kontrolle: Auf einer
+// Billboard-Scheibe steht jeder Bildpunkt der Mondoberfläche an einer
+// bekannten Stelle, und Randabdunklung, Phase und Verkürzung der Krater zum
+// Rand hin lassen sich exakt rechnen statt über eine Kugel-UV zu hoffen.
+// Gezeitengebunden ist er ohnehin — dieselbe Seite zeigt immer zu uns, genau
+// wie beim echten Mond.
+//
+// Der Aufbau ist zweistufig, weil beides seine eigene Sprache hat:
+//
+//   A  **Albedo** mit Zeichenbefehlen: Maria, Krater, Strahlensysteme. Formen
+//      sind Formen, die zeichnet man.
+//   B  **Beleuchtung** je Pixel: Randabdunklung, Phase, weiche Kante. Das ist
+//      Rechnung über die Kugelnormale und geht nicht mit Zeichenbefehlen.
+//
+// **Der Kern wird gedeckelt.** Die bezahlte Lehre aus dem Zen-Garten: Die
+// Sonnenscheibe stand dort zu 20,7 % auf exakt (255,255,255) und hatte damit
+// keine Farbe mehr. Hier liegt das Hochland bei 236, die Maria bei 150 bis 170
+// — kein Pixel erreicht 255, und die Oberfläche bleibt lesbar.
+let _mondKarte = null;
+function mondScheibe() {
+  if (_mondKarte) return _mondKarte;
+  const S = 512;
+  const R = S * 0.47;
+  const M = S / 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  const mr = mulberry32(31415926);
+
+  // --- A: Albedo ------------------------------------------------------------
+  // **Zweiter Anlauf am Grundton.** 0xb9bcc4 (185|188|196) ergab nach
+  // Randabdunklung und Phase eine Scheibe mit Mittel 75 und p95 159 — gegen
+  // 191/224 im Ausgangsstand. Der Mond ist die einzige Lichtquelle und der
+  // Punkt, auf den die ganze Komposition zeigt; ihn dunkler zu machen als
+  // vorher wäre das Gegenteil der Aufgabe. Das Hochland liegt jetzt bei 232,
+  // die Maria bei rund 150 — mehr Spitze als vorher **und** eine Spanne, wo
+  // vorher ein Farbfeld war.
+  ctx.fillStyle = '#e8eaf0';
+  ctx.beginPath();
+  ctx.arc(M, M, R, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Feine Fleckigkeit des Hochlands. Ohne sie ist die helle Fläche zwischen den
+  // Maria ein Farbfeld – derselbe Fehler wie beim Regolith, eine Ebene tiefer.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(M, M, R, 0, Math.PI * 2);
+  ctx.clip();
+  for (let i = 0; i < 1400; i++) {
+    const a = mr() * Math.PI * 2;
+    const r = Math.sqrt(mr()) * R;
+    const x = M + Math.cos(a) * r;
+    const y = M + Math.sin(a) * r;
+    const rad = 3 + mr() * 16;
+    const hell = mr() < 0.5;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    g.addColorStop(0, hell ? 'rgba(250,251,255,0.16)' : 'rgba(176,180,194,0.18)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+
+  // **Maria.** Nicht runde Flecken, sondern zusammenhängende Becken mit
+  // ausgefransten Rändern – die Mondmeere sind ausgelaufene Lavaebenen, keine
+  // Tupfen. Jedes entsteht aus einem Kernblob plus einem Kranz kleinerer
+  // Blobs, die den Rand unregelmäßig machen.
+  const maria = [
+    { x: -0.30, y: -0.34, r: 0.30 },
+    { x: 0.04, y: -0.42, r: 0.22 },
+    { x: -0.44, y: 0.02, r: 0.20 },
+    { x: -0.10, y: 0.10, r: 0.26 },
+    { x: 0.30, y: -0.16, r: 0.15 },
+    { x: 0.18, y: 0.34, r: 0.13 },
+  ];
+  const blob = (x, y, r, farbe) => {
+    const g = ctx.createRadialGradient(x, y, r * 0.25, x, y, r);
+    g.addColorStop(0, farbe);
+    g.addColorStop(0.72, farbe);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  for (const m of maria) {
+    const cx = M + m.x * R;
+    const cy = M + m.y * R;
+    const cr = m.r * R;
+    blob(cx, cy, cr, 'rgba(150,155,170,0.88)');
+    const n = 7 + Math.floor(mr() * 6);
+    for (let k = 0; k < n; k++) {
+      const a = mr() * Math.PI * 2;
+      const d = cr * (0.6 + mr() * 0.55);
+      blob(cx + Math.cos(a) * d, cy + Math.sin(a) * d, cr * (0.3 + mr() * 0.35), 'rgba(150,155,170,0.74)');
+    }
+  }
+
+  // **Krater.** Ein Krater ist kein Kreis, sondern ein Wall mit Licht- und
+  // Schattenseite. Beide Bögen zeigen zur selben Sonne wie die Phase weiter
+  // unten – sonst widersprächen sich Oberfläche und Terminator.
+  //
+  // Zum Rand hin werden sie verkürzt: Ein Krater bei 80 % Radius wird unter
+  // 37° gesehen. Genau diese Ellipsen sind es, die eine flache Scheibe als
+  // Kugel lesbar machen.
+  const SONNE = { x: -0.62, y: -0.55 }; // Richtung, aus der beleuchtet wird
+  const krater = (x, y, rad, tiefe) => {
+    const dx = (x - M) / R;
+    const dy = (y - M) / R;
+    const d = Math.min(0.995, Math.hypot(dx, dy));
+    const verkuerzung = Math.sqrt(1 - d * d);
+    const winkel = Math.atan2(dy, dx);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(winkel);
+    ctx.scale(Math.max(0.12, verkuerzung), 1);
+    ctx.rotate(-winkel);
+    // Boden
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rad);
+    g.addColorStop(0, `rgba(132,136,150,${0.30 * tiefe})`);
+    g.addColorStop(0.78, `rgba(132,136,150,${0.20 * tiefe})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, rad, 0, Math.PI * 2);
+    ctx.fill();
+    // Wall: heller Bogen zur Sonne, dunkler gegenüber
+    ctx.lineWidth = Math.max(1, rad * 0.20);
+    const a0 = Math.atan2(SONNE.y, SONNE.x);
+    ctx.strokeStyle = `rgba(252,253,255,${0.5 * tiefe})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, rad * 0.92, a0 - 1.5, a0 + 1.5);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(108,112,126,${0.45 * tiefe})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, rad * 0.92, a0 + Math.PI - 1.5, a0 + Math.PI + 1.5);
+    ctx.stroke();
+    ctx.restore();
+  };
+  for (let i = 0; i < 90; i++) {
+    const a = mr() * Math.PI * 2;
+    const r = Math.sqrt(mr()) * R * 0.985;
+    krater(M + Math.cos(a) * r, M + Math.sin(a) * r, 2.5 + Math.pow(mr(), 2.4) * 30, 0.5 + mr() * 0.5);
+  }
+
+  // Strahlensysteme: zwei junge Krater mit hellem Auswurf. Sie sind der
+  // auffälligste Einzelzug auf dem echten Mond und kosten hier fünf Zeilen.
+  for (const s of [{ x: 0.26, y: 0.46, r: 10 }, { x: -0.52, y: 0.40, r: 7 }]) {
+    const cx = M + s.x * R;
+    const cy = M + s.y * R;
+    for (let k = 0; k < 26; k++) {
+      const a = mr() * Math.PI * 2;
+      const len = R * (0.16 + mr() * 0.42);
+      const g = ctx.createLinearGradient(cx, cy, cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+      g.addColorStop(0, 'rgba(232,234,240,0.30)');
+      g.addColorStop(1, 'rgba(232,234,240,0)');
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 1.5 + mr() * 4.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+      ctx.stroke();
+    }
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, s.r);
+    g.addColorStop(0, 'rgba(240,242,246,0.85)');
+    g.addColorStop(1, 'rgba(240,242,246,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // --- B: Beleuchtung je Pixel ---------------------------------------------
+  //
+  // Randabdunklung und Phase brauchen die **Kugelnormale** an jedem Bildpunkt,
+  // und die gibt es nur rechnend: z = sqrt(R² − x² − y²) über der Scheibe.
+  const bild = ctx.getImageData(0, 0, S, S);
+  const d = bild.data;
+  // Sonnenrichtung im Scheibenraum. Die z-Komponente steuert die Phase: 1,0
+  // wäre Vollmond (kein Terminator), 0,0 Halbmond. 0,47 ergibt rund 74 %
+  // beleuchtete Fläche – genug Sichel, dass die Kugelform liest, genug Fläche,
+  // dass er die Lichtquelle der Szene bleiben darf.
+  const sl = Math.hypot(SONNE.x, SONNE.y, 0.47);
+  const sx = SONNE.x / sl;
+  const sy = SONNE.y / sl;
+  const sz = 0.47 / sl;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = (y * S + x) * 4;
+      const nx = (x + 0.5 - M) / R;
+      const ny = (y + 0.5 - M) / R;
+      const r2 = nx * nx + ny * ny;
+      if (r2 >= 1) {
+        d[i + 3] = 0;
+        continue;
+      }
+      const nz = Math.sqrt(1 - r2);
+
+      // Randabdunklung: I = 0,60 + 0,40 · cos(θ)^0,45. Ein Mond ist kein
+      // Lambert-Strahler – der Regolith streut stark zurück –, deshalb ein
+      // schwacher Exponent statt des vollen Kosinus. Zu viel davon macht aus
+      // dem Mond eine Billardkugel.
+      const rand = 0.70 + 0.30 * Math.pow(nz, 0.45);
+
+      // Phase: Kosinus zwischen Normale und Sonnenrichtung, weich über den
+      // Terminator. Der Rest der Scheibe bleibt schwach sichtbar (Erdschein),
+      // sonst wäre die unbeleuchtete Seite ein Loch im Sternhimmel.
+      const cosI = nx * sx + ny * sy + nz * sz;
+      const phase = 0.055 + 0.945 * smoothstep(-0.10, 0.22, cosI);
+
+      const f = rand * phase;
+      d[i] = Math.min(252, d[i] * f);
+      d[i + 1] = Math.min(252, d[i + 1] * f);
+      d[i + 2] = Math.min(252, d[i + 2] * f);
+      // Kante über etwa 1,5 Pixel weich auslaufen lassen. Der alte Mond ging
+      // in fünf Pixeln von 74 auf 224 – eine Kreiskante, die man als solche
+      // sieht.
+      d[i + 3] = 255 * Math.min(1, (1 - Math.sqrt(r2)) * (R / 1.5));
+    }
+  }
+  ctx.putImageData(bild, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _mondKarte = tex;
+  return tex;
+}
+
+// Ein Hof aus **drei** Lagen statt einer.
+//
+// Der alte Hof war ein einzelnes Sprite mit einem linearen Verlauf; im Bild
+// las er als aufgeklebte Scheibe mit erkennbarem Rand. Ein echter Hof um einen
+// hellen Körper hat mindestens drei Anteile mit sehr unterschiedlicher
+// Reichweite: die enge, helle Korona direkt am Rand, der mittlere Streuhof
+// über einige Durchmesser, und ein sehr weiter, sehr schwacher Schein. Weil
+// jede Lage einen anderen Exponenten hat, entsteht kein sichtbarer Rand.
+function mondHof(name, innen, aussen, exponent, groesse, staerke) {
+  const S = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  const bild = ctx.createImageData(S, S);
+  const d = bild.data;
+  const ci = new THREE.Color(innen);
+  const ca = new THREE.Color(aussen);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = (y * S + x) * 4;
+      const r = Math.hypot((x + 0.5) / S - 0.5, (y + 0.5) / S - 0.5) * 2;
+      const a = r >= 1 ? 0 : Math.pow(1 - r, exponent) * staerke;
+      const t = Math.min(1, r * 1.6);
+      d[i] = (ci.r + (ca.r - ci.r) * t) * 255;
+      d[i + 1] = (ci.g + (ca.g - ci.g) * t) * 255;
+      d[i + 2] = (ci.b + (ca.b - ci.b) * t) * 255;
+      d[i + 3] = a * 255;
+    }
+  }
+  ctx.putImageData(bild, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+      toneMapped: false,
+    })
+  );
+  sprite.name = name;
+  sprite.scale.set(groesse, groesse, 1);
+  return sprite;
+}
+
 // --- Das Sternfeld ----------------------------------------------------------
 //
 // Der Ausgangsstand hatte zwei Schalen mit je **einer** Größe und **einer**
@@ -4334,7 +4620,12 @@ function makeSternfeld(rand) {
         float r2 = dot(d, d);
         if (r2 > 0.25) discard;
         float a = exp(-r2 * 16.0) - 0.0183;
-        gl_FragColor = vec4(vFarbe * max(0.0, a) * 1.35, 1.0);
+        // **Der Kern wird gedeckelt.** Ohne die Grenze standen die hellsten
+        // Sterne auf exakt (255|255|255) — gemessen 34 Pixel in b-moon —
+        // und hatten damit keine Farbtemperatur mehr, obwohl genau die in
+        // diesem Paket gebaut wurde. Dieselbe Lehre wie bei der Sonnenscheibe
+        // des Zen-Gartens. 0,93 laesst sie strahlen und behaelt den Farbstich.
+        gl_FragColor = vec4(min(vFarbe * max(0.0, a) * 1.35, vec3(0.93)), 1.0);
       }`,
     blending: THREE.AdditiveBlending,
     // **Nicht** transparent: Damit landet das Feld in der opaken Liste und
@@ -4521,23 +4812,51 @@ function createNightEnvironment() {
   starsGroup.add(sternfeld);
   group.add(starsGroup);
 
-  const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(1.4, 32, 20),
-    new THREE.MeshBasicMaterial({ color: 0xe8ecf2, fog: false })
-  );
-  moon.position.set(14, 16, -24);
-  group.add(moon);
-  const moonGlow = new THREE.Sprite(
+  // Der Mond steht bei [14 | 16 | −24] — 32,1 m Abstand, 29,9° über dem
+  // Horizont. Die Scheibe hat 2,8 m Durchmesser und damit denselben scheinbaren
+  // Durchmesser wie die alte Kugel mit Radius 1,4.
+  const MOND_ORT = new THREE.Vector3(14, 16, -24);
+  const moon = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(220,232,255,0.9)', 'rgba(180,200,255,0.35)'),
+      map: mondScheibe(),
       transparent: true,
       depthWrite: false,
+      // **Nicht additiv.** Ein additiv gemischter Kern über einem Hof gibt
+      // reines Weiß und verliert jede Oberfläche — die bezahlte Lehre von der
+      // Sonnenscheibe des Zen-Gartens, die zu 20,7 % auf exakt (255|255|255)
+      // stand. Der Kern wird normal gemischt, nur der Hof ist additiv.
+      blending: THREE.NormalBlending,
       fog: false,
+      // Die Werte in der Karte sind bereits Anzeigewerte; ACES würde die
+      // Oberflächenmodulation, um die es hier geht, wieder zusammendrücken.
+      toneMapped: false,
     })
   );
-  moonGlow.position.copy(moon.position);
-  moonGlow.scale.set(8, 8, 1);
-  group.add(moonGlow);
+  moon.name = 'nacht-mond';
+  moon.position.copy(MOND_ORT);
+  moon.scale.set(2.8, 2.8, 1);
+
+  // Drei Hoflagen mit verschiedenen Reichweiten und Exponenten.
+  //
+  // **Die Reihenfolge muss ausdrücklich gesetzt werden.** Alle vier Sprites
+  // sitzen am selben Ort, haben also denselben Kameraabstand. three sortiert
+  // die transparente Liste nach `renderOrder`, dann nach Tiefe, dann nach
+  // **Objekt-ID** — und die Scheibe entsteht im Quelltext vor den Höfen, hat
+  // also die kleinere ID. Ohne `renderOrder` lag der enge Hof deshalb als
+  // blauweißer Fleck **auf** der Mondoberfläche und löschte genau die
+  // Modulation, um die es in diesem Paket geht.
+  const hoefe = [
+    mondHof('nacht-mondhof-weit', 0x4a6088, 0x101c34, 1.9, 26, 0.30),
+    mondHof('nacht-mondhof-mittel', 0x8ea6d2, 0x2a3a60, 3.2, 11, 0.42),
+    mondHof('nacht-mondhof-eng', 0xd6e2f8, 0x8098c4, 6.5, 4.6, 0.42),
+  ];
+  hoefe.forEach((h, i) => {
+    h.position.copy(MOND_ORT);
+    h.renderOrder = 10 + i;
+    group.add(h);
+  });
+  moon.renderOrder = 20;
+  group.add(moon);
 
   // --- Licht -----------------------------------------------------------------
   //
