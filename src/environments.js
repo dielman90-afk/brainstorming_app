@@ -3503,9 +3503,46 @@ function fbm2(x, z) {
   return sum;
 }
 // Kraterprofil (t = Abstand/Radius): Mulde innen, angehobener Wall am Rand.
-function craterProfile(t) {
-  if (t < 0.82) return -(1 - (t / 0.82) ** 2); // Schüssel: -1 … 0
-  if (t < 1.14) return 0.32 * Math.sin((Math.PI * (t - 0.82)) / 0.32); // Randwall
+// Kraterprofil (t = Abstand/Radius), vierteilig statt zweiteilig.
+//
+// **Was am alten Profil fehlte, und warum es als Wiederholung las.** Es hatte
+// Schüssel und Randwall, und bei t = 1,14 hörte es auf — die Auswurfdecke
+// fehlte ganz. Damit endete jeder Krater an einer scharfen Grenze im
+// unberührten Dünenfeld, und weil alle fünf dasselbe Profil und dieselbe
+// Wallhöhe hatten, las das Feld in `d-aerial` als „nahezu deckungsgleiche
+// Ellipsen, nur skaliert" (Prüfbefund).
+//
+// Ein echter Einschlag hinterlässt vier Zonen:
+//
+//   * **Schüssel** bis t ≈ 0,80 — parabolisch, aber nicht ganz: Der Boden
+//     eines gealterten Kraters ist mit Material verfüllt und flacher als eine
+//     Parabel.
+//   * **Wall** von 0,80 bis 1,15 — der aufgeworfene Rand.
+//   * **Auswurfdecke** von 1,15 bis rund 2,6 — der ausgeworfene Schutt liegt
+//     als abfallende Decke rings um den Krater und geht allmählich in das
+//     Gelände über. Sie fällt wie 1/t³, das ist der übliche Ansatz und trifft
+//     die Beobachtung gut genug.
+//   * **darüber hinaus** nichts.
+//
+// `wall` und `alter` machen aus einem Profil eine Familie: Ein frischer Krater
+// hat einen hohen, scharfen Wall und eine deutliche Decke; ein alter ist
+// eingeebnet, sein Wall abgetragen, seine Decke verweht.
+function craterProfile(t, wall = 1, alter = 0) {
+  const scharf = 1 - alter;
+  if (t < 0.8) {
+    // Der Boden wird mit dem Alter flacher: aus der Parabel wird eine Wanne.
+    const u = t / 0.8;
+    const parabel = -(1 - u * u);
+    const wanne = -(1 - Math.pow(u, 4));
+    return parabel * scharf + wanne * alter;
+  }
+  if (t < 1.15) return 0.32 * wall * scharf * Math.sin((Math.PI * (t - 0.8)) / 0.35);
+  if (t < 2.6) {
+    // Auswurfdecke: fällt wie 1/t³, am Wallfuß angesetzt und bei 2,6 sanft
+    // auf null geführt, damit keine sichtbare Grenze entsteht.
+    const decke = 0.085 * wall * scharf * (Math.pow(1.15 / t, 3) - Math.pow(1.15 / 2.6, 3));
+    return decke * (1 - smoothstep(2.1, 2.6, t));
+  }
   return 0;
 }
 
@@ -3928,25 +3965,152 @@ function makeKontaktAO(stellen, heightAt) {
 function makeMarsGround(rand) {
   const group = new THREE.Group();
 
+  // --- Die Geländemerkmale als Daten -----------------------------------------
+  //
+  // **Warum das hier eine Liste ist und die Abstandsmessung eine Funktion.**
+  // Diese Umgebung soll später eine Kugel werden, die man umrunden kann (siehe
+  // den Miniplanet-Plan). Wenn die Krater als Zahlen im Rechenausdruck stünden
+  // und der Abstand als `Math.hypot` mitten in der Schleife, wäre der Umbau
+  // eine zweite Landschaft. Als Liste plus **eine** Abstandsfunktion ist er ein
+  // Wechsel der Parametrisierung: `abstand` wird zur Großkreisdistanz
+  // `R · acos(dot(a, b))`, die Orte werden Einheitsvektoren, alles andere
+  // bleibt stehen.
+  const abstand = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
+
+  // `wall` skaliert Wallhöhe und Auswurfdecke, `alter` ebnet ein (0 = frisch,
+  // 1 = weitgehend verfüllt), `strahlen` gibt einem frischen Krater ein
+  // Strahlensystem. `umriss` macht den Rand unrund — eine Summe von
+  // Sinus-Termen mit **ganzzahligen** Frequenzen, also glatt und periodisch.
+  // (Mit `hashNoise` statt dessen käme ein Zackenstern heraus; das steht so in
+  // den bezahlten Lehren.)
   const craters = [
-    { x: 9, z: -7, r: 3.0, depth: 0.9 },
-    { x: -11, z: 5, r: 4.2, depth: 1.15 },
-    { x: 5.5, z: 12, r: 2.4, depth: 0.7 },
-    { x: -6, z: -13, r: 3.4, depth: 0.9 },
-    { x: 15, z: 9, r: 5.0, depth: 1.3 },
+    { x: 9, z: -7, r: 3.0, depth: 0.9, wall: 1.25, alter: 0.05, strahlen: 0.9 },
+    { x: -11, z: 5, r: 4.2, depth: 1.15, wall: 0.55, alter: 0.7, strahlen: 0 },
+    { x: 5.5, z: 12, r: 2.4, depth: 0.7, wall: 1.4, alter: 0, strahlen: 1.0 },
+    { x: -6, z: -13, r: 3.4, depth: 0.9, wall: 0.8, alter: 0.45, strahlen: 0 },
+    { x: 15, z: 9, r: 5.0, depth: 1.3, wall: 0.35, alter: 0.85, strahlen: 0 },
+    // Zwei kleine, sehr frische dazu: Ein Feld aus fünf gleich großen Kratern
+    // liest als Aufzählung. Eine Größenverteilung, in der die kleinen in der
+    // Überzahl sind, liest als Einschlagsgeschichte.
+    { x: -2.5, z: 6.5, r: 1.15, depth: 0.34, wall: 1.5, alter: 0, strahlen: 1.0 },
+    { x: 12.5, z: -14, r: 1.6, depth: 0.42, wall: 1.35, alter: 0.1, strahlen: 0.7 },
   ];
+  craters.forEach((c, i) => {
+    c.umriss = welligerUmriss(9001 + i * 37, 0.13 + i * 0.012, 4);
+  });
+
+  // --- Die Horizonthügel gehören ins Höhenfeld, nicht daneben ----------------
+  //
+  // **Der Befund, per Strahlenschuss geklärt statt geraten.** In `d-aerial`
+  // stand rechts eine helle, flache Platte mit gerader Kante. Ich hatte
+  // nacheinander die Kuppelfarben, die Einfärbung des Fernrings und die
+  // Plattenkante verdächtigt — alle drei falsch. Ein Strahl durch (1150,330)
+  // trifft `nacht-huegel` bei 39,9 m.
+  //
+  // Es waren sechs abgeflachte Kugelkappen mit **eigenem Material**: keine
+  // Scheitelfarben, keine Normalenkarte, keine Rauheitskarte, keine Windrippel.
+  // Sie standen deshalb als glatte Fläche im gerippelten Gelände, und ihre
+  // Schnittlinie mit der Bodenplatte las als gerade Kante.
+  //
+  // Ein Hügel ist kein Gegenstand, der auf dem Gelände liegt — er **ist**
+  // Gelände. Als Einträge im Höhenfeld bekommen sie automatisch dieselbe
+  // Einfärbung, dasselbe Korn, dieselben Rippel und dieselben Verwehungen, und
+  // eine Naht kann es gar nicht mehr geben. Nebenbei fallen ein Draw-Call,
+  // 3120 Dreiecke und ein ganzes Material weg.
+  //
+  // Die Lage bleibt bei r = 26 bis 38 m wie vorgegeben. Die Verteilung ist
+  // bewusst **unsymmetrisch**: eine dichte Gruppe im Nordwesten, eine weite
+  // Lücke im Südosten. Ein gleichmäßiger Kranz um den Betrachter ist ein
+  // Horizont ohne Aussage.
+  const huegel = [
+    { x: -22, z: -19, r: 13, h: 3.6 },
+    { x: -31, z: -4, r: 10, h: 2.7 },
+    { x: -14, z: -30, r: 9, h: 2.2 },
+    { x: 8, z: -34, r: 11, h: 3.1 },
+    { x: 30, z: -14, r: 8, h: 1.6 },
+    { x: 27, z: 21, r: 12, h: 2.4 },
+    { x: -9, z: 33, r: 10, h: 1.9 },
+  ];
+  huegel.forEach((k, i) => {
+    k.umriss = welligerUmriss(4200 + i * 53, 0.26 + i * 0.02, 5);
+  });
+
+  // --- Dünen mit Luv- und Leeseite ------------------------------------------
+  //
+  // Ein Rauschfeld ist **symmetrisch**: Jede Erhebung steigt so an, wie sie
+  // abfällt. Eine Düne tut das nicht — der Wind schiebt Material den flachen
+  // Luvhang hinauf und lässt es über den Kamm in den steilen Leehang fallen.
+  //
+  // Der billigste Weg dahin ist, genau das nachzubilden: **Das Feld wird dort,
+  // wo es hoch ist, windabwärts verschoben abgetastet.** Ein Kamm wandert
+  // damit stromab, sein Luvhang wird gedehnt und flach, sein Leehang gestaucht
+  // und steil. Kostet eine zweite `fbm2`-Auswertung und keine einzige neue
+  // Vorstellung.
+  //
+  // Der Betrag ist gerechnet: Die Grundwelle hat eine Wellenlänge von
+  // 1/0,05 = 20 m, `fbm2` liefert rund ±0,5, und 6,0 m Versatz je Einheit
+  // ergibt ±3,0 m — also bis zu 15 % einer Wellenlänge. Mehr als etwa ein
+  // Viertel würde den Kamm über sich selbst falten.
+  const WIND_VERSATZ = 6.0;
 
   const heightAt = (x, z) => {
-    const big = fbm2(x * 0.05, z * 0.05) * 3.2; // weite, rollende Dünen
+    const vor = fbm2(x * 0.05, z * 0.05);
+    const versatz = vor * WIND_VERSATZ;
+    const wx = x - NACHT_WIND.laengs.x * versatz;
+    const wz = z - NACHT_WIND.laengs.y * versatz;
+    const big = fbm2(wx * 0.05, wz * 0.05) * 3.2; // weite Dünen, Luv flach, Lee steil
     const med = fbm2(x * 0.16, z * 0.16) * 0.9; // mittlere Wellen
     const fine = (hashNoise(x * 1.7, z * 1.7, 7) - 0.5) * 0.12; // Körnung
     let h = big + med + fine;
+    for (const k of huegel) {
+      const d = abstand(x, z, k.x, k.z);
+      const rEff = k.r * k.umriss(Math.atan2(z - k.z, x - k.x));
+      if (d >= rEff) continue;
+      const u = d / rEff;
+      // Weiche Kuppe, an ihrem Rand mit Steigung null — sonst stünde dort
+      // ein Knick im Gelände, und ein Knick liest als Kante.
+      const w = 1 - u * u;
+      h += k.h * w * w;
+    }
     for (const c of craters) {
-      const d = Math.hypot(x - c.x, z - c.z);
-      if (d < c.r * 1.2) h += craterProfile(d / c.r) * c.depth;
+      const d = abstand(x, z, c.x, c.z);
+      if (d >= c.r * 2.7) continue;
+      // Unrunder Rand: Der wirksame Radius hängt vom Winkel ab. Ohne das sind
+      // alle Krater Kreise, und ein Feld aus Kreisen ist ein Programmierer-Tell.
+      const rEff = c.r * c.umriss(Math.atan2(z - c.z, x - c.x));
+      h += craterProfile(d / rEff, c.wall, c.alter) * c.depth;
     }
     // Zentrum flach halten, damit man eben steht
     return h * smoothstep(0.6, 4.5, Math.hypot(x, z));
+  };
+
+  // Wie stark eine Stelle von einem **Strahlensystem** getroffen wird. Strahlen
+  // sind Albedo, keine Form: fein zerstäubtes helles Material, das beim
+  // Einschlag weit hinausgeschleudert wurde. Sie gehören deshalb in die
+  // Scheitelfarben und nicht in die Höhe — das ist zugleich der Grund, warum
+  // sie über die Auswurfdecke hinaus reichen dürfen, ohne das Gelände zu
+  // stören.
+  const strahlenAt = (x, z) => {
+    let hell = 0;
+    for (const c of craters) {
+      if (!c.strahlen) continue;
+      const d = abstand(x, z, c.x, c.z);
+      const t = d / c.r;
+      if (t < 0.9 || t > 9) continue;
+      const winkel = Math.atan2(z - c.z, x - c.x);
+      // Speichenmuster mit ungleichen Speichen: drei Sinus-Terme mit
+      // teilerfremden Frequenzen, damit sich das Muster nicht nach einem
+      // Achtel wiederholt.
+      const speiche =
+        Math.sin(winkel * 7 + c.x) * 0.5 +
+        Math.sin(winkel * 11 - c.z) * 0.3 +
+        Math.sin(winkel * 17 + c.r) * 0.2;
+      const scharf = Math.max(0, speiche - 0.18) / 0.82;
+      // Nach außen ausdünnen und ausfransen.
+      const reichweite = (1 - smoothstep(1.5, 9, t)) * smoothstep(0.9, 1.6, t);
+      hell += scharf * scharf * reichweite * c.strahlen;
+    }
+    return Math.min(1, hell);
   };
 
   // Dichtes Gitter (nicht CircleGeometry – die hat keine inneren Vertices)
@@ -3975,21 +4139,24 @@ function makeMarsGround(rand) {
   // ankommt, genug Rot, damit das Material erkennbar bleibt.
   const base = new THREE.Color(0x854c33);
   const col = new THREE.Color();
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getY(i); // PlaneGeometry: y ist die zweite Ebenenachse
-    const h = heightAt(x, z);
-    pos.setZ(i, h);
-    // --- Verwehungen und Exposition ----------------------------------------
-    //
-    // Das Gitter hat 0,64 m je Zelle; hier gehören deshalb die **groben**
-    // Frequenzen hin — alles zwischen einem Meter und dem halben Feld. Die
-    // Rippel (34 cm) und das Korn (2 cm) sitzen woanders, siehe die Aufteilung
-    // im Kommentar bei `marsGroundMaterial()`.
-    //
-    // **Verwehungen sind entlang des Windes gestreckt.** Ein isotropes Rauschen
-    // gäbe Flecken; Verwehungen sind Bahnen. Das Rauschen wird deshalb in
-    // Windrichtung um Faktor 6,5 gedehnt abgetastet — 0,020 gegen 0,130.
+
+  // --- Verwehungen und Exposition ------------------------------------------
+  //
+  // **Eine Formel für Platte und Fernfeld.** Der erste Anlauf hat dem Fernring
+  // eine eigene, einfachere Einfärbung gegeben; im Bild stand daraufhin an der
+  // Quadratkante der Platte eine **helle Naht mit gerader Innenkante** — genau
+  // die Kante, die der Ring auflösen sollte, nur in einer anderen Farbe. Wer
+  // zwei Flächen aneinandersetzt, muss sie aus derselben Funktion einfärben.
+  //
+  // Das Gitter hat 0,64 m je Zelle; hier gehören deshalb die **groben**
+  // Frequenzen hin — alles zwischen einem Meter und dem halben Feld. Die
+  // Rippel (34 cm) und das Korn (2 cm) sitzen woanders, siehe die Aufteilung
+  // im Kommentar bei `marsGroundMaterial()`.
+  //
+  // **Verwehungen sind entlang des Windes gestreckt.** Ein isotropes Rauschen
+  // gäbe Flecken; Verwehungen sind Bahnen. Das Rauschen wird deshalb in
+  // Windrichtung um Faktor 6,5 gedehnt abgetastet — 0,020 gegen 0,130.
+  const bodenFarbe = (x, z, h, aus) => {
     const laengs = x * NACHT_WIND.laengs.x + z * NACHT_WIND.laengs.y;
     const quer = x * NACHT_WIND.quer.x + z * NACHT_WIND.quer.y;
     const verwehung = fbm2(laengs * 0.02, quer * 0.13);
@@ -3998,22 +4165,32 @@ function makeMarsGround(rand) {
     // ausgesetzt liegt, wird vom Feinstaub freigefegt und bleicht aus; was in
     // Mulden liegt, sammelt gröberes, dunkleres Material. Das läuft mit dem
     // Licht statt gegen es: Kämme werden hell und sind ohnehin beschienen,
-    // Mulden werden dunkel und liegen ohnehin im Schatten. Die Tonwertspanne
-    // wächst dadurch, statt sich aufzuheben.
+    // Mulden werden dunkel und liegen ohnehin im Schatten.
     const exposition = smoothstep(-1.6, 2.6, h);
 
     const shade =
       0.80 +
       exposition * 0.30 +
       verwehung * 0.34 +
+      // Strahlensystem: helles, fein zerstäubtes Auswurfmaterial.
+      strahlenAt(x, z) * 0.42 +
       (hashNoise(x * 2.1, z * 2.1, 9) - 0.5) * 0.10;
-    col.copy(base).multiplyScalar(shade);
+    aus.copy(base).multiplyScalar(shade);
     // Der freigefegte Kamm ist nicht nur heller, er ist auch **kühler**: Der
     // rote Feinstaub ist dort weg. Ein Farbstich von wenigen Prozent, aber er
     // ist der Unterschied zwischen „heller" und „anderes Material".
     const kuehl = Math.max(0, exposition - 0.45) * 0.16;
-    col.r *= 1 - kuehl * 0.9;
-    col.b *= 1 + kuehl * 1.6;
+    aus.r *= 1 - kuehl * 0.9;
+    aus.b *= 1 + kuehl * 1.6;
+    return aus;
+  };
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const z = pos.getY(i); // PlaneGeometry: y ist die zweite Ebenenachse
+    const h = heightAt(x, z);
+    pos.setZ(i, h);
+    bodenFarbe(x, z, h, col);
     colors[i * 3] = col.r;
     colors[i * 3 + 1] = col.g;
     colors[i * 3 + 2] = col.b;
@@ -4179,32 +4356,95 @@ function makeMarsGround(rand) {
   const kontakt = makeKontaktAO(aoStellen, heightAt);
   if (kontakt) group.add(kontakt);
 
-  // Weiche, natürliche Hügel am Horizont (teilweise „vergrabene" Kuppeln) –
-  // ersetzt die alten kastenförmigen Tafelberge.
-  const hillMat = new THREE.MeshStandardMaterial({ color: 0x6b432c, roughness: 1, metalness: 0 });
-  const huegel = [];
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + rand() * 0.6;
-    const r = 26 + rand() * 12;
-    const R = 5 + rand() * 6;
-    const hGeo = new THREE.SphereGeometry(R, 20, 14);
-    const hp = hGeo.attributes.position;
-    for (let v = 0; v < hp.count; v++) {
-      const f = 1 + (valueNoise2(hp.getX(v) * 0.3 + i * 10, hp.getZ(v) * 0.3) - 0.5) * 0.5;
-      hp.setXYZ(v, hp.getX(v) * f, hp.getY(v), hp.getZ(v) * f);
+  // --- Das Fernfeld: die Kante bei 48 m auflösen -----------------------------
+  //
+  // **Der Befund.** Die Bodenfläche ist ein Quadrat von 96 × 96 m. In
+  // `d-aerial` endete sie rechts im Bild als **gerader Schnitt gegen den
+  // Sternhimmel** — eine waagerechte Linie und eine senkrechte Kante, so
+  // deutlich, dass man die Platte als Platte sieht.
+  //
+  // Die Platte selbst darf nicht wachsen: An ihren 96 m hängen Nebeldistanzen,
+  // Locomotion und Kartenplatzierung. Also kommt ein **Ring** dahinter, von
+  // r = 46 (also noch unter der Platte, deren Kante axial bei 48 und diagonal
+  // bei 67,9 liegt) bis r = 150.
+  //
+  // Zwei Aufgaben erfüllt er:
+  //
+  //   1. **Er nimmt der Kante den Himmel.** Der Nebel endet bei 48 m; alles
+  //      dahinter ist zu 100 % Nebelfarbe. Der Ring ist dort also kein
+  //      sichtbares Gelände mehr, sondern eine dunkle Masse — und genau die
+  //      ersetzt den harten Schnitt durch einen weichen Übergang.
+  //   2. **Er gibt dem Horizont eine Form.** Weiter draußen wächst die
+  //      Amplitude auf gut ±10 m; auf 100 m Entfernung sind das rund 6° und
+  //      damit ein Kamm statt eines Strichs.
+  //
+  // Er wird 5 cm unter die Platte gelegt: In der Überlappung von r = 46 bis zur
+  // Quadratkante lägen sonst zwei Flächen auf derselben Höhe und würden
+  // flimmern. Fünf Zentimeter sind aus 48 m Entfernung nicht sichtbar, aber sie
+  // entscheiden die Tiefenprüfung eindeutig.
+  //
+  // Kein Schattenwerfer und kein Empfänger: Der Ring liegt vollständig
+  // außerhalb des Orthofrustums der Schattenkarte (±40 m), ein Schattendurchgang
+  // über ihn wäre reine Rechenzeit ohne ein einziges Pixel.
+  const fernHeightAt = (x, z) => {
+    const r = Math.hypot(x, z);
+    const t = smoothstep(52, 115, r);
+    // **Zweiter Anlauf: kleiner.** Der erste hatte draußen ±10 m Amplitude.
+    // Weil das Fernfeld ein **Ring** ist, ragten seine Kämme als schmale,
+    // konzentrische Bögen über den Nahhorizont und standen als schwebende rote
+    // Linien im Himmel — mit Sternhimmel dazwischen.
+    //
+    // Der Ring hat nicht die Aufgabe, Berge zu bauen; er soll der Plattenkante
+    // den Himmel nehmen. Deshalb bleibt er flach und **fällt** nach außen ab,
+    // damit er den Nahhorizont nirgends überragt. Ferne Silhouetten sind Sache
+    // des Steinwerks, wo sie als Fels und Abbruchkante gebaut werden und nicht
+    // als Nebenwirkung einer Ringgeometrie entstehen.
+    const fern = fbm2(x * 0.018 + 31, z * 0.018 - 17) * 5.0 + fbm2(x * 0.045, z * 0.045) * 1.4;
+    const abfall = Math.max(0, r - 55) * 0.055;
+    return heightAt(x, z) * (1 - t * 0.7) + fern * t - abfall - 0.05;
+  };
+  {
+    const RINGE = 16;
+    const SEGS = 128;
+    const R0 = 46;
+    const R1 = 150;
+    const fpos = [];
+    const fcol = [];
+    const fidx = [];
+    const fc = new THREE.Color();
+    for (let ring = 0; ring <= RINGE; ring++) {
+      // Nach außen gröber: Die Ringe stehen quadratisch gestaffelt, damit die
+      // Auflösung dort sitzt, wo man noch etwas erkennt.
+      const u = ring / RINGE;
+      const rr = R0 + (R1 - R0) * u * u;
+      for (let k = 0; k < SEGS; k++) {
+        const a = (k / SEGS) * Math.PI * 2;
+        const px = Math.cos(a) * rr;
+        const pz = Math.sin(a) * rr;
+        const py = fernHeightAt(px, pz);
+        fpos.push(px, py, pz);
+        bodenFarbe(px, pz, py, fc);
+        fcol.push(fc.r, fc.g, fc.b);
+      }
     }
-    hGeo.computeVertexNormals();
-    const hill = new THREE.Mesh(hGeo, hillMat);
-    const flat = 0.28 + rand() * 0.16;
-    hill.scale.y = flat;
-    // So weit eingraben, dass nur eine sanfte Kuppe herausschaut
-    hill.position.set(Math.cos(a) * r, -R * flat * 0.62, Math.sin(a) * r);
-    huegel.push(hill);
-  }
-  for (const m of verschmelzeObjekte(huegel, 'nacht-huegel')) {
-    m.castShadow = true;
-    m.receiveShadow = true;
-    group.add(m);
+    for (let ring = 0; ring < RINGE; ring++) {
+      for (let k = 0; k < SEGS; k++) {
+        const a0 = ring * SEGS + k;
+        const a1 = ring * SEGS + ((k + 1) % SEGS);
+        const b0 = a0 + SEGS;
+        const b1 = a1 + SEGS;
+        fidx.push(a0, b0, b1, a0, b1, a1);
+      }
+    }
+    const fgeo = new THREE.BufferGeometry();
+    fgeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(fpos), 3));
+    fgeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(fcol), 3));
+    fgeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array((fpos.length / 3) * 2), 2));
+    fgeo.setIndex(fidx);
+    fgeo.computeVertexNormals();
+    const fern = new THREE.Mesh(fgeo, marsGroundMaterial());
+    fern.name = 'nacht-fernfeld';
+    group.add(fern);
   }
 
   // Die Geländefunktion wird von späteren Paketen gebraucht (Staub, Fernfelsen,
