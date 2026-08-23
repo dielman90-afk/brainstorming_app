@@ -840,3 +840,125 @@ falsch.
 Sterne vor dem Gelände: **0** über alle sechs Kameras. Regression: Zen
 bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel 0,707 %
 (Rauschband). Build grün, Konsole ohne Errors und Warnings.
+
+---
+
+## Durchlauf 7 — Paket 5 „Geländeform"
+
+Weiterhin ohne Prüfer. Eigenprüfung, **nicht abgenommen**.
+
+### Krater bekommen eine Geschichte
+
+Das alte Profil hatte zwei Zonen — Schüssel und Randwall — und hörte bei
+t = 1,14 auf. Die Auswurfdecke fehlte ganz, und weil alle fünf Krater dasselbe
+Profil und dieselbe Wallhöhe hatten, las das Feld als „nahezu deckungsgleiche
+Ellipsen, nur skaliert". Jetzt vier Zonen: Schüssel (mit dem Alter von der
+Parabel zur Wanne), Wall, **Auswurfdecke** mit 1/t³-Abfall bis t = 2,6, dann
+nichts. `wall` und `alter` machen daraus eine Familie statt einer Form. Zwei
+kleine, sehr frische Krater sind dazugekommen — ein Feld aus fünf gleich großen
+liest als Aufzählung, eine Größenverteilung als Einschlagsgeschichte.
+
+Der Rand ist **unrund**: `welligerUmriss` liefert den wirksamen Radius je
+Winkel. Ein Feld aus Kreisen ist ein Programmierer-Tell.
+
+**Strahlensysteme sind Albedo, keine Form** — fein zerstäubtes helles Material.
+Sie stehen deshalb in den Scheitelfarben und dürfen dadurch über die
+Auswurfdecke hinausreichen, ohne das Gelände zu stören. Speichenmuster aus drei
+Sinus-Termen mit teilerfremden Frequenzen (7, 11, 17), damit es sich nicht nach
+einem Achtel wiederholt.
+
+### Dünen mit Luv und Lee, für den Preis einer zweiten Rauschabtastung
+
+Ein Rauschfeld ist symmetrisch: Jede Erhebung steigt so an, wie sie abfällt.
+Der billigste Weg zur Asymmetrie ist, den Vorgang nachzubilden: **Das Feld wird
+dort, wo es hoch ist, windabwärts verschoben abgetastet.** Ein Kamm wandert
+stromab, sein Luvhang wird gedehnt und flach, sein Leehang gestaucht und steil.
+
+Der Betrag ist gerechnet: Wellenlänge 1/0,05 = 20 m, `fbm2` liefert ±0,5,
+6,0 m Versatz je Einheit ergibt ±3,0 m — bis zu 15 % einer Wellenlänge. Mehr
+als etwa ein Viertel würde den Kamm über sich selbst falten.
+
+### Vier Verdächtige, drei davon falsch — und ein Strahlenschuss, der es klärte
+
+In `d-aerial` stand rechts eine **helle, flache Platte mit gerader Kante**. Ich
+habe nacheinander verdächtigt: die Kuppelfarben, die Einfärbung des Fernrings,
+die Quadratkante der Bodenplatte. Alle drei falsch, jedes Mal einen Bau- und
+Renderdurchgang.
+
+Ein Strahl durch (1150,330) trifft **`nacht-huegel` bei 39,9 m**. Es waren die
+sechs Horizonthügel: abgeflachte Kugelkappen mit **eigenem Material** — keine
+Scheitelfarben, keine Normalenkarte, keine Rauheitskarte, keine Windrippel. Sie
+standen als glatte Fläche im gerippelten Gelände, und ihre Schnittlinie mit der
+Platte las als gerade Kante.
+
+**Ein Hügel ist kein Gegenstand auf dem Gelände — er ist Gelände.** Als
+Einträge im Höhenfeld bekommen sie automatisch dieselbe Einfärbung, dasselbe
+Korn, dieselben Rippel und Verwehungen; eine Naht kann es gar nicht mehr geben.
+Nebenbei fallen ein Draw-Call, 3120 Dreiecke und ein ganzes Material weg. Die
+Lage bleibt bei r = 26 bis 38 m; die Verteilung ist bewusst unsymmetrisch —
+dichte Gruppe im Nordwesten, weite Lücke im Südosten.
+
+**Die Lehre daraus, und sie ist neu:** Bei einem Bildbefund, der nicht
+offensichtlich einer Ursache zuzuordnen ist, ist der **Strahlenschuss durch das
+Pixel** die erste Handlung, nicht die vierte. `interactions.raycaster` liegt an
+`window.__app` und beantwortet in einer Minute, was drei Durchläufe Raten nicht
+beantwortet haben.
+
+### Die Kante bei 48 m
+
+Ein Ring von r = 46 (noch unter der Platte, deren Kante axial bei 48 und
+diagonal bei 67,9 liegt) bis r = 150, 5 cm tiefer gelegt, damit in der
+Überlappung nichts flimmert. Er nimmt der Kante den Himmel: Der Nebel endet bei
+48 m, dahinter ist alles Nebelfarbe — eine dunkle Masse statt eines Schnitts.
+
+Zwei Fehler dabei, beide korrigiert:
+
+1. **Eigene Einfärbungsformel.** Der Ring bekam zuerst eine einfachere; im Bild
+   stand daraufhin an der Quadratkante eine helle Naht mit gerader Innenkante —
+   genau die Kante, die er auflösen sollte, nur in anderer Farbe. Jetzt färbt
+   **eine** Funktion (`bodenFarbe`) beide Flächen ein.
+2. **Zu große Amplitude.** Mit ±10 m ragten seine Kämme als schmale,
+   konzentrische Bögen über den Nahhorizont und standen als schwebende rote
+   Linien im Himmel, mit Sternhimmel dazwischen. Der Ring hat nicht die
+   Aufgabe, Berge zu bauen; er bleibt flach und fällt nach außen ab. Ferne
+   Silhouetten sind Sache des Steinwerks.
+
+Beim Umbau bin ich zusätzlich in die **temporale Totzone** gelaufen: Die
+ausgelagerte `bodenFarbe` stand als `const` hinter ihrer ersten Verwendung.
+`npm run build` war grün — der Fehler zeigte sich erst als Zeitüberschreitung
+beim Warten auf `window.__app`.
+
+### Messung
+
+Neues Werkzeug `tools/horizont.mjs`. Es sucht die Kante **nicht** über eine
+Helligkeitsschwelle — die hält nicht, seit der Himmel selbst einen Verlauf trägt
+(dieselbe Falle wie bei `silhouette.mjs`) —, sondern über den Vorzeichenwechsel
+von R − B: Boden warm, Himmel kühl, unabhängig von der Helligkeit.
+
+| Horizontkante | night-00 | night-06 | night-07 |
+| --- | --- | --- | --- |
+| `c-crater` (x 0…260), Spanne | 12 px | 6 px | **90 px** |
+| dieselbe, Nachbarspalten gleich hoch | 94,6 % | 95,0 % | **64,2 %** |
+| `f-hills` (volle Breite), Spanne | 15 px | 20 px | **33 px** |
+| dieselbe, Nachbarspalten gleich hoch | 95,5 % | 93,4 % | **89,5 %** |
+
+`f-hills` bleibt der schwächere Wert — dort schaut man über die weite Lücke im
+Südosten, und die ist Absicht. Ob die Bilanz aus „ein Bild mit Kamm, ein Bild
+mit Leere" richtig ist, ist eine Kompositionsfrage und gehört in Paket 7.
+
+| Größe | Grenze | 00 | 06 | 07 |
+| --- | ---: | ---: | ---: | ---: |
+| Draw-Calls (max) | 120 | 40 | 13 | **12** |
+| Dreiecke (max) | 350 000 | 51 842 | 107 432 | **105 288** |
+| Texturspeicher | 60 MB | 0,77 | 6,33 | **6,33** |
+
+Sterne vor dem Gelände: **0**. Regression: Zen bitgleich, Konstrukt Δmax 1,
+Dojo Δ ≥ 8 in 0,000 %, Insel 0,816 % (oberer Rand des Rauschbands). Build grün,
+Konsole ohne Errors und Warnings.
+
+### Vorkehrung für den Miniplaneten, wie zugesagt
+
+Krater und Hügel sind **Listen**, die Abstandsmessung ist **eine Funktion**
+(`abstand`). Für die Kugel wird daraus die Großkreisdistanz `R · acos(dot(a,b))`,
+die Orte werden Einheitsvektoren; Profile, Umrisse, Strahlen und Einfärbung
+bleiben unverändert stehen.
