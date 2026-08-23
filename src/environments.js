@@ -4970,6 +4970,325 @@ function milchstrassenKarte() {
   return tex;
 }
 
+// --- Leben und Bewegung ------------------------------------------------------
+//
+// Die Szene bewegte sich bisher in **einer** Zeile: `starsGroup.rotation.y =
+// time * 0.004`. Fünfzehnhundert Sterne drehten sich starr als ein Körper —
+// wörtlich das, was das Kriterium „nichts im Gleichtakt" ausschließt. Seit
+// Paket 2 flimmert jeder Stern mit eigener Phase und eigenem Tempo; hier kommt
+// dazu, was sich am Boden und quer über den Himmel bewegt.
+//
+// **Die gemeinsame Regel:** Jede Bewegung bekommt ihre eigene Periode, und die
+// Perioden sind zueinander teilerfremd oder irrational. Zwei Bewegungen mit
+// verwandten Perioden fallen regelmäßig zusammen, und dieser Zusammenfall ist
+// genau die Regelmäßigkeit, die ein Betrachter als „gemacht" liest.
+
+// **Feinstaub über den Kämmen.**
+//
+// Nicht überall, sondern dort, wo der Wind angreift: auf den Rücken der Dünen
+// und Kraterwälle. Jedes Korn wird an seiner Stelle aufgenommen, läuft rund
+// vier Meter mit dem Wind, steigt dabei ein wenig und verschwindet wieder.
+//
+// **Warum kein Fortbewegen über weite Strecken.** Der Shader kennt das
+// Höhenfeld nicht — er könnte nicht wissen, wie hoch der Boden dort ist, wo ein
+// Korn nach zwanzig Metern ankommt. Über vier Meter ändert sich das Gelände um
+// wenige Dezimeter, und das trägt die Bahn. Über zwanzig würde der Staub durch
+// Dünen laufen.
+function makeFeinstaub(rand, heightAt) {
+  const ANZAHL = 1400;
+  const positions = new Float32Array(ANZAHL * 3);
+  const phasen = new Float32Array(ANZAHL);
+  const groessen = new Float32Array(ANZAHL);
+  let n = 0;
+  let versuche = 0;
+  while (n < ANZAHL && versuche < ANZAHL * 30) {
+    versuche++;
+    const a = rand() * Math.PI * 2;
+    const r = 2.5 + Math.sqrt(rand()) * 34;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    // Nur auf Kämmen: Ein Punkt liegt auf einem Kamm, wenn er höher liegt als
+    // seine Umgebung. Zwei Proben quer zum Wind genügen — die Kämme stehen
+    // quer zur Windrichtung.
+    const h = heightAt(x, z);
+    const qx = NACHT_WIND.quer.x * 1.6;
+    const qz = NACHT_WIND.quer.y * 1.6;
+    const kamm = h - (heightAt(x + qx, z + qz) + heightAt(x - qx, z - qz)) * 0.5;
+    if (kamm < 0.06 && rand() > 0.12) continue; // die 12 % streuen das Feld auf
+    positions[n * 3] = x;
+    positions[n * 3 + 1] = h + 0.04 + rand() * 0.16;
+    positions[n * 3 + 2] = z;
+    phasen[n] = rand();
+    groessen[n] = 0.22 + rand() * 0.55;
+    n++;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions.slice(0, n * 3), 3));
+  geo.setAttribute('phase', new THREE.BufferAttribute(phasen.slice(0, n), 1));
+  geo.setAttribute('groesse', new THREE.BufferAttribute(groessen.slice(0, n), 1));
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      zeit: { value: 0 },
+      pxSkala: { value: 300 },
+      wind: { value: NACHT_WIND.laengs },
+      // **Zweiter Anlauf an der Farbe, und es war ein grober Fehler.** 0x6a4a3a
+      // mal 1,6 additiv ergab orange leuchtende Punkte — im Bild las das als
+      // Funkenflug, nicht als Staub. Der Grund ist eine falsche Vorstellung:
+      // Ich hatte die Staubfarbe vom **Boden** genommen. Der Boden ist rot,
+      // weil er im Mondlicht rot **reflektiert**; ein Staubkorn in der Luft
+      // wird von derselben Quelle beschienen und ist deshalb kühl und schwach,
+      // nicht warm und hell. Es leuchtet nicht, es wird angeleuchtet.
+      farbe: { value: new THREE.Color(0x4c5568) },
+    },
+    vertexShader: `
+      attribute float phase;
+      attribute float groesse;
+      uniform float zeit;
+      uniform float pxSkala;
+      uniform vec2 wind;
+      varying float vStaerke;
+      void main() {
+        // Eigene Lebensdauer je Korn (2,3 bis 4,1 s), damit nichts im
+        // Gleichtakt aufsteigt.
+        float dauer = 2.3 + fract(phase * 7.31) * 1.8;
+        float t = fract(zeit / dauer + phase);
+        vec3 p = position;
+        p.xz -= wind * (t * 4.0 - 1.2);
+        // Aufsteigen und wieder absinken: Das Korn wird angehoben, verliert
+        // Fahrt und fällt zurueck.
+        p.y += sin(t * 3.14159) * (0.14 + fract(phase * 3.7) * 0.42);
+        // Ein- und ausblenden, damit kein Korn im Nichts erscheint.
+        vStaerke = sin(t * 3.14159);
+        vStaerke *= vStaerke;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        float tiefe = -mv.z;
+        // Aus demselben Grund gedeckelt wie beim Staubteufel, nur enger: Der
+        // Feinstaub liegt dem Betrachter naeher und wuerde sonst zuerst zur
+        // Wand.
+        gl_PointSize = clamp(groesse * pxSkala / tiefe, 1.0, 6.0);
+        vStaerke *= smoothstep(1.2, 4.0, tiefe);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform vec3 farbe;
+      varying float vStaerke;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float r2 = dot(d, d);
+        if (r2 > 0.25) discard;
+        // 1,6 war Funkenflug, 0,30 war unsichtbar. 0,62 liegt dazwischen:
+        // gemessen rund 2,7 % veränderte Bildpunkte, also vorhanden, aber
+        // nichts, was den Blick vom Mond wegzieht.
+        gl_FragColor = vec4(farbe * vStaerke * (1.0 - r2 * 4.0) * 0.62, 1.0);
+      }`,
+    blending: THREE.AdditiveBlending,
+    transparent: false,
+    depthWrite: false,
+    fog: false,
+  });
+  const punkte = new THREE.Points(geo, material);
+  punkte.name = 'nacht-staub';
+  punkte.frustumCulled = false;
+  return punkte;
+}
+
+// **Staubteufel.**
+//
+// Zwei Wirbel, die über die Ebene wandern. Jeder ist eine Spirale aus Körnern:
+// Der Radius wächst mit der Höhe, die Drehung wird nach oben hin langsamer
+// (Drehimpulserhaltung — innen und unten schnell, außen und oben träge).
+//
+// Ihre Bahnen sind Summen zweier Sinus mit **teilerfremden** Perioden (37 s und
+// 23 s beim einen, 53 s und 29 s beim anderen). Damit wiederholt sich die Bahn
+// erst nach dem kleinsten gemeinsamen Vielfachen — praktisch nie — und die
+// beiden treffen einander nie im selben Takt.
+function makeStaubteufel(rand) {
+  const WIRBEL = 2;
+  const JE = 420;
+  const positions = new Float32Array(WIRBEL * JE * 3);
+  const daten = new Float32Array(WIRBEL * JE * 3); // wirbel, hoehenanteil, winkel
+  for (let w = 0; w < WIRBEL; w++) {
+    for (let i = 0; i < JE; i++) {
+      const k = w * JE + i;
+      // Nach oben ausdünnen: Ein Wirbel ist unten dicht und oben ein Schleier.
+      const hAnteil = Math.pow(rand(), 1.7);
+      positions[k * 3] = 0;
+      positions[k * 3 + 1] = 0;
+      positions[k * 3 + 2] = 0;
+      daten[k * 3] = w;
+      daten[k * 3 + 1] = hAnteil;
+      daten[k * 3 + 2] = rand() * Math.PI * 2;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('daten', new THREE.BufferAttribute(daten, 3));
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      zeit: { value: 0 },
+      pxSkala: { value: 300 },
+      // Aus demselben Grund kühl wie der Feinstaub: Ein Wirbel hebt roten
+      // Staub auf, aber was man sieht, ist das Mondlicht darauf. Etwas wärmer
+      // als der Feinstaub, weil ein Staubteufel dichter ist und mehr vom
+      // Bodenlicht mitnimmt.
+      farbe: { value: new THREE.Color(0x5e5a5e) },
+    },
+    vertexShader: `
+      attribute vec3 daten;
+      uniform float zeit;
+      uniform float pxSkala;
+      varying float vStaerke;
+      void main() {
+        float w = daten.x;
+        float hA = daten.y;
+        float w0 = daten.z;
+
+        // **Bahn auf einem Ring, nicht auf einem Kreuz aus Sinus.**
+        //
+        // Der erste Anlauf hat x und z unabhängig schwingen lassen. Das ergibt
+        // eine Lissajous-Figur, und die läuft durch den Ursprung — also durch
+        // die Kamera. Gemessen deckte ein Wirbel dabei **74,7 %** der
+        // Bildfläche ab: Man stand mitten drin, und aus einem Staubteufel wurde
+        // eine Wand.
+        //
+        // Jetzt umkreist er den Ursprung in 14 bis 26 m Abstand. Der Winkel und
+        // der Radius haben eigene, teilerfremde Perioden (41 s und 26 s beim
+        // einen, 59 s und 31 s beim anderen), also wiederholt sich die Bahn
+        // praktisch nie — aber sie kommt nie herein.
+        float bAng = w < 0.5 ? zeit / 41.0 * 6.2832 : -zeit / 59.0 * 6.2832 + 2.4;
+        float bRad = w < 0.5
+          ? 20.0 + sin(zeit / 26.0 * 6.2832) * 6.0
+          : 17.0 + cos(zeit / 31.0 * 6.2832) * 5.0;
+        vec2 mitte = vec2(cos(bAng) * bRad, sin(bAng) * bRad);
+
+        float hoehe = hA * (w < 0.5 ? 5.2 : 3.6);
+        // Radius waechst mit der Hoehe, Drehung wird nach oben langsamer.
+        float radius = 0.22 + hA * hA * (w < 0.5 ? 1.5 : 1.05);
+        float tempo = (w < 0.5 ? 3.1 : 4.3) / (0.35 + hA * 1.4);
+        float winkel = w0 + zeit * tempo;
+
+        vec3 p;
+        p.x = mitte.x + cos(winkel) * radius;
+        p.z = mitte.y + sin(winkel) * radius;
+        p.y = hoehe;
+
+        // Nach oben schwaecher, und der ganze Wirbel atmet mit eigener Periode.
+        float atmen = 0.55 + 0.45 * sin(zeit / (w < 0.5 ? 11.0 : 17.0) * 6.2832);
+        vStaerke = (1.0 - hA * 0.75) * atmen;
+
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        float tiefe = -mv.z;
+        // **Punktgröße deckeln.** Ein Korn in zwei Metern Abstand bekäme sonst
+        // 375 Pixel Durchmesser — das ist keine Staubfahne mehr, das ist eine
+        // Blende. 22 Pixel sind die Grenze, ab der ein Korn als Fleck statt als
+        // Korn liest.
+        gl_PointSize = clamp((0.9 + hA * 1.6) * pxSkala / tiefe, 1.0, 22.0);
+        // Nahfeld ausblenden: Wer versehentlich hineinläuft, soll nicht in
+        // einer braunen Wand stehen.
+        vStaerke *= smoothstep(3.0, 9.0, tiefe);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform vec3 farbe;
+      varying float vStaerke;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float r2 = dot(d, d);
+        if (r2 > 0.25) discard;
+        gl_FragColor = vec4(farbe * vStaerke * (1.0 - r2 * 4.0) * 0.42, 1.0);
+      }`,
+    blending: THREE.AdditiveBlending,
+    transparent: false,
+    depthWrite: false,
+    fog: false,
+  });
+  const punkte = new THREE.Points(geo, material);
+  punkte.name = 'nacht-staubteufel';
+  punkte.frustumCulled = false;
+  return punkte;
+}
+
+// **Ein Meteor.**
+//
+// Einer, nicht viele: Ein Himmel, über den ständig Sternschnuppen laufen, ist
+// ein Bildschirmschoner. Alle 31 Sekunden einer, sichtbar für 1,1 Sekunden —
+// also zu 3,5 % der Zeit. Wer hinsieht, sieht meistens keinen; wer einen sieht,
+// hat Glück gehabt. Genau das ist die Wirkung, um die es geht.
+//
+// Gebaut als **ein** langgezogenes Viereck, das entlang seiner Bahn liegt: Der
+// Schweif ist kein Nachziehen mehrerer Bilder, sondern die Streckung des
+// Vierecks selbst, hell am Kopf und auslaufend nach hinten. Zwei Dreiecke.
+function makeMeteor() {
+  const laenge = 7.0;
+  const breite = 0.22;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute(
+    'position',
+    new THREE.BufferAttribute(
+      new Float32Array([0, breite, 0, 0, -breite, 0, -laenge, -breite * 0.25, 0, -laenge, breite * 0.25, 0]),
+      3
+    )
+  );
+  // u läuft von 1 am Kopf auf 0 am Schweifende.
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([1, 1, 1, 0, 0, 0, 0, 1]), 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: { zeit: { value: 0 } },
+    vertexShader: `
+      uniform float zeit;
+      varying vec2 vUv;
+      varying float vAn;
+      void main() {
+        vUv = uv;
+        float periode = 31.0;
+        float t = fract(zeit / periode);
+        float sichtbar = 1.1 / periode;
+        vAn = 1.0 - step(sichtbar, t);
+        float s = t / sichtbar;                 // 0 … 1 während des Fluges
+        // Bahn: von hoch oben links nach schräg unten rechts, an der Kuppel
+        // entlang. Anfang und Ende liegen außerhalb des Blickfelds der meisten
+        // Kameras — der Meteor kommt und geht, er erscheint nicht.
+        vec3 von = vec3(-30.0, 34.0, -22.0);
+        vec3 nach = vec3(26.0, 9.0, -34.0);
+        vec3 ort = mix(von, nach, s);
+        vec3 richtung = normalize(nach - von);
+        // Das Viereck an der Bahn ausrichten: x entlang der Flugrichtung,
+        // y senkrecht dazu in der Bildebene.
+        vec3 zurKamera = normalize(cameraPosition - ort);
+        vec3 quer = normalize(cross(richtung, zurKamera));
+        vec3 p = ort + richtung * position.x + quer * position.y;
+        // Am Anfang und Ende weich, damit er nicht schaltet.
+        vAn *= smoothstep(0.0, 0.14, s) * (1.0 - smoothstep(0.72, 1.0, s));
+        gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+      }`,
+    fragmentShader: `
+      varying vec2 vUv;
+      varying float vAn;
+      void main() {
+        if (vAn <= 0.001) discard;
+        // Hell am Kopf, auslaufend nach hinten; quer dazu weich.
+        float laengs = pow(vUv.x, 2.2);
+        float quer = 1.0 - abs(vUv.y - 0.5) * 2.0;
+        float a = laengs * quer * quer * vAn;
+        gl_FragColor = vec4(vec3(0.82, 0.86, 0.95) * a, 1.0);
+      }`,
+    blending: THREE.AdditiveBlending,
+    transparent: false,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false,
+  });
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.name = 'nacht-meteor';
+  mesh.renderOrder = -1; // wie die Sterne: vor dem Gelände gezeichnet, also dahinter
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
 // --- Der Mond ---------------------------------------------------------------
 //
 // Er ist die einzige gerichtete Lichtquelle, das hellste Objekt im Bild und
@@ -5737,7 +6056,16 @@ function createNightEnvironment() {
   }
   group.add(moonLight);
 
-  group.add(makeMarsGround(rand));
+  const marsGround = makeMarsGround(rand);
+  group.add(marsGround);
+
+  // --- Leben und Bewegung ----------------------------------------------------
+  const feinstaub = makeFeinstaub(rand, marsGround.userData.heightAt);
+  group.add(feinstaub);
+  const staubteufel = makeStaubteufel(rand);
+  group.add(staubteufel);
+  const meteor = makeMeteor();
+  group.add(meteor);
 
   return {
     id: 'night',
@@ -5774,13 +6102,20 @@ function createNightEnvironment() {
       // mehr. Ohne die Ausnahme hier hätte die Quest 3 einen Nachthimmel
       // **ohne Sterne** — und im Headless-Lauf, der auf „voll" steht, wäre es
       // nie aufgefallen.
-      applyQuality(group, null, stufe, { additivBehalten: /^nacht-sterne/ });
+      // Seit Paket 8 sind es vier additive Gegenstände: Sternfeld, Feinstaub,
+      // Staubteufel und Meteor. Alle heißen `nacht-…`, alle sollen in der
+      // Brille bleiben — die Bewegung ist das, was die Szene lebendig macht,
+      // und sie ist billig: drei Punktwolken und zwei Dreiecke.
+      applyQuality(group, null, stufe, { additivBehalten: /^nacht-/ });
       return null;
     },
 
     update(time) {
       starsGroup.rotation.y = time * 0.004;
       sternfeld.material.uniforms.zeit.value = time;
+      feinstaub.material.uniforms.zeit.value = time;
+      staubteufel.material.uniforms.zeit.value = time;
+      meteor.material.uniforms.zeit.value = time;
     },
   };
 }

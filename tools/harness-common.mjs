@@ -335,6 +335,14 @@ export async function selectEnv(page, id) {
       if (env.update && !env.__frozen) {
         const original = env.update.bind(env);
         env.__frozen = true;
+        // **Das Original bleibt erreichbar.** Ohne diese Zeile ist die Uhr der
+        // Umgebung endgültig eingefroren: `env.update` ist danach ein
+        // Verschluss, der sein Argument verwirft, und wer ihn aufruft, bekommt
+        // wieder `frozen`. `tools/bewegung.mjs` hat daraufhin an 24
+        // Zeitpunkten exakt denselben Wert gemessen und keinen Fehler gemeldet
+        // — das Werkzeug maß, dass sich nichts bewegt, weil es selbst nichts
+        // bewegen konnte.
+        env.__originalUpdate = original;
         env.update = () => original(frozen);
         original(frozen);
       }
