@@ -510,3 +510,149 @@ Was aus seiner Mängelliste bewusst offen bleibt und wohin es gehört:
 | nur zwei Materialien im Inventar | 4 / 6 |
 | vier von sechs Bildern ohne Motiv | 7 |
 | einzige Bewegung: 1500 Sterne im Gleichtakt | 8 |
+
+---
+
+## Durchlauf 4 — Paket 2 „Himmel"
+
+Ohne Prüfer (Konto am Ausgabelimit). Alle Urteile unten sind Eigenprüfung; das
+Paket ist damit **nicht abgenommen**.
+
+### Der Befund, der das ganze Paket erklärt
+
+Der Himmel war nicht zu flach **entworfen** — er wurde um Faktor 6 bis 12
+verdunkelt. `makeDome()` schreibt seine Farb-Uniforms roh in den sRGB-Puffer.
+Ein `ShaderMaterial` bekommt von three keine Farbraum-Umrechnung eingebaut, und
+`#include <colorspace_fragment>` steht dort nicht. `THREE.Color` speichert einen
+Hex-Wert aber **linear**:
+
+| | |
+| --- | --- |
+| Uniform `topColor` (zur Laufzeit ausgelesen) | (0,00335 \| 0,00750 \| 0,03310) linear |
+| roh × 255 | (0,9 \| 1,9 \| 8,4) |
+| im Bild gemessen | (2 \| 2 \| 7) |
+| 0x0b1533 sähe aus wie | (11 \| 21 \| 51) |
+
+Dieselbe Klasse Fehler wie die bekannte Notiz zur Nebelfarbe. Die neue Kuppel
+rechnet am Ende ausdrücklich linear → sRGB; ein Hex-Wert, der dort steht, sieht
+danach auch so aus. `makeDome()` bleibt unangetastet — Insel und Zen-Garten
+hängen an seinem heutigen Verhalten.
+
+### Was gebaut wurde
+
+1. **Eigene Nachtkuppel** (`makeNachtKuppel`) mit dreistufigem Verlauf, korrekter
+   Farbraumumrechnung, Milchstraßenband, Luftglühen und Extinktion.
+2. **Milchstraßenband** aus einer 1024 × 256-Kachel: u läuft **einmal** um das
+   Band (keine Naht möglich), v quer darüber. Bandlage gerechnet — der Pol
+   steht so zur Mondrichtung, dass das Band rund 20° **neben** dem Mond
+   vorbeiläuft und ihm nicht die Bühne nimmt.
+3. **Luftglühen**: zwei Keulen über dem Horizont, grünlich (557,7 nm), plus
+   warme Extinktion darunter.
+4. **Sternfeld neu** (`makeSternfeld`): 2600 Sterne, **ein** Draw-Call, mit
+   Größe, Farbtemperatur, Extinktion und Flimmerphase je Stern als Attribut.
+   Runde Punkte statt achsenparalleler Quadrate. Farbe an Helligkeit gekoppelt
+   — nur helle Sterne zeigen Farbtemperatur, sonst sähe es aus wie Konfetti.
+5. **Die Sterne stehen hinter dem Gelände.**
+
+### Warum die Sterne jetzt hinter dem Gelände stehen
+
+Nicht die Entfernung war das Problem, sondern die **Reihenfolge**: Ein
+`transparent: true`-Material landet in der transparenten Liste, und die zeichnet
+three grundsätzlich nach allen opaken Objekten. Von dort kommt ein Stern nie
+hinter das Gelände. Der Ausweg steht in three selbst, `WebGLState.setMaterial`:
+
+    ( material.blending === NormalBlending && material.transparent === false )
+      ? setBlending( NoBlending ) : setBlending( material.blending, … )
+
+Additives Mischen bleibt also auch bei `transparent: false` aktiv. Damit gehört
+das Feld in die **opake** Liste, wird über `renderOrder` (Kuppel −2, Sterne −1)
+vor das Gelände sortiert, prüft und schreibt keine Tiefe — und das Gelände
+zeichnet darüber.
+
+### Vier Fehler auf dem Weg, alle nachgemessen
+
+1. **Der sqrt-Ast der sRGB-Kurve.** Ich hatte `sqrt(col)` als „grobe, aber
+   ausreichende Näherung" geschrieben. Sie ist es nicht: Die beiden Äste der
+   sRGB-Kurve müssen an der Schwelle 0,0031308 zusammenstoßen.
+
+   | Ast | Wert an der Schwelle |
+   | --- | ---: |
+   | linear, 12,92 · x | 10,31 von 255 |
+   | mein sqrt-Ast | **1,03** von 255 |
+   | richtig, x^0,41666 · 1,055 − 0,055 | 10,32 von 255 |
+
+   Im Bild war das ein **harter Bogen quer über den Himmel**, je Kanal an einer
+   anderen Höhe: `a-eyelevel` Spalte x=200, Grün fiel zwischen y=224 und 225 von
+   10 auf 1, Rot zwischen y=312 und 313 ebenso.
+
+2. **Backticks in einem Kommentar innerhalb eines Template-Literals.** Steht
+   wörtlich in der Liste der bezahlten Lehren, und ich bin trotzdem
+   hineingelaufen — zweimal in derselben Datei. Der Build-Fehler zeigt, wie dort
+   beschrieben, auf die Kommentarzeile.
+
+3. **Der Farbverlauf der Milchstraßenkachel entstand vor `translate`.** Canvas
+   wertet Verlaufskoordinaten beim Füllen im dann gültigen Koordinatensystem
+   aus; der Mittelpunkt landete bei ungefähr dem Doppelten von x, und die
+   gefüllte Ellipse traf nur noch das durchsichtige Ende. Ergebnis: eine fast
+   schwarze Karte und ein Band, das in keiner der sechs Kameras zu sehen war.
+   Nach der Reparatur: Karte Mittel 36,4, Spitze 255 von 255.
+
+4. **Die Staubbahnen hatten null Wirkung.** Ich hatte sie mit
+   `destination-out` gezeichnet — das senkt den **Alphakanal**, der Shader liest
+   aber den **Rotkanal**. Das Band stand als strukturloser grauer Schacht im
+   Bild. Mit `source-over` und Schwarz wird das Ziel wirklich dunkler.
+
+### Zwei Messwerkzeuge, die falsch gemessen haben
+
+**`silhouette.mjs` ist überholt.** Es sucht die Geländekante über die Annahme
+„Himmel dunkler als L 7". Seit der Himmel einen Verlauf bis L 27 trägt, hält sie
+nicht mehr: Das Werkzeug meldete 128 „Sterne im Gelände" in `c-crater`, wo in
+Wahrheit der halbe Himmel als Gelände galt.
+
+Ersatz ist `tools/sterne-hinter.mjs`, das nicht rät, sondern die Szene fragt:
+drei Durchgänge je Kamera (normal / ohne Sternfeld / ohne Kuppel und Sternfeld
+vor magenta Hintergrund). Aus dem dritten ergibt sich die Geländemaske **ohne
+jede Schwelle**, aus der Differenz der ersten beiden der tatsächliche Beitrag
+des Sternfelds. Zwei Feinheiten, beide durch Fehlmeldungen erzwungen:
+
+* **Randpixel zählen nicht.** Die Geländekante ist kantengeglättet; ein Stern
+  dahinter trägt dort anteilig bei, und das ist richtig so.
+* **Nur opake Geometrie verdeckt.** Der Mondhof ist ein transparentes Sprite;
+  er stand in der Maske und ließ acht Sterne in `b-moon` als Fehler erscheinen,
+  obwohl man durch einen Hof selbstverständlich hindurchsieht.
+
+Ergebnis: **0 Sternpixel vor dem Gelände in allen sechs Kameras** (Summe 0 von
+rund 12 100 Sternpixeln).
+
+### Messung
+
+| Größe | Grenze | 00 | 03 | 04 |
+| --- | ---: | ---: | ---: | ---: |
+| Draw-Calls (max) | 120 | 40 | 12 | **11** |
+| Dreiecke (max) | 350 000 | 51 842 | 105 898 | **106 842** |
+| Texturspeicher | 60 MB | 0,77 | 2,77 | **4,08** |
+
+Himmelsfläche `a-eyelevel` (100,60)–(1180,380):
+
+| | 00 | 04 |
+| --- | --- | --- |
+| Mittel | 4,3 | **14,3** |
+| p05 … p95 | 2 … 3 (**1 Stufe**) | 9 … 24 (**15 Stufen**) |
+| Zenit (200,40) | (2\|2\|6) L 2,3 | (6\|9\|18) L 9,0 |
+| horizontnah (200,430) | (5\|2\|2) L 2,6 | (22\|29\|28) L 27,4 |
+
+**Ehrlich anzumerken:** Das Bildmittel steigt spürbar (`a-eyelevel` 25,1 → 34,3,
+`b-moon` 9,0 → 19,8), und das p01 geht von 2,3 auf 8…12 — es gibt kein reines
+Schwarz mehr im Bild. Das ist die unvermeidliche Folge davon, dass der Himmel
+überhaupt einen Wert bekommt. Ob es noch als Nacht liest, ist eine Frage, die
+ein Prüfer beantworten müsste; meine eigene Einschätzung dazu ist befangen. Die
+Verhältnisse sprechen dafür: Himmel 9…27, Boden 30…90, Mond 224.
+
+**Offen aus diesem Paket:** Das Milchstraßenband liest noch eher als weicher
+Schleier denn als Sternwolke. Ich habe die Kachel zweimal überarbeitet (runde
+statt langgezogener Ballungen, vier Größenklassen, Körnung, Staubbahnen); es ist
+besser, aber nicht gut. Kandidat für den Schlusspass.
+
+**Regression:** Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
+0,816 % (oberer Rand des bekannten Rauschbands 0,6–0,9 %). Build grün, Konsole
+ohne Errors und Warnings.

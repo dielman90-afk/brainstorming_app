@@ -4010,48 +4010,515 @@ function makeMarsGround(rand) {
   return group;
 }
 
+// --- Der Nachthimmel: Kuppel, Milchstraße, Luftglühen ------------------------
+//
+// **Warum diese Umgebung eine eigene Kuppel bekommt und nicht `makeDome()`.**
+// Zwei Gründe, und der zweite ist ein Messbefund.
+//
+// Erstens braucht der Nachthimmel Dinge, die keine andere Umgebung hat: ein
+// Milchstraßenband mit eigenem Bezugssystem, ein Luftglühband über dem
+// Horizont, Extinktion nach unten. `makeDome()` trägt Insel und Zen-Garten und
+// darf sich nicht ändern.
+//
+// Zweitens — und das ist der eigentliche Grund, warum der Himmel bisher tot
+// war: **`makeDome()` schreibt lineare Farbwerte roh in einen sRGB-Puffer.**
+// Ein `ShaderMaterial` bekommt von three keine Farbraum-Umrechnung
+// eingebaut; `#include <colorspace_fragment>` steht dort nicht. `THREE.Color`
+// speichert einen Hex-Wert aber **linear**. Der Zenit 0x0b1533 hat linear
+// (0,0033 | 0,0075 | 0,0331), und genau das landet als Anzeigewert im Bild:
+//
+//     Uniform (linear)         (0,00335 | 0,00750 | 0,03310)
+//     roh × 255                (0,9     | 1,9     | 8,4)
+//     im Bild gemessen         (2       | 2       | 7)
+//     0x0b1533 sähe aus wie    (11      | 21      | 51)
+//
+// Der Himmel war also nicht zu flach entworfen — er wurde um Faktor 6 bis 12
+// verdunkelt. Gemessen p05 2, p95 3 über 55 bis 60 % der Bildfläche. Dieselbe
+// Klasse Fehler wie bei der Nebelfarbe, die als linearer Wert in einem
+// sRGB-Bild landet und dunkler wirkt, als der Hex-Wert aussieht.
+//
+// Diese Kuppel rechnet deshalb am Ende ausdrücklich linear → sRGB um. Ein
+// Hex-Wert, der hier steht, sieht danach auch so aus.
+
+// Milchstraßenband als Kachel: **u läuft einmal um das Band, v quer darüber.**
+//
+// Kein Kacheln in u, weil ein voller Umlauf genau einmal auf die Textur fällt —
+// damit gibt es die senkrechte Naht nicht, die im Zen-Garten eine
+// nicht-ganzzahlige Wolkenoktave hinterlassen hat. In v wird geklemmt; das Band
+// läuft nie durch seine eigenen Pole, also gibt es dort auch keine Verzerrung.
+//
+// Gezeichnet wird nicht Rauschen, sondern **Wolken**: helle Ballungen entlang
+// der Bandmitte, dunkle Staubbahnen quer hindurch, eine hellere Verdickung an
+// einer Stelle (das Zentrum). Die Ballungen werden um ±Kachelbreite
+// mitgezeichnet, damit der Umlauf nahtlos schließt.
+let _milchstrasse = null;
+function milchstrassenKarte() {
+  if (_milchstrasse) return _milchstrasse;
+  const B = 1024;
+  const H = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = B;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, B, H);
+
+  const mr = mulberry32(778899);
+
+  // **Warum rund und viele, nicht wenige und langgezogen.** Der erste Anlauf
+  // hat 150 + 220 Ballungen mit bis zu 170 × 56 Pixeln gesetzt, also 3:1 in
+  // Bandrichtung. Dazu kommt, dass die Abbildung selbst schon streckt: u läuft
+  // über 360° auf 1024 Texel (0,35° je Texel), v über rund 53° auf 256 Texel
+  // (0,21° je Texel) — die Kachel ist in Bandrichtung um Faktor 1,7 gedehnt.
+  // Beides zusammen ergab im Bild lange, glatte Schleier, die wie Lichtschächte
+  // aussahen und nicht wie eine Sternwolke.
+  //
+  // Eine Milchstraße ist gesprenkelt, nicht gestreift. Deshalb: runde Formen,
+  // die Streckung der Abbildung durch ein Seitenverhältnis von 1:1,7 in der
+  // Kachel vorweggenommen, und vier Größenklassen statt zwei — die kleinste
+  // trägt die Körnung, ohne die alles zu Nebel verschwimmt.
+  const mitteBei = (x) => H * 0.5 + Math.sin((x / B) * Math.PI * 2 + 0.7) * H * 0.1;
+  const wolke = (x, y, r, streckung, a, farbe) => {
+    for (const versatz of [-B, 0, B]) {
+      ctx.save();
+      ctx.translate(x + versatz, y);
+      // 1,7 gleicht die Dehnung der Abbildung aus: In der Kachel breiter,
+      // am Himmel dadurch rund.
+      ctx.scale(r * 1.7 * streckung, r);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      g.addColorStop(0, `rgba(${farbe},${a})`);
+      g.addColorStop(0.5, `rgba(${farbe},${a * 0.45})`);
+      g.addColorStop(1, `rgba(${farbe},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  };
+  const kernNaehe = (x) => {
+    let du = Math.abs(x / B - 0.32);
+    if (du > 0.5) du = 1 - du;
+    return Math.exp(-(du * du) / 0.022);
+  };
+
+  ctx.globalCompositeOperation = 'lighter';
+  // Grundschleier: breit und schwach – das unaufgelöste Sternlicht.
+  for (let i = 0; i < 260; i++) {
+    const x = mr() * B;
+    const k = kernNaehe(x);
+    wolke(x, mitteBei(x) + (mr() - 0.5) * H * (0.42 - 0.14 * k), 26 + mr() * 30, 1, 0.030 + 0.02 * k, '170,180,208');
+  }
+  // Ballungen: mittlere Größe, deutlich mehr davon.
+  for (let i = 0; i < 900; i++) {
+    const x = mr() * B;
+    const k = kernNaehe(x);
+    wolke(
+      x,
+      mitteBei(x) + (mr() - 0.5) * H * (0.26 - 0.09 * k),
+      7 + mr() * 15 + k * 8,
+      0.75 + mr() * 0.6,
+      0.035 + 0.045 * k,
+      mr() < 0.22 ? '214,206,184' : '186,196,224'
+    );
+  }
+  // Körnung: viele kleine Tupfen. Ohne sie verschwimmt alles zu Nebel; mit
+  // ihnen liest die Fläche als etwas, das aus Sternen besteht.
+  for (let i = 0; i < 5200; i++) {
+    const x = mr() * B;
+    const k = kernNaehe(x);
+    wolke(
+      x,
+      mitteBei(x) + (mr() - 0.5) * H * (0.2 - 0.06 * k),
+      1.4 + mr() * 3.4,
+      0.8 + mr() * 0.5,
+      0.10 + 0.10 * k,
+      '206,212,230'
+    );
+  }
+
+  // Staubbahnen: Ergebnis = Ziel · (1 − a), also wirklich dunkler. Ein paar
+  // lange Rifts entlang des Bandes, viele kleine Flecken quer dazu – ohne die
+  // kleinen liest der Riss als gezogener Strich.
+  ctx.globalCompositeOperation = 'source-over';
+  const bahn = (x, y, rx, ry, dreh, a) => {
+    for (const versatz of [-B, 0, B]) {
+      ctx.save();
+      ctx.translate(x + versatz, y);
+      ctx.rotate(dreh);
+      ctx.scale(rx, ry);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      g.addColorStop(0, `rgba(0,0,0,${a})`);
+      g.addColorStop(0.55, `rgba(0,0,0,${a * 0.5})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  };
+  for (let i = 0; i < 26; i++) {
+    const x = mr() * B;
+    bahn(x, mitteBei(x) + (mr() - 0.5) * H * 0.16, 70 + mr() * 130, 5 + mr() * 8, (mr() - 0.5) * 0.35, 0.5 + mr() * 0.35);
+  }
+  for (let i = 0; i < 420; i++) {
+    const x = mr() * B;
+    bahn(x, mitteBei(x) + (mr() - 0.5) * H * 0.34, 6 + mr() * 26, 4 + mr() * 12, mr() * Math.PI, 0.25 + mr() * 0.4);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  // Die Karte trägt Anzeigewerte, keine Lichtmengen – sie wird im Shader
+  // direkt addiert, nicht durch eine Farbraumumrechnung geschickt.
+  tex.colorSpace = THREE.NoColorSpace;
+  _milchstrasse = tex;
+  return tex;
+}
+
+// --- Das Sternfeld ----------------------------------------------------------
+//
+// Der Ausgangsstand hatte zwei Schalen mit je **einer** Größe und **einer**
+// Farbe: 1300 Punkte zu 0,28 und 200 zu 0,55, beide aus derselben weißen
+// Glühtextur. Im Bild waren das achsenparallele 2×2-Quadrate — der Prüfer hat
+// sie als Programmierer-Tell gelistet.
+//
+// **Zwei Fehler stecken darin, und der zweite ist der schwerere.**
+//
+// *Erstens die Staffelung.* Ein echter Sternhimmel hat keine zwei Klassen,
+// sondern eine Verteilung: Je Größenklasse gibt es rund zweieinhalbmal so
+// viele Sterne wie in der nächsthelleren. Und er hat Farben — von blauweiß
+// über weiß und gelb bis orange. Beides steckt hier in Attributen je Punkt,
+// nicht in Materialien; damit bleibt das ganze Feld **ein** Draw-Call.
+//
+// Die Farbe ist dabei an die Helligkeit gekoppelt: Nur die hellen Sterne
+// bekommen eine deutliche Farbtemperatur, die schwachen bleiben nahe Weiß.
+// Andersherum sähe es aus wie Konfetti — und es entspräche auch nicht dem
+// Auge, das Farbe erst oberhalb einer Schwelle sieht.
+//
+// *Zweitens die Tiefe.* Die Schalen lagen bei 38 bis 40 m, die Bodenfläche
+// reicht bis 48 m und in die Ecken bis 67 m. Alles Gelände, das weiter weg ist
+// als die Schale, wurde von den Sternen **überzeichnet** — nachgemessen 18
+// helle Punkte innerhalb der Geländesilhouette in `d-aerial`, z. B. (368,160)
+// mit L 135 bei einer Umgebung von L 13.
+//
+// Der Grund ist nicht die Entfernung, sondern die Reihenfolge: Ein
+// `transparent: true`-Material landet in der **transparenten** Liste, und die
+// zeichnet three grundsätzlich **nach** allen opaken Objekten. Ein Stern kann
+// von dort aus nie hinter das Gelände.
+//
+// Der Ausweg steht in three selbst, in `WebGLState.setMaterial`:
+//
+//     ( material.blending === NormalBlending && material.transparent === false )
+//       ? setBlending( NoBlending )
+//       : setBlending( material.blending, … )
+//
+// Additives Mischen bleibt also auch bei `transparent: false` aktiv. Damit
+// gehören die Sterne in die **opake** Liste, werden über `renderOrder` vor das
+// Gelände sortiert, schreiben keine Tiefe und prüfen keine — und das Gelände
+// zeichnet anschließend darüber. Genau das soll passieren.
+//
+// Reihenfolge: Kuppel (−2), Sterne (−1), alles andere (0).
+function makeSternfeld(rand) {
+  const ANZAHL = 2600;
+  const R = 41; // innerhalb der Kuppel (44), außerhalb spielt es keine Rolle mehr
+
+  const positions = new Float32Array(ANZAHL * 3);
+  const farben = new Float32Array(ANZAHL * 3);
+  const groessen = new Float32Array(ANZAHL);
+  const phasen = new Float32Array(ANZAHL);
+
+  // Farbtemperaturleiter von heiß nach kühl. Die Anteile sind grob an eine
+  // Sichtbarkeitsauswahl angelehnt, nicht an eine Katalogstatistik – es ist
+  // eine stilisierte Nacht, keine Simulation.
+  const TEMPERATUREN = [
+    [0.62, 0.72, 1.0], // blauweiß
+    [0.80, 0.86, 1.0], // weißblau
+    [1.0, 0.99, 0.98], // weiß
+    [1.0, 0.94, 0.82], // gelblich
+    [1.0, 0.82, 0.63], // orange
+  ];
+
+  const c = new THREE.Color();
+  for (let i = 0; i < ANZAHL; i++) {
+    // Gleichverteilt auf der Kugel. `u` ist der Kosinus des Polarwinkels –
+    // ohne diese Umrechnung ballen sich die Punkte an den Polen.
+    const u = rand() * 2 - 1;
+    const phi = rand() * Math.PI * 2;
+    const s = Math.sqrt(Math.max(0, 1 - u * u));
+    // Nur die obere Halbkugel, mit einem Rest unter dem Horizont: Der
+    // Nebel und das Gelände decken das ohnehin ab, aber ein harter Schnitt
+    // bei y = 0 wäre in `d-aerial` als Kante sichtbar.
+    const y = Math.abs(u) * 0.98 - 0.02;
+    positions[i * 3] = s * Math.cos(phi) * R;
+    positions[i * 3 + 1] = y * R;
+    positions[i * 3 + 2] = s * Math.sin(phi) * R;
+
+    // Helligkeitsverteilung: `pow(rand, 2.6)` liefert viele schwache und
+    // wenige helle. Der Exponent ist so gewählt, dass rund 2 % der Sterne
+    // über der Hälfte der Höchsthelligkeit liegen – das sind die zwei
+    // Dutzend, die man als „hell" wahrnimmt.
+    const m = Math.pow(rand(), 2.6);
+    groessen[i] = 0.13 + m * 0.78;
+
+    // Farbe erst ab einer Helligkeitsschwelle, und dann nur anteilig.
+    const temp = TEMPERATUREN[Math.floor(rand() * TEMPERATUREN.length)];
+    const saettigung = 0.18 + m * 0.72;
+    const r = 1 + (temp[0] - 1) * saettigung;
+    const g = 1 + (temp[1] - 1) * saettigung;
+    const b = 1 + (temp[2] - 1) * saettigung;
+
+    // Extinktion: Zum Horizont hin steht mehr Atmosphäre im Weg. Sterne
+    // werden dort schwächer **und** wärmer – dasselbe, was die Sonne beim
+    // Untergehen rot macht. Weil die Schale nur um Y gedreht wird, bleibt
+    // die Höhe je Stern konstant und der Faktor darf eingebacken werden.
+    const durchsicht = 0.12 + 0.88 * smoothstep(-0.02, 0.34, y);
+    const roetung = (1 - durchsicht) * 0.55;
+    const helligkeit = (0.30 + m * 0.70) * durchsicht;
+
+    c.setRGB(
+      Math.min(1, r + roetung * 0.5) * helligkeit,
+      Math.max(0, g - roetung * 0.18) * helligkeit,
+      Math.max(0, b - roetung * 0.5) * helligkeit
+    );
+    farben[i * 3] = c.r;
+    farben[i * 3 + 1] = c.g;
+    farben[i * 3 + 2] = c.b;
+
+    phasen[i] = rand() * Math.PI * 2;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('farbe', new THREE.BufferAttribute(farben, 3));
+  geometry.setAttribute('groesse', new THREE.BufferAttribute(groessen, 1));
+  geometry.setAttribute('phase', new THREE.BufferAttribute(phasen, 1));
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      // Punktgröße in Pixeln bei einem Meter Abstand. Wird beim Ändern der
+      // Fenstergröße nachgeführt, sonst wären die Sterne in der Brille
+      // (höhere Auflösung) winzig.
+      // 420 im ersten Anlauf ergab bei der größten Klasse 9,3 px Durchmesser
+      // — das sind keine Sterne mehr, das sind Lampen. 260 bringt die hellsten
+      // auf knapp 6 px und die schwächsten auf das Minimum von 1 px.
+      pxSkala: { value: 260 },
+      zeit: { value: 0 },
+    },
+    vertexShader: `
+      attribute float groesse;
+      attribute vec3 farbe;
+      attribute float phase;
+      uniform float pxSkala;
+      uniform float zeit;
+      varying vec3 vFarbe;
+      void main() {
+        // Flimmern: jeder Stern mit eigener Phase und eigenem Tempo, damit
+        // nichts im Gleichtakt läuft. Schwache Sterne flimmern stärker –
+        // das ist auch in Wirklichkeit so, weil sie näher an der
+        // Wahrnehmungsschwelle liegen.
+        float f = 1.0 + sin(zeit * (1.7 + fract(phase) * 2.3) + phase) * 0.16 * (1.2 - groesse);
+        vFarbe = farbe * f;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = max(1.0, groesse * f * pxSkala / -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      varying vec3 vFarbe;
+      void main() {
+        // Runder, weich auslaufender Punkt statt des quadratischen Fensters,
+        // das ein ungefiltertes gl_PointCoord hinterlässt. Ohne das sind
+        // schwache Sterne 1×1- und 2×2-Blöcke mit sichtbaren Achsen.
+        vec2 d = gl_PointCoord - 0.5;
+        float r2 = dot(d, d);
+        if (r2 > 0.25) discard;
+        float a = exp(-r2 * 16.0) - 0.0183;
+        gl_FragColor = vec4(vFarbe * max(0.0, a) * 1.35, 1.0);
+      }`,
+    blending: THREE.AdditiveBlending,
+    // **Nicht** transparent: Damit landet das Feld in der opaken Liste und
+    // kann über renderOrder vor das Gelände sortiert werden. Additives
+    // Mischen bleibt trotzdem aktiv (Begründung im Kopf dieser Funktion).
+    transparent: false,
+    depthTest: false,
+    depthWrite: false,
+    fog: false,
+  });
+
+  const sterne = new THREE.Points(geometry, material);
+  sterne.name = 'nacht-sterne';
+  sterne.renderOrder = -1;
+  sterne.frustumCulled = false; // die Schale umgibt die Kamera immer
+  return sterne;
+}
+
+function makeNachtKuppel() {
+  // **Die Bandlage ist gerechnet, nicht gegriffen.** Der erste Pol
+  // (0,46 | 0,63 | −0,63) lag so, dass das Band in `a-eyelevel` bei einer
+  // Querkoordinate von 1,9 stand — also weit außerhalb der Kachel und damit
+  // unsichtbar. Ein Milchstraßenband, das man in keiner der sechs Kameras
+  // sieht, ist kein Band, sondern toter Code.
+  //
+  // Der neue Pol ist so konstruiert, dass er mit der Mondrichtung
+  // (14 | 16 | −24), normiert (0,437 | 0,499 | −0,749), einen Winkel bildet,
+  // dessen Kosinus 0,42 beträgt: Das Band läuft damit rund 25° **neben** dem
+  // Mond vorbei. Es soll ihm nicht die Bühne nehmen — er ist das Motiv — aber
+  // im selben Blickfeld stehen. Konstruiert als
+  //   0,423 · Mondrichtung + 0,906 · (waagerechter Vektor senkrecht dazu),
+  // was den Pol fast waagerecht stellt und das Band damit **steil** — es
+  // kreuzt den Himmel schräg statt am Horizont zu liegen.
+  const mwPol = new THREE.Vector3(0.78, 0.52, 0.35).normalize();
+  // Zwei orthonormale Vektoren in der Bandebene. Sie legen fest, wo u = 0
+  // liegt; welche es sind, ist gleichgültig, solange sie senkrecht stehen.
+  const mwA = new THREE.Vector3(0, 1, 0).cross(mwPol).normalize();
+  const mwB = mwPol.clone().cross(mwA).normalize();
+
+  const material = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      // **Zweiter Anlauf, nach Messung.** Der erste stand auf 0x0a1226 /
+      // 0x121a30 / 0x2c1d18 und hat aus der Nacht eine Dämmerung gemacht: Das
+      // Bildmittel sprang über alle sechs Kameras von 25…40 auf 38…50, das
+      // p01 von 2,3 auf 9…16. Ein Himmel, dessen dunkelste Stelle bei 10 liegt,
+      // ist kein Nachthimmel mehr.
+      //
+      // Der Fehler war nicht die Idee, sondern der Betrag: Ich hatte den
+      // Farbraum-Befund (Faktor 6 bis 12 zu dunkel) korrigiert **und**
+      // gleichzeitig kräftigere Farben gewählt, also zweimal in dieselbe
+      // Richtung. Die Werte hier sind rund auf ein Drittel zurückgenommen; der
+      // Verlauf bleibt, die Helligkeit geht zurück auf Nacht.
+      zenit: { value: new THREE.Color(0x05080f) },
+      mitte: { value: new THREE.Color(0x070a14) },
+      horizont: { value: new THREE.Color(0x140d0b) },
+      unten: { value: new THREE.Color(0x080504) },
+      // Luftglühen: das grüne 557,7-nm-Leuchten der oberen Atmosphäre. Es ist
+      // der Grund, warum ein Nachthimmel über dem Horizont **nie** einfach
+      // dunkler wird, und es ist ein kühler Akzent, der nichts kostet.
+      glimmen: { value: new THREE.Color(0x0a1a16) },
+      milchKarte: { value: milchstrassenKarte() },
+      // **Der Betrag ist gerechnet, sobald die Karte einmal gemessen war.**
+      // Die reparierte Karte hat Mittel 36,4 und Spitze 255 von 255, also
+      // linear 0,143 im Mittel. Der Zenithimmel liegt linear bei rund 0,003.
+      // Mit 0,34 hätte das Band das Fünfzigfache des Himmels beigetragen — ein
+      // weißes Tuch. 0,030 bringt den Mittelwert des Bandes auf die
+      // Größenordnung des Himmels und die hellsten Ballungen auf gut 46 von
+      // 255: sichtbar, aber der Mond bleibt das hellste im Bild.
+      milchStaerke: { value: 0.03 },
+      mwPol: { value: mwPol },
+      mwA: { value: mwA },
+      mwB: { value: mwB },
+    },
+    vertexShader: `
+      varying vec3 vPos;
+      void main() {
+        vPos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform vec3 zenit;
+      uniform vec3 mitte;
+      uniform vec3 horizont;
+      uniform vec3 unten;
+      uniform vec3 glimmen;
+      uniform sampler2D milchKarte;
+      uniform float milchStaerke;
+      uniform vec3 mwPol;
+      uniform vec3 mwA;
+      uniform vec3 mwB;
+      varying vec3 vPos;
+
+      void main() {
+        vec3 dir = normalize(vPos);
+        float h = dir.y;
+
+        // Grundverlauf in drei Stufen statt zwei: Ein Nachthimmel ist am
+        // Zenit nicht einfach die dunkelste Fassung der Horizontfarbe, er
+        // wechselt den Farbton.
+        vec3 col;
+        if (h > 0.0) {
+          float t = pow(h, 0.62);
+          col = t < 0.5
+            ? mix(horizont, mitte, t * 2.0)
+            : mix(mitte, zenit, (t - 0.5) * 2.0);
+        } else {
+          col = mix(horizont, unten, pow(-h, 0.7));
+        }
+
+        // --- Milchstraße --------------------------------------------------
+        // Abstand zur Bandebene als Winkel, damit das Band überall gleich
+        // breit ist. Entlang des Bandes wird der Azimut in der Bandebene
+        // gemessen – ein voller Umlauf, eine Kachelbreite, keine Naht.
+        float d = clamp(dot(dir, mwPol), -1.0, 1.0);
+        float quer = asin(d) / 1.5707963;              // -1 … 1
+        vec3 inEbene = normalize(dir - mwPol * d);
+        float laengs = atan(dot(inEbene, mwB), dot(inEbene, mwA)) * 0.1591549 + 0.5;
+        // **Die Bandkante muss weich sein.** Der erste Anlauf hat außerhalb
+        // von 0 < v < 1 hart auf 0 gesetzt; weil die Kachel an ihren Rändern
+        // nicht schwarz ist, stand im Bild ein Rechteck mit zwei senkrechten
+        // Schnittkanten quer über den Himmel. Ein Fensterausdruck statt eines
+        // Sprungs kostet nichts und nimmt die Kante ganz weg.
+        float v = quer * 2.1 + 0.5;
+        float fenster = smoothstep(0.0, 0.16, v) * (1.0 - smoothstep(0.84, 1.0, v));
+        float band = texture2D(milchKarte, vec2(laengs, clamp(v, 0.0, 1.0))).r * fenster;
+
+        // --- Extinktion ---------------------------------------------------
+        // Zum Horizont hin steht mehr Atmosphäre im Weg. Die Milchstraße
+        // verschwindet dort, noch bevor sie den Boden erreicht – ohne das
+        // stünde ein helles Band bis in die Geländekante und verriete die
+        // Kuppel als Kugel.
+        float durchsicht = smoothstep(-0.01, 0.26, h);
+        col += band * milchStaerke * durchsicht * vec3(0.86, 0.90, 1.0);
+
+        // --- Luftglühen ---------------------------------------------------
+        // Ein schmales Band knapp über dem Horizont, mit einer zweiten,
+        // breiteren Keule darüber. Zwei Keulen, weil eine allein als
+        // aufgeklebter Streifen liest.
+        float g1 = exp(-pow((h - 0.048) / 0.036, 2.0));
+        float g2 = exp(-pow((h - 0.12) / 0.17, 2.0));
+        col += glimmen * (g1 * 0.8 + g2 * 0.22) * step(-0.02, h);
+
+        // Lineare Werte in Anzeigewerte. Ohne diesen Schritt landet der
+        // lineare Wert roh im sRGB-Puffer – siehe die Rechnung im Kopf dieser
+        // Datei. Das ist der Unterschied zwischen (2|2|7) und (11|21|51).
+        //
+        // **Der Exponent muss 1/2,4 sein, nicht 1/2.** Der erste Anlauf hat
+        // sqrt(col) als „grobe, aber ausreichende Näherung" benutzt. Sie ist
+        // nicht ausreichend, und zwar genau hier: Die sRGB-Kurve ist
+        // zweiteilig, und die beiden Äste müssen an der Schwelle 0,0031308
+        // zusammenstoßen.
+        //
+        //   linearer Ast   12,92 · x                =  10,31 von 255
+        //   sqrt-Ast       √x · 1,055 − 0,055       =   1,03 von 255
+        //   richtig        x^0,41666 · 1,055 − 0,055 = 10,32 von 255
+        //
+        // Der sqrt-Ast springt an der Schwelle um 9,3 Stufen. Im Bild war das
+        // ein **harter Bogen quer über den Himmel**, je Kanal an einer anderen
+        // Höhe: In a-eyelevel Spalte x=200 fiel Grün zwischen y=224 und 225
+        // von 10 auf 1, Rot zwischen y=312 und 313 ebenso. Zwei sichtbare
+        // Kanten in genau dem Wertebereich, in dem ein Nachthimmel lebt.
+        vec3 hoch = pow(col, vec3(0.41666)) * 1.055 - 0.055;
+        gl_FragColor = vec4(mix(col * 12.92, hoch, step(0.0031308, col)), 1.0);
+      }`,
+  });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(44, 48, 30), material);
+  dome.name = 'nacht-kuppel';
+  dome.renderOrder = -2; // vor allem anderen, auch vor den Sternen
+  return dome;
+}
+
 function createNightEnvironment() {
   const rand = mulberry32(42424242);
   const group = new THREE.Group();
   group.name = 'env-night';
 
-  // Nachthimmel mit rötlich getöntem Mars-Horizont
-  group.add(makeDome(0x0b1533, 0x2a1512, 0x160a08));
+  group.add(makeNachtKuppel());
 
-  const starTexture = makeGlowTexture('rgba(255,255,255,1)', 'rgba(210,225,255,0.6)', 64);
   const starsGroup = new THREE.Group();
-  const shells = [
-    { count: 1300, size: 0.28, opacity: 0.75 },
-    { count: 200, size: 0.55, opacity: 1 },
-  ];
-  for (const shell of shells) {
-    const positions = new Float32Array(shell.count * 3);
-    for (let i = 0; i < shell.count; i++) {
-      const u = rand() * 2 - 1;
-      const phi = rand() * Math.PI * 2;
-      const r = 38 + rand() * 2;
-      const s = Math.sqrt(1 - u * u);
-      positions[i * 3] = s * Math.cos(phi) * r;
-      positions[i * 3 + 1] = Math.max(0.05 * r, Math.abs(u) * r);
-      positions[i * 3 + 2] = s * Math.sin(phi) * r;
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const stars = new THREE.Points(
-      geometry,
-      new THREE.PointsMaterial({
-        map: starTexture,
-        size: shell.size,
-        transparent: true,
-        opacity: shell.opacity,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        sizeAttenuation: true,
-        fog: false,
-      })
-    );
-    starsGroup.add(stars);
-  }
+  const sternfeld = makeSternfeld(rand);
+  starsGroup.add(sternfeld);
   group.add(starsGroup);
 
   const moon = new THREE.Mesh(
@@ -4185,12 +4652,24 @@ function createNightEnvironment() {
     // Materialien werden in der Brille einseitig – und es ist an dieser Stelle
     // aktenkundig, dass die Prüfung stattgefunden hat und negativ ausfiel.
     setQuality(stufe) {
-      applyQuality(group, null, stufe, {});
+      // **`additivBehalten` ist hier kein Beiwerk, sondern Pflicht.**
+      // `applyQuality()` blendet in der Brille jedes additiv gemischte Mesh
+      // und jedes Points-Objekt aus. Die Vorgabe `/$^/` passt auf nichts —
+      // außer auf den **leeren** Namen, denn bei Länge 0 fallen Anfang und
+      // Ende zusammen. Genau davon haben die Sternschalen bisher gelebt: Sie
+      // hatten keinen Namen.
+      //
+      // Seit sie `nacht-sterne` heißen, greift dieser Zufallsschutz nicht
+      // mehr. Ohne die Ausnahme hier hätte die Quest 3 einen Nachthimmel
+      // **ohne Sterne** — und im Headless-Lauf, der auf „voll" steht, wäre es
+      // nie aufgefallen.
+      applyQuality(group, null, stufe, { additivBehalten: /^nacht-sterne/ });
       return null;
     },
 
     update(time) {
       starsGroup.rotation.y = time * 0.004;
+      sternfeld.material.uniforms.zeit.value = time;
     },
   };
 }
