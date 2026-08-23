@@ -320,7 +320,13 @@ export async function openApp(browser, { collectConsole = true } = {}) {
       /* ohne localStorage läuft der Rest trotzdem */
     }
   });
-  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load' });
+  // **90 Sekunden statt der voreingestellten 30.** Der Nachthimmel baut beim
+  // Start eine Icosphere mit 245 760 Scheitelpunkten und zweihundertvierzig
+  // Bruchkörper; das dauert im Container spürbar. Mit `perf: true` (kein
+  // Bildratenlimit) kam `tools/inspect.mjs` reproduzierbar nicht mehr über die
+  // 30 Sekunden, während `tools/screenshots.mjs` mit demselben Stand durchlief
+  // — der Unterschied war nie die Seite, sondern die Rechenzeit daneben.
+  await page.goto(`http://127.0.0.1:${PORT}/`, { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => Boolean(window.__app), null, { timeout: 60000 });
 
   // DOM-Overlay ausblenden (rein visuell für die Screenshots).
