@@ -4904,7 +4904,21 @@ function makeMarsPlanet(rand) {
       { bogen: 69, az: -6, h: 3.8, b: 1.0, l: 1.6, art: 'block' },
       // Und zwei Vereinzelte, damit die Gruppen nicht als Inseln lesen.
       { bogen: 52, az: -160, h: 6.6, b: 2.0, l: 4.2, art: 'kante' },
-      { bogen: 36, az: -12, h: 4.4, b: 1.4, l: 2.0, art: 'block' },
+      // **Azimut −33 und 15 m, zweimal gemessen hingesetzt.** In `f-kante` — dem
+      // Blick vom Mond weg — stand keine einzige Form gegen den Sternhimmel; in
+      // dieser Richtung lag die nächste Formation bei 36 m Bogen.
+      //
+      // Der erste Anlauf setzte sie auf 19 m und rechnete die Sichtweite aus
+      // der Kugel allein: 8,9 + sqrt(2 · 25 · 5,2) = 25 m, also bequem
+      // sichtbar. Im Bild war sie weiterhin nicht da. **Die Rechnung vergisst
+      // das Gelände.** Nachgemessen steht ihre Spitze bei 20,8 m Bogen und 30,0
+      // m Radius, das sind 16,9 Grad unter Augenhöhe — und der nächstgelegene
+      // Geländerücken verdeckt in dieser Richtung alles unter 16,5 Grad. Sie
+      // fehlte um vier Zehntelgrad.
+      //
+      // Bei 15 m Bogen steht dieselbe Spitze auf 6,8 Grad unter Augenhöhe und
+      // damit klar über dem Rücken.
+      { bogen: 15, az: -33, h: 6.0, b: 1.4, l: 2.2, art: 'block' },
     ];
     const fern = [];
     const _fd = new THREE.Vector3();
