@@ -962,3 +962,105 @@ Krater und Hügel sind **Listen**, die Abstandsmessung ist **eine Funktion**
 (`abstand`). Für die Kugel wird daraus die Großkreisdistanz `R · acos(dot(a,b))`,
 die Orte werden Einheitsvektoren; Profile, Umrisse, Strahlen und Einfärbung
 bleiben unverändert stehen.
+
+---
+
+## Durchlauf 8 — Paket 6 „Steinwerk"
+
+Weiterhin ohne Prüfer. Eigenprüfung, **nicht abgenommen**.
+
+### Warum die alten Brocken als Ikosaeder lasen — und was stattdessen richtig ist
+
+Sie waren `IcosahedronGeometry(s, 1)`: achtzig gleich große, gleich geformte
+Dreiecke mit einer **radialen Streuung** je Scheitelpunkt. Radiale Streuung
+verschiebt Ecken nach außen und innen — sie erzeugt aber keine **Fläche**.
+Das Ergebnis ist ein gerundetes Vielflach mit gleichmäßigen Facetten, also ein
+geschliffener Stein. Der Prüfer hat es gemessen: zwei Nachbarfacetten mit 1,8
+Stufen Unterschied über je eine ganze ebene Fläche.
+
+Ein zerbrochener Stein entsteht nicht durch Verschieben, sondern durch
+**Schneiden**. Ein Sprung läuft als Ebene durch das Material und hinterlässt
+eine ebene Fläche; mehrere Sprünge hinterlassen ein Vielflach aus
+**unterschiedlich großen** Flächen, die sich in scharfen Kanten treffen.
+`bruchGeometrie()` kappt eine Kugel an 7 bis 15 zufälligen Ebenen, in zwei
+Durchgängen (wer einen Scheitelpunkt auf eine Ebene setzt, kann ihn dabei über
+eine andere hinausschieben).
+
+Der Unterschied ist nicht die Zahl der Dreiecke, sondern ihre **Verteilung**:
+Beim Ikosaeder ist jede Facette gleich groß; beim Bruch entscheidet der Zufall
+der Ebenen, ob eine Fläche ein Drittel des Steins einnimmt oder einen
+Fingernagel.
+
+Die Unterteilung ist ein Messwert: Bei Stufe 3 hat eine Netzkante 15 % des
+Radius — auf einem 30-cm-Brocken 4,5 cm, und das ist die Treppung, mit der eine
+Schnittkante durch das Netz läuft. Bei Stufe 2 wären es 9 cm und die Kanten
+sichtbar ausgefranst. Die Fernfelsen bekommen trotzdem Stufe 2: Aus 40 m ist
+eine 15-cm-Kante von einer 30-cm-Kante nicht zu unterscheiden.
+
+### Drei fehlende Materialien, ohne ein neues Material
+
+Der Prüfer zählte zwei Materialien im Inventar, gefordert sind fünf. Die
+fehlenden drei kommen als **Einfärbung je Fläche**, nicht je Scheitelpunkt, und
+kosten weder eine Textur noch einen Draw-Call:
+
+* **Staub** liegt auf dem, was nach oben zeigt — in der Farbe des Bodens, denn
+  von dort kommt er.
+* **Bruchgestein** ist, was steil steht: dort hält kein Staub. Heller, kühler,
+  weniger rot als die verwitterte Außenhaut. Der Anteil geht mit dem Alter
+  zurück.
+* **Frost** sammelt sich, wo die Fläche vom Mond abgewandt **und** nach unten
+  geneigt ist — die kälteste Stelle des Steins. Ein bläulicher Hauch.
+
+Gerechnet wird in **Weltausrichtung** (die Brocken sind um alle drei Achsen
+gedreht); ohne das säße der Staub bei jedem Stein an einer anderen Flanke.
+`MOND_ORT` und `MOND_RICHTUNG` stehen dafür jetzt auf Modulebene statt zweimal
+im Quelltext.
+
+**Halb verwehte Füße:** Wie tief ein Brocken im Sand steckt, schwankt zwischen
+10 % und 65 % — aus `hashNoise`, nicht aus `rand()`, damit sich die Lage der
+folgenden Brocken nicht verschiebt.
+
+### Fernfelsen: die Silhouette, die der Szene von Anfang an fehlte
+
+Der erste Prüfbericht listete es als ersten Punkt: „In keinem der sechs Bilder
+steht eine einzige Form gegen den Sternhimmel." Seit Paket 5 trägt der Horizont
+eine Form, aber eine Geländewelle ist eine weiche Linie — kein Umriss.
+
+Elf Formationen zwischen 30 und 72 m, je zwei bis drei aneinandergeschobene
+Blöcke (ein einzelner Körper liest als Gegenstand, mehrere als Aufschluss), in
+zwei Bauformen (aufragende Blöcke und lange, flache Abbruchkanten). Sie fallen
+in zwei Zonen mit ganz verschiedener Wirkung: **innerhalb des Nebels** noch
+beleuchteter Fels mit Streiflicht — die Mittelebene der Tiefenstaffelung, die
+bisher fehlte — und **jenseits von 48 m** vollständig Nebelfarbe, also reiner
+Umriss.
+
+Verteilung absichtlich unsymmetrisch: dichte Gruppe im Nordwesten hinter den
+Hügeln, ein einzelner hoher Block gegen den Mond im Nordosten, im Südosten
+nichts. Leere ist eine Entscheidung.
+
+**Ein Rechenfehler dabei, im Bild sichtbar:** Ich hatte `f.h` direkt als
+Skalierung genommen. Die Geometrie hat aber Radius 1 und reicht nach dem
+Skalieren von −hk bis +hk, wovon hk·0,42 im Boden steckt — über dem Gelände
+blieben also nur 58 % der beabsichtigten Höhe. Die erste Fassung stand als Reihe
+kleiner Buckel am Horizont statt als Skyline.
+
+### Messung
+
+| Horizontkante | night-00 | night-07 | night-08 |
+| --- | --- | --- | --- |
+| `f-hills` (volle Breite), Spanne | 15 px | 33 px | **58 px** |
+| dieselbe, Nachbarspalten gleich hoch | 95,5 % | 89,5 % | **67,0 %** |
+| `c-crater` (x 0…260), Spanne | 12 px | 90 px | 90 px |
+
+`c-crater` bleibt unverändert — dort blickt man in den Krater, die Formationen
+liegen außerhalb des Bildes.
+
+| Größe | Grenze | 00 | 07 | 08 |
+| --- | ---: | ---: | ---: | ---: |
+| Draw-Calls (max) | 120 | 40 | 12 | **13** |
+| Dreiecke (max) | 350 000 | 51 842 | 105 288 | **128 328** |
+| Texturspeicher | 60 MB | 0,77 | 6,33 | **6,33** |
+
+Sterne vor dem Gelände: **0**. Regression: Zen bitgleich, Konstrukt Δmax 1,
+Dojo Δ ≥ 8 in 0,000 %, Insel 0,729 % (Rauschband). Build grün, Konsole ohne
+Errors und Warnings.
