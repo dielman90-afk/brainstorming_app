@@ -182,6 +182,14 @@ export class IdeaCard {
 export class CardManager {
   constructor(scene) {
     this.scene = scene;
+    // **Wo Karten hängen.** Vier der fünf Umgebungen sind ortsfest; dort ist
+    // die Heimat die Szene und alles bleibt, wie es war. Der 🌌 Nachthimmel ist
+    // seit dem Umbau ein Planet, unter dem sich die Welt dreht: Eine Karte, die
+    // an der Szene hinge, bliebe vor dem Nutzer stehen und liefe mit ihm um den
+    // Planeten herum. An der Weltgruppe bleibt sie liegen, wo man sie abgelegt
+    // hat — und der Planet wird zur begehbaren Gedächtnislandkarte, die den
+    // ganzen Umbau erst rechtfertigt.
+    this.heimat = scene;
     this.cards = [];
     this.selected = null;
     this.spawnBatch = 0;
@@ -190,6 +198,29 @@ export class CardManager {
     // welche Form die gewählte Karte gerade hat.
     this.onSelect = null;
     this.fontStepIndex = 0;
+  }
+
+  // Die Heimat wechseln. Vorhandene Karten ziehen mit und behalten dabei ihre
+  // **Weltpose** — `attach()` rechnet sie um, `add()` würde sie versetzen.
+  // Karten, die gerade in einer Hand liegen, bleiben dort: Ihr Elter ist der
+  // Controller, und sie kommen beim Loslassen von selbst in die neue Heimat.
+  setHeimat(ziel) {
+    const neu = ziel ?? this.scene;
+    if (neu === this.heimat) return;
+    const alt = this.heimat;
+    this.heimat = neu;
+    neu.updateMatrixWorld(true);
+    for (const card of this.cards) {
+      if (card.group.parent === alt) neu.attach(card.group);
+    }
+  }
+
+  // Eine Weltkoordinate in die Heimat umrechnen. Solange die Heimat die Szene
+  // ist (und die steht im Ursprung), ist das ein Nichtstun.
+  _inHeimat(v) {
+    if (this.heimat === this.scene) return v;
+    this.heimat.updateMatrixWorld(true);
+    return this.heimat.worldToLocal(v);
   }
 
   get fontStep() {
@@ -214,7 +245,7 @@ export class CardManager {
     if (quaternion) card.group.quaternion.fromArray(quaternion);
     if (colorIndex) card.setColor(colorIndex);
     if (scale) card.setScale(scale);
-    this.scene.add(card.group);
+    this.heimat.add(card.group);
     this.cards.push(card);
     return card;
   }
@@ -262,10 +293,14 @@ export class CardManager {
 
     cards.forEach((card, i) => {
       const angle = baseAngle + (i - (cards.length - 1) / 2) * step;
-      card.group.position.set(
-        camPos.x + Math.sin(angle) * radius,
-        y,
-        camPos.z + Math.cos(angle) * radius
+      // Gerechnet wird in Weltkoordinaten — der Halbkreis steht vor dem
+      // Nutzer, nicht vor dem Planeten. Erst danach in die Heimat umgerechnet.
+      this._inHeimat(
+        card.group.position.set(
+          camPos.x + Math.sin(angle) * radius,
+          y,
+          camPos.z + Math.cos(angle) * radius
+        )
       );
       card.group.lookAt(camPos.x, y, camPos.z);
     });
@@ -304,7 +339,7 @@ export class CardManager {
       const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
 
       const title = this.addCard(`📌 ${def.name}`, { colorIndex: def.colorIndex });
-      title.group.position.set(cx, titleY, cz);
+      this._inHeimat(title.group.position.set(cx, titleY, cz));
       title.group.lookAt(camPos.x, titleY, camPos.z);
 
       const cols = def.cards.length > 4 ? 2 : 1;
@@ -313,18 +348,30 @@ export class CardManager {
         const row = Math.floor(m / cols);
         const tOff = cols === 1 ? 0 : (m % 2 === 0 ? -0.19 : 0.19);
         const y = titleY - 0.26 - row * 0.22;
-        card.group.position.set(cx + tangent.x * tOff, y, cz + tangent.z * tOff);
+        this._inHeimat(card.group.position.set(cx + tangent.x * tOff, y, cz + tangent.z * tOff));
         card.group.lookAt(camPos.x, y, camPos.z);
       });
     });
   }
 
   toJSON() {
+    // **Gespeichert wird relativ zur Heimat, nicht zur Welt.** Auf dem Planeten
+    // wäre eine Weltkoordinate der Ort, an dem die Karte lag, **als der Nutzer
+    // dort stand** — nach dem Neuladen läge sie an der Stelle wieder, an der er
+    // zuletzt war, statt dort, wo er sie hingelegt hat.
+    //
+    // Gerechnet wird trotzdem über die Weltpose: Nur so kommt auch eine gerade
+    // gegriffene Karte (Elter = Controller) richtig heraus. Solange die Heimat
+    // die Szene ist, ist die Umrechnung ein Nichtstun und ältere Stände lesen
+    // sich unverändert.
+    const eigen = this.heimat !== this.scene;
+    if (eigen) this.heimat.updateMatrixWorld(true);
+    const heimQ = eigen
+      ? this.heimat.getWorldQuaternion(new THREE.Quaternion()).invert()
+      : null;
     return {
       version: 1,
       exportedAt: new Date().toISOString(),
-      // Welt-Koordinaten, damit auch gerade gegriffene Karten (Parent =
-      // Controller) korrekt exportiert werden
       cards: this.cards.map((card) => ({
         id: card.id,
         text: card.text,
@@ -333,8 +380,13 @@ export class CardManager {
         // Nur bei Prozessknoten gesetzt – Ideenkarten bleiben im alten Format,
         // damit gespeicherte Boards von früher unverändert lesbar sind.
         ...(card.flowType ? { flowType: card.flowType } : {}),
-        position: card.group.getWorldPosition(new THREE.Vector3()).toArray(),
-        quaternion: card.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
+        // `frame` ist reine Auskunft für den Leser der Datei — gelesen wird
+        // immer relativ zur Heimat, die beim Laden gerade gilt.
+        ...(eigen ? { frame: 'planet' } : {}),
+        position: this._inHeimat(card.group.getWorldPosition(new THREE.Vector3())).toArray(),
+        quaternion: eigen
+          ? heimQ.clone().multiply(card.group.getWorldQuaternion(new THREE.Quaternion())).toArray()
+          : card.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
       })),
     };
   }
@@ -372,9 +424,9 @@ export class CardManager {
         if (card.text !== entry.text) card.setText(entry.text);
         if (card.colorIndex !== colorIndex) card.setColor(colorIndex);
         if (card.scale !== scale) card.setScale(scale);
-        // Gerade gegriffene Karten hängen am Controller – zurück in die Szene,
-        // sonst wären die gespeicherten Weltkoordinaten relativ zur Hand.
-        if (card.group.parent !== this.scene) this.scene.attach(card.group);
+        // Gerade gegriffene Karten hängen am Controller – zurück in die Heimat,
+        // sonst wären die gespeicherten Koordinaten relativ zur Hand.
+        if (card.group.parent !== this.heimat) this.heimat.attach(card.group);
         if (entry.position) card.group.position.fromArray(entry.position);
         if (entry.quaternion) card.group.quaternion.fromArray(entry.quaternion);
       } else {
