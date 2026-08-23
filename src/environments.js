@@ -3623,6 +3623,18 @@ function marsMaps() {
   return _marsMaps;
 }
 
+// **Eine Windrichtung für alles.** Windrippel, Verwehungen und die Staubfahnen
+// im Windschatten der Brocken müssen aus derselben Richtung kommen — drei
+// Merkmale, die einander widersprechen, lesen als Zufall statt als Wetter.
+// Nicht achsenparallel gewählt: Ein Rippelmuster, das genau nach Norden läuft,
+// fällt mit den Texturachsen und der Gitterrichtung des Bodens zusammen und
+// wird dadurch zum Raster.
+const NACHT_WIND = (() => {
+  const a = 0.62; // rund 35,5° gegen die x-Achse
+  const laengs = new THREE.Vector2(Math.cos(a), Math.sin(a));
+  return { laengs, quer: new THREE.Vector2(-laengs.y, laengs.x) };
+})();
+
 let _marsGround = null;
 function marsGroundMaterial() {
   if (!_marsGround) {
@@ -3635,6 +3647,113 @@ function marsGroundMaterial() {
       metalness: 0,
       normalScale: new THREE.Vector2(0.9, 0.9),
     });
+
+    // --- Windrippel und Abtastung ------------------------------------------
+    //
+    // **Die Aufteilung nach Frequenz, dieselbe wie beim Zen-Sand.** Jede
+    // Ortsfrequenz auf den Träger, der sie billig kann:
+    //
+    //   grob   (Meter bis Zehnermeter)  Scheitelfarben des 150 × 150-Gitters,
+    //                                   0,64 m je Zelle — Verwehungen,
+    //                                   Ausbleichen nach Exposition
+    //   mittel (die Rippel, 34 cm)      **rechnerisch aus der Weltposition** —
+    //                                   in jeder Entfernung gleich scharf,
+    //                                   kostet kein Byte, und blendet sich über
+    //                                   fwidth aus, sobald eine Periode unter
+    //                                   zwei Pixel fällt
+    //   fein   (Korn, 1 bis 3 cm)       die kachelnde Normalenkarte
+    //
+    // **Der Befund, der den Ausblendteil erzwingt.** Der Prüfer hat die
+    // Feinstruktur in `e-ground` von nah nach fern gemessen: 1,96 / 2,62 /
+    // 2,78 / 2,32 / 1,69 — dasselbe Schleifpapier auf zwei Metern wie auf
+    // vierzig. Das ist Unterabtastung: Bei 1,6 m Kachel und 512 Texeln deckt
+    // ein Texel 3,1 mm ab; auf 40 m löst ein Bildpunkt rund 4 cm auf. Was dort
+    // stehen bleibt, ist Moiré, keine Körnung.
+    //
+    // Die Lehre von der Himmelsinsel sagt aber auch: Es darf nicht auf
+    // **nichts** ausblenden, sonst ist die Ferne leerer als vorher. Deshalb
+    // trägt der zweite, gröbere Maßstab — die Rippel — weiter als das Korn.
+    _marsGround.onBeforeCompile = (shader) => {
+      shader.uniforms.windQuer = { value: NACHT_WIND.quer };
+      shader.uniforms.windLaengs = { value: NACHT_WIND.laengs };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWeltOrt;')
+        .replace(
+          '#include <worldpos_vertex>',
+          '#include <worldpos_vertex>\nvWeltOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          `#include <common>
+           varying vec3 vWeltOrt;
+           uniform vec2 windQuer;
+           uniform vec2 windLaengs;`
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          `#include <normal_fragment_maps>
+           {
+             // --- Korn nach Entfernung ausblenden ---------------------------
+             float tiefe = -vViewPosition.z;
+             float feinAn = 1.0 - smoothstep(7.0, 26.0, tiefe);
+             normal = normalize(mix(nonPerturbedNormal, normal, feinAn));
+
+             // --- Windrippel ------------------------------------------------
+             // Der Abstand liegt bei 34 cm. Die Kämme mäandern, sonst wäre es
+             // ein Wellblech: quer += A · sin(f · laengs) mit A = 0,35 und
+             // f = 0,7. **Die Streuung des Abstands ist A · f**, also 0,245 —
+             // knapp ein Viertel einer Periode. (Nicht A · f · Teilung: Der
+             // Fehler hat auf der Insel 4 % gerechnet und 90 % ins Bild
+             // gestellt.)
+             float laengs = dot(vWeltOrt.xz, windLaengs);
+             float quer = dot(vWeltOrt.xz, windQuer) + sin(laengs * 0.7) * 0.35
+                          + sin(laengs * 0.23 + 1.7) * 0.5;
+             const float K = 18.4798;            // 2 PI / 0,34 m
+             float phase = quer * K;
+
+             // Ausblenden, sobald eine Periode unter zwei Pixel fällt. Ohne
+             // das steht in der Ferne Moiré statt Rippel.
+             float schritt = fwidth(phase);
+             float rippelAn = 1.0 - smoothstep(1.1, 2.8, schritt);
+
+             // **Rippel bilden sich nicht überall.** Ein Feld, das flächendeckend
+             // gleich stark gerippelt ist, ist so sehr ein Muster wie gar keines.
+             // Zwei Bedingungen nehmen ihm die Gleichförmigkeit:
+             //
+             //   * Sie brauchen eine flache Auflage. Auf einer steilen Flanke
+             //     rutscht das Material, statt sich zu ordnen.
+             //   * Sie kommen in Feldern von zwanzig bis vierzig Metern. Die
+             //     Summe zweier Sinus mit ganzzahlfremden Frequenzen ist glatt,
+             //     periodisch erst nach sehr langer Strecke, und kostet zwei
+             //     Rechenschritte — ein Rauschen im Shader wäre hier Aufwand
+             //     ohne Gewinn.
+             float flach = smoothstep(0.55, 0.90, nonPerturbedNormal.y);
+             float feld = 0.42 + 0.58 * clamp(
+               0.5 + 0.5 * (sin(vWeltOrt.x * 0.13 + vWeltOrt.z * 0.09)
+                          + sin(vWeltOrt.x * -0.07 + vWeltOrt.z * 0.17 + 2.1)) * 0.5,
+               0.0, 1.0);
+             rippelAn *= flach * feld;
+
+             // Sägezahnprofil statt Sinus: Eine Rippel hat eine flache Luv- und
+             // eine steile Leeseite. Ein reiner Sinus liest als Dünung.
+             float sg = sin(phase);
+             float profil = sign(sg) * pow(abs(sg), 0.65);
+             float steigung = cos(phase) * K * 0.0042 * rippelAn;
+
+             vec3 querWelt = normalize(vec3(windQuer.x, 0.0, windQuer.y));
+             normal = normalize(normal - querWelt * steigung);
+
+             // Die Kämme sind gröber und heller, die Täler halten den feinen
+             // Staub. Kleiner Betrag — es ist eine Tönung, kein Muster.
+             diffuseColor.rgb *= 1.0 + profil * 0.075 * rippelAn;
+           }`
+        );
+    };
+    // Ohne eigenen Cache-Schlüssel hält three das Programm eines anderen
+    // Materials mit derselben Signatur für austauschbar und der Einschub
+    // landet nie im Shader.
+    _marsGround.customProgramCacheKey = () => 'nacht-regolith-v1';
   }
   return _marsGround;
 }
@@ -3717,16 +3836,24 @@ let _kontaktMaterial = null;
 function makeKontaktAO(stellen, heightAt) {
   if (!stellen.length) return null;
   if (!_kontaktMaterial) {
+    // **Weiß, nicht schwarz.** Die Materialfarbe wird mit der Scheitelfarbe
+    // multipliziert; steht sie auf Schwarz, kann eine Scheibe nur abdunkeln.
+    // Seit auch Staubfahnen darüber laufen — die **auf**hellen —, trägt die
+    // Farbe je Scheitelpunkt, und die Materialfarbe muss neutral sein.
+    // Vier Komponenten im Farbattribut: three setzt dann USE_COLOR_ALPHA, und
+    // die vierte multipliziert die Deckkraft. Damit stehen Verdunklung und
+    // Aufhellung zusammen in **einem** Draw-Call.
     _kontaktMaterial = new THREE.MeshBasicMaterial({
-      color: 0x000000,
+      color: 0xffffff,
       transparent: true,
       depthWrite: false,
       vertexColors: true,
       // Nicht tone-gemappt: Das hier ist keine Lichtmenge, sondern eine
-      // Abdunklung des fertigen Bildes.
+      // Korrektur des fertigen Bildes.
       toneMapped: false,
     });
   }
+  const c = new THREE.Color();
   const SEG = 12;
   // Enger und steiler als im ersten Anlauf ([0, 0.42, 0.74, 1] /
   // [1, 0.62, 0.22, 0]). Der Prüfer hat den alten Verlauf als Vignette
@@ -3737,7 +3864,9 @@ function makeKontaktAO(stellen, heightAt) {
   const pos = [];
   const col = [];
   const idx = [];
-  for (const { x, z, r, staerke } of stellen) {
+  for (const stelle of stellen) {
+    const { x, z, r, staerke, farbe = 0x000000, zug = null } = stelle;
+    c.set(farbe);
     const basis = pos.length / 3;
     for (let ring = 0; ring < RINGE.length; ring++) {
       const rr = RINGE[ring] * r;
@@ -3745,10 +3874,29 @@ function makeKontaktAO(stellen, heightAt) {
       const n = ring === 0 ? 1 : SEG;
       for (let k = 0; k < n; k++) {
         const w = (k / SEG) * Math.PI * 2;
-        const px = x + Math.cos(w) * rr;
-        const pz = z + Math.sin(w) * rr;
+        let ox = Math.cos(w) * rr;
+        let oz = Math.sin(w) * rr;
+        if (zug) {
+          // **Eine Staubfahne ist keine Scheibe.** Sie wird in Windrichtung
+          // gezogen und **nur** dorthin: Der Kegel öffnet sich hinter dem
+          // Hindernis, vor ihm passiert nichts. Deshalb wird der Streckfaktor
+          // aus dem Anteil in Windrichtung gebildet und bei null geklemmt —
+          // eine symmetrische Streckung ergäbe eine Ellipse, und die läse als
+          // Pfütze statt als Fahne.
+          const inWind = ox * zug.x + oz * zug.y;
+          const t = Math.max(0, inWind) / Math.max(1e-4, rr || 1);
+          ox += zug.x * t * zug.laenge;
+          oz += zug.y * t * zug.laenge;
+          // Zur Spitze hin schmaler.
+          const seit = 1 - 0.35 * t;
+          const quer = -zug.y * ox + zug.x * oz;
+          ox -= -zug.y * quer * (1 - seit);
+          oz -= zug.x * quer * (1 - seit);
+        }
+        const px = x + ox;
+        const pz = z + oz;
         pos.push(px, heightAt(px, pz) + 0.02, pz);
-        col.push(0, 0, 0, a);
+        col.push(c.r, c.g, c.b, a);
       }
     }
     // Fächer vom Mittelpunkt auf Ring 1
@@ -3832,9 +3980,40 @@ function makeMarsGround(rand) {
     const z = pos.getY(i); // PlaneGeometry: y ist die zweite Ebenenachse
     const h = heightAt(x, z);
     pos.setZ(i, h);
-    // Leichte Farbmodulation: Höhen heller (Staub), Mulden dunkler
-    const shade = 0.82 + smoothstep(-2, 3, h) * 0.4 + (hashNoise(x * 2.1, z * 2.1, 9) - 0.5) * 0.12;
+    // --- Verwehungen und Exposition ----------------------------------------
+    //
+    // Das Gitter hat 0,64 m je Zelle; hier gehören deshalb die **groben**
+    // Frequenzen hin — alles zwischen einem Meter und dem halben Feld. Die
+    // Rippel (34 cm) und das Korn (2 cm) sitzen woanders, siehe die Aufteilung
+    // im Kommentar bei `marsGroundMaterial()`.
+    //
+    // **Verwehungen sind entlang des Windes gestreckt.** Ein isotropes Rauschen
+    // gäbe Flecken; Verwehungen sind Bahnen. Das Rauschen wird deshalb in
+    // Windrichtung um Faktor 6,5 gedehnt abgetastet — 0,020 gegen 0,130.
+    const laengs = x * NACHT_WIND.laengs.x + z * NACHT_WIND.laengs.y;
+    const quer = x * NACHT_WIND.quer.x + z * NACHT_WIND.quer.y;
+    const verwehung = fbm2(laengs * 0.02, quer * 0.13);
+
+    // **Ausbleichen und Verdunkeln nach Exposition.** Was hoch und dem Wind
+    // ausgesetzt liegt, wird vom Feinstaub freigefegt und bleicht aus; was in
+    // Mulden liegt, sammelt gröberes, dunkleres Material. Das läuft mit dem
+    // Licht statt gegen es: Kämme werden hell und sind ohnehin beschienen,
+    // Mulden werden dunkel und liegen ohnehin im Schatten. Die Tonwertspanne
+    // wächst dadurch, statt sich aufzuheben.
+    const exposition = smoothstep(-1.6, 2.6, h);
+
+    const shade =
+      0.80 +
+      exposition * 0.30 +
+      verwehung * 0.34 +
+      (hashNoise(x * 2.1, z * 2.1, 9) - 0.5) * 0.10;
     col.copy(base).multiplyScalar(shade);
+    // Der freigefegte Kamm ist nicht nur heller, er ist auch **kühler**: Der
+    // rote Feinstaub ist dort weg. Ein Farbstich von wenigen Prozent, aber er
+    // ist der Unterschied zwischen „heller" und „anderes Material".
+    const kuehl = Math.max(0, exposition - 0.45) * 0.16;
+    col.r *= 1 - kuehl * 0.9;
+    col.b *= 1 + kuehl * 1.6;
     colors[i * 3] = col.r;
     colors[i * 3 + 1] = col.g;
     colors[i * 3 + 2] = col.b;
@@ -3963,6 +4142,33 @@ function makeMarsGround(rand) {
       z: bz,
       r: xzMax * 1.35,
       staerke: 0.5,
+    });
+    // **Staubfahne im Windschatten.** Hinter jedem Hindernis fällt die
+    // Windgeschwindigkeit ab, und was mitgetragen wird, fällt dort aus: ein
+    // heller Streifen aus Feinstaub, der sich vom Brocken weg verjüngt. Sie
+    // liegt in derselben verschmolzenen Fläche wie die Verdunklung — beides
+    // ein Draw-Call — und ist deshalb praktisch umsonst.
+    //
+    // Der Zug ist gegen die Windrichtung, weil `NACHT_WIND.laengs` die Richtung
+    // ist, **aus der** die Rippel aufgebaut werden; der Lee liegt auf der
+    // anderen Seite.
+    aoStellen.push({
+      x: bx,
+      z: bz,
+      // **Ein zurückgenommener Eingriff.** Ich hatte die Fahnen von 0,30 auf
+      // 0,16 gedämpft, weil in `c-crater` rechts unten ein heller Keil stand.
+      // Nachgemessen war der Keil (97|64|54) gegen (107|66|53) daneben — also
+      // **dunkler**, und damit der Schlagschatten des Brockens, nicht die
+      // Fahne. Der Grund für die Dämpfung war falsch, also geht sie zurück.
+      // 0,24 statt 0,30, weil der Rest der Ebene inzwischen mehr trägt.
+      r: xzMax * 1.15,
+      staerke: 0.24,
+      farbe: 0xcaa78e,
+      zug: {
+        x: -NACHT_WIND.laengs.x,
+        y: -NACHT_WIND.laengs.y,
+        laenge: xzMax * (2.4 + hashNoise(bx, bz, 11) * 1.8),
+      },
     });
   }
   for (const m of verschmelzeObjekte(brocken, 'nacht-brocken')) {
