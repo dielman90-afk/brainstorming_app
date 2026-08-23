@@ -4858,26 +4858,34 @@ function milchstrassenKarte() {
 
   const mr = mulberry32(778899);
 
-  // **Warum rund und viele, nicht wenige und langgezogen.** Der erste Anlauf
-  // hat 150 + 220 Ballungen mit bis zu 170 × 56 Pixeln gesetzt, also 3:1 in
-  // Bandrichtung. Dazu kommt, dass die Abbildung selbst schon streckt: u läuft
-  // über 360° auf 1024 Texel (0,35° je Texel), v über rund 53° auf 256 Texel
-  // (0,21° je Texel) — die Kachel ist in Bandrichtung um Faktor 1,7 gedehnt.
-  // Beides zusammen ergab im Bild lange, glatte Schleier, die wie Lichtschächte
-  // aussahen und nicht wie eine Sternwolke.
+  // **Die Streckung der Abbildung — und der Vorzeichenfehler, der mich drei
+  // Fassungen gekostet hat.**
   //
-  // Eine Milchstraße ist gesprenkelt, nicht gestreift. Deshalb: runde Formen,
-  // die Streckung der Abbildung durch ein Seitenverhältnis von 1:1,7 in der
-  // Kachel vorweggenommen, und vier Größenklassen statt zwei — die kleinste
-  // trägt die Körnung, ohne die alles zu Nebel verschwimmt.
+  // Die Kachel wird nicht gleichmäßig auf den Himmel abgebildet:
+  //
+  //   u läuft über 360° auf 1024 Texel  →  0,3516° je Texel
+  //   v läuft über  42,8° auf  256 Texel  →  0,1673° je Texel
+  //
+  // Ein Texel ist in Bandrichtung also **2,10-mal so groß** wie quer dazu.
+  // Damit ein Blob am **Himmel** rund erscheint, muss er in der Kachel
+  // 2,10-mal **höher als breit** sein.
+  //
+  // Im Code stand `ctx.scale(r * 1.7, r)` — also 1,7-mal **breiter** als hoch.
+  // Genau verkehrt herum, und in der Wirkung um Faktor 1,7 × 2,10 = **3,6**
+  // in Bandrichtung gestreckt. Deshalb las das Band in jeder Fassung als
+  // Schleier: Ich habe an den Ballungen, an den Staubbahnen und an der Stärke
+  // gedreht, während der Fehler in einer einzigen Zahl saß, die ich nie
+  // nachgerechnet hatte.
+  //
+  // Eine Milchstraße ist gesprenkelt mit Rissen, nicht gestreift.
   const mitteBei = (x) => H * 0.5 + Math.sin((x / B) * Math.PI * 2 + 0.7) * H * 0.1;
   const wolke = (x, y, r, streckung, a, farbe) => {
     for (const versatz of [-B, 0, B]) {
       ctx.save();
       ctx.translate(x + versatz, y);
-      // 1,7 gleicht die Dehnung der Abbildung aus: In der Kachel breiter,
-      // am Himmel dadurch rund.
-      ctx.scale(r * 1.7 * streckung, r);
+      // In der Kachel höher als breit — am Himmel dadurch rund. Herleitung im
+      // Kopf dieser Funktion.
+      ctx.scale(r * streckung, r * 2.1);
       const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
       g.addColorStop(0, `rgba(${farbe},${a})`);
       g.addColorStop(0.5, `rgba(${farbe},${a * 0.45})`);
@@ -4895,12 +4903,27 @@ function milchstrassenKarte() {
     return Math.exp(-(du * du) / 0.022);
   };
 
+  // **Dritter Anlauf, und diesmal an der richtigen Stelle.** Zwei Fassungen
+  // lang habe ich an den Ballungen gedreht; das Band las trotzdem als weicher
+  // Schleier, wie Zirren oder Polarlicht. Der Grund waren nicht die Ballungen,
+  // sondern die beiden **glatten** Lagen darum herum:
+  //
+  //   * ein breiter Grundschleier aus 260 Blobs mit bis zu 95 Texeln Breite
+  //   * 26 lange dunkle Bahnen mit bis zu 200 Texeln Länge
+  //
+  // Auf den Himmel abgebildet sind das Striche von mehreren hundert Pixeln.
+  // Sie haben die Körnung überdeckt, die darunter durchaus vorhanden war.
+  //
+  // Eine Milchstraße ist **gesprenkelt mit Rissen**, nicht gestreift: Der
+  // Grundschleier wird schwächer und schmaler, die langen Bahnen werden von 26
+  // auf 8 reduziert (es ist **ein** großer Riss, nicht ein Streifenmuster), und
+  // die Körnung bekommt mehr Gewicht.
   ctx.globalCompositeOperation = 'lighter';
   // Grundschleier: breit und schwach – das unaufgelöste Sternlicht.
-  for (let i = 0; i < 260; i++) {
+  for (let i = 0; i < 150; i++) {
     const x = mr() * B;
     const k = kernNaehe(x);
-    wolke(x, mitteBei(x) + (mr() - 0.5) * H * (0.42 - 0.14 * k), 26 + mr() * 30, 1, 0.030 + 0.02 * k, '170,180,208');
+    wolke(x, mitteBei(x) + (mr() - 0.5) * H * (0.34 - 0.12 * k), 18 + mr() * 20, 1, 0.020 + 0.014 * k, '170,180,208');
   }
   // Ballungen: mittlere Größe, deutlich mehr davon.
   for (let i = 0; i < 900; i++) {
@@ -4917,15 +4940,15 @@ function milchstrassenKarte() {
   }
   // Körnung: viele kleine Tupfen. Ohne sie verschwimmt alles zu Nebel; mit
   // ihnen liest die Fläche als etwas, das aus Sternen besteht.
-  for (let i = 0; i < 5200; i++) {
+  for (let i = 0; i < 9000; i++) {
     const x = mr() * B;
     const k = kernNaehe(x);
     wolke(
       x,
-      mitteBei(x) + (mr() - 0.5) * H * (0.2 - 0.06 * k),
-      1.4 + mr() * 3.4,
+      mitteBei(x) + (mr() - 0.5) * H * (0.24 - 0.07 * k),
+      1.2 + mr() * 2.8,
       0.8 + mr() * 0.5,
-      0.10 + 0.10 * k,
+      0.13 + 0.13 * k,
       '206,212,230'
     );
   }
@@ -4951,13 +4974,19 @@ function milchstrassenKarte() {
       ctx.restore();
     }
   };
-  for (let i = 0; i < 26; i++) {
+  // Acht statt 26: Es ist **ein** großer Riss mit Verzweigungen, kein
+  // Streifenmuster. Breiter und weicher, damit er als Dunkelwolke liest und
+  // nicht als Strich.
+  // **Auch hier wirkt die 2,10.** Eine Bahn von 90 × 14 Texeln erscheint am
+  // Himmel als 31,6° × 2,3°, also 13:1 statt der 6:1, die im Code stehen. Die
+  // Werte sind deshalb entzerrt: kürzer in u, höher in v.
+  for (let i = 0; i < 8; i++) {
     const x = mr() * B;
-    bahn(x, mitteBei(x) + (mr() - 0.5) * H * 0.16, 70 + mr() * 130, 5 + mr() * 8, (mr() - 0.5) * 0.35, 0.5 + mr() * 0.35);
+    bahn(x, mitteBei(x) + (mr() - 0.5) * H * 0.13, 26 + mr() * 34, 22 + mr() * 30, (mr() - 0.5) * 0.3, 0.45 + mr() * 0.3);
   }
-  for (let i = 0; i < 420; i++) {
+  for (let i = 0; i < 620; i++) {
     const x = mr() * B;
-    bahn(x, mitteBei(x) + (mr() - 0.5) * H * 0.34, 6 + mr() * 26, 4 + mr() * 12, mr() * Math.PI, 0.25 + mr() * 0.4);
+    bahn(x, mitteBei(x) + (mr() - 0.5) * H * 0.36, 3 + mr() * 10, 6 + mr() * 22, mr() * Math.PI, 0.22 + mr() * 0.38);
   }
 
   const tex = new THREE.CanvasTexture(canvas);
@@ -5809,7 +5838,7 @@ function makeNachtKuppel() {
       // weißes Tuch. 0,030 bringt den Mittelwert des Bandes auf die
       // Größenordnung des Himmels und die hellsten Ballungen auf gut 46 von
       // 255: sichtbar, aber der Mond bleibt das hellste im Bild.
-      milchStaerke: { value: 0.03 },
+      milchStaerke: { value: 0.042 },
       mwPol: { value: mwPol },
       mwA: { value: mwA },
       mwB: { value: mwB },

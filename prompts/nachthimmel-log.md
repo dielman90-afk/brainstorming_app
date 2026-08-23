@@ -1248,3 +1248,136 @@ Genau eine Periode später wieder da.
 
 Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δ ≥ 8 in 0,000 %, Insel
 0,582 %. Build grün, Konsole ohne Errors und Warnings.
+
+---
+
+## Durchlauf 11 — Paket 9 „Schlusspass"
+
+Ohne Prüfer (Konto am Ausgabelimit seit Durchlauf 3). **Nichts hiervon ist
+abgenommen.**
+
+### Der offene Punkt aus Paket 2, endlich verstanden
+
+Das Milchstraßenband las über drei Fassungen hinweg als weicher Schleier — wie
+Zirren oder Polarlicht, nicht wie eine Sternwolke. Ich habe an den Ballungen
+gedreht, an den Staubbahnen, an der Stärke. Der Fehler saß in **einer Zahl**,
+die ich nie nachgerechnet hatte.
+
+Die Kachel wird ungleichmäßig auf den Himmel abgebildet:
+
+```
+u läuft über 360,0° auf 1024 Texel  →  0,3516° je Texel
+v läuft über  42,8° auf  256 Texel  →  0,1673° je Texel
+```
+
+Ein Texel ist in Bandrichtung also **2,10-mal so groß** wie quer dazu. Damit ein
+Blob am **Himmel** rund erscheint, muss er in der Kachel 2,10-mal **höher als
+breit** sein. Im Code stand `ctx.scale(r * 1.7, r)` — 1,7-mal **breiter** als
+hoch. Verkehrt herum, und in der Wirkung um Faktor **1,7 × 2,10 = 3,6** in
+Bandrichtung gestreckt.
+
+Dass ich den Kommentar „1,7 gleicht die Dehnung der Abbildung aus" selbst
+geschrieben hatte, ohne die Richtung zu prüfen, ist der eigentliche Fehler.
+Ein Faktor, der eine Verzerrung ausgleichen soll, gehört hergeleitet, nicht
+geschätzt — das ist dieselbe Lehre wie „Wicklungsreihenfolge ausrechnen, nicht
+raten".
+
+### Gesamtbilanz: Ausgangsstand gegen Schlussstand
+
+**Tonwert des Bodens** (Bereich (100,420)–(1180,700)), p05…p95:
+
+| Bild | night-00 | night-11 |
+| --- | --- | --- |
+| `a-eyelevel` | 3 … 68 | **21 … 95** |
+| `c-crater` | 47 … 60 (**13 Stufen**) | **20 … 73 (53 Stufen)** |
+| `e-ground` | 32 … 62 | **17 … 88** |
+| `f-hills` | 37 … 64 | **51 … 81** |
+
+**Himmelsfläche** `a-eyelevel` (100,60)–(1180,380):
+
+| | night-00 | night-11 |
+| --- | --- | --- |
+| Mittel | 4,3 | **14,0** |
+| p05 … p95 | 2 … 3 (**1 Stufe**) | **9 … 29 (20 Stufen)** |
+
+**Bildmittel / p99** über die sechs Kameras:
+
+| Bild | night-00 | night-11 |
+| --- | --- | --- |
+| `a-eyelevel` | 21,9 / 69,9 | 33,3 / **100,9** |
+| `b-moon` | 7,7 / 72,4 | 20,2 / **101,7** |
+| `c-crater` | 35,4 / 64,6 | 44,3 / **92,1** |
+| `d-aerial` | 34,8 / 62,3 | 42,0 / **80,3** |
+| `e-ground` | 30,4 / 68,4 | 37,6 / **101,2** |
+| `f-hills` | 25,4 / 67,2 | 36,5 / **89,3** |
+
+**Horizont** `f-hills`: Spanne 15 px → **58 px**, gleich hohe Nachbarspalten
+95,5 % → **67,0 %**.
+**Vordergrund** `c-crater`: Kantenanteil im unteren Drittel 0,03 % → **0,92 %**.
+**Sterne vor dem Gelände**: 18 in `d-aerial` → **0 über alle sechs Kameras**.
+
+### Budget
+
+| Größe | Grenze | night-00 | night-11 |
+| --- | ---: | ---: | ---: |
+| Draw-Calls (max) | 120 | 40 | **18** |
+| Dreiecke (max) | 350 000 | 51 842 | **135 170** |
+| Texturspeicher | 60 MB | 0,77 | **6,33** |
+| Shader-Programme | – | 7 | 12 |
+
+Die Draw-Calls sind **gefallen**, obwohl fünf Objektklassen dazugekommen sind
+(Fernfeldring, Fernfelsen, Findlinge, drei Bewegungsträger): Brocken, Hügel,
+Findlinge und Felsen sind je Klasse verschmolzen, und die Horizonthügel sind
+ganz im Höhenfeld aufgegangen. 102 Draw-Calls und 215 000 Dreiecke bleiben frei.
+
+### Eigenprüfung gegen die acht Kriterien
+
+**Ich schreibe hier bewusst nicht „bestanden".** Der Prüfer ist seit Durchlauf 3
+ausgefallen, und an der eigenen Arbeit ist man nicht unbefangen. Was folgt, ist
+eine Zustandsbeschreibung mit Belegen, kein Urteil.
+
+| # | Kriterium | Stand | Beleg |
+| --- | --- | --- | --- |
+| 1 | Silhouette | elf Felsformationen stehen als Umriss gegen den Sternhimmel; Horizontspanne 15 → 58 px | Paket 6 |
+| 2 | Komposition | Findlingsachse auf −59,1° gegen Mondazimut −59,7°; Vordergrundkanten 0,03 → 0,92 % | Paket 7 |
+| 3 | Licht | eine gerichtete Quelle mit Schattenkarte, Kontaktverdunklung, Streiflicht auf Bruchflächen | Pakete 1, 6 |
+| 4 | Farbharmonie | Blau führt an keiner gemessenen Stelle über Grün; kalte Lichtseite gegen warmen Schatten | Paket 1 |
+| 5 | Materialtrennung | Staub, Fels, Bruchgestein, Frost, Ferne — fünf, ohne ein neues Material | Paket 6 |
+| 6 | Tiefenstaffelung | Fernfelsen als Mittelebene, Fernfeldring als Ferne, Extinktion am Himmel | Pakete 2, 6 |
+| 7 | Bewegung | vier Träger, Korrelation der Beitragsreihen −0,088 und −0,005 | Paket 8 |
+| 8 | Programmierer-Tell | Gitterrauschen, Ikosaeder, Kreis-Krater, gerader Horizont je einzeln behoben | Pakete 1, 5, 6 |
+
+### Was offen bleibt
+
+1. **Die Entfernungsabhängigkeit des Korns.** Verbessert (nahes Band 1,96 →
+   1,79), aber die Reihe steigt weiterhin zur Mitte hin an statt zu fallen. Für
+   diese Frage bräuchte es ein Maß an festem **Welt**maßstab statt an festem
+   Pixelmaßstab; der 5×5-Hochpass mischt Korn, Rippel und Geländekontrast in
+   einer Zahl.
+2. **Die Masse links zu rechts bleibt bei 1,00 bis 1,06.** Begründung in
+   Durchlauf 9: In einer VR-Umgebung gibt es kein festes Bildformat, für das man
+   ausbalancieren könnte. Ein Bild links schwerer zu machen hieße, für den
+   Prüfstand zu komponieren.
+3. **Der Mond sitzt in `b-moon` im Bullauge.** Die Kamera ist mit
+   `look = [14, 16, −24]` auf ihn gerichtet — eine Eigenschaft des Prüfstands.
+4. **Kein unbefangenes Urteil.** Sieben von neun Paketen sind ohne Prüfer
+   entstanden.
+
+### Die Lehren dieser Runde, für das nächste Mal
+
+* **Ein Faktor, der eine Verzerrung ausgleichen soll, gehört hergeleitet.** Die
+  1,7 in der Milchstraßenkachel war geschätzt, stand mit einem
+  selbstgeschriebenen Kommentar da, der sie erklärte, und war um Faktor 3,6
+  falsch.
+* **Bei einem Bildbefund ohne offensichtliche Ursache: Strahlenschuss durch das
+  Pixel, erste Handlung.** `interactions.raycaster` an `window.__app` hat in
+  einer Minute geklärt, was drei Durchläufe Raten nicht geklärt haben.
+* **Das Auge lügt öfter als die Zahl — auch beim ersten Eindruck.** Dreimal in
+  Paket 4, einmal in Paket 5, einmal in Paket 7: „Die Brocken sind verschwunden",
+  „die Fahne ist zu hell", „der Einschub kommt nicht an" — jedes Mal widerlegt.
+* **Ein Messwerkzeug altert mit der Szene.** `silhouette.mjs` maß Felsfacetten
+  als Sterne, sobald der Himmel einen Verlauf bekam. `bewegung.mjs` maß
+  Bewegungslosigkeit, weil es selbst nichts bewegen konnte. Beide Male sah es
+  nach einem Szenenfehler aus.
+* **Backticks in Shader-Kommentaren.** Dreimal in einer Runde. Jetzt gibt es
+  `tools/shaderlint.mjs`.
