@@ -123,58 +123,84 @@ export const ZEN_SHOTS = [
   },
 ];
 
-// Feste Kameras des Nachthimmels. Maßstab 1:1 (kein WORLD_SCALE), Bodenfläche
-// 96 × 96 m, Nebel 22–48 m, Kuppel r = 44, Mond bei [14 | 16 | −24].
-// DIESE WERTE DÜRFEN SICH ÜBER ALLE DURCHLÄUFE NICHT ÄNDERN – sonst sind die
-// Vergleichsbilder wertlos. Eingefroren mit dem Ausgangsstand night-00.
-export const NIGHT_SHOTS = [
+// Feste Kameras des Nachthimmels — **neu, seit der Boden eine Kugel ist.**
+//
+// Die sechs Kameras von night-00 bis night-09 sind mit der Platte weggefallen
+// und nicht zu retten: `f-hills` zeigte Horizonthügel, die es nicht mehr gibt,
+// und `d-aerial` stand bei (18 | 14 | 22) — das liegt jetzt **innerhalb** des
+// Planeten. Der Messvergleich gegen night-XX endet damit; für den Planeten
+// beginnt eine neue Reihe mit planet-00.
+//
+// Maßstab 1:1. Planetenhalbmesser 25 m, Startpunkt am Nordpol (0 | 25 | 0),
+// Augenhöhe 1,6 m. Zwei Zahlen bestimmen jeden Bildausschnitt:
+//
+//   • Der Horizont liegt **19,9 Grad unter Augenhöhe** (acos(25/26,6)) und in
+//     8,7 m Bogenabstand. Wer waagerecht schaut, sieht zu vier Fünfteln Himmel.
+//     Die Bodenkameras zielen deshalb 15 bis 25 Grad nach unten.
+//   • Der Mond steht in **Azimut 150 Grad** (aus MOND_RICHTUNG) und 29,9 Grad
+//     über dem Horizont der Polstellung.
+//
+// DIESE WERTE DÜRFEN SICH ÜBER ALLE DURCHLÄUFE NICHT ÄNDERN.
+export const PLANET_SHOTS = [
   {
-    name: 'a-eyelevel',
-    title: 'Augenhöhe, Blick über den Regolith zum Mond',
-    pos: [-4.0, 1.6, 8.0],
-    look: [11.0, 7.0, -20.0],
+    name: 'a-augenhoehe',
+    title: 'Augenhöhe am Startpunkt, Blick zum Mond über die Krümmung',
+    pos: [0, 26.94, 0],
+    look: [5.8, 23.83, -10.04],
     fov: 70,
   },
   {
-    name: 'b-moon',
+    name: 'b-mond',
     title: 'Der Mond im Bild',
-    pos: [0, 1.6, 4.0],
-    look: [14.0, 16.0, -24.0],
+    pos: [0, 26.94, 0],
+    look: [131.0, 174.7, -224.6],
     fov: 60,
   },
   {
-    name: 'c-crater',
-    title: 'Blick in den großen Krater',
-    pos: [-3.0, 1.7, 12.0],
-    look: [-11.0, -0.6, 5.0],
+    name: 'c-krater',
+    // Der Standort ist gemessen, nicht geschätzt: `tools/planetort.mjs` meldet
+    // für 7,6 m Bogen bei Azimut 155 eine Geländehöhe von +0,33 m — den Wall
+    // des alten, flachen Kraters, dessen Mulde bei 12,1 m auf −0,87 m liegt.
+    //
+    // **Azimut 155 und nicht −38.** Der erste Anlauf stand am Krater bei −38,
+    // also 188 Grad vom Mond weg: Das Gelände kehrte dem Licht den Rücken zu,
+    // und im Bild stand eine gleichmäßig dunkle Fläche, in der die Mulde nicht
+    // zu erkennen war. Der Mond steht in Azimut 150; ein Krater, der eine Form
+    // zeigen soll, braucht eine beleuchtete und eine abgewandte Flanke.
+    title: 'Vom Wall in den großen Krater (12,1 m Bogen, Azimut 155)',
+    pos: [3.41, 25.7, -7.31],
+    look: [6.53, 18.95, -14.0],
     fov: 70,
   },
   {
-    name: 'd-aerial',
-    title: 'Totale von schräg oben (Komposition)',
-    pos: [18.0, 14.0, 22.0],
-    look: [0, -0.5, 0],
-    fov: 55,
+    name: 'd-orbit',
+    title: 'Der ganze Planet von außen (Silhouette und Terminator)',
+    // **Ohne Nebel.** 5 bis 13 m sind für den Rundgang gemacht; aus 77 m
+    // Abstand läge der Planet vollständig darin und das Bild wäre eine
+    // gleichmäßige Fläche in Nebelfarbe. Der Nebel wird für dieses eine Bild
+    // abgeschaltet — es misst die Form, nicht die Staffelung.
+    nebel: false,
+    pos: [52.0, 30.0, 46.0],
+    look: [0, 0, 0],
+    fov: 45,
   },
   {
-    name: 'e-ground',
+    name: 'e-boden',
     title: 'Flache Nahsicht auf den Regolith',
-    pos: [2.0, 0.45, 5.0],
-    look: [-2.0, -0.15, -3.0],
+    pos: [0.6, 25.76, 1.2],
+    look: [-2.43, 23.51, -3.47],
     fov: 60,
   },
   {
-    name: 'f-hills',
-    title: 'Horizonthügel gegen den Sternhimmel',
-    pos: [1.0, 1.6, 1.0],
-    look: [-22.0, 3.5, -24.0],
+    name: 'f-kante',
+    title: 'Die Krümmungskante gegen den Sternhimmel, vom Mond abgewandt',
+    pos: [0, 26.94, 0],
+    look: [-5.71, 23.23, 9.88],
     fov: 70,
   },
 ];
 
-// Kamerasätze je Umgebung. `SHOTS` bleibt der Inselsatz, damit die alten
-// Inselbilder vergleichbar bleiben.
-export const ENV_SHOTS = { island: SHOTS, zen: ZEN_SHOTS, night: NIGHT_SHOTS };
+export const ENV_SHOTS = { island: SHOTS, zen: ZEN_SHOTS, night: PLANET_SHOTS };
 
 export function shotsFor(envId) {
   const set = ENV_SHOTS[envId];
@@ -197,7 +223,9 @@ export function envArg(argv, fallback = 'zen') {
 // diese Umgebung zählt der Blick aufs Bild, nicht der Byte-Vergleich.
 export const REGRESSION_SHOTS = {
   island: { pos: [1.5, 1.6, 9.0], look: [-2.0, 1.2, -14.0], fov: 70 },
-  night: { pos: [0, 1.6, 6], look: [0, 2.5, -18], fov: 70 },
+  // Der Nachthimmel ist ein Planet: Augenhoehe heisst hier 26,6 m ueber dem
+  // Mittelpunkt, nicht 1,6 m ueber y = 0.
+  night: { pos: [0, 26.94, 0], look: [5.8, 23.83, -10.04], fov: 70 },
   zen: { pos: [0, 1.6, 6], look: [0, 1.0, -12], fov: 70 },
   matrix: { pos: [0, 1.6, 2.5], look: [0, 1.0, -5], fov: 70 },
   // Seit PR #9 gibt es eine fuenfte Umgebung; ohne sie im Regressionssatz
@@ -357,11 +385,63 @@ export async function selectEnv(page, id) {
 // bewusst ausserhalb (die Totale 24 m ueber der Insel, der Kantenblick knapp
 // jenseits der Abbruchkante). Ohne das Abschalten zieht die Sperre sie jedes
 // Bild auf Augenhoehe zurueck, und die Vergleichsbilder waeren wertlos.
+//
+// **Nebelschalter.** Ein Bild darf `nebel: false` verlangen — die Totale des
+// Planeten von außen tut das. Der Wert der Umgebung wird dabei aufgehoben und
+// beim nächsten Bild ohne Vermerk wiederhergestellt, sonst bliebe die ganze
+// Reihe nach der Totale nebelfrei.
+async function nebelHilfe(page) {
+  await page.evaluate(() => {
+    if (window.__setzeNebel) return;
+    window.__setzeNebel = (scene, an) => {
+      if (!an) {
+        if (window.__nebelSpeicher === undefined) window.__nebelSpeicher = scene.fog;
+        scene.fog = null;
+      } else if (window.__nebelSpeicher !== undefined) {
+        scene.fog = window.__nebelSpeicher;
+        window.__nebelSpeicher = undefined;
+      }
+      // Steht kein Vermerk an, bleibt der Nebel unangetastet — sonst truege ein
+      // gespeicherter Wert der einen Umgebung in die naechste hinein.
+    };
+  });
+}
+
+// **three.js im Seitenkontext.** `import('three')` scheitert dort: Der nackte
+// Bezeichner wird nicht aufgelöst, weil der evaluate-Code nicht durch Vite
+// gelaufen ist. Die Seite hat das Modul aber längst geladen — seine URL steht
+// in der Ressourcenliste. Der innere Chunk `three.module-XXXX.js` exportiert
+// die Namen nicht, deshalb wird jeder Kandidat probiert, bis einer einen
+// Raycaster liefert.
+export async function ladeThree(page) {
+  await page.evaluate(async () => {
+    if (window.__THREE) return;
+    const kandidaten = performance
+      .getEntriesByType('resource')
+      .map((e) => e.name)
+      .filter((n) => /three[^/]*\.js/.test(n));
+    for (const url of kandidaten) {
+      try {
+        const m = await import(/* @vite-ignore */ url);
+        if (typeof m.Raycaster === 'function' && typeof m.Vector3 === 'function') {
+          window.__THREE = m;
+          return;
+        }
+      } catch {
+        /* naechster Kandidat */
+      }
+    }
+    throw new Error(`three.js nicht ladbar. Kandidaten: ${kandidaten.join(', ')}`);
+  });
+}
+
 export async function placeCamera(page, shot, time = 6.0) {
+  await nebelHilfe(page);
   await page.evaluate(
-    ({ pos, look, fov, time }) => {
+    ({ pos, look, fov, time, nebel }) => {
       const { camera, player, renderer, scene, controls } = window.__app;
       window.__app.env.setWalkEnabled?.(false);
+      window.__setzeNebel(scene, nebel);
       player.position.set(0, 0, 0);
       player.rotation.set(0, 0, 0);
       // OrbitControls.update() ruft am Ende lookAt(target) auf und würde eine
@@ -375,17 +455,19 @@ export async function placeCamera(page, shot, time = 6.0) {
       camera.updateMatrixWorld(true);
       renderer.render(scene, camera);
     },
-    { pos: shot.pos, look: shot.look, fov: shot.fov, time }
+    { pos: shot.pos, look: shot.look, fov: shot.fov, time, nebel: shot.nebel !== false }
   );
 }
 
 // Kamera nach jedem Frame neu setzen: Die App-Schleife läuft weiter und würde
 // sonst über OrbitControls/Locomotion dazwischenfunken.
 export async function lockCamera(page, shot, time) {
+  await nebelHilfe(page);
   await page.evaluate(
-    ({ pos, look, fov, time }) => {
+    ({ pos, look, fov, time, nebel }) => {
       const app = window.__app;
       app.env.setWalkEnabled?.(false); // siehe placeCamera
+      window.__setzeNebel(app.scene, nebel);
       if (app.__harnessLock) cancelAnimationFrame(app.__harnessLock);
       const tick = () => {
         app.controls.target.set(look[0], look[1], look[2]);
@@ -398,6 +480,6 @@ export async function lockCamera(page, shot, time) {
       };
       tick();
     },
-    { pos: shot.pos, look: shot.look, fov: shot.fov, time }
+    { pos: shot.pos, look: shot.look, fov: shot.fov, time, nebel: shot.nebel !== false }
   );
 }
