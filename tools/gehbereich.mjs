@@ -189,6 +189,13 @@ try {
     // FREIRAUM muss uebergeben werden: `page.evaluate` laeuft im Browser, die
     // Konstante steht in Node.
     const planet = await page.evaluate((FREIRAUM) => {
+      // Gegenprobe: Diese Datei traegt den Wert doppelt. Weicht er von dem der
+      // App ab, misst das Werkzeug eine Uebersetzung, die es nicht gibt —
+      // `tools/rundgang.mjs` ist genau daran einmal aufgelaufen.
+      const w0 = window.__app.env.walk();
+      if (w0.istPlanet && Math.abs(w0.freiraum - FREIRAUM) > 1e-6) {
+        throw new Error(`Freiraum: Werkzeug ${FREIRAUM} m, App ${w0.freiraum} m`);
+      }
       const app = window.__app;
       const w = app.env.walk();
       const welt = app.scene.getObjectByName('nacht-welt');

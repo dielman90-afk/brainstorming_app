@@ -3696,6 +3696,42 @@ function versetzeAufKugel(ort, ostMeter, nordMeter, aus) {
     .normalize();
 }
 
+// --- Grate: der Abstand eines Punktes von einem Großkreisbogen ---------------
+//
+// **Warum ein eigenes Primitiv und nicht eine Kette von Hügeln.** Der Prüfer
+// hat zwei Dinge nebeneinander vermisst — eine Silhouette mit Topographie und
+// einen Mittelgrund — und beide haben dieselbe Ursache: Auf dieser Kugel gibt
+// es keine Form, die *lang und schmal und hoch* ist. Krater sind rund, Hügel
+// sind rund; runde Formen von 10 m Halbmesser sind auf einem Körper von 25 m
+// so weich, dass sie weder eine Kante noch eine Verdeckung ergeben.
+//
+// Ein Grat ist die einfachste Form, die beides kann: Er steht quer im Blick,
+// verdeckt die Ferne und gibt der Kante des Körpers einen Knick. Auf einer
+// Kugel ist seine Achse ein **Großkreisbogen** — die gerade Linie der Kugel.
+//
+// Zurückgegeben wird der Abstand in Metern entlang der Oberfläche. Innerhalb
+// des Bogens ist das der Abstand zur Trägerebene, außerhalb der Abstand zum
+// näheren Endpunkt; so bekommt der Grat runde Enden statt abgeschnittener.
+const _grN = new THREE.Vector3();
+const _grP = new THREE.Vector3();
+const _grK = new THREE.Vector3();
+function bogenAbstandZuGrat(dir, grat) {
+  const n = grat.achse;
+  const quer = dir.dot(n);
+  // Fußpunkt auf dem Großkreis.
+  _grP.copy(dir).addScaledVector(n, -quer);
+  const len = _grP.length();
+  if (len > 1e-6) {
+    _grP.multiplyScalar(1 / len);
+    // Liegt der Fußpunkt zwischen den Enden? Beide Kreuzprodukte müssen
+    // dieselbe Umlaufrichtung wie die Achse haben.
+    const vorA = _grK.crossVectors(grat.a, _grP).dot(n);
+    const vorB = _grK.crossVectors(_grP, grat.b).dot(n);
+    if (vorA >= 0 && vorB >= 0) return Math.asin(Math.min(1, Math.abs(quer))) * PLANET_R;
+  }
+  return Math.min(dir.angleTo(grat.a), dir.angleTo(grat.b)) * PLANET_R;
+}
+
 // Windrichtung an einem Ort, als Tangentialvektor.
 function windAn(dir, aus = new THREE.Vector3()) {
   aus.crossVectors(WIND_POL, dir);
@@ -4568,6 +4604,24 @@ function makeMarsPlanet(rand) {
     { bogen: 74, az: 44, r: 1.8, depth: 0.5, wall: 1.2, alter: 0.2, strahlen: 0.5 },
     // Einer fast auf der Gegenseite (78,5 m ist der Gegenpol).
     { bogen: 77, az: -70, r: 4.8, depth: 1.25, wall: 0.5, alter: 0.75, strahlen: 0 },
+    // --- Die zwei großen Einschläge ---------------------------------------
+    //
+    // **Gemessen: Der höchste Kraterwall auf dem ganzen Planeten stand bei
+    // 34 cm.** Das sind im Orbitbild vier Bildpunkte auf 296 — genau die
+    // Rauheit, die der Umriss zeigte. Der Prüfer hat das als „die Kugel hat
+    // Textur, aber keine Topographie" beschrieben, und die Rechnung gibt ihm
+    // recht: `craterProfile` setzt den Wall auf `0,32 · wall · (1−alter) ·
+    // depth`, und `depth` lag bei keinem Krater über 1,3 m.
+    //
+    // Die Krater waren nicht falsch bemessen — sie waren zu klein für ihren
+    // Körper. Ein Wall ist rund vier Prozent des Durchmessers hoch; bei 6 m
+    // Durchmesser sind das 24 cm, und daran ändert kein Parameter etwas. Was
+    // eine Silhouette bricht, ist ein Einschlag, dessen Durchmesser ein
+    // nennenswerter Teil des Körpers ist — auf Phobos ist Stickney knapp die
+    // Hälfte. Diese beiden haben 19 und 14 m Durchmesser bei 50 m
+    // Körperdurchmesser, und ihre Tiefe folgt der üblichen Fünftelregel.
+    { bogen: 30, az: -62, r: 9.5, depth: 3.6, wall: 1.5, alter: 0.25, strahlen: 0 },
+    { bogen: 63, az: 148, r: 7.0, depth: 2.7, wall: 1.35, alter: 0.1, strahlen: 0.55 },
   ];
   craters.forEach((c, i) => {
     c.ort = ortVon(STARTPUNKT, c.bogen, c.az);
@@ -4592,6 +4646,41 @@ function makeMarsPlanet(rand) {
   huegel.forEach((k, i) => {
     k.ort = ortVon(STARTPUNKT, k.bogen, k.az);
     k.umriss = welligerUmriss(4200 + i * 53, 0.26 + i * 0.02, 5);
+  });
+
+  // --- Grate ----------------------------------------------------------------
+  //
+  // Die zweite Hälfte der Antwort auf den Prüfer, und sie beantwortet zugleich
+  // seinen Befund 10 („nur zwei Tiefenebenen, kein Mittelgrund"): Ein Grat ist
+  // lang, schmal und hoch. Er verdeckt die Ferne — damit entsteht eine dritte
+  // Ebene zwischen Vordergrund und Kante — und er gibt der Silhouette einen
+  // Knick, wo eine runde Form nur eine Wölbung ergibt.
+  //
+  // `breite` ist der halbe Fuß in Metern, `h` die Kammhöhe. Der Kamm ist über
+  // die inneren 15 Prozent flach, dann fällt er als `smoothstep` ab; die
+  // steilste Neigung ist damit `1,5 · h / (0,85 · breite)`. Bei h = 3,2 und
+  // breite = 5,5 sind das 1,03, also 46 Grad — steil genug, dass er als Wand
+  // liest, und flach genug, dass man hinaufkommt.
+  //
+  // **Der erste liegt bewusst im Blick der Eingangskamera** (Azimut 150, wie
+  // `a-augenhoehe` und `c-krater`). Sichtbarkeit auf einer Kugel:
+  // `sqrt(2·R·h_auge) + sqrt(2·R·h)` = 8,9 + 12,6 = 21,5 m — bei 16 m Bogen
+  // steht sein Kamm klar über der Krümmungskante, und zwar hinter dem Krater
+  // bei 12,1 m. Das ist die fehlende mittlere Ebene.
+  const grate = [
+    { vonBogen: 12, vonAz: 128, bisBogen: 21, bisAz: 172, breite: 5.5, h: 3.2 },
+    { vonBogen: 30, vonAz: 42, bisBogen: 48, bisAz: 74, breite: 6.5, h: 3.9 },
+    { vonBogen: 52, vonAz: -108, bisBogen: 68, bisAz: -152, breite: 6.0, h: 3.4 },
+  ];
+  grate.forEach((g, i) => {
+    g.a = ortVon(STARTPUNKT, g.vonBogen, g.vonAz);
+    g.b = ortVon(STARTPUNKT, g.bisBogen, g.bisAz);
+    g.achse = new THREE.Vector3().crossVectors(g.a, g.b).normalize();
+    // Ein Grat mit gleichbleibender Höhe ist ein Wall, kein Grat. Die
+    // Kammlinie bekommt deshalb dieselbe Wellung, die schon die Kraterumrisse
+    // unrund macht — nur wird sie hier über die Länge abgetastet.
+    g.kamm = welligerUmriss(7700 + i * 61, 0.3, 4);
+    g.laenge = g.a.angleTo(g.b) * PLANET_R;
   });
 
   // --- Höhenfeld über einer Richtung -----------------------------------------
@@ -4649,6 +4738,15 @@ function makeMarsPlanet(rand) {
       const u = d / rEff;
       const q = 1 - u * u;
       h += k2.h * q * q;
+    }
+    for (const g of grate) {
+      const d = bogenAbstandZuGrat(dir, g);
+      if (d >= g.breite) continue;
+      const u = d / g.breite;
+      // Wo auf dem Grat: der Winkel des Fußpunkts um die Achse, damit die
+      // Kammwellung entlang der Länge läuft und nicht quer.
+      const laengs = Math.atan2(dir.dot(g.b), dir.dot(g.a));
+      h += g.h * g.kamm(laengs * 6) * (1 - smoothstep(0.15, 1, u));
     }
     for (const c of craters) {
       const d = bogenAbstand(dir, c.ort);

@@ -96,6 +96,15 @@ export function makePlanetWalk({ radius, heightAt, welt, nachDrehung, freiraum =
   return {
     istPlanet: true,
     radius,
+    // **Der Freiraum gehoert nach aussen.** Der Pruefstand muss den Kopf um
+    // genau diesen Betrag plus die Schrittlaenge abdriften lassen, sonst misst
+    // er eine andere Uebersetzung als die, die in der Brille passiert. Als der
+    // Wert von 0,9 auf 0,25 m fiel, hat `tools/rundgang.mjs` seine fest
+    // eingetragene 0,9 behalten und daraufhin je Schritt 68 cm statt 3,3 cm
+    // gedreht — der Rundgang „schloss nicht", und die Bodenkontaktzahlen waren
+    // um den Faktor 20 verstellt. Eine Zahl, die zwei Seiten kennen muessen,
+    // darf nur an einer Stelle stehen.
+    freiraum,
 
     limit(x, z, out) {
       const r = Math.hypot(x, z);
