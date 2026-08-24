@@ -4015,9 +4015,40 @@ function marsGroundMaterial() {
           `#include <normal_fragment_maps>
            {
              // --- Korn nach Entfernung ausblenden ---------------------------
+             // Die Kachel deckt 1,6 m ab, ihre kleinsten Kuppen sind 1,9 cm
+             // groß. Ein Bildpunkt fasst bei 1280 px auf 102 Grad rund 1,4
+             // mrad; die Kuppe fällt damit ab 13 m unter einen Bildpunkt. Der
+             // alte Bereich 7 bis 26 m war für die 96-m-Platte gemacht — auf
+             // einem Planeten mit 8,9 m Horizont wäre er nie zu Ende gelaufen.
              float tiefe = -vViewPosition.z;
-             float feinAn = 1.0 - smoothstep(7.0, 26.0, tiefe);
+             float feinAn = 1.0 - smoothstep(6.0, 14.0, tiefe);
              normal = normalize(mix(nonPerturbedNormal, normal, feinAn));
+
+             // --- Der fehlende Zwischenmaßstab: Kies ------------------------
+             //
+             // Zwischen den Brocken (14 bis 56 cm) und dem Korn der Karte
+             // (1,9 cm) lag nichts. Der Prüfer hat das als den eigentlichen
+             // Grund benannt, warum die Fläche als Farbauftrag liest und warum
+             // man im Bild nicht abschätzen kann, wie weit der Kamm weg ist:
+             // Es fehlt der Maßstab, an dem das Auge Entfernung abliest.
+             //
+             // Dieselbe Karte, auf die vierfache Kachel gespannt: 6,4 m statt
+             // 1,6 m, damit 7,6-cm-Kuppen — Kiesgröße. Ein zusätzlicher
+             // Texturgriff, kein Byte Speicher, und bis 30 m abtastbar.
+             //
+             // Sie trägt zweierlei, weil ein Kiesel beides tut: Er wirft einen
+             // eigenen Schatten (die Normale) und er ist anders gefärbt als der
+             // Staub um ihn herum (die Farbe).
+             vec3 kies = texture2D(normalMap, vNormalMapUv * 0.25).xyz * 2.0 - 1.0;
+             float kiesAn = 1.0 - smoothstep(14.0, 30.0, tiefe);
+             // **Der Betrag ist gedeckelt durch die Rippel.** Deren Neigung
+             // liegt bei cos(phase) * K * 0,0042, also höchstens 0,078. Der
+             // erste Anlauf stand auf 0,42 — das Fünffache — und hat sie
+             // vollständig übertönt: In e-boden war von den Windrippeln nichts
+             // mehr zu sehen. 0,13 liegt in derselben Größenordnung und lässt
+             // beide nebeneinander bestehen.
+             normal = normalize(normal + tbn * vec3(kies.xy * 0.13, 0.0) * kiesAn);
+             diffuseColor.rgb *= 1.0 + (kies.x - kies.y) * 0.085 * kiesAn;
 
              // --- Windrippel ------------------------------------------------
              // Ort auf der Kugel, als Richtung vom Mittelpunkt.
@@ -4062,7 +4093,16 @@ function marsGroundMaterial() {
              //     und kostet zwei Rechenschritte. Sie wird jetzt aus der
              //     vollen Weltkoordinate gebildet statt aus x und z — auf einer
              //     Kugel ist das dieselbe Glaette ohne Vorzugsrichtung.
-             float flach = smoothstep(0.55, 0.90, dot(nonPerturbedNormal, dK));
+             // **Bezugssystem.** Nach normal_fragment_maps steht die Normale
+             // in three im **Sichtraum**; dK und die Windrichtung sind
+             // Weltvektoren. Der erste Anlauf hat beides direkt miteinander
+             // multipliziert — das Ergebnis hing davon ab, wohin die Kamera
+             // schaut, und die Rippel erschienen und verschwanden mit der
+             // Blickrichtung statt mit dem Gelände. Beides wird deshalb erst in
+             // den Sichtraum gedreht.
+             mat3 zurSicht = mat3(viewMatrix);
+             vec3 dKSicht = normalize(zurSicht * dK);
+             float flach = smoothstep(0.55, 0.90, dot(nonPerturbedNormal, dKSicht));
              float feld = 0.42 + 0.58 * clamp(
                0.5 + 0.5 * (sin(dot(vWeltOrt, vec3(0.13, 0.05, 0.09)))
                           + sin(dot(vWeltOrt, vec3(-0.07, 0.11, 0.17)) + 2.1)) * 0.5,
@@ -4076,8 +4116,8 @@ function marsGroundMaterial() {
              float steigung = cos(phase) * K * 0.0042 * rippelAn;
 
              // Die Richtung, in der die Phase waechst: der Wind selbst.
-             vec3 querWelt = normalize(cross(windPol, dK));
-             normal = normalize(normal - querWelt * steigung);
+             vec3 querSicht = normalize(zurSicht * normalize(cross(windPol, dK)));
+             normal = normalize(normal - querSicht * steigung);
 
              // Die Kaemme sind groeber und heller, die Taeler halten den feinen
              // Staub. Kleiner Betrag — es ist eine Toenung, kein Muster.
