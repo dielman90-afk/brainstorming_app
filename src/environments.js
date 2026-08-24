@@ -4292,12 +4292,15 @@ function bruchGeometrie(
 //
 //   * **Staub** liegt auf dem, was nach oben zeigt. Er ist die Farbe des
 //     Bodens, denn er kommt von dort.
-//   * **Bruchgestein** ist, was steil steht: dort hält kein Staub. Heller,
-//     kühler, weniger rot als die verwitterte Außenhaut — eine frische
-//     Bruchfläche hat die Verwitterungsrinde nicht.
-//   * **Frost** sammelt sich, wo die Fläche vom Mond abgewandt **und** nach
-//     unten geneigt ist: die kälteste Stelle des Steins, die tagsüber keine
-//     Strahlung sieht. Ein bläulicher Hauch, kein Anstrich.
+//   * **Bruchgestein** sitzt auf **einer** Flanke, nicht auf allen steilen:
+//     `bruchachse` ist die Richtung, in die dieser Brocken aufgebrochen ist.
+//     Heller, kühler, weniger rot als die verwitterte Außenhaut — eine frische
+//     Bruchfläche hat die Verwitterungsrinde nicht. Alles andere Steile bekommt
+//     nur einen schwachen Anteil davon, denn dort hält bloß kein Staub.
+//   * **Frost** sammelt sich in der Kältefalle: dort, wo die Fläche vom Mond
+//     abgewandt ist, am stärksten an der Unterseite. Er hat eine Kante, wo er
+//     anfängt — sonst liest er als bläuliche Tönung des ganzen Steins statt als
+//     Kruste.
 //
 // `drehung` bringt die lokalen Flächennormalen in Weltausrichtung — die
 // Brocken sind um alle drei Achsen zufällig gedreht, und ohne das säße der
@@ -4311,14 +4314,14 @@ function faerbeBruchstein(
   grundHex,
   drehung,
   mondRichtung,
-  { staub, frost, alter, oben = _FBOben.set(0, 1, 0) }
+  { staub, frost, alter, oben = _FBOben.set(0, 1, 0), bruchachse = null }
 ) {
   const pos = geo.attributes.position;
   const nor = geo.attributes.normal;
   const farben = new Float32Array(pos.count * 3);
   const grund = new THREE.Color(grundHex);
   const staubFarbe = new THREE.Color(0x8a5540);
-  const bruchFarbe = new THREE.Color(0xa08573);
+  const bruchFarbe = new THREE.Color(0xb2a49b);
   const frostFarbe = new THREE.Color(0xbcd0e0);
   const n = new THREE.Vector3();
   const v = new THREE.Vector3();
@@ -4338,16 +4341,52 @@ function faerbeBruchstein(
     const ny = n.dot(oben);
 
     c.copy(grund);
-    // Bruchgestein auf steilen Flächen, mit dem Alter zurückgehend.
+    // **Frischer Bruch**, mit dem Alter zurückgehend.
+    //
+    // Der Prüfer hat ihn nirgends gefunden — „kein einziger heller
+    // Splitterrand, keine Stelle, an der ein Stein aufgebrochen aussieht". Zu
+    // Recht: Der Faktor lief über `steil²`, und `steil` ist `1 − cos θ` mit θ
+    // als Neigung der Fläche gegen die Waagerechte — auf einer 60-Grad-Fläche
+    // also 0,5, quadriert 0,25, mal 0,55 und bei einem mittelalten Stein noch
+    // mal halbiert. Übrig blieben sieben Prozent Beimischung einer Farbe, die
+    // selbst nur wenig heller ist.
+    //
+    // Der erste Anlauf hat bloß den Faktor hochgezogen (`steil · 0,8`) und
+    // `bruchFarbe` aufgehellt. Gemessen war das eine Verbesserung — der
+    // Felsanteil in a-augenhoehe stieg von 1,7 auf 4,7 Prozent —, im Bild aber
+    // falsch: In d-orbit standen **alle** Landmarken knochenhell da. Ein Stein,
+    // der ringsum frisch gebrochen ist, ist kein gebrochener Stein, sondern ein
+    // anders angemalter.
+    //
+    // Deshalb jetzt richtungsgebunden: Der Löwenanteil sitzt auf der einen
+    // Flanke, die `bruchachse` benennt; der fünfte Potenzgrad hält den Kegel
+    // eng (30 Grad daneben noch 0,66, 60 Grad nur noch 0,03). Alles andere
+    // Steile bekommt bloß den Grundanteil von 0,16.
     const steil = 1 - Math.abs(ny);
-    c.lerp(bruchFarbe, steil * steil * 0.55 * (1 - alter));
+    const flanke = bruchachse ? Math.pow(Math.max(0, n.dot(bruchachse)), 5) : steil;
+    c.lerp(bruchFarbe, (steil * 0.16 + flanke * 0.75) * (1 - alter));
     // Staub auf allem, was nach oben zeigt.
     const nachOben = Math.max(0, ny);
     c.lerp(staubFarbe, Math.pow(nachOben, 1.6) * staub);
-    // Frost: mondabgewandt und nach unten geneigt.
+    // **Frost: mondabgewandt, mit Vorliebe für die Unterseite — aber nicht
+    // nur dort.**
+    //
+    // Vorher war der Faktor `abgewandt · unten`, und `unten` ist null für jede
+    // senkrechte Fläche. Frost saß damit ausschließlich auf den nach unten
+    // zeigenden Flächen — also genau dort, wo man nie hinsieht. Der Prüfer hat
+    // ihn folgerichtig nicht gefunden.
+    //
+    // Auf einem luftlosen Körper sammelt sich Flüchtiges in den Kältefallen:
+    // dort, wo das Licht nie hinkommt. Das ist in erster Linie die abgewandte
+    // Seite, in zweiter die Unterseite.
+    //
+    // Der `smoothstep` gibt der Kruste eine **Kante**. Ein weicher Verlauf über
+    // die ganze Flanke liest als bläuliche Tönung des Steins; eine Kruste fängt
+    // irgendwo an.
     const abgewandt = Math.max(0, -n.dot(mondRichtung));
     const unten = Math.max(0, -ny);
-    c.lerp(frostFarbe, abgewandt * unten * frost);
+    const kaeltefalle = smoothstep(0.25, 0.85, abgewandt) * (0.45 + 0.55 * unten);
+    c.lerp(frostFarbe, kaeltefalle * frost);
 
     // Kontaktverdunklung am Fuß, wie gehabt.
     const t = (v.dot(oben) - yMin) / Math.max(1e-4, yMax - yMin);
@@ -4793,6 +4832,9 @@ function makeMarsPlanet(rand) {
   const _sQ = new THREE.Quaternion();
   const _sE = new THREE.Euler();
   const _sv = new THREE.Vector3();
+  const _bt1 = new THREE.Vector3();
+  const _bt2 = new THREE.Vector3();
+  const _bruch = new THREE.Vector3();
   const _stOst = new THREE.Vector3();
   const _stNord = new THREE.Vector3();
   const _stWind = new THREE.Vector3();
@@ -4805,6 +4847,33 @@ function makeMarsPlanet(rand) {
     mesh.quaternion
       .setFromUnitVectors(YOBEN, dir)
       .multiply(_sQ.setFromEuler(_sE.set(kippX, spin, kippZ)));
+  };
+
+  // **Die Bruchrichtung eines Brockens.**
+  //
+  // Ein Stein bricht nicht ringsum auf, sondern an einer Fläche. Damit der
+  // frische Bruch als Splitterrand liest und nicht als heller Anstrich, braucht
+  // jeder Brocken eine eigene Richtung, in die diese Fläche zeigt — annähernd
+  // waagerecht, denn nach oben liegt Staub und nach unten sieht keiner hin.
+  //
+  // Die Richtung kommt aus `hashNoise`, **nicht** aus `rand()`: Der gesäte
+  // Strom legt die Lage aller folgenden Brocken fest, und ein zusätzlicher Zug
+  // würde die ganze Landschaft verschieben.
+  const bruchRichtung = (dir, saatA, saatB, ziel) => {
+    const az = hashNoise(saatA, 1.9, 4.4) * Math.PI * 2;
+    const neig = (hashNoise(saatB, 8.1, 0.7) - 0.5) * 0.7;
+    // Ein Tangentenpaar auf `dir`. Der Ausweichvektor fängt den Fall ab, dass
+    // `dir` selbst die Y-Achse ist — am Pol steht der Spieler.
+    _bt1.set(0, 1, 0);
+    if (Math.abs(dir.y) > 0.9) _bt1.set(1, 0, 0);
+    _bt1.crossVectors(dir, _bt1).normalize();
+    _bt2.crossVectors(dir, _bt1);
+    return ziel
+      .copy(_bt1)
+      .multiplyScalar(Math.cos(az) * Math.cos(neig))
+      .addScaledVector(_bt2, Math.sin(az) * Math.cos(neig))
+      .addScaledVector(dir, Math.sin(neig))
+      .normalize();
   };
 
   // Die Ausdehnung eines gedrehten und skalierten Körpers, quer zur
@@ -4911,9 +4980,10 @@ function makeMarsPlanet(rand) {
     // Ein alter Brocken ist eingestaubt, ein frisch zerbrochener zeigt den Bruch.
     faerbeBruchstein(geoR, rockHex, rock.quaternion, MOND_RICHTUNG, {
       staub: 0.35 + alter * 0.45,
-      frost: 0.1 + (1 - alter) * 0.14,
+      frost: 0.3 + (1 - alter) * 0.35,
       alter,
       oben: dir,
+      bruchachse: bruchRichtung(dir, i * 5.3, i * 2.9, _bruch),
     });
     brocken.push(rock);
 
@@ -5069,9 +5139,15 @@ function makeMarsPlanet(rand) {
         m.receiveShadow = true;
         faerbeBruchstein(g, 0x7a4a37, m.quaternion, MOND_RICHTUNG, {
           staub: 0.5,
-          frost: 0.16,
+          frost: 0.42,
           alter: 0.4,
           oben: dirT,
+          bruchachse: bruchRichtung(
+            dirT,
+            dirT.x * 31 + dirT.z * 17,
+            dirT.y * 23 + dirT.x * 7,
+            _bruch
+          ),
         });
         boxProjectUV(g, 0.5);
         fern.push(m);
@@ -5142,9 +5218,15 @@ function makeMarsPlanet(rand) {
         // Szene fallen.
         faerbeBruchstein(g, 0x6d4432, m.quaternion, MOND_RICHTUNG, {
           staub: 0.34,
-          frost: 0.16,
+          frost: 0.42,
           alter: 0.5,
           oben: dirF,
+          bruchachse: bruchRichtung(
+            dirF,
+            dirF.z * 29 + dirF.x * 13,
+            dirF.y * 19 + dirF.z * 5,
+            _bruch
+          ),
         });
         boxProjectUV(g, 0.3);
         stuecke.push(m);

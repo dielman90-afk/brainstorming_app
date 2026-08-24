@@ -1875,6 +1875,134 @@ p05–p95 von 14,6. Das Bild zeigt einen dunklen Hügel gegen ein dichtes
 Sternfeld, das Luftglühen am Horizont und die Windrippel noch gerade eben — eine
 Nacht, kein schwarzes Bild.
 
+### Vier Sorten Stein, in zwei Anläufen
+
+Befund 12 des Prüfers, wörtlich: *„Materialtrennung: zwei Sorten, nicht vier.
+Nachweisbar getrennt sind Staub (112,67,51 — gesättigt orange) und Fels
+(137,108,100 bzw. 153,102,86 — entsättigt rosagrau). Das ist echt und es hilft.
+**Frischer Bruch und Frost sind nirgends zu finden.** Kein einziger heller
+Splitterrand, keine kalte Kruste an einer Nordflanke, keine Stelle, an der ein
+Stein aufgebrochen aussieht."*
+
+Er hatte recht, und beide Ursachen stehen in einer Zeile Rechnung.
+
+**Frost saß dort, wo niemand hinsieht.** Der Faktor war `abgewandt · unten` mit
+`unten = max(0, −n·oben)`. Für jede senkrechte Fläche ist `unten` null. Frost
+lag damit ausschließlich auf den nach unten zeigenden Flächen — auf der
+Unterseite eines Brockens, der im Sand steckt.
+
+**Frischer Bruch war rechnerisch da und optisch nicht.** Der Faktor lief über
+`steil²` mit `steil = 1 − |n·oben| = 1 − cos θ`, wobei θ die Neigung der Fläche
+gegen die Waagerechte ist. Eine 60-Grad-Fläche kommt damit auf 0,5, quadriert
+0,25, mal 0,55 macht 0,14, und bei einem mittelalten Brocken noch einmal
+halbiert. Übrig blieben sieben Prozent Beimischung einer Farbe (`0xa08573`), die
+vom Grundton kaum abwich.
+
+#### Der erste Anlauf war messbar besser und im Bild falsch
+
+Ich habe zuerst nur die Zahlen hochgezogen: `steil · 0,8` statt `steil² · 0,55`,
+`bruchFarbe` von `0xa08573` auf `0xb2a49b` aufgehellt, und beim Frost einen
+Grundanteil von 0,4 auch für senkrechte Flächen. Die Bildmessung
+(`tools/materialien.mjs`, neu) sagte klar „besser": Der Anteil entsättigter
+Felspixel in `a-augenhoehe` stieg von 1,73 % auf 4,73 %, in `d-orbit` von
+1,27 % auf 9,76 %.
+
+**In `d-orbit` standen daraufhin alle sechzehn Landmarken knochenhell da.** Ein
+Stein, der ringsum frisch gebrochen ist, ist kein gebrochener Stein — er ist ein
+anders angemalter. Die Messung hatte recht und das Bild auch; gemessen wurde nur
+die falsche Größe. „Wie viel Fels sieht man" ist nicht dieselbe Frage wie „liest
+ein Bruch als Bruch".
+
+#### Der zweite Anlauf: eine Richtung statt eines Betrags
+
+Ein echter Bruch sitzt auf **einer** Fläche. Jeder Brocken bekommt deshalb eine
+`bruchachse` — die Richtung, in die seine Bruchfläche zeigt, annähernd
+waagerecht (nach oben liegt Staub, nach unten sieht keiner hin). Der Anteil
+läuft über `cos⁵` zu dieser Achse: 30° daneben noch 0,66, 60° daneben 0,03.
+Alles andere Steile behält einen schwachen Grundanteil von 0,16, denn dort hält
+bloß kein Staub.
+
+Die Achse kommt aus `hashNoise`, **nicht** aus `rand()`. Der gesäte Strom legt
+die Lage aller folgenden Brocken fest; ein zusätzlicher Zug hätte die ganze
+Landschaft verschoben. Dieselbe Vorkehrung stand schon über den übrigen
+Bruchparametern und hat sich zum zweiten Mal ausgezahlt.
+
+Beim Frost bekam die Kruste eine **Kante**: `smoothstep(0.25, 0.85, abgewandt)`
+statt eines linearen Verlaufs, dazu die Stärke von 0,24 auf höchstens 0,65
+angehoben. Ein weicher Verlauf über die ganze Flanke liest als bläuliche Tönung
+des Steins; eine Kruste fängt irgendwo an.
+
+#### Gemessen
+
+`tools/steinfarben.mjs` (neu) liest die Scheitelfarben der zusammengefassten
+Steinnetze direkt aus, statt Pixel zu zählen — die Bildmessung hängt an
+Beleuchtung und Schatten, und ein Frostfleck auf der mondabgewandten Flanke ist
+im Bild dunkel, obwohl er in den Daten steht. Über 137 700 Scheitel:
+
+| | vorher | erster Anlauf | jetzt |
+| --- | --- | --- | --- |
+| Scheitel, deren Ton dem Bruch am nächsten liegt | 7,14 % | 19,88 % | **30,10 %** |
+| Scheitel, deren Ton dem Frost am nächsten liegt | 0,00 % | 0,00 % | **2,09 %** |
+
+(Die Spalte „vorher" ist nachträglich gemessen: `src/environments.js` einmal auf
+den letzten Stand zurückgesetzt, Werkzeug laufen lassen, Stand wiederhergestellt.
+Eine Vorher-Zahl, die man nicht mehr messen kann, gehört nicht in eine Tabelle.)
+
+Und im Bild, an dem einen Brocken links in `a-augenhoehe`, der kühlste Punkt:
+
+| | planet-06 | planet-07 |
+| --- | --- | --- |
+| RGB der Flanke | (21, 26, 25) | **(53, 60, 76)** |
+| Blau minus Rot | +4 | **+23** |
+
++4 war der Rauschboden des Himmels dahinter; auf dem Stein selbst gab es vorher
+keinen einzigen Punkt mit mehr Blau als Rot. Der Ausschnitt zeigt jetzt einen
+warmen, verstaubten Deckel und darunter eine kalt blaugraue Kruste mit einer
+lesbaren Oberkante.
+
+Der Anteil entsättigter Felspixel liegt nach der Richtungsbindung wieder
+niedriger als im ersten Anlauf — das ist beabsichtigt: `d-orbit` 1,27 % → 4,08 %
+statt → 9,76 %, `a-augenhoehe` 1,73 % → 2,30 % statt → 4,73 %. Dazu kommen jetzt
+0,61 % bzw. 0,15 % kühle Pixel, die es vorher praktisch nicht gab (0,00 % /
+0,04 %).
+
+#### Budget und Regression
+
+Die Änderung fasst ausschließlich Scheitelfarben an: keine Geometrie, kein
+Draw-Call, keine Textur. Gemessen bestätigt: Draw-Calls 13–18 (Budget 120),
+Dreiecke 310 266–313 154 (Budget 350 000) — dieselben Werte wie in planet-06.
+Der Texturspeicher (6,33 von 60 MB) ist nicht neu gemessen: Es ist keine Textur
+dazugekommen und keine weggefallen.
+
+Regression der vier übrigen Umgebungen gegen planet-06: Zen bitgleich (Δmax 0),
+Konstrukt Δmax 1, Dojo Δmax 6 bei 0,010 % der Pixel ≥ 2, Insel Δmittel 0,019 bei
+0,381 % ≥ 2 — im bekannten Rauschband der Insel. Konsole frei von Errors und
+Warnings.
+
+#### Zwei Fehler am Rande, beide meine
+
+**Ich habe `prettier --write` auf `src/environments.js` losgelassen.** Das Projekt
+hat kein Format-Skript und die Datei ist nicht danach formatiert; der Diff stand
+danach bei 2566 geänderten Zeilen für eine Änderung, die 105 braucht. Rückgängig
+gemacht über `git checkout HEAD -- src/environments.js` und die fünf inhaltlichen
+Hunks neu gesetzt. **Ein Werkzeug, das die ganze Datei anfasst, gehört nicht in
+einen Lauf, der drei Zeilen ändert** — der Diff ist das, woran später jemand
+liest, was passiert ist.
+
+**Ich habe `tools/inspect.mjs` einen Fehler angehängt, den es nicht hatte.**
+Zwei Läufe brachen am Ende mit „Execution context was destroyed, most likely
+because of a navigation" ab. Ich habe daraus eine These über SwiftShader und
+`gl.finish()` gebaut, in den Code geschrieben und ins Protokoll — und dann fiel
+der dritte Lauf an einer ganz anderen Zeile um, worauf die eigentliche Ursache
+offensichtlich war: **Ich hatte `src/environments.js` bearbeitet, während der
+Lauf lief.** Vite lädt die Seite dann neu, und jedes `page.evaluate` danach
+findet keinen Kontext mehr. Ein Lauf ohne Eingriff kommt sauber durch, samt
+Software-Boden (0,23 ms/Frame in ⬜ Konstrukt).
+
+Die Lehre ist nicht neu, aber diesmal teuer: **Eine Erklärung, die zum Symptom
+passt, ist noch keine Ursache.** Der `try`-Block bleibt — er kostet nichts —,
+aber sein Kommentar sagt jetzt, was wirklich passiert ist.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
