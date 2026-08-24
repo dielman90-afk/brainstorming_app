@@ -1680,6 +1680,37 @@ Milchstraßenhelligkeit schon `band`, und ich habe eine zweite Variable desselbe
 Namens angelegt. Ein Shader hat einen einzigen Namensraum je Funktion, und das
 Prüfbild sagt es sofort: statt Himmel die Hintergrundfarbe.
 
+### Der Rückweg — und warum eine Station „leer" aussah, obwohl sie verstellt war
+
+Der Prüfer hat sechs der zwölf Stationen als austauschbar gemeldet und `rund-210`
+zusätzlich als „ein einziger Brocken, der zwei Drittel des Bildes füllt, dessen
+Dreiecke man abzählen kann". Beides trifft zu, und beides hat dieselbe Ursache:
+**den Querabstand der Formationen zur Laufspur**.
+
+Der Rundgang läuft von (0 | 1 | 0) über Azimut 180 zum Gegenpol und über Azimut 0
+zurück. Der Abstand einer Formation von dieser Spur ist
+
+    quer = R · asin( sin(bogen / R) · sin(azimut) )
+
+Nachgerechnet für die sechzehn Formationen standen vier davon **unter 3,3 m**
+neben der Spur — `{62 | 12}` bei 3,2 m und `{69 | −6}` bei **1,0 m**. Was der
+Prüfer als „zu großen Brocken" gelesen hat, war kein Größenproblem, sondern ein
+Abstandsproblem: Man läuft hinein.
+
+Umgekehrt lag auf dem Rückweg (Azimut 0, 26 bis 65 m Bogen) gar nichts, und das
+ist die dunkle Hälfte — dort trägt nur der Umriss. Vier neue Formationen stehen
+jetzt dort, alle mit 10 bis 12 m Querabstand.
+
+**Eine Grenze, die man nicht wegplanen kann:** In der Nähe des Gegenpols (ab etwa
+68 m Bogen) ist ein Querabstand über 9,5 m geometrisch unmöglich — dort läuft die
+Spur durch alles hindurch, weil alle Großkreise sich dort treffen. Deshalb steht
+dort nichts.
+
+Gemessen an den Stationen: 210 hat p95−p05 von 13,1 auf 14,1 und ein offenes
+Bild statt eines verstellten; 300 von 19,0 auf 22,0; 180 von 13,3 auf 8,7 (der
+Brocken, der dort im Weg stand, ist weg). Die Bilder tragen jetzt Umriss statt
+Verdeckung.
+
 ### Neue Werkzeuge
 
 * `tools/strahl.mjs` — **was steht in diesem Pixel.** Die Lehre aus Paket 7 als

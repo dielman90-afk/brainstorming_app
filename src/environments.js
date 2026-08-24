@@ -4954,23 +4954,48 @@ function makeMarsPlanet(rand) {
     // Horizont. Hier sieht man 250 m² auf einmal; derselbe Körper stand in der
     // Totale wie eine Warze auf der Kugel — gemessen 11 m breit bei 3,3 m Höhe.
     // Die Höhen bleiben: Sie tragen die Fernwirkung über die Krümmung.
+    //
+    // **Der Querabstand zur Laufspur ist gerechnet, nicht geschätzt.** Der
+    // Rundgang läuft von (0 | 1 | 0) aus über Azimut 180 zum Gegenpol und über
+    // Azimut 0 zurück. Der Abstand einer Formation von dieser Spur ist
+    //
+    //     quer = R · asin( sin(bogen / R) · sin(azimut) )
+    //
+    // und er muss zwischen etwa 8 und 16 m liegen: näher steht sie einem im
+    // Weg, weiter sieht man sie nicht mehr. Vier standen unter 3,3 m —
+    // `{62 | 12}` bei 3,2 m, `{69 | −6}` bei **1,0 m** —, und im Prüfbild
+    // `rund-210` füllte eine davon zwei Drittel des Bildes. Der Prüfer hat das
+    // als „ein einziger Brocken, dessen Dreiecke man abzählen kann" gemeldet;
+    // die Ursache war nicht seine Größe, sondern sein Abstand.
+    //
+    // In der Nähe des Gegenpols (ab etwa 68 m Bogen) ist ein Querabstand über
+    // 9,5 m geometrisch unmöglich — dort läuft die Spur durch alles hindurch.
+    // Deshalb steht dort nichts.
     const formationen = [
       // Erste Gruppe, 17 bis 24 m vom Start — die sieht man beim Losgehen.
-      { bogen: 17, az: -122, h: 6.2, b: 1.3, l: 2.4, art: 'block' },
-      { bogen: 21, az: -136, h: 8.4, b: 1.5, l: 1.9, art: 'block' },
-      { bogen: 24, az: -104, h: 4.8, b: 2.7, l: 7.2, art: 'kante' },
+      { bogen: 17, az: -122, h: 6.2, b: 1.3, l: 2.4, art: 'block' }, // quer 14,1
+      { bogen: 21, az: -136, h: 8.4, b: 1.5, l: 1.9, art: 'block' }, // quer 13,6
+      { bogen: 24, az: -104, h: 4.8, b: 2.7, l: 7.2, art: 'kante' }, // quer 23,0
       // Ein hoher Block gegen den Mond (Azimut 150) — der Anker beim Aufbruch.
-      { bogen: 22, az: 143, h: 9.6, b: 1.6, l: 2.3, art: 'block' },
-      { bogen: 31, az: 158, h: 4.2, b: 1.2, l: 3.3, art: 'kante' },
-      // Mittelfeld.
-      { bogen: 40, az: 62, h: 5.0, b: 1.9, l: 6.0, art: 'kante' },
-      { bogen: 46, az: -58, h: 7.1, b: 1.4, l: 2.0, art: 'block' },
-      // Zweite Gruppe, nahe der Gegenseite — die dunkle Hälfte des Rundgangs.
-      { bogen: 62, az: 12, h: 8.8, b: 1.7, l: 2.5, art: 'block' },
-      { bogen: 66, az: 34, h: 5.4, b: 2.5, l: 6.6, art: 'kante' },
-      { bogen: 69, az: -6, h: 3.8, b: 1.0, l: 1.6, art: 'block' },
+      { bogen: 22, az: 143, h: 9.6, b: 1.6, l: 2.3, art: 'block' }, // quer 12,1
+      { bogen: 31, az: 158, h: 4.2, b: 1.2, l: 3.3, art: 'kante' }, // quer 9,1
+      // Mittelfeld, weit ab der Spur — sie stehen als Ferne, nicht als Tor.
+      { bogen: 40, az: 62, h: 5.0, b: 1.9, l: 6.0, art: 'kante' }, // quer 27,0
+      { bogen: 46, az: -58, h: 7.1, b: 1.4, l: 2.0, art: 'block' }, // quer 23,9
+      // Nahe der Gegenseite — die dunkle Hälfte, dort trägt nur der Umriss.
+      { bogen: 62, az: 44, h: 8.8, b: 1.7, l: 2.5, art: 'block' }, // quer 11,0
+      { bogen: 66, az: -50, h: 5.4, b: 2.5, l: 6.6, art: 'kante' }, // quer 9,4
+      { bogen: 58, az: -38, h: 3.8, b: 1.0, l: 1.6, art: 'block' }, // quer 11,7
+      // **Der Rückweg.** Er läuft auf Azimut 0 zurück; die Stationen 210 bis
+      // 300 des Prüfstands liegen bei 65, 52, 39 und 26 m Bogen. Genau dort
+      // stand nichts — der Prüfer hat sechs der zwölf Stationen als
+      // austauschbar gemeldet, und es sind diese.
+      { bogen: 65, az: 50, h: 8.6, b: 1.6, l: 2.4, art: 'block' }, // quer 10,2
+      { bogen: 52, az: -33, h: 6.4, b: 2.0, l: 4.4, art: 'kante' }, // quer 12,4
+      { bogen: 39, az: 26, h: 7.4, b: 1.5, l: 2.2, art: 'block' }, // quer 11,3
+      { bogen: 26, az: 27, h: 5.8, b: 1.8, l: 3.6, art: 'kante' }, // quer 10,0
       // Und zwei Vereinzelte, damit die Gruppen nicht als Inseln lesen.
-      { bogen: 52, az: -160, h: 6.6, b: 2.0, l: 4.2, art: 'kante' },
+      { bogen: 52, az: -160, h: 6.6, b: 2.0, l: 4.2, art: 'kante' }, // quer 7,6
       // **Azimut −33 und 15 m, zweimal gemessen hingesetzt.** In `f-kante` — dem
       // Blick vom Mond weg — stand keine einzige Form gegen den Sternhimmel; in
       // dieser Richtung lag die nächste Formation bei 36 m Bogen.
@@ -4982,10 +5007,7 @@ function makeMarsPlanet(rand) {
       // m Radius, das sind 16,9 Grad unter Augenhöhe — und der nächstgelegene
       // Geländerücken verdeckt in dieser Richtung alles unter 16,5 Grad. Sie
       // fehlte um vier Zehntelgrad.
-      //
-      // Bei 15 m Bogen steht dieselbe Spitze auf 6,8 Grad unter Augenhöhe und
-      // damit klar über dem Rücken.
-      { bogen: 15, az: -33, h: 6.0, b: 1.4, l: 2.2, art: 'block' },
+      { bogen: 15, az: -33, h: 6.0, b: 1.4, l: 2.2, art: 'block' }, // quer 7,8
     ];
     const fern = [];
     const _fd = new THREE.Vector3();
