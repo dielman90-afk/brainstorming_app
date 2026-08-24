@@ -5517,11 +5517,18 @@ function makeStaubteufel(rand, heightAt) {
     uniforms: {
       zeit: { value: 0 },
       pxSkala: { value: 300 },
-      // Aus demselben Grund kühl wie der Feinstaub: Ein Wirbel hebt roten
-      // Staub auf, aber was man sieht, ist das Mondlicht darauf. Etwas wärmer
-      // als der Feinstaub, weil ein Staubteufel dichter ist und mehr vom
-      // Bodenlicht mitnimmt.
-      farbe: { value: new THREE.Color(0x5e5a5e) },
+      // **Zweiter Anlauf, und der erste war falsch begründet.** Ich hatte ihn
+      // kühl gewählt — „was man sieht, ist das Mondlicht darauf". Die Hälfte
+      // stimmt: Die Quelle ist das Mondlicht. Die andere Hälfte fehlte: Ein
+      // Korn in der Luft hat die **Albedo des Bodens**, aus dem es
+      // hochgerissen wurde, und die ist warm. Das Produkt aus warmem Korn und
+      // leicht kühlem Mondlicht ist ein entsättigtes Warmgrau.
+      //
+      // Gemessen war 0x5e5a5e obendrein magentastichig (Rot und Blau gleich,
+      // Grün darunter): Der Prüfer hat im Bild (144|126|138) abgelesen, gegen
+      // einen Boden von (114|70|53). Ein Stoff, der auf diesem Planeten nicht
+      // vorkommt.
+      farbe: { value: new THREE.Color(0x7a685c) },
       mitteA: { value: new THREE.Vector3(0, 1, 0) },
       ostA: { value: new THREE.Vector3(1, 0, 0) },
       nordA: { value: new THREE.Vector3(0, 0, 1) },
@@ -5551,6 +5558,15 @@ function makeStaubteufel(rand, heightAt) {
         float basis = w < 0.5 ? basisA : basisB;
 
         float hoehe = hA * (w < 0.5 ? 5.2 : 3.6);
+        // **Der Fuß.** Ein Staubteufel bricht unten nicht ab — er steht in
+        // einem Kranz aus Material, das er gerade erst aufnimmt. Der Prüfer
+        // hat genau das vermisst: „Unten bricht sie ohne Fußsaum und ohne
+        // herausrieselndes Material am Boden ab."
+        //
+        // Die untersten 13 Prozent der Körner bekommen deshalb einen weiten,
+        // flachen Kranz statt der schlanken Säule, und sie werden dabei
+        // dunkler: Was am Boden schleift, liegt im Eigenschatten des Wirbels.
+        float fuss = 1.0 - smoothstep(0.0, 0.13, hA);
         // Radius waechst mit der Hoehe, Drehung wird nach oben langsamer.
         // **0,40 m Fußradius statt 0,22.** Der Fuß ist die dichteste Stelle des
         // Wirbels, und bei additiver Mischung heißt dicht: Die Beiträge
@@ -5558,7 +5574,7 @@ function makeStaubteufel(rand, heightAt) {
         // auf exakt (255|255|255) — reines Weiß, dieselbe Klippe wie einst die
         // Sonnenscheibe des Zen-Gartens. Der doppelte Fußradius verteilt
         // dieselbe Kornzahl auf die vierfache Fläche.
-        float radius = 0.40 + hA * hA * (w < 0.5 ? 1.5 : 1.05);
+        float radius = 0.30 + fuss * fuss * 0.95 + hA * hA * (w < 0.5 ? 1.5 : 1.05);
         float tempo = (w < 0.5 ? 3.1 : 4.3) / (0.35 + hA * 1.4);
         float winkel = w0 + zeit * tempo;
 
@@ -5572,7 +5588,7 @@ function makeStaubteufel(rand, heightAt) {
 
         // Nach oben schwaecher, und der ganze Wirbel atmet mit eigener Periode.
         float atmen = 0.55 + 0.45 * sin(zeit / (w < 0.5 ? 11.0 : 17.0) * 6.2832);
-        vStaerke = (1.0 - hA * 0.75) * atmen;
+        vStaerke = (1.0 - hA * 0.75) * atmen * (1.0 - fuss * 0.45);
 
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
         float tiefe = -mv.z;
@@ -5593,12 +5609,18 @@ function makeStaubteufel(rand, heightAt) {
         vec2 d = gl_PointCoord - 0.5;
         float r2 = dot(d, d);
         if (r2 > 0.25) discard;
-        // **0,25 statt 0,42.** Mit dem alten Betrag stand der Fuß des Wirbels
-        // auch nach dem Verbreitern noch auf 254 von 255 — einen Schritt vor
-        // dem Anschlag. Gemessen ergibt 0,25 eine Spitze um 150: hell genug,
-        // dass der Wirbel das Auge holt, dunkel genug, dass der Mond das
-        // hellste im Bild bleibt.
-        gl_FragColor = vec4(farbe * vStaerke * (1.0 - r2 * 4.0) * 0.25, 1.0);
+        // **0,105 statt 0,25.** Der Wirbel stand bei einer Spitze von 167 und
+        // war damit heller als **jeder** Bodenpunkt der Szene (hellster: 113,9)
+        // — nach dem Mond das zweithellste Ding im Bild, und in zwei der zwölf
+        // Rundgangsbilder das einzige Motiv. Ein aufgewirbelter Schleier darf
+        // nicht heller sein als die Fläche, aus der er stammt.
+        //
+        // Der Zwischenschritt 0,17 hat nichts gebracht, und das war rechenbar:
+        // Die neue Farbe 0x7a685c ist **linear 42 % heller** als die alte
+        // 0x5e5a5e (0,152 gegen 0,107), also hebt sie die Absenkung um 32 %
+        // fast genau auf — gemessen 156 vorher, 166 nachher. Erst 0,105 bringt
+        // die Spitze unter den hellsten Boden.
+        gl_FragColor = vec4(farbe * vStaerke * (1.0 - r2 * 4.0) * 0.105, 1.0);
       }`,
     blending: THREE.AdditiveBlending,
     transparent: false,
@@ -6154,6 +6176,7 @@ function makeSternfeld(rand, R = 41) {
       uniform float pxSkala;
       uniform float zeit;
       varying vec3 vFarbe;
+      varying float vSchwund;
       void main() {
         // Flimmern: jeder Stern mit eigener Phase und eigenem Tempo, damit
         // nichts im Gleichtakt läuft. Schwache Sterne flimmern stärker –
@@ -6162,11 +6185,33 @@ function makeSternfeld(rand, R = 41) {
         float f = 1.0 + sin(zeit * (1.7 + fract(phase) * 2.3) + phase) * 0.16 * (1.2 - groesse);
         vFarbe = farbe * f;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
-        gl_PointSize = max(1.0, groesse * f * pxSkala / -mv.z);
+        // **Ein Stern unter zweieinhalb Bildpunkten wird nicht kleiner,
+        // sondern schwächer.** Der Prüfer hat die schwachen Sterne bei
+        // achtfacher Vergrößerung als achsenparallele harte Vierecke gefunden —
+        // zu Recht: Der runde Auslauf im Fragmentschritt kann nichts formen,
+        // wenn das Fenster 1×1 oder 2×2 Bildpunkte groß ist. Das alte max(1.0, …) hat
+        // genau das erzwungen.
+        //
+        // Physikalisch ist ein Stern ohnehin ein Punkt; was man sieht, ist die
+        // Punktbildfunktion des Instruments, und die ist mehrere Bildpunkte
+        // breit. Unterhalb der Mindestgröße bleibt die Fläche deshalb stehen
+        // und die Helligkeit geht mit dem Quadrat des Verhältnisses zurück —
+        // die abgestrahlte Menge bleibt damit dieselbe, nur verteilt.
+        // 4,2 statt 2,6: Bei 2,6 Bildpunkten spannt der runde Auslauf über
+        // 1,3 Halbmesser, und das bleibt ein Klotz. Erst ab gut vier
+        // Bildpunkten liest der Punkt als Punkt.
+        float roh = groesse * f * pxSkala / -mv.z;
+        const float MINGROESSE = 4.2;
+        gl_PointSize = max(MINGROESSE, roh);
+        // Untergrenze 0,30: Streng nach Fläche gerechnet fiele ein Stern von
+        // einem Bildpunkt auf ein Siebzehntel und wäre weg. Die schwachen
+        // Sterne sind aber die Mehrheit und tragen die Dichte des Himmels.
+        vSchwund = clamp((roh * roh) / (MINGROESSE * MINGROESSE), 0.30, 1.0);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `
       varying vec3 vFarbe;
+      varying float vSchwund;
       void main() {
         // Runder, weich auslaufender Punkt statt des quadratischen Fensters,
         // das ein ungefiltertes gl_PointCoord hinterlässt. Ohne das sind
@@ -6180,7 +6225,7 @@ function makeSternfeld(rand, R = 41) {
         // und hatten damit keine Farbtemperatur mehr, obwohl genau die in
         // diesem Paket gebaut wurde. Dieselbe Lehre wie bei der Sonnenscheibe
         // des Zen-Gartens. 0,93 laesst sie strahlen und behaelt den Farbstich.
-        gl_FragColor = vec4(min(vFarbe * max(0.0, a) * 1.35, vec3(0.93)), 1.0);
+        gl_FragColor = vec4(min(vFarbe * max(0.0, a) * 1.35 * vSchwund, vec3(0.93)), 1.0);
       }`,
     blending: THREE.AdditiveBlending,
     // **Nicht** transparent: Damit landet das Feld in der opaken Liste und
