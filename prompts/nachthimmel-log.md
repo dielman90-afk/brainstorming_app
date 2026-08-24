@@ -1524,6 +1524,21 @@ Höhenfeld schwankt um ±2 m — auf 6 m Abstand sind das mehrere Grad. Bei 15 m
 Bogen steht dieselbe Spitze auf 6,8° und damit klar über dem Rücken; im Bild
 steht sie jetzt als dunkler Umriss vor der Milchstraße.
 
+### Was das Auge diesmal falsch gesehen hat
+
+Zum sechsten Mal in diesem Auftrag: In `b-mond` meinte ich, einen **rechteckigen
+Rand** um den Mondhof zu sehen — die Kante der Sprite-Kachel, ein klassischer
+Fehler. Nachgemessen ist da nichts: In der Zeile y = 300 fällt der Wert von 35
+auf 6 über 360 Pixel, in der Spalte x = 520 ebenso gleichmäßig; keine Stufe,
+keine Kante. Was ich für einen Rand gehalten habe, war die weiche Flanke des
+Milchstraßenbandes, das dort schräg vorbeiläuft.
+
+Die Nachtseite ist ebenfalls gemessen statt beurteilt worden: Bei Station 240°
+(Mond 63,9° unter dem Horizont) steht ein Bildmittel von 14,5 und eine Spanne
+p05–p95 von 14,6. Das Bild zeigt einen dunklen Hügel gegen ein dichtes
+Sternfeld, das Luftglühen am Horizont und die Windrippel noch gerade eben — eine
+Nacht, kein schwarzes Bild.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
