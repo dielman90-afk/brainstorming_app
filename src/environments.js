@@ -6599,12 +6599,12 @@ function createNightEnvironment() {
     // ist dasselbe, aus dem das Gitter entsteht – es kann deshalb nicht davon
     // abweichen, und es gilt auch jenseits der 96-m-Platte, wo ohnehin keine
     // sichtbare Geometrie mehr liegt.
-    // **Karten bleiben liegen.** Sie hängen nicht an der Szene, sondern an der
-    // Weltgruppe des Planeten — sonst liefen sie beim Rundgang mit dem Nutzer
-    // mit, statt dort zu bleiben, wo er sie hingelegt hat. Der Planet ist damit
-    // eine begehbare Gedächtnislandkarte, und genau das ist der Zweck, für den
-    // sich der ganze Umbau lohnt.
-    kartenHeimat: weltGruppe,
+    // **Karten und Zonen bleiben liegen.** Sie hängen nicht an der Szene,
+    // sondern an der Weltgruppe des Planeten — sonst liefen sie beim Rundgang
+    // mit dem Nutzer mit, statt dort zu bleiben, wo er sie hingelegt hat. Der
+    // Planet ist damit eine begehbare Gedächtnislandkarte, und genau das ist
+    // der Zweck, für den sich der ganze Umbau lohnt.
+    weltHeimat: weltGruppe,
 
     // **Ein Planet, kein Höhenfeld.** Der Spieler bleibt am Nordpol stehen und
     // die Welt dreht sich unter ihm; die Begründung steht bei `makePlanetWalk`

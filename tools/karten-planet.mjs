@@ -5,12 +5,16 @@
 // Karte dort bleibt, wo sie liegt — auch wenn man einmal um den Planeten geht
 // und wiederkommt, und auch über das Speichern hinweg.
 //
-// Geprüft wird viererlei:
+// Geprüft wird fünferlei:
 //   1. Eine Karte, die im Nachthimmel entsteht, hängt an der Weltgruppe.
 //   2. Nach einer halben Runde und zurück steht sie wieder an derselben Stelle.
 //   3. `toJSON` schreibt ihre Lage **relativ zur Weltgruppe** — nach einer
 //      halben Runde muss derselbe Wert herauskommen wie am Anfang.
-//   4. In einer der anderen vier Umgebungen hängen Karten weiter an der Szene.
+//   4. **Dasselbe gilt für Zonen.** Eine Zone ist der Rahmen, vor dem Karten
+//      stehen; bliebe sie beim Nutzer, während die Karten mit dem Planeten
+//      wandern, wäre die Gruppierung nach zwanzig Schritten aufgelöst — und
+//      der Rahmen stünde vor einer leeren Fläche.
+//   5. In einer der anderen vier Umgebungen hängen beide weiter an der Szene.
 //
 //   node tools/karten-planet.mjs
 
@@ -34,6 +38,17 @@ try {
     const app = window.__app;
     const welt = app.scene.getObjectByName('nacht-welt');
     const cm = app.cardManager;
+
+    // **Die Ausgangsstellung muss festgenagelt werden.** Die Sperre läuft in
+    // diesem Werkzeug mit — sie soll ja mitlaufen — und dreht die Welt in jedem
+    // Bild ein Stück, solange der Kopf neben dem Pol steht. Ohne diese zwei
+    // Zeilen wurde die Weltpose der Karte einmal unter einer beliebigen Drehung
+    // abgelesen und später unter der Identität, und der Vergleich maß den
+    // Unterschied zweier Bezugsstellungen statt den der Karte. Gemessen war das
+    // ein Fehler von 31 cm bei einer Karte, die sich nicht bewegt hatte.
+    app.env.setWalkEnabled?.(false);
+    welt.quaternion.identity();
+    welt.updateMatrixWorld(true);
 
     const karte = cm.addCard('Merkstein');
     // Irgendwo neben dem Startpunkt ablegen, in Weltkoordinaten.
@@ -119,20 +134,87 @@ try {
     'nach dem Neuladen liegt sie wieder an derselben Stelle des Planeten'
   );
 
+  // --- Zonen: derselbe Anspruch ---------------------------------------------
+  const zonen = await page.evaluate(() => {
+    const T = window.__THREE;
+    const app = window.__app;
+    const welt = app.scene.getObjectByName('nacht-welt');
+    const zm = app.zoneManager;
+
+    app.env.setWalkEnabled?.(false);
+    welt.quaternion.identity();
+    welt.updateMatrixWorld(true);
+
+    const zone = zm.addZone({ title: 'Merkfeld' });
+    zone.group.position.set(-1.1, 26.5, 1.9);
+    const elter = zone.group.parent?.name || '(Szene)';
+    const weltVorher = zone.group.getWorldPosition(new T.Vector3()).toArray();
+    const jsonVorher = zm.toJSON()[0];
+
+    const halb = new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), Math.PI);
+    welt.quaternion.copy(halb);
+    welt.updateMatrixWorld(true);
+    const weltHalb = zone.group.getWorldPosition(new T.Vector3()).toArray();
+    const jsonHalb = zm.toJSON()[0];
+
+    // Speichern, Welt drehen, laden — wie beim Neuladen der Seite.
+    const stand = zm.toJSON();
+    zm.loadJSON(stand);
+    welt.quaternion.identity();
+    welt.updateMatrixWorld(true);
+    const nachLadenWelt = zm.zones[0].group.getWorldPosition(new T.Vector3()).toArray();
+
+    zm.clear();
+    return { elter, weltVorher, weltHalb, jsonVorher, jsonHalb, nachLadenWelt };
+  });
+
+  console.log('\n=== 🌌 Nachthimmel: Zonen am Planeten ===');
+  console.log(`  Elter der neuen Zone: ${zonen.elter}`);
+  pruefe(zonen.elter === 'nacht-welt', 'die Zone hängt an der Weltgruppe, nicht an der Szene');
+  console.log(`  Weltort am Start        ${f(zonen.weltVorher)}`);
+  console.log(`  nach einer halben Runde ${f(zonen.weltHalb)}`);
+  pruefe(
+    abstand(zonen.weltVorher, zonen.weltHalb) > 40,
+    `sie wandert mit dem Planeten mit (${abstand(zonen.weltVorher, zonen.weltHalb).toFixed(2)} m)`
+  );
+  console.log(`  gespeichert am Start    ${f(zonen.jsonVorher.position)}   frame=${zonen.jsonVorher.frame ?? null}`);
+  console.log(`  gespeichert nach halb   ${f(zonen.jsonHalb.position)}`);
+  pruefe(zonen.jsonVorher.frame === 'planet', 'der Stand vermerkt den Planetenrahmen');
+  pruefe(
+    abstand(zonen.jsonVorher.position, zonen.jsonHalb.position) < 1e-5,
+    'der gespeicherte Ort hängt nicht davon ab, wo der Nutzer gerade steht'
+  );
+  console.log(`  nach Laden (Welt, Runde zurückgedreht) ${f(zonen.nachLadenWelt)}`);
+  pruefe(
+    abstand(zonen.nachLadenWelt, zonen.weltVorher) < 1e-4,
+    'nach dem Neuladen steht sie wieder an derselben Stelle des Planeten'
+  );
+
   // --- Gegenprobe: die anderen vier Umgebungen -------------------------------
   await selectEnv(page, 'zen');
   const zen = await page.evaluate(() => {
     const app = window.__app;
     const karte = app.cardManager.addCard('Gegenprobe');
-    const elter = karte.group.parent === app.scene ? '(Szene)' : karte.group.parent?.name;
-    const rahmen = app.cardManager.toJSON().cards[0].frame ?? null;
+    const zone = app.zoneManager.addZone({ title: 'Gegenprobe' });
+    const aus = {
+      karteElter: karte.group.parent === app.scene ? '(Szene)' : karte.group.parent?.name,
+      karteRahmen: app.cardManager.toJSON().cards[0].frame ?? null,
+      zoneElter: zone.group.parent === app.scene ? '(Szene)' : zone.group.parent?.name,
+      zoneRahmen: app.zoneManager.toJSON()[0].frame ?? null,
+    };
     app.cardManager.clear();
-    return { elter, rahmen };
+    app.zoneManager.clear();
+    return aus;
   });
   console.log('\n=== 🪷 Zen-Garten: Gegenprobe ===');
-  console.log(`  Elter der neuen Karte: ${zen.elter}, frame=${zen.rahmen}`);
-  pruefe(zen.elter === '(Szene)', 'dort hängen Karten weiter an der Szene');
-  pruefe(zen.rahmen === null, 'und der Stand bleibt im alten Format');
+  console.log(`  Karte: Elter ${zen.karteElter}, frame=${zen.karteRahmen}`);
+  console.log(`  Zone:  Elter ${zen.zoneElter}, frame=${zen.zoneRahmen}`);
+  pruefe(zen.karteElter === '(Szene)', 'dort hängen Karten weiter an der Szene');
+  pruefe(zen.zoneElter === '(Szene)', 'und Zonen ebenso');
+  pruefe(
+    zen.karteRahmen === null && zen.zoneRahmen === null,
+    'beide Stände bleiben im alten Format'
+  );
 
   console.log(messages.length ? `\n❌ Konsole: ${messages.join(' | ')}` : '\n✓ Konsole sauber');
   console.log(fehler ? `\n❌ ${fehler} Prüfung(en) fehlgeschlagen` : '\n✅ alle Prüfungen bestanden');

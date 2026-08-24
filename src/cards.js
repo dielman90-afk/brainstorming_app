@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
+import { wechsleHeimat, inHeimat, poseInHeimat } from './heimat.js';
 
 const CARD_W = 0.32;
 const CARD_H = 0.18;
@@ -182,13 +183,8 @@ export class IdeaCard {
 export class CardManager {
   constructor(scene) {
     this.scene = scene;
-    // **Wo Karten hängen.** Vier der fünf Umgebungen sind ortsfest; dort ist
-    // die Heimat die Szene und alles bleibt, wie es war. Der 🌌 Nachthimmel ist
-    // seit dem Umbau ein Planet, unter dem sich die Welt dreht: Eine Karte, die
-    // an der Szene hinge, bliebe vor dem Nutzer stehen und liefe mit ihm um den
-    // Planeten herum. An der Weltgruppe bleibt sie liegen, wo man sie abgelegt
-    // hat — und der Planet wird zur begehbaren Gedächtnislandkarte, die den
-    // ganzen Umbau erst rechtfertigt.
+    // Wo Karten hängen: die Szene, oder auf dem Planeten dessen Weltgruppe.
+    // Die Begründung steht vollständig in heimat.js.
     this.heimat = scene;
     this.cards = [];
     this.selected = null;
@@ -200,27 +196,15 @@ export class CardManager {
     this.fontStepIndex = 0;
   }
 
-  // Die Heimat wechseln. Vorhandene Karten ziehen mit und behalten dabei ihre
-  // **Weltpose** — `attach()` rechnet sie um, `add()` würde sie versetzen.
-  // Karten, die gerade in einer Hand liegen, bleiben dort: Ihr Elter ist der
-  // Controller, und sie kommen beim Loslassen von selbst in die neue Heimat.
   setHeimat(ziel) {
     const neu = ziel ?? this.scene;
-    if (neu === this.heimat) return;
     const alt = this.heimat;
     this.heimat = neu;
-    neu.updateMatrixWorld(true);
-    for (const card of this.cards) {
-      if (card.group.parent === alt) neu.attach(card.group);
-    }
+    wechsleHeimat(alt, neu, this.cards.map((c) => c.group));
   }
 
-  // Eine Weltkoordinate in die Heimat umrechnen. Solange die Heimat die Szene
-  // ist (und die steht im Ursprung), ist das ein Nichtstun.
   _inHeimat(v) {
-    if (this.heimat === this.scene) return v;
-    this.heimat.updateMatrixWorld(true);
-    return this.heimat.worldToLocal(v);
+    return inHeimat(this.heimat, this.scene, v);
   }
 
   get fontStep() {
@@ -355,20 +339,10 @@ export class CardManager {
   }
 
   toJSON() {
-    // **Gespeichert wird relativ zur Heimat, nicht zur Welt.** Auf dem Planeten
-    // wäre eine Weltkoordinate der Ort, an dem die Karte lag, **als der Nutzer
-    // dort stand** — nach dem Neuladen läge sie an der Stelle wieder, an der er
-    // zuletzt war, statt dort, wo er sie hingelegt hat.
-    //
-    // Gerechnet wird trotzdem über die Weltpose: Nur so kommt auch eine gerade
-    // gegriffene Karte (Elter = Controller) richtig heraus. Solange die Heimat
-    // die Szene ist, ist die Umrechnung ein Nichtstun und ältere Stände lesen
-    // sich unverändert.
+    // Gespeichert wird relativ zur Heimat, nicht zur Welt — die Begründung
+    // steht bei `poseInHeimat` in heimat.js. Solange die Heimat die Szene ist,
+    // ist die Umrechnung ein Nichtstun und ältere Stände lesen sich unverändert.
     const eigen = this.heimat !== this.scene;
-    if (eigen) this.heimat.updateMatrixWorld(true);
-    const heimQ = eigen
-      ? this.heimat.getWorldQuaternion(new THREE.Quaternion()).invert()
-      : null;
     return {
       version: 1,
       exportedAt: new Date().toISOString(),
@@ -383,10 +357,7 @@ export class CardManager {
         // `frame` ist reine Auskunft für den Leser der Datei — gelesen wird
         // immer relativ zur Heimat, die beim Laden gerade gilt.
         ...(eigen ? { frame: 'planet' } : {}),
-        position: this._inHeimat(card.group.getWorldPosition(new THREE.Vector3())).toArray(),
-        quaternion: eigen
-          ? heimQ.clone().multiply(card.group.getWorldQuaternion(new THREE.Quaternion())).toArray()
-          : card.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
+        ...poseInHeimat(this.heimat, this.scene, card.group),
       })),
     };
   }

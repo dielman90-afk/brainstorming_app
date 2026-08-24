@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
+import { wechsleHeimat, inHeimat, poseInHeimat } from './heimat.js';
 
 // Räumliche Zonen / Rahmen: beschriftete, halbtransparente Flächen, vor denen
 // man Karten thematisch gruppiert (z. B. „To Do / Doing / Done"). Greifbar zum
@@ -87,6 +88,10 @@ class Zone {
     this.header.mesh.position.set(-WIDTH * 0.16, HEIGHT / 2 + 0.085, 0.006);
     this.header.mesh.userData.grabTarget = {
       group: this.group,
+      // Wohin die Zone beim Loslassen zurückgehängt wird. Ohne diese Zeile
+      // landete sie in der Szene — im Nachthimmel also beim Nutzer statt auf
+      // dem Planeten, und der Rahmen liefe von seinen Karten weg.
+      heimat: () => this.manager.heimat,
       getScale: () => this.scale,
       setScale: (v) => this.setScale(v),
     };
@@ -176,7 +181,11 @@ class Zone {
     dir.normalize();
     const pos = camPos.clone().addScaledVector(dir, 2.4);
     pos.y = THREE.MathUtils.clamp(camPos.y, 1.0, 2.2);
-    this.group.position.copy(pos);
+    // Gerechnet wird in Weltkoordinaten — die Zone stellt sich vor den Nutzer,
+    // nicht vor den Planeten. Erst danach in die Heimat umgerechnet.
+    const m = this.manager;
+    this.group.position.copy(inHeimat(m.heimat, m.scene, pos));
+    // `lookAt` bekommt ein Weltziel und rechnet die Elternmatrix selbst heraus.
     this.group.lookAt(camPos.x, pos.y, camPos.z);
   }
 
@@ -192,13 +201,17 @@ class Zone {
   }
 
   toJSON() {
+    const m = this.manager;
     return {
       id: this.id,
       title: this.title,
       colorIndex: this.colorIndex,
       scale: this.scale,
-      position: this.group.getWorldPosition(new THREE.Vector3()).toArray(),
-      quaternion: this.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
+      // `frame` ist reine Auskunft für den Leser der Datei; gelesen wird immer
+      // relativ zu der Heimat, die beim Laden gerade gilt. Die Begründung steht
+      // bei `poseInHeimat` in heimat.js.
+      ...(m.heimat !== m.scene ? { frame: 'planet' } : {}),
+      ...poseInHeimat(m.heimat, m.scene, this.group),
     };
   }
 }
@@ -206,6 +219,11 @@ class Zone {
 export class ZoneManager {
   constructor(scene) {
     this.scene = scene;
+    // **Zonen gehören zur Welt, nicht zum Nutzer.** Eine Zone ist der Rahmen,
+    // vor dem Karten stehen; wenn die Karten mit dem Planeten wandern und der
+    // Rahmen vor dem Nutzer stehen bleibt, ist die Gruppierung nach zwanzig
+    // Schritten aufgelöst. Sie bekommen deshalb dieselbe Heimat wie die Karten.
+    this.heimat = scene;
     this.zones = [];
     this.onRename = null; // (zone) => void  – von main.js gesetzt
     // (label) => void – meldet Änderungen an den Undo-Verlauf
@@ -217,9 +235,16 @@ export class ZoneManager {
     if (Array.isArray(position)) zone.group.position.fromArray(position);
     if (Array.isArray(quaternion)) zone.group.quaternion.fromArray(quaternion);
     if (typeof scale === 'number') zone.setScale(scale);
-    this.scene.add(zone.group);
+    this.heimat.add(zone.group);
     this.zones.push(zone);
     return zone;
+  }
+
+  setHeimat(ziel) {
+    const neu = ziel ?? this.scene;
+    const alt = this.heimat;
+    this.heimat = neu;
+    wechsleHeimat(alt, neu, this.zones.map((z) => z.group));
   }
 
   removeZone(zone) {
