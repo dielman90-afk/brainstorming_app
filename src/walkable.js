@@ -68,22 +68,27 @@ export function makeHeightFieldWalk(floorAt) {
 // `Locomotion` und `updateDesktopMovement` bleiben unberuehrt und wissen nichts
 // von Kugeln.
 //
-// **`freiraum` ist kein Schoenheitsfehler, sondern Absicht.** Wer in der Brille
-// einen halben Schritt zur Seite macht oder sich vorbeugt, um eine Karte zu
-// lesen, soll das duerfen, ohne dass sich die Welt dreht. Innerhalb von 90 cm um
-// die Polachse passiert nichts; erst was darueber hinausgeht, wird zur Drehung.
-// Die Kugel weicht auf 90 cm um 1,6 cm von der Tangentialebene ab und die
-// Flaechennormale steht 2,1 Grad schief — beides liegt unter der
-// Wahrnehmungsschwelle. Beim Gehen mit dem Stick ist der Freiraum nach 0,4 s
-// durchlaufen und danach ist die Uebersetzung 1:1: 2,4 m/s Stickgeschwindigkeit
-// sind 2,4 m/s ueber Grund.
+// **`freiraum` ist ein Totband, und Totbaender kosten doppelt.** Er soll
+// zulassen, dass man sich vorbeugt, um eine Karte zu lesen, ohne dass sich die
+// Welt dreht. Der erste Wert war 90 cm, und das war zu viel: Ein Totband in der
+// **Position** muss bei jeder Richtungsumkehr einmal ganz durchlaufen werden —
+// 1,8 m, in denen der Stick nichts bewirkt. Gemessen mit
+// `tools/desktop-pose.mjs`: zwei Sekunden Vorwaertstaste ergaben **0,00 m**
+// Weltdrehung, weil die Kamera nur von einem Rand des Freiraums zum anderen
+// gewandert ist. Genau das meldet sich als „die Steuerung ist komisch".
+//
+// 25 cm kosten bei einer Umkehr eine halbe Sekunde bei Schrittgeschwindigkeit
+// und fangen das Vorbeugen weiterhin ab. Die Kugel weicht auf 25 cm um 1,3 mm
+// von der Tangentialebene ab; die Flaechennormale steht 0,6 Grad schief. Beim
+// Gehen mit dem Stick ist der Freiraum nach 0,1 s durchlaufen, danach ist die
+// Uebersetzung 1:1: 2,4 m/s Stickgeschwindigkeit sind 2,4 m/s ueber Grund.
 //
 //   radius       Planetenhalbmesser
 //   heightAt(d)  Gelaendehoehe ueber der Kugel in Richtung d — in
 //                PLANETENKOORDINATEN, also vor der Weltdrehung
 //   welt         die Gruppe, die den Planeten traegt und gedreht wird
 //   nachDrehung  wird nach jeder Drehung gerufen (der Himmel uebernimmt sie)
-export function makePlanetWalk({ radius, heightAt, welt, nachDrehung, freiraum = 0.9 }) {
+export function makePlanetWalk({ radius, heightAt, welt, nachDrehung, freiraum = 0.25 }) {
   const _achse = new Vector3();
   const _dir = new Vector3();
   const _inv = new Quaternion();
