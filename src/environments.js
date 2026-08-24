@@ -6155,11 +6155,28 @@ function makeSternfeld(rand, R = 41) {
     // ohne diese Umrechnung ballen sich die Punkte an den Polen.
     const u = rand() * 2 - 1;
     const phi = rand() * Math.PI * 2;
-    const s = Math.sqrt(Math.max(0, 1 - u * u));
-    // Nur die obere Halbkugel, mit einem Rest unter dem Horizont: Der
-    // Nebel und das Gelände decken das ohnehin ab, aber ein harter Schnitt
-    // bei y = 0 wäre in `d-aerial` als Kante sichtbar.
-    const y = Math.abs(u) * 0.98 - 0.02;
+    // **Bis 21 Grad unter Augenhöhe, nicht bis null.**
+    //
+    // Vorher stand hier `Math.abs(u) * 0.98 - 0.02` — die obere Halbkugel mit
+    // einem Fingerbreit Rest darunter. Auf der 96-m-Platte war das richtig:
+    // Was unter Augenhöhe lag, deckten Boden und Nebel ohnehin ab.
+    //
+    // Auf einer Kugel mit 25 m Halbmesser liegt der Horizont **20,0 Grad unter
+    // Augenhöhe** (acos(25/26,6)). Zwischen dem alten Schnitt und der
+    // Geländekante klaffte damit ein zwanzig Grad breiter Streifen ohne einen
+    // einzigen Stern — und das ist genau der Streifen, in den man auf einem
+    // kleinen Planeten am meisten schaut. Der Auftraggeber hat es als
+    // „fehlende Sterne" gemeldet, und das war es auch.
+    //
+    // Verteilt wird jetzt gleichmäßig über die Kappe von y = −0,36 bis y = 1.
+    // Weil `u` schon gleichverteilt in [−1, 1] liegt und die Fläche einer
+    // Kugelzone linear in y wächst (Archimedes), genügt eine lineare
+    // Abbildung — **ohne** eine zusätzliche Ziehung aus dem gesäten Strom.
+    const y = 0.32 + u * 0.68;
+    // ACHTUNG: Der Sinus des Polarwinkels muss aus **y** kommen, nicht aus u.
+    // Solange y ungefähr |u| war, fiel das nicht auf; jetzt fielen die Sterne
+    // sonst von der Kugel.
+    const s = Math.sqrt(Math.max(0, 1 - y * y));
     positions[i * 3] = s * Math.cos(phi) * R;
     positions[i * 3 + 1] = y * R;
     positions[i * 3 + 2] = s * Math.sin(phi) * R;
@@ -6250,12 +6267,12 @@ function makeSternfeld(rand, R = 41) {
         // 1,3 Halbmesser, und das bleibt ein Klotz. Erst ab gut vier
         // Bildpunkten liest der Punkt als Punkt.
         float roh = groesse * f * pxSkala / -mv.z;
-        const float MINGROESSE = 4.2;
+        const float MINGROESSE = 3.0;
         gl_PointSize = max(MINGROESSE, roh);
         // Untergrenze 0,30: Streng nach Fläche gerechnet fiele ein Stern von
         // einem Bildpunkt auf ein Siebzehntel und wäre weg. Die schwachen
         // Sterne sind aber die Mehrheit und tragen die Dichte des Himmels.
-        vSchwund = clamp((roh * roh) / (MINGROESSE * MINGROESSE), 0.30, 1.0);
+        vSchwund = clamp((roh * roh) / (MINGROESSE * MINGROESSE), 0.75, 1.0);
         gl_Position = projectionMatrix * mv;
       }`,
     fragmentShader: `

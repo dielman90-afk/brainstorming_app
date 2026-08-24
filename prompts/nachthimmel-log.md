@@ -1783,6 +1783,52 @@ dafür ab — er kann diese Fehler prinzipiell nicht sehen. Ein Bild zu messen u
 eine Umgebung zu betreten sind zwei verschiedene Prüfungen, und die zweite hat
 gefehlt. Alle drei Fehler lagen im Bedienpfad, keiner im Bild.
 
+### Die fehlenden Sterne
+
+Vom Auftraggeber gemeldet: „Was irritiert sind die fehlenden Sterne."
+
+**Mein erster Verdacht war falsch, und die Messung hat ihn sofort widerlegt.**
+Ich hatte kurz zuvor die Punktgröße der Sterne auf mindestens 4,2 Bildpunkte
+gesetzt und sie darunter nach Fläche gedimmt — energieerhaltend, aber
+verdächtig. Gezählt wurden im Eintrittsbild als Punktquellen (heller als das
+7×7-Mittel um sie herum):
+
+| Stand | Sterne im oberen Himmel |
+| --- | --- |
+| vor der Punktgrößen-Änderung | 191 |
+| danach (4,2 px, Boden 0,30) | 198 |
+| mit 3,0 px und Boden 0,75 | 247 |
+
+Die Änderung hatte also **keinen** Stern gekostet.
+
+Der wirkliche Grund stand in `makeSternfeld`:
+
+    const y = Math.abs(u) * 0.98 - 0.02;   // nur die obere Halbkugel
+
+Auf der 96-m-Platte war das richtig — was unter Augenhöhe lag, deckten Boden und
+Nebel ab. Auf einer Kugel mit 25 m Halbmesser liegt der Horizont **20,0 Grad
+unter Augenhöhe**. Zwischen dem Schnitt bei y = 0 und der Geländekante klaffte
+damit ein zwanzig Grad breiter Streifen ohne einen einzigen Stern — und das ist
+genau der Streifen, in den man auf einem kleinen Planeten am meisten schaut.
+
+Verteilt wird jetzt gleichmäßig über die Kappe von y = −0,36 bis y = 1. Weil `u`
+schon gleichverteilt in [−1, 1] liegt und die Fläche einer Kugelzone linear in y
+wächst, genügt `y = 0,32 + 0,68 · u` — **ohne** eine zusätzliche Ziehung aus dem
+gesäten Strom, also ohne dass sich Brocken, Staub und Wirbel verschieben. Der
+Sinus des Polarwinkels muss dabei aus y kommen und nicht mehr aus u; solange
+y ungefähr |u| war, fiel der Unterschied nicht auf, jetzt fielen die Sterne sonst
+von der Kugel.
+
+Gemessen: Sternpixel in `a-augenhoehe` 1448 → **1995**, in `c-krater` 0 → **569**,
+in `f-kante` 1296 → **1670**. Sterne vor dem Gelände: weiterhin **0** über alle
+sechs Kameras — die Sterne unter dem Horizont werden ordentlich verdeckt.
+
+**Dieselbe Lehre zum dritten Mal an einem Tag:** Was auf einer Ebene richtig war,
+ist auf einer Kugel nicht falsch, sondern bedeutungslos. Erst der Nebel, dann der
+Himmelshorizont, jetzt die Sternverteilung — jedes Mal eine Annahme über „unter
+Augenhöhe sieht man nichts", die auf einem Planeten mit 8,9 m Horizont nicht mehr
+gilt.
+
 ### Neue Werkzeuge
 
 * `tools/strahl.mjs` — **was steht in diesem Pixel.** Die Lehre aus Paket 7 als
