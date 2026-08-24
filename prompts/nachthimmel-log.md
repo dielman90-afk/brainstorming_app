@@ -1979,6 +1979,18 @@ Konstrukt Δmax 1, Dojo Δmax 6 bei 0,010 % der Pixel ≥ 2, Insel Δmittel 0,01
 0,381 % ≥ 2 — im bekannten Rauschband der Insel. Konsole frei von Errors und
 Warnings.
 
+`tools/karten-planet.mjs` (13 Prüfungen) und `tools/shaderlint.mjs` laufen
+durch; `tools/gehbereich.mjs` meldet „Alles im Rahmen" — Sperre auf 25 cm, ein
+34-cm-Schritt dreht die Welt um 34,00 cm Bogen, Standhöhe am Nordpol 25,342 m.
+
+**Und noch ein Fehlurteil von mir dazwischen:** Ich hatte `gehbereich.mjs`
+zweimal abgebrochen, weil es „hängt", und einmal einen `ReferenceError` auf eine
+Konstante gesehen, die im Code nachweislich übergeben wird. Beides war weder
+Werkzeug- noch Codefehler: Der Lauf ist in diesem Container nur **langsam** — die
+Schrittsimulation wartet je Schritt auf ein Bild, und ein Dojo-Bild braucht auf
+SwiftShader unter Last Sekunden. Ungestört und ohne Nebenläufer kommt er sauber
+durch. **Ein Werkzeug, das man selbst umbringt, hat nicht versagt.**
+
 #### Zwei Fehler am Rande, beide meine
 
 **Ich habe `prettier --write` auf `src/environments.js` losgelassen.** Das Projekt
