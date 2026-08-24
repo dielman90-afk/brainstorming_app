@@ -40,6 +40,81 @@ fs.mkdirSync(outDir, { recursive: true });
 const R = 25;
 const UMFANG = 2 * Math.PI * R;
 
+// **Eine gerade Kante mitten im Gelände.**
+//
+// Der Prüfer hat in `rund-060` einen hellen Streifen mit zwei mathematisch
+// geraden Kanten gefunden — die Orthobox der Schattenkarte, deren Ziel mit der
+// Himmelsgruppe mitgedreht war. **Meine Helligkeitsstatistik hat das nicht
+// gesehen**, weil sie über das ganze Bild mittelt: Ein Streifen, der halb so
+// hell ist, verschiebt Mittel und Perzentile um wenige Stufen und sieht aus wie
+// eine Wolke. Ein Bildmaß muss die Form messen, nicht nur die Menge.
+//
+// Gesucht wird deshalb gezielt eine Kante, **die auf beiden Seiten Gelände
+// hat**. Der echte Horizont scheidet damit aus (über ihm steht Himmel), und er
+// wäre auch kein Fehler: Boden ist warm (R > B, weil er rotes Licht wirft),
+// Himmel ist kühl. Dasselbe Kriterium wie in `tools/horizont.mjs`.
+function geradeKante(png) {
+  const { width, height, data } = png;
+  const L = (x, y) => {
+    const i = (y * width + x) * 4;
+    return 0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2];
+  };
+  const istBoden = (x, y) => {
+    const i = (y * width + x) * 4;
+    return data[i] - data[i + 2] > 8;
+  };
+
+  // Je Spalte die stärkste Stufe, die vollständig im Gelände liegt.
+  const kante = new Array(width).fill(-1);
+  for (let x = 0; x < width; x++) {
+    let besteStufe = 22; // darunter ist es Geländeschattierung, keine Kante
+    for (let y = 4; y < height - 4; y++) {
+      if (!istBoden(x, y - 3) || !istBoden(x, y + 3)) continue;
+      const stufe = Math.abs(L(x, y + 2) - L(x, y - 2));
+      if (stufe > besteStufe) {
+        besteStufe = stufe;
+        kante[x] = y;
+      }
+    }
+  }
+
+  // Den längsten Lauf zusammenhängender Spalten suchen und eine Gerade
+  // hindurchlegen. Eine Kante, die einer Krümmung folgt, weicht davon ab; eine,
+  // die aus einer Ebene im Raum stammt, nicht.
+  let best = { laenge: 0, abweichung: 99 };
+  let x0 = 0;
+  while (x0 < width) {
+    if (kante[x0] < 0) {
+      x0++;
+      continue;
+    }
+    let x1 = x0;
+    // Sprünge von mehr als 6 px je Spalte trennen zwei Kanten.
+    while (x1 + 1 < width && kante[x1 + 1] >= 0 && Math.abs(kante[x1 + 1] - kante[x1]) <= 6) x1++;
+    const n = x1 - x0 + 1;
+    if (n >= 60) {
+      let sx = 0;
+      let sy = 0;
+      let sxx = 0;
+      let sxy = 0;
+      for (let x = x0; x <= x1; x++) {
+        sx += x;
+        sy += kante[x];
+        sxx += x * x;
+        sxy += x * kante[x];
+      }
+      const nenner = n * sxx - sx * sx;
+      const m = nenner === 0 ? 0 : (n * sxy - sx * sy) / nenner;
+      const b = (sy - m * sx) / n;
+      let abw = 0;
+      for (let x = x0; x <= x1; x++) abw = Math.max(abw, Math.abs(kante[x] - (m * x + b)));
+      if (n > best.laenge) best = { laenge: n, abweichung: abw, von: x0, bis: x1 };
+    }
+    x0 = x1 + 1;
+  }
+  return best;
+}
+
 const server = await startServer();
 const browser = await launchBrowser();
 try {
@@ -177,12 +252,32 @@ try {
   );
 
   // --- 3: zwölf Bilder, alle 30 Grad ----------------------------------------
+  //
+  // **Die Kamera muss je Station neu auf den Boden gesetzt werden.** Der erste
+  // Anlauf hat die Augenhöhe von Station 0 (26,94 m) für alle zwölf behalten —
+  // aber der Boden unter dem Nordpol ist nicht überall gleich hoch, er schwankt
+  // über den Rundgang zwischen −1,12 und +2,11 m. Bei Station 60 lag das Auge
+  // dadurch **4 cm über dem Gelände**: Ein Strahl durch die Bildmitte traf
+  // `nacht-planet` in 0,1 m. Was dabei entstand, sah aus wie ein heller
+  // Streifen mit einer mathematisch geraden Kante — es war die Bodenfläche,
+  // von der Nasenspitze aus gesehen, und die ist über wenige Meter eben.
+  //
+  // Der Prüfer hat diese Kante zu Recht als Fehler gemeldet. Sie stand aber im
+  // Werkzeug, nicht in der Szene. Die Augenhöhe kommt jetzt aus demselben
+  // Höhenfeld, aus dem sie die Sperre im Betrieb nimmt.
   const shot = PLANET_SHOTS[0];
+  // Blickrichtung von Station 0, relativ zum Auge — sie wird je Station auf die
+  // neue Augenhöhe umgesetzt, damit alle zwölf Bilder denselben Winkel zeigen.
+  const blick = [
+    shot.look[0] - shot.pos[0],
+    shot.look[1] - shot.pos[1],
+    shot.look[2] - shot.pos[2],
+  ];
   const zeilen = [];
   for (let k = 0; k < 12; k++) {
     const grad = k * 30;
     const werte = await page.evaluate(
-      ({ grad, pos, look, fov }) => {
+      ({ grad, blick, fov }) => {
         const T = window.__THREE;
         const app = window.__app;
         app.env.setWalkEnabled?.(false);
@@ -194,21 +289,29 @@ try {
         welt.quaternion.setFromAxisAngle(new T.Vector3(1, 0, 0), (grad * Math.PI) / 180);
         himmel.quaternion.copy(welt.quaternion);
         kuppel.userData.setzeWeltdrehung(welt.quaternion);
+        welt.updateMatrixWorld(true);
+
+        // Augenhöhe aus dem Höhenfeld: Die Richtung, die jetzt unter dem
+        // Nordpol liegt, zurückgedreht in Planetenkoordinaten.
+        const boden = app.scene.getObjectByName('nacht-welt-boden');
+        const oben = new T.Vector3(0, 1, 0).applyQuaternion(welt.quaternion.clone().invert());
+        const augeY = 25 + boden.userData.heightAt(oben) + 1.6;
 
         app.camera.fov = fov;
-        app.camera.position.set(pos[0], pos[1], pos[2]);
+        app.camera.position.set(0, augeY, 0);
         app.camera.up.set(0, 1, 0);
-        app.camera.lookAt(look[0], look[1], look[2]);
+        const ziel = [blick[0], augeY + blick[1], blick[2]];
+        app.camera.lookAt(ziel[0], ziel[1], ziel[2]);
         app.camera.updateProjectionMatrix();
-        app.controls.target.set(look[0], look[1], look[2]);
+        app.controls.target.set(ziel[0], ziel[1], ziel[2]);
         app.renderer.render(app.scene, app.camera);
 
         // Wo steht der Mond? Höhenwinkel über dem Horizont des Spielers.
         const mond = app.scene.getObjectByName('nacht-mond');
         const w = mond.getWorldPosition(new T.Vector3()).sub(new T.Vector3(0, 25, 0)).normalize();
-        return { hoehe: (Math.asin(w.y) * 180) / Math.PI };
+        return { hoehe: (Math.asin(w.y) * 180) / Math.PI, augeY, gelaende: augeY - 26.6 };
       },
-      { grad, pos: shot.pos, look: shot.look, fov: shot.fov }
+      { grad, blick, fov: shot.fov }
     );
     await page.waitForTimeout(220);
     const buf = await page.screenshot();
@@ -222,7 +325,9 @@ try {
       werteL.push(l);
     }
     werteL.sort((a, b) => a - b);
+    const kante = geradeKante(png);
     zeilen.push({
+      kante,
       grad,
       bogen: (grad / 360) * UMFANG,
       mond: werte.hoehe,
@@ -233,16 +338,27 @@ try {
   }
 
   console.log('\n=== Zwölf Stationen ===');
-  console.log('  Grad   Bogen     Mond      Mittel   p05    p95   Spanne');
+  console.log('  Grad   Bogen     Mond      Mittel   p05    p95   Spanne   gerade Kante');
   for (const z of zeilen) {
+    const k = z.kante.laenge >= 120 ? `${z.kante.laenge} px, Abw. ${z.kante.abweichung.toFixed(2)} px` : '—';
     console.log(
       `  ${String(z.grad).padStart(4)}  ${z.bogen.toFixed(1).padStart(6)} m  ${z.mond
         .toFixed(1)
         .padStart(6)}°  ${z.mittel.toFixed(1).padStart(7)}  ${z.p05.toFixed(1).padStart(5)}  ${z.p95
         .toFixed(1)
-        .padStart(5)}  ${(z.p95 - z.p05).toFixed(1).padStart(6)}`
+        .padStart(5)}  ${(z.p95 - z.p05).toFixed(1).padStart(6)}   ${k}`
     );
   }
+  const schlimmste = zeilen.reduce((a, b) => (b.kante.laenge > a.kante.laenge ? b : a));
+  console.log(
+    `\n  Längste gerade Kante im Gelände: ${schlimmste.kante.laenge} px bei ${schlimmste.grad}°` +
+      (schlimmste.kante.laenge >= 120 ? `, Abweichung ${schlimmste.kante.abweichung.toFixed(2)} px` : '')
+  );
+  console.log(
+    schlimmste.kante.laenge < 120 || schlimmste.kante.abweichung > 2
+      ? '  ✅ keine gerade Kante mitten im Gelände'
+      : '  ❌ gerade Kante mitten im Gelände — auf einer Kugel gibt es die nicht'
+  );
   const nachtseite = zeilen.filter((z) => z.mond < 0);
   console.log(
     `\n  Stationen mit untergegangenem Mond: ${nachtseite.length} von 12` +
