@@ -1651,6 +1651,35 @@ Nachgeprüft, dass die Änderung wirklich im Material steht (`vSchwund` und
 selben Tag nachweislich **nicht** gegriffen hatte, ist das keine überflüssige
 Frage mehr.
 
+### Steinlage und Luftglühen
+
+**„Jeder Stein zeigt exakt vom Mittelpunkt weg."** Der Prüfer hat das als den
+Grund benannt, warum die Kugel als Ball liest und nicht als Ort: kein einziger
+liegt gekippt, gestürzt, verkantet. Die Kippung betrug höchstens 26 Grad gegen
+die Flächennormale. Jetzt gibt es drei Lagen — gut die Hälfte liegt flach
+eingeregelt, ein Drittel steht schief, weil es auf etwas anderem aufliegt, der
+Rest liegt beliebig.
+
+Das erzwang eine zweite Änderung: **Wie tief ein Brocken steckt, kann nicht mehr
+aus seinem Sollmaß kommen.** Ein Körper, der auf der Seite liegt, hat eine ganz
+andere Höhe als einer, der flach liegt — er ist ja abgeplattet. Die Einsinktiefe
+wird deshalb aus der gemessenen Ausdehnung **längs der Flächennormale** gebildet,
+nachdem die Drehung steht. Sonst schwebte der eine und versänke der andere.
+
+**Das Luftglühen war ein aufgemalter Streifen.** Gemessen stand in `f-kante` bei
+x = 150, 300 und 1000 exakt derselbe Wert (23 | 31 | 29) — über die volle
+Bildbreite kein Zahlenschritt Unterschied. Es bekommt jetzt Wellen: drei Sinus
+über die waagerechte Richtung mit ganzzahlfremden Frequenzen, dazu eine leichte
+Höhenwanderung der Schicht. Dieselben sechs Messpunkte liegen jetzt zwischen
+15,1 und 23,0.
+
+**Und dabei ein Fehler, der das ganze Programm gekostet hat:** Die Kuppel war im
+Bild komplett weg und die Konsole voll von „useProgram: program not valid". Die
+Ursache war eine **Doppeldeklaration** — in diesem Shader heißt die
+Milchstraßenhelligkeit schon `band`, und ich habe eine zweite Variable desselben
+Namens angelegt. Ein Shader hat einen einzigen Namensraum je Funktion, und das
+Prüfbild sagt es sofort: statt Himmel die Hintergrundfarbe.
+
 ### Neue Werkzeuge
 
 * `tools/strahl.mjs` — **was steht in diesem Pixel.** Die Lehre aus Paket 7 als
