@@ -163,7 +163,12 @@ try {
       for (let i = 0; i < n; i++) {
         // Ein Schritt nach vorn: Der Kopf driftet um `schritt` über den
         // Freiraum hinaus, die Sperre holt ihn zurück und dreht dabei die Welt.
-        walk.limit(0, 0.9 + schritt, ziel);
+        // **Der Freiraum kommt aus der App, nicht aus dieser Datei.** Hier
+        // stand einmal fest 0,9 — der Wert, den `makePlanetWalk` damals
+        // hatte. Nachdem er auf 0,25 m gefallen war, hat dieses Werkzeug je
+        // Schritt 68 cm Bogen gedreht statt 3,3 cm und daraufhin gemeldet, der
+        // Rundgang schließe nicht.
+        walk.limit(0, walk.freiraum + schritt, ziel);
         const zielY = walk.floorAt(ziel.x, ziel.z);
         if (floorY === null) floorY = zielY;
         floorY += (zielY - floorY) * Math.min(1, dt * 7);

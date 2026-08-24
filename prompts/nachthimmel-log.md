@@ -2015,6 +2015,187 @@ Die Lehre ist nicht neu, aber diesmal teuer: **Eine Erklärung, die zum Symptom
 passt, ist noch keine Ursache.** Der `try`-Block bleibt — er kostet nichts —,
 aber sein Kommentar sagt jetzt, was wirklich passiert ist.
 
+### Der Planet bekommt eine Gestalt — und der Prüfstand einen Fehler weniger
+
+Zwei Befunde des Prüfers standen noch offen, und sie haben dieselbe Ursache:
+
+> **7 (zweite Hälfte)** — „Die Kugel hat Textur, aber keine Topographie. Aus dem
+> Orbit ist der Umriss ein makelloser Kreis — kein Kraterrand bricht ihn."
+> **10** — „Nur zwei Tiefenebenen. Was nah ist, ist nah; was fern ist, steht an
+> der Kante. Dazwischen ist nichts."
+
+#### Erst messen, dann bauen
+
+„Makelloser Kreis" ist ein Eindruck; ich wollte eine Zahl. Am Bild ist sie
+schwer zu holen — der Terminator trennt die Nachtseite mit demselben Kontrast
+wie die Kante gegen den Himmel, und ein Schwellwert kann beides nicht
+auseinanderhalten. Mein erster Anlauf (`tools/silhouette.mjs`) hat genau das
+getan und **14 % Rauheit** gemeldet, wo das Auge einen glatten Kreis sieht: Er
+hat den Terminator als Silhouette gezählt. Ein Werkzeug, dessen Ergebnis dem
+Augenschein widerspricht, hat erst einmal selbst unrecht.
+
+`tools/gestalt.mjs` misst deshalb an der Geometrie. Für jeden Bildazimut wird
+über den zugehörigen Großkreis der **größte Sehwinkel** gesucht — die wahre
+perspektivische Silhouette, nicht die Näherung „R + h am Äquator". Und die
+Antwort war eindeutig:
+
+| | vorher |
+| --- | --- |
+| Rauheit des Umrisses | 4,32 px auf 296 px Halbmesser (**1,46 %**) |
+| Spanne | 26,2 px |
+| Höhenfeld | −1,80 bis +3,91 m, Streuung 0,81 m |
+
+Und die Ursache stand in `craterProfile`: Der Wall ist `0,32 · wall · (1−alter) ·
+depth`. Über alle vierzehn Krater durchgerechnet ist der **höchste Wall des
+ganzen Planeten 34 cm** — im Orbitbild vier Bildpunkte. Genau die gemessene
+Rauheit. Der Prüfer hatte nicht nur recht, er hatte auf den Pixel recht.
+
+**Die Krater waren nicht falsch bemessen, sie waren zu klein für ihren Körper.**
+Ein Wall ist rund vier Prozent des Durchmessers hoch; bei 6 m Durchmesser sind
+das 24 cm, und daran ändert kein Parameter etwas. Was eine Silhouette bricht,
+ist ein Einschlag, dessen Durchmesser ein nennenswerter Teil des Körpers ist —
+auf Phobos ist Stickney knapp die Hälfte.
+
+#### Zwei große Einschläge und drei Grate
+
+Dazugekommen sind zwei Krater von 19 und 14 m Durchmesser (bei 50 m
+Körperdurchmesser) mit Tiefen nach der üblichen Fünftelregel, und ein neues
+Primitiv: der **Grat**.
+
+Ein Grat ist die einfachste Form, die beide Befunde zugleich beantwortet. Krater
+sind rund, Hügel sind rund; runde Formen von 10 m Halbmesser sind auf einem
+Körper von 25 m so weich, dass sie weder eine Kante noch eine Verdeckung
+ergeben. Ein Grat ist lang, schmal und hoch: Er verdeckt die Ferne — das ist die
+fehlende mittlere Ebene — und gibt der Kante einen Knick.
+
+Auf einer Kugel ist seine Achse ein **Großkreisbogen**, die gerade Linie der
+Kugel. `bogenAbstandZuGrat` gibt den Abstand entlang der Oberfläche: innerhalb
+des Bogens der Abstand zur Trägerebene, außerhalb der zum näheren Endpunkt — so
+bekommt der Grat runde Enden statt abgeschnittener.
+
+Der erste liegt bewusst im Blick der Eingangskamera. Sichtbarkeit auf einer
+Kugel ist `sqrt(2·R·h_auge) + sqrt(2·R·h)`; bei 3,2 m Kammhöhe sind das
+8,9 + 12,6 = 21,5 m, und bei 16 m Bogen steht der Kamm klar über der
+Krümmungskante — hinter dem Krater bei 12,1 m. In `a-augenhoehe` stehen jetzt
+drei Ebenen: Steine im Vordergrund, die beleuchtete Gratflanke dahinter, dann
+Formation und Sternhimmel.
+
+#### Und dann meldete der Prüfstand, der Rundgang schließe nicht
+
+Der erste Lauf nach dem Umbau:
+
+```
+  Restwinkel nach der Runde 179.3908° = 7827.40 cm
+  ❌ der Rundgang schließt nicht
+  b) Nachführung: p50 35.88 cm, p95 122.70 cm, max 233.26 cm (Steigung dort 11.05)
+```
+
+Eine Steigung von 11,05 ist eine Wand von 85 Grad. Mein Grat kann höchstens 1,4;
+`tools/gestalt.mjs` hatte über die ganze Kugel 1,82 gemessen. **Wenn zwei
+Werkzeuge sich um den Faktor sechs widersprechen, hat eines von beiden unrecht,
+und es ist selten die Geometrie.**
+
+Der Fehler saß in `tools/rundgang.mjs`, Zeile 166:
+
+```js
+walk.limit(0, 0.9 + schritt, ziel);
+```
+
+Die 0,9 war der Freiraum von `makePlanetWalk` — **damals**. Zwei Commits vorher
+habe ich ihn auf 0,25 m gesetzt, weil ein Totband von 90 cm bei jeder
+Richtungsumkehr zweimal durchlaufen werden muss und das Gehen am Desktop
+lahmlegte. Der Prüfstand hat seine 0,9 behalten. Damit trieb der Kopf je Schritt
+nicht um 3,3 cm über den Freiraum hinaus, sondern um 68 cm — **das
+Zwanzigfache**. Die Welt drehte sich zwanzigmal zu weit, der „Rundgang" lief in
+Wahrheit zwanzig Runden und blieb bei einer halben stehen; und die
+Bodenkontaktzahlen maßen die Höhenänderung über 68 cm, geteilt durch 3,3 cm.
+
+Nach der Korrektur — `walk.freiraum` kommt jetzt aus der App, und
+`tools/gehbereich.mjs` bricht ab, wenn sein eigener Wert davon abweicht:
+
+| | vor dem Umbau (planet-06) | mit Grat und Großkratern |
+| --- | --- | --- |
+| Restwinkel der Runde | 1,30 cm | **1,30 cm** |
+| Geländehöhe Start / Ende | — | 0,3423 m / 0,3417 m |
+| `walk.floorAt` gegen Gelände | 0,000 mm | **0,000 mm** |
+| Nachführung p50 / p95 / max | 2,55 / 12,18 / 37,92 cm | 2,81 / 17,56 / **38,71** cm |
+
+Der Nachlauf ist die app-weite Glättung `dt · 7`, nicht der Planet; das Maximum
+steht praktisch da, wo es stand. Das p95 ist um 44 % gestiegen, weil es jetzt
+mehr Hänge gibt, die diese Glättung überhaupt sichtbar machen.
+
+**Die Lehre steht in beiden Dateien als Kommentar:** Eine Zahl, die zwei Seiten
+kennen müssen, darf nur an einer Stelle stehen. Ich hatte sie an dreien —
+`walkable.js`, `rundgang.mjs`, `gehbereich.mjs` — und beim Ändern zwei
+übersehen. `gehbereich.mjs` ist mir dabei nur deshalb nicht auch aufgelaufen,
+weil dort zufällig derselbe neue Wert stand.
+
+#### Ein Werkzeug, das ich beim Bauen zerstört habe
+
+Mein erstes Messwerkzeug hieß `tools/silhouette.mjs` — und den Namen gab es
+schon. Der bestehende `silhouette.mjs` zählt **helle Punkte innerhalb einer
+dunklen Geländesilhouette**, also Sterne, die vor dem Boden stehen; er hat in
+Paket 2 einen echten Fehler gefunden und trägt in seinem Kopf die Herleitung
+seiner Schwellen. Ein `cat >` hat ihn wortlos ersetzt.
+
+Aufgefallen ist es erst beim Blick auf `git diff --stat`: 166 geänderte Zeilen
+in einer Datei, die ich für neu hielt. Wiederhergestellt aus HEAD; das neue
+Werkzeug heißt jetzt `tools/gestalt.mjs`. **`git status` vor dem Anlegen einer
+Datei ist billiger als die Wiederherstellung danach** — und ohne Versionsstand
+wäre die Datei weg gewesen.
+
+#### Was der Umbau kostet und was er nicht kostet
+
+| | planet-07 | planet-08 |
+| --- | --- | --- |
+| Rauheit des Umrisses | 4,32 px (1,46 %) | **6,94 px (2,31 %)** |
+| Spanne des Umrisses | 26,2 px | **47,5 px** |
+| Höhenfeld | −1,80 … +3,91 m | **−3,73 … +6,32 m** |
+| Streuung des Höhenfelds | 0,81 m (3,25 % von R) | **1,15 m (4,62 %)** |
+| größte Neigung über 41 cm | 1,20 | 1,82 |
+
+Zum Vergleich, aus demselben Lauf von `tools/gehbereich.mjs`: Der größte
+Bodensprung je Bild beträgt auf der **Himmelsinsel** 0,493 m, auf dem Planeten
+0,387 m. Das Gelände ist trotz der Grate weiterhin sanfter als das der Insel,
+und die Steigung von 1,82 ist eine einzelne Stelle irgendwo auf der Kugel, nicht
+der Weg, den man geht (dort sind es höchstens 1,49).
+
+#### Der vollständige Prüflauf
+
+| Prüfung | Ergebnis |
+| --- | --- |
+| `npm run build` | grün |
+| Konsole | frei von Errors und Warnings |
+| Rundgang schließt | **1,30 cm** auf 157,07 m; Gelände 0,3423 m → 0,3417 m |
+| `walk.floorAt` gegen Gelände | **0,000 mm** |
+| Nachführung (app-weite Glättung) | p50 2,81 cm, p95 17,56 cm, max 38,71 cm |
+| Karten und Zonen am Planeten | 13 von 13 |
+| `tools/gehbereich.mjs` | „Alles im Rahmen" — auch die neue Freiraum-Gegenprobe |
+| `tools/shaderlint.mjs` | sauber |
+| Draw-Calls | 13–18 / 120 |
+| Dreiecke | 310 266–313 154 / 350 000 |
+| Texturspeicher | 6,33 / 60 MB |
+| Regression Zen | bitgleich (Δmax 0) |
+| Regression Konstrukt | Δmax 1 |
+| Regression Dojo | Δmax 5 bei 0,008 % der Pixel ≥ 2 |
+| Regression Insel | Δmittel 0,023 bei 0,483 % ≥ 2 (Rauschband) |
+
+Weder Draw-Calls noch Dreiecke noch Texturspeicher haben sich bewegt: Grate und
+Großkrater sind Änderungen **am Höhenfeld** derselben Ikosphäre, kein einziges
+neues Objekt und keine einzige neue Karte.
+
+#### Was damit offen bleibt
+
+* Die **Gratnaht** aus dem Prüferbericht ist weiterhin halbiert (296 → 165
+  Pixel), nicht beseitigt.
+* Ob 5,5°/s Weltdrehung in der Brille bequem sind, kann dieser Container nicht
+  beantworten.
+* Der Nachlauf der Bodenglättung (p95 17,6 cm) ist eine **app-weite**
+  Entscheidung — `dt · 7` gilt in allen fünf Umgebungen. Zum Vergleich aus
+  demselben Lauf: Der größte Bodensprung je Bild liegt auf der Himmelsinsel bei
+  0,493 m, auf dem Planeten bei 0,387 m. Ich habe diese Konstante nicht
+  angefasst; das wäre eine Änderung an allen Umgebungen zugleich.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
@@ -2030,6 +2211,18 @@ aber sein Kommentar sagt jetzt, was wirklich passiert ist.
   Beweis.** „Aus 25 m Bogen sichtbar" galt für eine glatte Kugel; das Gelände
   darauf schwankt um ±2 m und macht daraus mehrere Grad. Was zählt, ist die
   gemessene Höhe der Spitze gegen die gemessene Höhe des Rückens davor.
+* **Eine Zahl, die zwei Seiten kennen müssen, darf nur an einer Stelle
+  stehen.** Der Freiraum der Fortbewegung stand in `walkable.js`, in
+  `rundgang.mjs` und in `gehbereich.mjs`. Als er von 0,9 auf 0,25 m fiel, habe
+  ich zwei davon übersehen — und der Prüfstand hat daraufhin gemeldet, der
+  Rundgang schließe nicht. Nicht der Planet war kaputt, sondern das Maßband.
+* **Wenn zwei Werkzeuge sich um den Faktor sechs widersprechen, hat eines von
+  beiden unrecht, und es ist selten die Geometrie.** Eine Steigung von 11,05
+  ist eine Wand von 85 Grad; dass die Szene so etwas nicht enthält, war schneller
+  zu prüfen als die Zahl zu glauben.
+* **`git status`, bevor man eine Datei anlegt.** `tools/silhouette.mjs` gab es
+  schon, und ein `cat >` hat es wortlos ersetzt. Aufgefallen ist es an einer
+  Zeile in `git diff --stat`.
 * **Eine Kugel hat immer einen Terminator.** Alles, was auf der Platte unter
   30° Lichteinfall getestet war — Schattenbias, Kontaktverdunklung, aufgemalte
   Staubfahnen —, sieht sich hier einmal je Rundgang streifendem Licht gegenüber.
