@@ -1570,6 +1570,50 @@ Helligkeitsstatistik allein hat den Streifen nicht gesehen: Ein halb so heller
 Streifen verschiebt Mittel und Perzentile um wenige Stufen und sieht aus wie eine
 Wolke. **Ein Bildmaß muss die Form messen, nicht nur die Menge.**
 
+### Der leuchtende Saum auf der Gratlinie
+
+Der dritte Befund des Prüfers: In `rund-300` liegt ein bis drei Bildpunkte über
+der Geländekante ein neutralgrauer Saum, drei- bis vierfach heller als der
+Himmel und der Boden, die er trennt. Er hat recht; ein Ausschnitt bei sechsfacher
+Vergrößerung zeigt eine harte weiße Reihe genau auf der Kammlinie.
+
+**Was es nicht ist, ist gemessen:** Weder `nacht-staub` noch `nacht-staubteufel`
+noch `kontaktverdunklung` noch Brocken, Findlinge oder Landmarken ändern etwas
+daran. Mit ausgeschaltetem Mondlicht fällt die Zahl der Saumpixel von 165 auf
+14; mit ausgeschaltetem **Schattenwurf** steigt sie auf 1276. Es ist also die
+Bodenfläche selbst, beleuchtet, und der Schatten hält den größten Teil davon
+schon ab.
+
+Der Rest ist ein Lichtleck: `normalBias` verschiebt den Abtastpunkt entlang der
+Flächennormale, und an einer Kante greift diese Verschiebung über den Grat.
+Gemessen an Station 300:
+
+| normalBias | 0,008 | 0,015 | **0,025** | 0,04 | 0,06 |
+| --- | --- | --- | --- | --- | --- |
+| Saumpixel | 381 | 247 | **165** | 188 | 296 |
+
+Eine Wanne, kein Optimum: Zu wenig gibt Akne, zu viel gibt das Leck. Der Wert
+steht jetzt auf 0,025 statt 0,06 — der alte war allein gegen die Akne am
+Terminator gewählt, bevor der Saum bekannt war.
+
+**Zwei Versuche, die Wanne zu umgehen, sind gescheitert, und beide sind
+lehrreich.** Der erste wollte das Texel verfeinern: Der Spieler sieht nie mehr
+als gut 20 m, also müsste eine Box von ±20 m um den Nordpol reichen und wäre mit
+1,95 cm je Texel 1,7-mal feiner. Ergebnis: 1276 Saumpixel, unabhängig vom Bias.
+**Die Nachtseite entsteht durch Selbstverschattung** — was das Licht dort abhält,
+ist der Planetenbauch, und der steht bis 25 m quer zur Lichtachse. Ohne ihn wird
+gar nicht mehr verschattet, und genau das sagt die Unabhängigkeit vom Bias.
+
+Der zweite wollte den Glanzanteil dämpfen: three setzt für ein Dielektrikum
+specularColor = 0,04 und lässt den Fresnel-Term bei streifendem Einfall gegen
+eins laufen, was auf jeder Gratlinie einen hellen Rand ergibt. Der Einschub an
+`#include <lights_physical_fragment>` **greift nicht** — ein Kontrolltest, der
+den Boden rot färben sollte, ließ ihn braun, auch nach dem Abschießen aller
+laufenden Entwicklungsserver. Warum, ist offen; die Änderung ist wieder heraus,
+statt ungeprüft stehenzubleiben.
+
+Damit bleibt der Saum halbiert und nicht behoben. Das ist der ehrliche Stand.
+
 ### Neue Werkzeuge
 
 * `tools/strahl.mjs` — **was steht in diesem Pixel.** Die Lehre aus Paket 7 als

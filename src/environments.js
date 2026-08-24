@@ -6581,16 +6581,30 @@ function createNightEnvironment() {
     // Orthokamera ±40 m: Das ist 3,9 cm je Texel und deckt alles ab, was vor
     // dem Nebelende bei 48 m liegt. Weiter draußen ist ohnehin alles zu 100 %
     // Nebelfarbe, ein fehlender Schatten dort ist unsichtbar.
-    // Ortho ±34 m um den Planetenmittelpunkt: Der Planet ist 50 m breit, und
-    // die höchste Landmarke ragt 9 m darüber hinaus — mit ±30 wäre sie am Rand
-    // der Karte abgeschnitten und stünde ohne Schlagschatten da. 68 m auf 2048
-    // Texel sind 3,3 cm, immer noch feiner als die 3,9 cm der Platte.
-    // **Die Tiefengrenzen müssen die Wanderung des Lichts aushalten.** Der Mond
-    // steht 300 m vom **Nordpol**, nicht vom Mittelpunkt — beim Rundgang
-    // schwankt sein Abstand zum Mittelpunkt deshalb zwischen 275 und 325 m.
-    // Mit dem Planeten samt Landmarken bis 34 m um den Mittelpunkt liegt der
-    // gebrauchte Tiefenbereich bei 241 bis 359 m; die alten 250 bis 360 hätten
-    // in der ungünstigsten Stellung neun Meter davon abgeschnitten.
+    // **Ortho ±34 m um den Planetenmittelpunkt.** Der Planet ist 50 m breit,
+    // die höchste Landmarke ragt 9 m darüber hinaus; ±34 m ist das Kleinste,
+    // was ihn samt Werfern noch ganz enthält — und ganz enthalten muss er sein,
+    // weil die **Nachtseite aus seiner Selbstverschattung entsteht**. Was das
+    // Licht dort abhält, ist der Planetenbauch, und der steht bis 25 m quer zur
+    // Lichtachse. Ein Versuch, die Box auf ±20 m zu verkleinern, um feinere
+    // Texel zu bekommen, hat ihn als Werfer verloren: 1276 Saumpixel statt 165,
+    // und unabhängig vom Bias — genau das Zeichen dafür, dass gar nicht mehr
+    // verschattet wird.
+    //
+    // 68 m auf 2048 Texel sind **3,3 cm**. Mit dieser Auflösung müssen zwei
+    // Artefakte leben: Akne am Terminator, wo das Licht streift, und ein
+    // Lichtleck am Grat, wo die Verschiebung entlang der Normale über die Kante
+    // greift. `normalBias` tauscht nur das eine gegen das andere; gemessen an
+    // den Saumpixeln von Station 300 ergibt die Reihe
+    //
+    //   0,008 → 381,  0,015 → 247,  **0,025 → 165**,  0,04 → 188,  0,06 → 296
+    //
+    // eine Wanne mit dem Grund bei 0,025.
+    //
+    // Die Tiefengrenzen müssen die Wanderung des Lichts aushalten: Der Mond
+    // steht 300 m vom **Nordpol**, sein Abstand zum Mittelpunkt schwankt beim
+    // Rundgang deshalb zwischen 275 und 325 m. Mit ±34 m Gelände liegt der
+    // gebrauchte Bereich bei 241 bis 359 m.
     const sc = moonLight.shadow.camera;
     sc.left = -34;
     sc.right = 34;
@@ -6598,7 +6612,6 @@ function createNightEnvironment() {
     sc.bottom = -34;
     sc.near = 235;
     sc.far = 365;
-    sc.updateProjectionMatrix();
     // Der Normal-Bias darf nicht in die Größenordnung der Objekte kommen – im
     // Zen-Garten hat 0,03 die 6 cm dicken Trittsteine um ihren Schatten
     // gebracht.
@@ -6612,12 +6625,11 @@ function createNightEnvironment() {
     //
     // `normalBias` verschiebt den Abtastpunkt entlang der Flächennormale und
     // wirkt damit genau dort am stärksten, wo das Licht streift. 0,06 m sind
-    // 1,8 Texel der Karte (3,3 cm). Bezahlt wird es damit, dass ein Brocken von
-    // 14 cm seinen Schlagschatten um sechs Zentimeter verkürzt sieht; die Reihe
-    // 0,008 / 0,03 / 0,06 / 0,10 im Vergleich zeigt bei 0,06 den Übergang, ab
-    // dem der Kamm verschwindet und die Schlagschatten noch stehen.
+    // 0,025 ist der gemessene Grund der Wanne oben, also 0,76 Texel. Der
+    // vorherige Wert 0,06 war allein gegen die Akne gewählt, bevor der Saum am
+    // Grat bekannt war — er hat dessen Pixelzahl von 165 auf 296 fast verdoppelt.
     moonLight.shadow.bias = -0.0004;
-    moonLight.shadow.normalBias = 0.06;
+    moonLight.shadow.normalBias = 0.025;
   }
   himmelGruppe.add(moonLight);
 
