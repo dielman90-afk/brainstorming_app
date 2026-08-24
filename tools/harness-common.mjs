@@ -175,11 +175,22 @@ export const PLANET_SHOTS = [
   {
     name: 'd-orbit',
     title: 'Der ganze Planet von außen (Silhouette und Terminator)',
-    // **Ohne Nebel.** 5 bis 13 m sind für den Rundgang gemacht; aus 77 m
-    // Abstand läge der Planet vollständig darin und das Bild wäre eine
-    // gleichmäßige Fläche in Nebelfarbe. Der Nebel wird für dieses eine Bild
-    // abgeschaltet — es misst die Form, nicht die Staffelung.
+    // **Ohne Nebel und mit weiterer Fernebene.** Beides, weil diese Kamera als
+    // einzige außerhalb der Modellannahme steht: Der Spieler ist immer am
+    // Nordpol, dort ist die Kuppel überall 298 bis 302 m entfernt, und der
+    // Nebel von 5 bis 13 m staffelt genau die Strecke, die es gibt. Aus 77 m
+    // Abstand stimmt beides nicht mehr — der Planet läge vollständig im Nebel,
+    // und die Kuppel reicht von 226 bis 374 m, also über die Fernebene der App
+    // (340 m) hinaus. Gemessen stand daraufhin ein schwarzer Ring um den
+    // Planeten: Ein Strahl durch (400 | 120) traf nichts, das Pixel zeigte
+    // exakt die Hintergrundfarbe (10 | 6 | 5), und bei (340 | 180) traf er die
+    // Kuppel in 363,7 m — schräg genug, um in der Sichttiefe noch
+    // durchzukommen.
+    //
+    // Beides gilt **nur für dieses eine Bild**. Es misst Form und Verteilung,
+    // nicht Atmosphäre; in der Brille kann diese Ansicht niemand einnehmen.
     nebel: false,
+    fern: 520,
     pos: [52.0, 30.0, 46.0],
     look: [0, 0, 0],
     fov: 45,
@@ -399,6 +410,18 @@ export async function selectEnv(page, id) {
 async function nebelHilfe(page) {
   await page.evaluate(() => {
     if (window.__setzeNebel) return;
+    // Ebenso die Fernebene: Ein Bild darf sie weiter setzen. Der Wert der App
+    // wird beim ersten Eingriff gemerkt und danach wiederhergestellt.
+    window.__setzeFern = (camera, wert) => {
+      if (wert) {
+        if (window.__fernSpeicher === undefined) window.__fernSpeicher = camera.far;
+        camera.far = wert;
+      } else if (window.__fernSpeicher !== undefined) {
+        camera.far = window.__fernSpeicher;
+        window.__fernSpeicher = undefined;
+      }
+      camera.updateProjectionMatrix();
+    };
     window.__setzeNebel = (scene, an) => {
       if (!an) {
         if (window.__nebelSpeicher === undefined) window.__nebelSpeicher = scene.fog;
@@ -444,10 +467,11 @@ export async function ladeThree(page) {
 export async function placeCamera(page, shot, time = 6.0) {
   await nebelHilfe(page);
   await page.evaluate(
-    ({ pos, look, fov, time, nebel }) => {
+    ({ pos, look, fov, time, nebel, fern }) => {
       const { camera, player, renderer, scene, controls } = window.__app;
       window.__app.env.setWalkEnabled?.(false);
       window.__setzeNebel(scene, nebel);
+      window.__setzeFern(camera, fern);
       player.position.set(0, 0, 0);
       player.rotation.set(0, 0, 0);
       // OrbitControls.update() ruft am Ende lookAt(target) auf und würde eine
@@ -461,7 +485,7 @@ export async function placeCamera(page, shot, time = 6.0) {
       camera.updateMatrixWorld(true);
       renderer.render(scene, camera);
     },
-    { pos: shot.pos, look: shot.look, fov: shot.fov, time, nebel: shot.nebel !== false }
+    { pos: shot.pos, look: shot.look, fov: shot.fov, time, nebel: shot.nebel !== false, fern: shot.fern ?? 0 }
   );
 }
 
@@ -470,10 +494,11 @@ export async function placeCamera(page, shot, time = 6.0) {
 export async function lockCamera(page, shot, time) {
   await nebelHilfe(page);
   await page.evaluate(
-    ({ pos, look, fov, time, nebel }) => {
+    ({ pos, look, fov, time, nebel, fern }) => {
       const app = window.__app;
       app.env.setWalkEnabled?.(false); // siehe placeCamera
       window.__setzeNebel(app.scene, nebel);
+      window.__setzeFern(app.camera, fern);
       if (app.__harnessLock) cancelAnimationFrame(app.__harnessLock);
       const tick = () => {
         app.controls.target.set(look[0], look[1], look[2]);
@@ -486,6 +511,6 @@ export async function lockCamera(page, shot, time) {
       };
       tick();
     },
-    { pos: shot.pos, look: shot.look, fov: shot.fov, time, nebel: shot.nebel !== false }
+    { pos: shot.pos, look: shot.look, fov: shot.fov, time, nebel: shot.nebel !== false, fern: shot.fern ?? 0 }
   );
 }

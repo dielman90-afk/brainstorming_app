@@ -1515,6 +1515,24 @@ endet damit; `PLANET_SHOTS` beginnt eine neue Reihe. Zwei Zahlen bestimmen darin
 jeden Bildausschnitt: Der Horizont liegt 19,9° unter Augenhöhe und in 8,7 m
 Bogenabstand, und der Mond steht in Azimut 150°.
 
+### Ein schwarzer Ring, der keiner war
+
+In der Totale `d-orbit` stand ein schwarzer Ring um den Planeten. Ich hatte ihn
+zuerst als den Ast `unten` des Himmelsverlaufs gedeutet, von außen gesehen —
+plausibel und **falsch**. Ein Strahl durch (400 | 120) traf gar nichts und das
+Pixel zeigte exakt die Hintergrundfarbe (10 | 6 | 5); ein zweiter durch
+(340 | 180) traf die Kuppel in **363,7 m**.
+
+Es war dieselbe Fernebene wie schon einmal, nur andersherum: Der Spieler steht
+immer am Nordpol, dort ist die Kuppel überall 298 bis 302 m entfernt, und
+340 m Fernebene reichen bequem. Diese Prüfkamera aber steht 77 m außerhalb, und
+von dort reicht die Kuppel von 226 bis 374 m.
+
+**Behoben wurde das Instrument, nicht die Szene.** Ein Prüfbild darf jetzt
+`fern` setzen, wie es schon `nebel: false` setzen durfte; beides gilt nur für
+diese eine Kamera, die als einzige außerhalb der Modellannahme steht. In der
+Brille kann diese Ansicht niemand einnehmen.
+
 ### Neue Werkzeuge
 
 * `tools/strahl.mjs` — **was steht in diesem Pixel.** Die Lehre aus Paket 7 als
