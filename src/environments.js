@@ -6788,6 +6788,13 @@ function createNightEnvironment() {
     // ist dasselbe, aus dem das Gitter entsteht – es kann deshalb nicht davon
     // abweichen, und es gilt auch jenseits der 96-m-Platte, wo ohnehin keine
     // sichtbare Geometrie mehr liegt.
+    // **Beim Betreten 15 Grad nach unten schauen.** Auf einer Kugel mit 25 m
+    // Halbmesser liegt der Horizont 20,0 Grad unter Augenhöhe (acos(25/26,6)) —
+    // wer waagerecht blickt, sieht zu vier Fünfteln Himmel und weiß nicht, wo
+    // er steht. Die vier ortsfesten Umgebungen brauchen das nicht; ihr Horizont
+    // liegt auf Augenhöhe.
+    blickNeigung: -0.26,
+
     // **Karten und Zonen bleiben liegen.** Sie hängen nicht an der Szene,
     // sondern an der Weltgruppe des Planeten — sonst liefen sie beim Rundgang
     // mit dem Nutzer mit, statt dort zu bleiben, wo er sie hingelegt hat. Der

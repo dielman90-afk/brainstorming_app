@@ -1711,6 +1711,47 @@ Bild statt eines verstellten; 300 von 19,0 auf 22,0; 180 von 13,3 auf 8,7 (der
 Brocken, der dort im Weg stand, ist weg). Die Bilder tragen jetzt Umriss statt
 Verdeckung.
 
+### Die Desktop-Ansicht war beim Betreten unbrauchbar
+
+Vom Auftraggeber gemeldet: „Wenn man im Desktop-Modus die Umgebung betritt, dann
+ist die Steuerung ganz komisch und nicht intuitiv. Man blickt auch zu Beginn
+direkt auf den Boden."
+
+Beides sind Zahlen. Gemessen mit `tools/desktop-pose.mjs` am Stand davor:
+
+| | Blickneigung | Kreisradius | Auge über Boden |
+| --- | --- | --- | --- |
+| 🏝 Himmelsinsel | −6,3° | 1,81 m | 2,00 m |
+| 🌌 **Nachthimmel** | **−85,8°** | **24,42 m** | **0,40 m** |
+| 🪷 Zen-Garten | −33,7° | 2,16 m | 2,60 m |
+
+−85,8 Grad ist „direkt auf den Boden". Und der Kreisradius ist der Punkt, um den
+die Maus schwenkt: Bei knapp zwei Metern dreht man den Kopf, bei 24,42 m schwenkt
+man um den **Planetenmittelpunkt**. Genau das fühlt sich falsch an.
+
+**Die Ursache lag in `main.js` und war seit dem Umbau da.** Am Desktop kreist die
+Kamera um `controls.target`; beide standen nach einem Umgebungswechsel noch auf
+der Höhe des alten Bodens. Die Kamera wurde vom Sperrblock sofort auf
+`_floorY + AUGE_MIN` geklemmt, das Ziel aber nur um `dy` nachgezogen — und `dy`
+ist in genau diesem Bild **null**, weil `_floorY` gerade erst gesetzt wurde. Auf
+den vier ortsfesten Umgebungen fiel das nie auf: Ihr Boden liegt um null. Der
+Planet liegt bei 25,36 m.
+
+Kamera und Ziel werden jetzt um denselben Betrag gehoben — Blickrichtung,
+Neigung und Kreisradius bleiben damit erhalten, nur die Höhe stimmt. Dazu darf
+eine Umgebung eine Anfangsneigung angeben; der Nachthimmel nimmt −15 Grad, weil
+sein Horizont 20 Grad unter Augenhöhe liegt und ein waagerechter Blick zu vier
+Fünfteln Himmel zeigt.
+
+Nachher: −14,9 Grad, 1,86 m Kreisradius, 1,60 m Augenhöhe — und dieselben Werte
+in allen fünf Umgebungen.
+
+**Was ich daraus mitnehme:** Neun Durchläufe lang habe ich nur gerendert, nie
+*bedient*. Der Prüfstand setzt die Kamera von außen und schaltet die Sperre
+dafür ab — er kann diesen Fehler prinzipiell nicht sehen. Ein Bild zu messen und
+eine Umgebung zu betreten sind zwei verschiedene Prüfungen, und die zweite hat
+gefehlt.
+
 ### Neue Werkzeuge
 
 * `tools/strahl.mjs` — **was steht in diesem Pixel.** Die Lehre aus Paket 7 als
