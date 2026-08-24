@@ -4807,19 +4807,27 @@ function makeMarsPlanet(rand) {
       .multiply(_sQ.setFromEuler(_sE.set(kippX, spin, kippZ)));
   };
 
-  // Die waagerechte Ausdehnung eines gedrehten und skalierten Körpers — auf der
-  // Kugel heißt waagerecht: senkrecht zur Flächennormale. Sie legt den Radius
-  // der Kontaktverdunklung fest.
-  const tangentialeWeite = (geoT, mesh, dir) => {
+  // Die Ausdehnung eines gedrehten und skalierten Körpers, quer zur
+  // Flächennormale und längs. Die quere legt den Radius der
+  // Kontaktverdunklung fest, die längs, wie tief der Brocken steckt.
+  //
+  // **Beide müssen aus der Geometrie kommen, nicht aus dem Sollmaß.** Ein
+  // Brocken, der auf der Seite liegt, hat eine ganz andere Höhe als einer, der
+  // flach liegt — er ist ja abgeplattet. Wer die Einsinktiefe aus `s` rechnet,
+  // lässt den einen schweben und versenkt den anderen.
+  const ausdehnung = (geoT, mesh, dir) => {
     const rp = geoT.attributes.position;
-    let weit = 0;
+    let quer = 0;
+    let laengs = 0;
     for (let vi = 0; vi < rp.count; vi++) {
       _sv.fromBufferAttribute(rp, vi).multiply(mesh.scale).applyQuaternion(mesh.quaternion);
+      const l = Math.abs(_sv.dot(dir));
+      if (l > laengs) laengs = l;
       _sv.addScaledVector(dir, -_sv.dot(dir));
       const q = _sv.length();
-      if (q > weit) weit = q;
+      if (q > quer) quer = q;
     }
-    return weit;
+    return { quer, laengs };
   };
 
   // Die Staubfahne liegt im Windschatten. `windAn` gibt die Windrichtung als
@@ -4846,8 +4854,19 @@ function makeMarsPlanet(rand) {
     const sr = Math.sqrt(Math.max(0, 1 - u * u));
     const s = 0.14 + rand() * 0.42;
     const spin = rand() * Math.PI * 2;
-    const kippA = (rand() - 0.5) * 0.9;
-    const kippB = (rand() - 0.5) * 0.9;
+    // **Nicht jeder Stein steht auf dem Lot.** Vorher kippte jeder um
+    // höchstens 26 Grad gegen die Flächennormale — im Bild aus dem Orbit
+    // standen sie damit alle radial ab wie die Stacheln eines Seeigels, und
+    // auf dem Boden lag keiner umgestürzt, keiner auf der Seite. Ein Feld aus
+    // Brocken, die alle dieselbe Lage haben, ist eine Aufzählung.
+    //
+    // Drei Lagen: gut die Hälfte liegt flach, wie sie sich über Jahrtausende
+    // eingeregelt hat; ein Drittel steht schief, weil es auf etwas anderem
+    // aufliegt; der Rest liegt beliebig — umgekippt, auf der Kante, verkantet.
+    const lage = rand();
+    const kippMax = lage < 0.55 ? 0.35 : lage < 0.85 ? 1.1 : Math.PI;
+    const kippA = (rand() - 0.5) * kippMax;
+    const kippB = (rand() - 0.5) * kippMax;
     const sx = 1 + rand() * 0.5;
     const sy = 0.45 + rand() * 0.4;
     const sz = 1 + rand() * 0.5;
@@ -4876,7 +4895,15 @@ function makeMarsPlanet(rand) {
     // liegt, steht nicht auf dem Sand — er steckt darin. Wie tief, schwankt.
     const eingeweht = 0.1 + hashNoise(dir.x * 17, dir.y * 17, dir.z * 17) * 0.55;
     const hB = heightAt(dir);
-    stelleAuf(rock, dir, PLANET_R + hB - 0.03 + s * (0.34 - eingeweht * 0.52), kippA, spin, kippB);
+    // Erst ausrichten, dann messen, dann auf die richtige Höhe setzen: Wie hoch
+    // der Körper über seiner Mitte aufragt, hängt an der Drehung.
+    stelleAuf(rock, dir, PLANET_R + hB, kippA, spin, kippB);
+    const mass = ausdehnung(geoR, rock, dir);
+    // **Halb verwehte Füße.** Ein Brocken, der seit Jahrtausenden im Wind
+    // liegt, steht nicht auf dem Sand — er steckt darin. Wie tief, schwankt
+    // zwischen einem Sechstel und drei Vierteln seiner halben Höhe.
+    const einsinken = mass.laengs * (0.15 + eingeweht * 0.75);
+    rock.position.copy(dir).multiplyScalar(PLANET_R + hB + mass.laengs - einsinken);
     rock.castShadow = true;
     rock.receiveShadow = true;
 
@@ -4890,7 +4917,7 @@ function makeMarsPlanet(rand) {
     });
     brocken.push(rock);
 
-    const weit = tangentialeWeite(geoR, rock, dir);
+    const weit = mass.quer;
     aoStellen.push({ ort: dir, r: weit * 1.35, staerke: 0.5 });
     aoStellen.push({
       ort: dir,
@@ -6389,9 +6416,35 @@ function makeNachtKuppel(radius = 44, horizontSinus = 0) {
         // Ein schmales Band knapp über dem Horizont, mit einer zweiten,
         // breiteren Keule darüber. Zwei Keulen, weil eine allein als
         // aufgeklebter Streifen liest.
-        float g1 = exp(-pow((h - 0.048) / 0.036, 2.0));
-        float g2 = exp(-pow((h - 0.12) / 0.17, 2.0));
-        col += glimmen * (g1 * 0.8 + g2 * 0.22) * step(-0.02, h);
+        // **Ein Streifen ohne Form liest als aufgemalt.** Gemessen stand in
+        // f-kante bei x = 150, x = 300 und x = 1000 exakt derselbe Wert
+        // (23 | 31 | 29) — über die volle Bildbreite kein einziger Zahlenschritt
+        // Unterschied. Luftglühen sieht in Wirklichkeit nicht so aus: Es kommt
+        // in Bändern und Wellen, weil die Schwerewellen der oberen Atmosphäre
+        // die leuchtende Schicht wellen.
+        //
+        // Drei Sinus über die **waagerechte** Richtung, mit ganzzahlfremden
+        // Frequenzen: Das Muster ändert sich mit dem Azimut und bleibt über die
+        // Höhe stehen, wie ein Band es tut. Ein Rauschen wäre hier Aufwand ohne
+        // Gewinn — bei drei bis sechs Wellen über den ganzen Horizont sieht man
+        // keine Periode.
+        //
+        // ACHTUNG NAMEN: Die Milchstrassenhelligkeit heisst in diesem Shader
+        // schon band. Ein zweites float mit
+        // demselben Namen ist eine Doppeldeklaration,
+        // und die kostet das ganze Programm — im Bild war die Kuppel danach
+        // weg und die Konsole voll von „useProgram: program not valid".
+        vec3 waag = normalize(vec3(dir.x, 0.0001, dir.z));
+        float glimmWelle = sin(dot(waag, vec3(2.7, 0.0, 3.4)) * 3.0 + 0.6)
+                         + sin(dot(waag, vec3(-4.3, 0.0, 1.9)) * 3.0 - 1.7) * 0.7
+                         + sin(dot(waag, vec3(1.1, 0.0, -6.2)) * 3.0 + 3.1) * 0.45;
+        float wellen = 0.55 + 0.45 * clamp(0.5 + 0.28 * glimmWelle, 0.0, 1.0);
+        // Und die Schicht selbst liegt nicht schnurgerade: Ihre Höhe wandert um
+        // gut einen halben Grad.
+        float hv = h + 0.010 * sin(dot(waag, vec3(5.1, 0.0, -3.7)) * 3.0);
+        float g1 = exp(-pow((hv - 0.048) / 0.036, 2.0));
+        float g2 = exp(-pow((hv - 0.12) / 0.17, 2.0));
+        col += glimmen * (g1 * 0.8 + g2 * 0.22) * wellen * step(-0.02, hv);
 
         // Lineare Werte in Anzeigewerte. Ohne diesen Schritt landet der
         // lineare Wert roh im sRGB-Puffer – siehe die Rechnung im Kopf dieser
