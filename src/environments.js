@@ -6519,10 +6519,22 @@ function createNightEnvironment() {
   // In der Himmelsgruppe, also dreht das Licht mit dem Mond mit: Wer um den
   // Planeten läuft, läuft in die Nacht hinein und wieder heraus.
   moonLight.position.copy(MOND_RICHTUNG).multiplyScalar(MOND_FERN);
-  // Ziel ist der **Planetenmittelpunkt**. Der liegt in der Himmelsgruppe bei
-  // (0 | −PLANET_R | 0), weil die Gruppe am Nordpol sitzt.
-  moonLight.target.position.set(0, -PLANET_R, 0);
-  himmelGruppe.add(moonLight.target);
+  // **Das Ziel darf NICHT mitdrehen.** Es lag als (0 | −PLANET_R | 0) in der
+  // Himmelsgruppe, weil die am Nordpol sitzt — und solange die Welt unverdreht
+  // stand, war das der Planetenmittelpunkt. Sobald sie sich dreht, ist es das
+  // nicht mehr: Bei 60 Grad steht das Ziel bei (0 | 12,5 | −21,7), also 25 m
+  // neben dem Mittelpunkt, und die Orthobox von ±34 m deckte nur noch einen
+  // Streifen des Planeten ab. Im Bild `rund-060` stand daraufhin ein heller
+  // Streifen mit **zwei mathematisch geraden Kanten** quer über die Kugel, und
+  // dahinter fiel alles in den Schatten. Auf einer Kugel gibt es keine geraden
+  // Kanten; der Prüfer hat sie über 560 Bildpunkte mit null Abweichung
+  // nachgemessen.
+  //
+  // Das Ziel hängt deshalb an der **Umgebungsgruppe** und steht im Ursprung —
+  // dort liegt der Planetenmittelpunkt, unabhängig von jeder Drehung. Die
+  // Lichtquelle selbst bleibt in der Himmelsgruppe und wandert mit dem Mond.
+  moonLight.target.position.set(0, 0, 0);
+  group.add(moonLight.target);
   moonLight.castShadow = true;
   moonLight.shadow.mapSize.set(2048, 2048);
   {
@@ -6533,14 +6545,19 @@ function createNightEnvironment() {
     // die höchste Landmarke ragt 9 m darüber hinaus — mit ±30 wäre sie am Rand
     // der Karte abgeschnitten und stünde ohne Schlagschatten da. 68 m auf 2048
     // Texel sind 3,3 cm, immer noch feiner als die 3,9 cm der Platte.
-    // Die Tiefengrenzen umschließen den Planeten bei 300 m Lichtabstand.
+    // **Die Tiefengrenzen müssen die Wanderung des Lichts aushalten.** Der Mond
+    // steht 300 m vom **Nordpol**, nicht vom Mittelpunkt — beim Rundgang
+    // schwankt sein Abstand zum Mittelpunkt deshalb zwischen 275 und 325 m.
+    // Mit dem Planeten samt Landmarken bis 34 m um den Mittelpunkt liegt der
+    // gebrauchte Tiefenbereich bei 241 bis 359 m; die alten 250 bis 360 hätten
+    // in der ungünstigsten Stellung neun Meter davon abgeschnitten.
     const sc = moonLight.shadow.camera;
     sc.left = -34;
     sc.right = 34;
     sc.top = 34;
     sc.bottom = -34;
-    sc.near = 250;
-    sc.far = 360;
+    sc.near = 235;
+    sc.far = 365;
     sc.updateProjectionMatrix();
     // Der Normal-Bias darf nicht in die Größenordnung der Objekte kommen – im
     // Zen-Garten hat 0,03 die 6 cm dicken Trittsteine um ihren Schatten

@@ -1533,6 +1533,43 @@ von dort reicht die Kuppel von 226 bis 374 m.
 diese eine Kamera, die als einzige außerhalb der Modellannahme steht. In der
 Brille kann diese Ansicht niemand einnehmen.
 
+## Der Prüfer ist zurück — und der schlimmste Befund war mein Messstand
+
+Nach acht Durchläufen ohne unbefangenes Urteil hat der Prüfer wieder gearbeitet.
+Sein auffälligster Befund: In `rund-060` läuft von (700 | 704) bis (1260 | 459)
+eine **mathematisch gerade Kante** durch den Boden, darunter fast Schwarz. Er hat
+sie über 560 Bildpunkte nachgemessen — Abweichung von der Geraden **null**. Auf
+einer Kugel gibt es keine geraden Kanten.
+
+Er hatte recht, und der Fehler stand im Werkzeug. `tools/rundgang.mjs` hat für
+alle zwölf Stationen die Augenhöhe von Station 0 behalten (26,94 m). Der Boden
+unter dem Nordpol ist aber nicht überall gleich hoch — er schwankt über den
+Rundgang zwischen −1,12 und +2,11 m. Bei Station 60 lag das Auge damit **4 cm
+über dem Gelände**: Ein Strahl durch die Bildmitte traf `nacht-planet` in 0,1 m.
+Die „gerade Kante" war die Bodenfläche, von der Nasenspitze aus gesehen, und die
+ist über wenige Meter eben. Die Augenhöhe kommt jetzt je Station aus demselben
+Höhenfeld, aus dem sie die Sperre im Betrieb nimmt.
+
+**Ein echter Fehler kam bei der Suche trotzdem heraus, nur ein kleinerer.** Das
+Ziel des Mondlichts stand als (0 | −PLANET_R | 0) **in der Himmelsgruppe** — der
+Planetenmittelpunkt, solange die Welt unverdreht steht. Bei 60 Grad steht es bei
+(0 | 12,5 | −21,65), also 25 m daneben, bei 180 Grad bei (0 | 50 | 0). Die
+Orthobox der Schattenkarte von ±34 m deckte damit nicht mehr den ganzen Planeten
+ab. Das Ziel hängt jetzt an der Umgebungsgruppe im Ursprung.
+
+**Zugeordnet, nicht behauptet:** Der Unterschied zwischen altem und neuem Ziel
+beträgt bei Station 60 Δmittel 1,124 bei einem Δmax von **3** Stufen und bei
+Station 180 exakt null. Der Fehler war real, seine Bildwirkung war klein — die
+gerade Kante hat er **nicht** verursacht.
+
+Und `tools/rundgang.mjs` kann diesen Fehlertyp jetzt selbst finden: Es sucht je
+Station die längste Kante, **die auf beiden Seiten Gelände hat** (Boden ist warm,
+R > B; Himmel ist kühl — dasselbe Kriterium wie `tools/horizont.mjs`), legt eine
+Ausgleichsgerade hindurch und meldet die größte Abweichung. Die
+Helligkeitsstatistik allein hat den Streifen nicht gesehen: Ein halb so heller
+Streifen verschiebt Mittel und Perzentile um wenige Stufen und sieht aus wie eine
+Wolke. **Ein Bildmaß muss die Form messen, nicht nur die Menge.**
+
 ### Neue Werkzeuge
 
 * `tools/strahl.mjs` — **was steht in diesem Pixel.** Die Lehre aus Paket 7 als
