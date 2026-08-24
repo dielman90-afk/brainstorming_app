@@ -1614,6 +1614,43 @@ statt ungeprüft stehenzubleiben.
 
 Damit bleibt der Saum halbiert und nicht behoben. Das ist der ehrliche Stand.
 
+### Staubteufel und Sterne
+
+**Der Staubteufel bestand nicht aus Staub.** Der Prüfer hat bei (500 | 250) ein
+kühles Fliederrgrau (144 | 126 | 138) gemessen, gegen einen Boden von
+(114 | 70 | 53). Meine Begründung für die kühle Farbe war halb richtig: Die
+Quelle ist das Mondlicht — aber ein Korn in der Luft hat die **Albedo des
+Bodens**, aus dem es hochgerissen wurde, und die ist warm. 0x5e5a5e war
+obendrein magentastichig (Rot und Blau gleich, Grün darunter). Jetzt 0x7a685c.
+
+Er war außerdem **heller als jeder Bodenpunkt der Szene** — Spitze 167 gegen
+113,9. Der Zwischenschritt von 0,25 auf 0,17 hat nichts gebracht, und das war
+rechenbar: Die neue Farbe ist linear 42 % heller als die alte (0,152 gegen
+0,107) und hebt die Absenkung um 32 % fast genau auf; gemessen 156 vorher, 166
+nachher. Erst 0,105 bringt die Spitze auf **108,5**, also unter den hellsten
+Boden, und die Farbe (141 | 102 | 77) liegt jetzt in derselben Familie wie der
+Boden (152 | 105 | 90).
+
+Und er hatte keinen Fuß — „unten bricht sie ohne Fußsaum ab". Die untersten 13 %
+der Körner bekommen jetzt einen weiten flachen Kranz statt der schlanken Säule
+und werden dabei um 45 % dunkler: Was am Boden schleift, liegt im Eigenschatten
+des Wirbels.
+
+**Die Sterne waren Quadrate**, und die Ursache stand im Code: `max(1.0, …)` auf
+die Punktgröße. Der runde Auslauf im Fragmentschritt kann nichts formen, wenn
+das Fenster 1×1 Bildpunkt groß ist. Physikalisch ist ein Stern ein Punkt; was man
+sieht, ist die Punktbildfunktion des Instruments, und die ist mehrere Bildpunkte
+breit. Die Mindestgröße steht jetzt auf 4,2 Bildpunkten, und **unterhalb davon
+wird der Stern nicht kleiner, sondern schwächer** — die Fläche bleibt stehen, die
+Helligkeit geht mit dem Quadrat des Verhältnisses zurück, gedeckelt bei 0,30,
+damit die schwachen Sterne nicht ganz verschwinden. Sie tragen die Dichte des
+Himmels.
+
+Nachgeprüft, dass die Änderung wirklich im Material steht (`vSchwund` und
+`MINGROESSE` im übersetzten Shader) — nachdem ein anderer Shader-Einschub am
+selben Tag nachweislich **nicht** gegriffen hatte, ist das keine überflüssige
+Frage mehr.
+
 ### Neue Werkzeuge
 
 * `tools/strahl.mjs` — **was steht in diesem Pixel.** Die Lehre aus Paket 7 als
