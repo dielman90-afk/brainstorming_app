@@ -1638,6 +1638,7 @@ const _walkZiel = { x: 0, z: 0 };
 // Bodenhoehe uebernommen, statt aus der alten dorthin zu gleiten.
 let _walkEnv = -2;
 let _floorY = null;
+const _blickRi = new THREE.Vector3();
 
 // Wie weit die Desktop-Kamera ueber ihrem Boden stehen darf.
 //
@@ -1723,7 +1724,46 @@ renderer.setAnimationLoop(() => {
     // Brille unangenehm, über ein paar Bilder verteilt liest es sich als Stufe
     // bzw. als Anstieg.
     const zielY = walk.floorAt(_walkZiel.x, _walkZiel.z);
-    if (_floorY === null) _floorY = zielY;
+    if (_floorY === null) {
+      _floorY = zielY;
+      // **Die Desktop-Pose muss auf den neuen Boden mitgehoben werden.**
+      //
+      // Am Desktop kreist die Kamera um `controls.target`. Beide standen bei
+      // Umgebungswechseln auf der Hoehe des alten Bodens; die Kamera wurde vom
+      // Block weiter unten sofort auf `_floorY + AUGE_MIN` geklemmt, das Ziel
+      // aber nur um `dy` nachgezogen — und `dy` ist in genau diesem Bild null,
+      // weil `_floorY` gerade erst gesetzt wurde.
+      //
+      // Auf den vier ortsfesten Umgebungen fiel das nie auf: Ihr Boden liegt
+      // um null. Der Nachthimmel ist seit dem Umbau ein Planet, sein Boden
+      // liegt bei 25,3 m — die Kamera sprang also auf 26,9 m, waehrend das
+      // Ziel bei 1,4 m stehenblieb. Man sah senkrecht nach unten, und jede
+      // Mausbewegung schwenkte einen um den **Planetenmittelpunkt** statt um
+      // den eigenen Kopf. Genau so hat es der Nutzer gemeldet.
+      //
+      // Gehoben werden Kamera und Ziel um denselben Betrag: Blickrichtung,
+      // Neigung und Kreisradius bleiben damit erhalten, nur die Hoehe stimmt.
+      if (!renderer.xr.isPresenting) {
+        const hub = zielY + 1.6 - camera.position.y;
+        if (Math.abs(hub) > 0.001) {
+          camera.position.y += hub;
+          controls.target.y += hub;
+        }
+        // Eine Umgebung darf zusaetzlich sagen, wie steil man beim Betreten
+        // schauen soll. Auf einer Kugel mit 25 m Halbmesser liegt der Horizont
+        // 20 Grad unter Augenhoehe — wer waagerecht schaut, sieht zu vier
+        // Fuenfteln Himmel.
+        const neigung = envIndex >= 0 ? environments[envIndex].blickNeigung : undefined;
+        if (typeof neigung === 'number') {
+          _blickRi.subVectors(controls.target, camera.position);
+          const weite = Math.hypot(_blickRi.x, _blickRi.z);
+          if (weite > 1e-4) {
+            controls.target.y = camera.position.y + Math.tan(neigung) * weite;
+          }
+        }
+        controls.update();
+      }
+    }
     const dy = (zielY - _floorY) * Math.min(1, dt * 7);
     _floorY += dy;
 
