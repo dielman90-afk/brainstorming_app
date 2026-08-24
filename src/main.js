@@ -133,26 +133,33 @@ const environments = createEnvironments(scene);
 const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
 let envIndex = -1; // -1 = Passthrough (AR) bzw. weißer Hintergrund
 
-// **Wo Karten hängen, entscheidet die Umgebung.** Vier der fünf sind ortsfest
-// und lassen sie an der Szene; der 🌌 Nachthimmel gibt seine Weltgruppe an, weil
-// sich unter dem Nutzer der Planet dreht und eine an der Szene hängende Karte
-// mit ihm um die Kugel liefe.
+// **Wo Inhalte hängen, entscheidet die Umgebung.** Vier der fünf sind ortsfest
+// und lassen Karten und Zonen an der Szene; der 🌌 Nachthimmel gibt seine
+// Weltgruppe an, weil sich unter dem Nutzer der Planet dreht und alles, was an
+// der Szene hinge, mit ihm um die Kugel liefe. Die vollständige Begründung
+// steht in heimat.js.
 //
-// Der Umweg über eine Rückrufmethode ist nötig, weil `applyEnvironment()` schon
-// beim Aufbau der Szene läuft — lange bevor es einen `cardManager` gibt. Ein
-// direkter Zugriff wäre ein Fehler in der temporalen Totzone, und der zeigt sich
-// nicht als Fehlermeldung, sondern als Seite, die nie fertig lädt (die Lehre von
-// `bodenFarbe` in environments.js).
-let kartenHeimatZiel = null;
-let kartenHeimatSetzen = null;
-function setzeKartenHeimat(ziel) {
-  kartenHeimatZiel = ziel;
-  kartenHeimatSetzen?.(ziel);
+// Der Umweg über Rückrufe ist nötig, weil `applyEnvironment()` schon beim
+// Aufbau der Szene läuft — lange bevor es einen `cardManager` oder einen
+// `zoneManager` gibt. Ein direkter Zugriff wäre ein Fehler in der temporalen
+// Totzone, und der zeigt sich nicht als Fehlermeldung, sondern als Seite, die
+// nie fertig lädt (die Lehre von `bodenFarbe` in environments.js).
+let weltHeimatZiel = null;
+const weltHeimatEmpfaenger = [];
+function setzeWeltHeimat(ziel) {
+  weltHeimatZiel = ziel;
+  for (const empfaenger of weltHeimatEmpfaenger) empfaenger(ziel);
+}
+// Wer sich anmeldet, bekommt die aktuelle Wahl sofort — die Umgebung steht zu
+// diesem Zeitpunkt längst fest.
+function meldeWeltHeimat(empfaenger) {
+  weltHeimatEmpfaenger.push(empfaenger);
+  empfaenger(weltHeimatZiel ?? scene);
 }
 
 function applyEnvironment() {
   const inPassthrough = renderer.xr.isPresenting && xrMode === 'immersive-ar';
-  setzeKartenHeimat((envIndex >= 0 ? environments[envIndex].kartenHeimat : null) ?? scene);
+  setzeWeltHeimat((envIndex >= 0 ? environments[envIndex].weltHeimat : null) ?? scene);
   environments.forEach((env, i) => {
     env.group.visible = i === envIndex;
   });
@@ -233,8 +240,7 @@ controls.update();
 const cardManager = new CardManager(scene);
 // Jetzt gibt es einen Empfänger für die Heimatwahl — und die Umgebung steht
 // schon fest, also einmal nachziehen.
-kartenHeimatSetzen = (ziel) => cardManager.setHeimat(ziel);
-kartenHeimatSetzen(kartenHeimatZiel ?? scene);
+meldeWeltHeimat((ziel) => cardManager.setHeimat(ziel));
 const connectionManager = new ConnectionManager(scene, cardManager);
 // Fährt Karten sanft an neue Plätze, statt sie springen zu lassen.
 const tweener = new Tweener();
@@ -258,6 +264,9 @@ try {
 const whiteboard = new Whiteboard(scene, { onSketch: () => handleAction('sketch') });
 
 const zoneManager = new ZoneManager(scene);
+// Zonen sind Rahmen, vor denen Karten stehen — sie müssen dieselbe Heimat haben
+// wie die Karten, sonst löst sich die Gruppierung beim Weitergehen auf.
+meldeWeltHeimat((ziel) => zoneManager.setHeimat(ziel));
 zoneManager.onRename = async (zone) => {
   const text = await getUserText();
   if (text) {

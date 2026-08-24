@@ -183,7 +183,9 @@ export class InteractionManager {
     }
     const target = controller.userData.grabbedTarget;
     if (target) {
-      this.scene.attach(target.group);
+      // Zonen gehören zur Welt und melden dafür eine Heimat; das Whiteboard ist
+      // ein Werkzeug und bleibt an der Szene.
+      (target.heimat?.() ?? this.scene).attach(target.group);
       controller.userData.grabbedTarget = null;
       const targetStart = controller.userData.grabTargetStart;
       if (targetStart && target.group.position.distanceToSquared(targetStart) > MOVE_EPSILON_SQ) {

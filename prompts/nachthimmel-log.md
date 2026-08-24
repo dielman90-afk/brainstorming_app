@@ -1450,17 +1450,39 @@ ganze App, nicht über diese Umgebung, und sie ist hier nicht getroffen worden.
 
 ### Karten bleiben liegen (`tools/karten-planet.mjs`)
 
-Alle sechs Prüfungen bestanden: Die Karte hängt an `nacht-welt`, wandert 52,42 m
-mit auf die Gegenseite, steht nach der ganzen Runde wieder exakt dort, der Stand
-vermerkt `frame: 'planet'`, und der gespeicherte Ort ist unabhängig davon, wo
-der Nutzer beim Speichern stand. Gegenprobe im Zen-Garten: Karten hängen dort
-weiter an der Szene, der Stand bleibt im alten Format.
+Alle dreizehn Prüfungen bestanden: Karte und Zone hängen an `nacht-welt`,
+wandern 52,42 bzw. 53,14 m mit auf die Gegenseite, stehen nach der ganzen Runde
+wieder exakt dort, der Stand vermerkt `frame: 'planet'`, und der gespeicherte Ort
+ist unabhängig davon, wo der Nutzer beim Speichern stand. Gegenprobe im
+Zen-Garten: beide hängen dort weiter an der Szene, beide Stände bleiben im alten
+Format.
 
-**Was dabei offen bleibt:** `zoneManager` und das Whiteboard hängen weiter an
-der Szene. Zonen sind flache, achsenparallele Platten — auf einer Kugel wären
-sie ohnehin falsch —, aber die Folge ist, dass die Zugehörigkeit einer Karte zu
-einer Zone sich beim Weitergehen still ändert. Das ist eine bekannte Grenze, keine
-gelöste Frage.
+**Zwei dieser Prüfungen sind zuerst fehlgeschlagen, und der Fehler lag im
+Werkzeug.** Die Sperre läuft in `karten-planet.mjs` mit — sie soll ja mitlaufen
+— und dreht die Welt in jedem Bild ein Stück, solange der Kopf neben dem Pol
+steht. Die Weltpose der Karte wurde damit einmal unter einer beliebigen Drehung
+abgelesen und später unter der Identität; gemessen war das ein Unterschied von
+31 cm bei einer Karte, die sich nicht bewegt hatte. Die Ausgangsstellung wird
+jetzt festgenagelt. Vierter Fall in diesem Auftrag, in dem ein Messwerkzeug den
+Fehler hatte und nicht die Szene.
+
+**Nachtrag: die Zonen mussten mit.** Ich hatte hier zuerst geschrieben, die
+Zugehörigkeit einer Karte zu einer Zone ändere sich beim Weitergehen still. Das
+war falsch beschrieben — `zones.js` kennt überhaupt keine Zugehörigkeit, eine
+Zone ist ein beschrifteter Rahmen, vor dem Karten stehen. Die Folge ist dadurch
+aber **schlimmer**, nicht harmloser: Wandern die Karten mit dem Planeten und
+bleibt der Rahmen beim Nutzer, dann steht nach zwanzig Schritten ein leerer
+Rahmen vor ihm und die Gruppe liegt hinter dem Horizont. Zonen haben deshalb
+dieselbe Heimat bekommen wie Karten, und die Umrechnung sitzt jetzt in einem
+eigenen Modul (`src/heimat.js`), damit sie nicht zweimal von Hand dasteht.
+
+**Das Whiteboard bekommt bewusst keine Heimat.** Es wird ein- und ausgeblendet
+und bei jedem Einblenden vor den Nutzer gesetzt — ein Werkzeug, kein Gegenstand
+der Welt. Es bleibt an der Szene.
+
+Auch das Loslassen ist versorgt: Ein Greifziel meldet über `heimat()`, wohin es
+zurückgehängt wird. Ohne das landete eine losgelassene Zone in der Szene, also
+beim Nutzer statt auf dem Planeten.
 
 ### Budget und Regression
 
