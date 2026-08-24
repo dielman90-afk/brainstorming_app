@@ -1746,11 +1746,42 @@ Fünfteln Himmel zeigt.
 Nachher: −14,9 Grad, 1,86 m Kreisradius, 1,60 m Augenhöhe — und dieselben Werte
 in allen fünf Umgebungen.
 
+### Und zwei weitere Fehler derselben Familie, die dabei herauskamen
+
+Die Meldung sprach von zwei Dingen — „direkt auf den Boden" **und** „die
+Steuerung ist komisch". Das Zweite war nicht mit der Blickrichtung erledigt.
+
+**Man konnte am Desktop gar nicht laufen.** Gemessen: zwei Sekunden
+Vorwärtstaste ergaben **0,00 m** Weltdrehung. Die Ursache war der Freiraum von
+90 cm um die Polachse. Er ist ein Totband in der **Position**, und ein Totband
+in der Position muss bei jeder Richtungsumkehr einmal ganz durchlaufen werden:
+1,80 m, in denen der Stick nichts bewirkt. Die Desktop-Kamera startete
+ausgerechnet am Rand des Bandes und wanderte beim Vorwärtsgehen nur zum
+anderen Rand. 25 cm kosten bei einer Umkehr eine halbe Sekunde und fangen das
+Vorbeugen weiterhin ab.
+
+**Und Umsehen war Gehen.** `OrbitControls` schwenkt die Kamera auf einer Kugel
+um `controls.target`; bei 1,86 m Kreisradius verschiebt ein Mausziehen sie um
+bis zu 3,7 m. Die Sperre liest jede Verschiebung der Kamera als Schritt — 216
+Bildpunkte ziehen drehte den Blick um 52,8 Grad **und die Welt um 0,65 m
+Bogen**. Man lief beim Umsehen seitwärts.
+
+Der Anteil, den der Orbit verschoben hat, wird jetzt wieder abgezogen, an Kamera
+und Ziel gemeinsam. **Der erste Anlauf hat nur die Hälfte erwischt**, weil er
+gegen den Moment vor `controls.update()` verglich: `OrbitControls` ruft `update()`
+auch selbst, direkt aus seinem `pointermove`-Handler, also zwischen zwei
+Bildern. Verglichen wird deshalb gegen das Ende des letzten Bildes. Danach:
+Blick 52,8 Grad, Welt **0,000 m**.
+
+Dazu setzt der Eintritt die Kamera waagerecht auf die Polachse. Sonst holt die
+Sperre sie im ersten Bild von 1,2 m auf den Freiraum zurück und dreht die Welt
+dabei um 0,95 m — ein Ruck beim Betreten, den niemand ausgelöst hat.
+
 **Was ich daraus mitnehme:** Neun Durchläufe lang habe ich nur gerendert, nie
 *bedient*. Der Prüfstand setzt die Kamera von außen und schaltet die Sperre
-dafür ab — er kann diesen Fehler prinzipiell nicht sehen. Ein Bild zu messen und
+dafür ab — er kann diese Fehler prinzipiell nicht sehen. Ein Bild zu messen und
 eine Umgebung zu betreten sind zwei verschiedene Prüfungen, und die zweite hat
-gefehlt.
+gefehlt. Alle drei Fehler lagen im Bedienpfad, keiner im Bild.
 
 ### Neue Werkzeuge
 

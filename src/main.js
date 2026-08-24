@@ -1639,6 +1639,12 @@ const _walkZiel = { x: 0, z: 0 };
 let _walkEnv = -2;
 let _floorY = null;
 const _blickRi = new THREE.Vector3();
+const _kamVorOrbit = new THREE.Vector3();
+const _orbitVersatz = new THREE.Vector3();
+// Wo die Kamera am Ende des letzten Bildes stand. Alles, was sich bis zum
+// naechsten Bild daran aendert, kommt von OrbitControls und ist Umsehen, nicht
+// Gehen. `null` heisst: noch kein Bezug, nicht korrigieren.
+let _kamZuletzt = null;
 
 // Wie weit die Desktop-Kamera ueber ihrem Boden stehen darf.
 //
@@ -1686,7 +1692,43 @@ renderer.setAnimationLoop(() => {
     locomotion.update(dt);
   } else {
     updateDesktopMovement(dt);
-    controls.update();
+    // **Auf dem Planeten darf Umsehen nicht Gehen sein.**
+    //
+    // `OrbitControls` schwenkt die Kamera auf einer Kugel um `controls.target`
+    // — bei 1,86 m Kreisradius verschiebt ein Mausziehen sie also um bis zu
+    // 3,7 m. In den vier ortsfesten Umgebungen ist das genau richtig: Man
+    // umkreist den Punkt vor sich. Auf dem Planeten liest die Sperre jede
+    // Verschiebung der Kamera als Schritt und dreht die Welt darunter — man
+    // läuft beim Umsehen seitwärts, und **das** ist die „komische Steuerung",
+    // die gemeldet wurde. Gemessen: 216 Bildpunkte ziehen drehte den Blick um
+    // 52,8 Grad und die Welt um 0,65 m Bogen.
+    //
+    // Rückgängig gemacht wird der Anteil, den der Orbit verschoben hat — an
+    // Kamera **und** Ziel, damit die Blickrichtung bleibt. Aus dem Umkreisen
+    // wird ein Umsehen an Ort und Stelle; Kreisradius und Ziehgefühl bleiben.
+    //
+    // **Verglichen wird gegen das Ende des letzten Bildes, nicht gegen den
+    // Moment vor `controls.update()`.** Der erste Anlauf tat Letzteres und hat
+    // nur die Hälfte erwischt: `OrbitControls` ruft `update()` auch selbst,
+    // direkt aus seinem `pointermove`-Handler, also zwischen zwei Bildern.
+    const walkJetzt = (envIndex >= 0 ? environments[envIndex].walk : null) ?? FLAT_WALK;
+    if (walkJetzt.istPlanet && walkEnabled && _kamZuletzt !== null) {
+      _orbitVersatz.subVectors(camera.position, _kamZuletzt);
+      _orbitVersatz.y = 0; // die Höhe regelt der Bodenblock
+      camera.position.sub(_orbitVersatz);
+      controls.target.sub(_orbitVersatz);
+    }
+    updateDesktopMovement(dt);
+    if (walkJetzt.istPlanet && walkEnabled) {
+      _kamVorOrbit.copy(camera.position);
+      controls.update();
+      _orbitVersatz.subVectors(camera.position, _kamVorOrbit);
+      _orbitVersatz.y = 0;
+      camera.position.sub(_orbitVersatz);
+      controls.target.sub(_orbitVersatz);
+    } else {
+      controls.update();
+    }
   }
   // Den Nutzer auf dem Boden und im begehbaren Bereich halten.
   //
@@ -1707,11 +1749,13 @@ renderer.setAnimationLoop(() => {
   const walk = (envIndex >= 0 ? environments[envIndex].walk : null) ?? FLAT_WALK;
   if (!walkEnabled) {
     _walkEnv = -2; // beim Wiedereinschalten neu einmessen
+    _kamZuletzt = null;
   } else {
     if (_walkEnv !== envIndex) {
       _walkEnv = envIndex;
       walk.reset?.();
       _floorY = null; // neue Bodenhoehe uebernehmen statt dorthin gleiten
+      _kamZuletzt = null; // Bezug fuer die Orbit-Korrektur neu fassen
     }
 
     const head = camera.getWorldPosition(_walkHead);
@@ -1748,6 +1792,17 @@ renderer.setAnimationLoop(() => {
         if (Math.abs(hub) > 0.001) {
           camera.position.y += hub;
           controls.target.y += hub;
+        }
+        // **Und waagerecht auf die Polachse.** Sonst holt die Sperre die Kamera
+        // im ersten Bild von 1,2 m auf den Freiraum zurueck und dreht dabei die
+        // Welt um 0,95 m — man betritt den Planeten mit einem Ruck, den niemand
+        // ausgeloest hat. Ziel und Kamera wandern gemeinsam, die Blickrichtung
+        // bleibt.
+        if (walk.istPlanet) {
+          controls.target.x -= camera.position.x;
+          controls.target.z -= camera.position.z;
+          camera.position.x = 0;
+          camera.position.z = 0;
         }
         // Eine Umgebung darf zusaetzlich sagen, wie steil man beim Betreten
         // schauen soll. Auf einer Kugel mit 25 m Halbmesser liegt der Horizont
@@ -1799,6 +1854,11 @@ renderer.setAnimationLoop(() => {
       controls.target.x += dx;
       controls.target.z += dz;
       controls.target.y += dy;
+    }
+    // Bezug fuer die Orbit-Korrektur im naechsten Bild.
+    if (!renderer.xr.isPresenting) {
+      if (_kamZuletzt === null) _kamZuletzt = new THREE.Vector3();
+      _kamZuletzt.copy(camera.position);
     }
   }
 

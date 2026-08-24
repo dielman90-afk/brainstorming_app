@@ -22,7 +22,12 @@ import { startServer, launchBrowser, openApp, selectEnv } from './harness-common
 
 const AUGE_MIN = 0.4;
 const AUGE_MAX = 2.6;
-const SCHRITT = 0.34; // 3,4 m/s bei gedeckeltem dt = 0,1 s
+const SCHRITT = 0.34;
+// Der Freiraum um die Polachse aus `makePlanetWalk`. Ein Totband in der Position
+// muss bei jeder Richtungsumkehr einmal ganz durchlaufen werden; 25 cm sind der
+// gemessene Kompromiss zwischen „Vorbeugen dreht die Welt" und „der Stick tut
+// eine halbe Sekunde nichts".
+const FREIRAUM = 0.25;
 
 let fehler = 0;
 const pruefe = (ok, text) => {
@@ -181,7 +186,9 @@ try {
   await selectEnv(page, 'night');
   console.log('\n=== 🌌 Nachthimmel (Planet) ===');
   {
-    const planet = await page.evaluate(() => {
+    // FREIRAUM muss uebergeben werden: `page.evaluate` laeuft im Browser, die
+    // Konstante steht in Node.
+    const planet = await page.evaluate((FREIRAUM) => {
       const app = window.__app;
       const w = app.env.walk();
       const welt = app.scene.getObjectByName('nacht-welt');
@@ -192,9 +199,9 @@ try {
       const weit = { x: out.x, z: out.z, r: Math.hypot(out.x, out.z) };
       welt.quaternion.copy(start);
 
-      // Ein Schritt von 34 cm — das echte Maximum je Bild — muss die Welt um
-      // genau 34 cm Bogen drehen, also um 0,34 / 25 rad.
-      w.limit(0, 0.9 + 0.34, out);
+      // Ein Schritt von 34 cm über den Freiraum hinaus — das echte Maximum je
+      // Bild — muss die Welt um genau 34 cm Bogen drehen, also um 0,34/25 rad.
+      w.limit(0, FREIRAUM + 0.34, out);
       const winkel = 2 * Math.acos(Math.min(1, Math.abs(welt.quaternion.clone().multiply(start.clone().invert()).w)));
       welt.quaternion.copy(start);
 
@@ -204,14 +211,17 @@ try {
         polBoden: w.floorAt(0, 0),
         istPlanet: Boolean(w.istPlanet),
       };
-    });
+    }, FREIRAUM);
     console.log(
       `  von (300, −220) aus: geklemmt auf (${planet.weit.x.toFixed(2)}, ${planet.weit.z.toFixed(
         2
       )}), Abstand vom Pol ${planet.weit.r.toFixed(2)} m`
     );
     pruefe(planet.istPlanet, 'die Umgebung meldet einen Planeten');
-    pruefe(Math.abs(planet.weit.r - 0.9) < 0.01, 'die Sperre hält den Spieler im Freiraum von 90 cm');
+    pruefe(
+      Math.abs(planet.weit.r - FREIRAUM) < 0.01,
+      `die Sperre hält den Spieler im Freiraum von ${(FREIRAUM * 100).toFixed(0)} cm`
+    );
     console.log(`  ein Schritt von 34 cm dreht die Welt um ${(planet.bogen * 100).toFixed(2)} cm Bogen`);
     pruefe(Math.abs(planet.bogen - 0.34) < 0.005, 'die Übersetzung ist 1:1 in Bogenmetern');
     console.log(`  Standhöhe am Nordpol ${planet.polBoden.toFixed(3)} m (Sollradius 25 m)`);
