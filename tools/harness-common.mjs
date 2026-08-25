@@ -209,6 +209,32 @@ export const PLANET_SHOTS = [
     look: [-5.71, 23.23, 9.88],
     fov: 70,
   },
+  {
+    name: 'g-sputnik',
+    // Der Sputnik liegt bei 5,5 m Bogen in Azimut 150; sein Boden steht laut
+    // `tools/planetort.mjs` auf (2,76 | 24,66 | −4,78). Die Kamera steht 1,15 m
+    // davor bei 4,35 m Bogen, auf 0,62 m Augenhöhe — hockend, wie man einen
+    // Fund ansieht, und **nicht** von oben: Aus 2,2 m Abstand und Brusthöhe
+    // füllte er 120 von 720 Zeilen, und von dem, was ihn ausmacht — Flansch,
+    // Delle, Antennenschuhe — war nichts zu sehen.
+    title: 'Der beschädigte Sputnik aus der Hocke (5,5 m Bogen, Azimut 150)',
+    pos: [2.25, 25.59, -3.89],
+    look: [2.76, 24.95, -4.78],
+    fov: 48,
+  },
+  {
+    name: 'h-mond-rot',
+    // Der zweite Mond steht der Sonne… dem ersten Mond gegenüber. Diese Kamera
+    // dreht sich zu ihm um; sie ist das Gegenstück zu `b-mond`.
+    //
+    // **Mit `station: 180`.** Bei 0 Grad steht er 33,3 Grad **unter** dem
+    // Horizont — genau dafür ist er da. Eine halbe Runde weiter steht er oben.
+    title: 'Der rötliche Halbmond auf der Gegenseite (Station 180)',
+    station: 180,
+    pos: [0, 26.94, 0],
+    look: [44.3, 189.6, -246.9],
+    fov: 45,
+  },
 ];
 
 export const ENV_SHOTS = { island: SHOTS, zen: ZEN_SHOTS, night: PLANET_SHOTS };
@@ -464,8 +490,52 @@ export async function ladeThree(page) {
   });
 }
 
+// **Eine Station des Rundgangs, als Eigenschaft eines Prüfbildes.**
+//
+// Die sechs festen Kameras zeigen alle denselben Augenblick des Rundgangs — die
+// Welt steht bei 0 Grad. Der zweite Mond steht dann aber unter dem Horizont;
+// er gehört ja der dunklen Hälfte. Ein Bild darf deshalb `station: 180`
+// verlangen: Die Welt wird um diesen Winkel gedreht, bevor die Kamera gesetzt
+// wird, und danach ohne Vermerk zurückgestellt — sonst bliebe die ganze Reihe
+// danach verdreht.
+let _stationSteht = false;
+async function setzeStation(page, grad) {
+  // **Station 0 ist keine Station, sondern der Normalfall.** Ohne diese Zeile
+  // verlangt jedes Werkzeug three im Seitenkontext, auch wenn es gar nichts
+  // dreht — `tools/strahl.mjs` ist daran sofort aufgelaufen.
+  //
+  // **Aber zurückgestellt werden muss trotzdem.** Der erste Anlauf ist hier
+  // ausgestiegen, sobald `grad` null war — auch dann, wenn ein Bild davor die
+  // Welt auf 180 Grad gedreht hatte. `f-kante` wurde daraufhin auf der
+  // **Nachtseite** gerendert und stand als fast schwarzes Bild in der Reihe.
+  // Der Kommentar über dieser Funktion hatte genau davor gewarnt; geschrieben
+  // war die Warnung, gebaut war sie nicht.
+  if (!grad && !_stationSteht) return;
+  _stationSteht = grad !== 0;
+  // **Das Werkzeug muss three nicht selbst laden.** Der erste Anlauf hat hier
+  // geworfen, wenn `window.__THREE` fehlte — und damit jedes Werkzeug, das die
+  // festen Kameras abfährt, ohne three zu brauchen (`tools/inspect.mjs`,
+  // `tools/strahl.mjs`). Eine Voraussetzung, die man selbst herstellen kann,
+  // fordert man nicht ein.
+  await ladeThree(page);
+  await page.evaluate((grad) => {
+    const T = window.__THREE;
+    const app = window.__app;
+    const welt = app.scene.getObjectByName('nacht-welt');
+    if (!welt) return;
+    if (window.__stationSpeicher === undefined) window.__stationSpeicher = 0;
+    const himmel = app.scene.getObjectByName('nacht-himmel');
+    const kuppel = app.scene.getObjectByName('nacht-kuppel');
+    welt.quaternion.setFromAxisAngle(new T.Vector3(1, 0, 0), (grad * Math.PI) / 180);
+    himmel.quaternion.copy(welt.quaternion);
+    kuppel?.userData?.setzeWeltdrehung?.(welt.quaternion);
+    welt.updateMatrixWorld(true);
+  }, grad);
+}
+
 export async function placeCamera(page, shot, time = 6.0) {
   await nebelHilfe(page);
+  await setzeStation(page, shot.station ?? 0);
   await page.evaluate(
     ({ pos, look, fov, time, nebel, fern }) => {
       const { camera, player, renderer, scene, controls } = window.__app;
@@ -493,6 +563,7 @@ export async function placeCamera(page, shot, time = 6.0) {
 // sonst über OrbitControls/Locomotion dazwischenfunken.
 export async function lockCamera(page, shot, time) {
   await nebelHilfe(page);
+  await setzeStation(page, shot.station ?? 0);
   await page.evaluate(
     ({ pos, look, fov, time, nebel, fern }) => {
       const app = window.__app;

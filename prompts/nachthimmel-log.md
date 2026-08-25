@@ -2440,6 +2440,141 @@ einer Minute geklärt — und im Kopf von `tools/strahl.mjs` steht seit Paket 7,
 dass er die **erste** Handlung bei einem unerklärten Fleck sein soll, nicht die
 vierte. Diesmal war er die vierte.
 
+### Gleiche Sterne, ein zweiter Mond, ein Sputnik — und Rippel, die gabeln
+
+Drei Wünsche des Auftraggebers und der zweitschwerste Befund des Prüfers in
+einem Durchlauf.
+
+#### Alle Sterne gleich hell
+
+Drei Dinge machten sie ungleich, und alle drei beschreiben **Luft**, die es auf
+einem luftlosen Körper nicht gibt:
+
+* die Größenklassenverteilung `pow(rand, 2.6)` — zwei Dutzend helle über
+  zweieinhalbtausend schwache,
+* die **Extinktion** zum Horizont hin,
+* das **Flimmern** — Szintillation entsteht in der Atmosphäre.
+
+Alle drei sind heraus. Die Farbtemperatur bleibt: „gleich hell" ist keine
+Aussage über die Farbe. Damit die Farbe die Helligkeit nicht durch die
+Hintertür wieder ungleich macht, wird jeder Ton auf **gleiche Leuchtdichte**
+normiert (Y₇₀₉ = 0,55).
+
+Gemessen an den lokalen Maxima im oberen Bilddrittel von `f-kante`:
+
+| | Spanne | Streuung |
+| --- | --- | --- |
+| vorher | 212,7 | 25,0 (**61,3 %**) |
+| jetzt | 62,0 | 14,8 (**8,4 %**) |
+
+Der Rest von 8,4 % ist die Farbtemperatur und die Kantenglättung des Punktes.
+
+**Der Zug aus dem gesäten Strom bleibt stehen**, obwohl sein Wert nicht mehr
+gebraucht wird — ohne ihn verschöbe sich jede folgende Ziehung und mit ihr die
+Lage sämtlicher Sterne, Brocken und Landmarken.
+
+**Was das kostet:** einen der vier Träger von Bewegung. Der Himmel steht jetzt
+still. Physikalisch ist das richtig; wenn das Flimmern zurück soll, ist es eine
+Zeile.
+
+#### Der zweite Mond
+
+Ein rötlicher Halbmond auf der Gegenseite, 33,3 Grad **unter** dem Horizont bei
+Station 0 und 33,3 Grad darüber bei Station 180 — er gehört der dunklen Hälfte
+des Rundgangs. Er ist **keine Lichtquelle**; die Szene hat genau eine gerichtete
+Quelle, und dabei bleibt es.
+
+Damit er nicht als Kopie liest, unterscheidet er sich in fünf Merkmalen:
+eisenrote statt kühlgraue Farbe, exakt halbe statt dreiviertel Phase
+(`phaseZ = 0` legt den Terminator genau über die Mitte), 17 statt 26 Einheiten
+Größe (3,2 gegen 5,0 Grad), 170 Krater ohne Strahlensysteme gegen 90 mit, und
+eine schwache rötliche Hoflage gegen drei blaue.
+
+Der Scheibenbauer ist dafür **parametrisch** geworden statt kopiert: `MOND_STIL`
+hält die zwölf Zahlen, die die beiden Körper unterscheiden. Zweihundert Zeilen
+Kopie wären die Sorte, bei der beim nächsten Mal nur eine der beiden gepflegt
+wird.
+
+#### Der beschädigte Sputnik
+
+Der echte: 58 cm aus zwei Halbschalen an einem Äquatorflansch, vier
+Peitschenantennen in kegeligen Schuhen. Beschädigt heißt hier nicht „zufällig
+verbeult", sondern eine erzählbare Geschichte — auf der Flanke aufgeschlagen,
+die Schale dort eingedrückt, der Flansch aufgebogen, zwei Antennen an der Wurzel
+abgerissen, eine geknickt, eine krumm, dazu eine Schleifspur mit Blechfetzen.
+Ein Material, ein Draw-Call.
+
+**Vier Anläufe, und jeder hat etwas gelehrt.**
+
+**1. Metall ohne Umgebungskarte ist schwarz.** `metalness: 0.82` ist für
+Aluminium physikalisch richtig und hier fatal: Bei einem Metall kommt fast die
+ganze Antwort aus der Spiegelung der Umgebung, und diese Szene hat aus gutem
+Grund keine PMREM-Karte. Übrig blieb ein fast schwarzer Ballon mit einem weißen
+Glanzfleck — im Bild eine Seifenblase. Über 0,45 (schwarzer Käfer) steht der
+Wert jetzt auf **0,25 bei Rauheit 0,20**: eng genug für Metall, hell genug für
+eine Form.
+
+**2. Eine Form, die dünner ist als ein Bildpunkt, ist keine Form.** Die Antennen
+hatten maßstäbliche 9 auf 3 mm. Bei 55 Grad Bildwinkel auf 720 Zeilen deckt ein
+Bildpunkt 1,33 mrad ab; 3 mm auf drei Meter sind 1,0. Im Bild standen Kratzer.
+Jetzt 14 auf 6 mm.
+
+**3. `stelleAuf` setzt den Mittelpunkt.** Ein Halbmesser unter der Geländehöhe
+versenkt damit mehr als die halbe Kugel. Zwei Anläufe (−11 cm, −2 cm) zeigten
+nur eine Kuppe; **+8 cm** lassen 37 der 58 cm frei.
+
+**4. Und wieder die Falle mit `detail`.** Ich habe „Detail 4 gibt 5120 Dreiecke"
+in den Kommentar geschrieben — dieselbe Verwechslung, an der der Planet selbst
+schon einmal hing und die in diesem Protokoll unter „Eine API-Zahl, deren
+Bedeutung man zu kennen glaubt, gehört nachgezählt" steht. `detail` ist keine
+Rekursionstiefe: 20 · (d+1)². Detail 4 sind **500**. Nachgezählt hat es
+`tools/inspect.mjs` — der ganze Sputnik stand mit 2228 Dreiecken in der Liste,
+wo allein die Kugel 5120 haben sollte. Detail 15 gibt sie.
+
+#### Die Rippel gabeln jetzt
+
+Befund 2 des Prüfers: *„Die Rippelkämme laufen über den gesamten sichtbaren Hang
+parallel, mit gleichem Abstand und gleicher Amplitude, ohne eine einzige
+Gabelung."*
+
+Er hatte recht, und der Grund stand in einer Zeile, die aussah wie die Lösung:
+`versatz` hing **nur von `laengs` ab**, also von der Lage *entlang* der Kämme.
+Alle Kämme wurden damit um denselben Betrag verschoben — sie mäandern, aber sie
+bleiben parallel.
+
+Eine Gabelung entsteht, wo benachbarte Kämme **verschieden** weit verschoben
+werden. Dafür muss der Versatz auch von der Lage *quer* dazu abhängen. Zwei
+Terme mit `bogenQuer` genügen. Dazu ein zweiter, feinerer Fleckenmaßstab (drei
+bis sechs Meter), der die Rippelung stellenweise ganz aussetzen lässt.
+
+#### Zwei eigene Fehler am Prüfstand, beide vom selben Typ
+
+**Backticks im Shader-Kommentar, zum zweiten Mal in derselben Sitzung.** Der
+GLSL-Quelltext steht in einem Template-Literal; ein `` ` `` darin beendet die
+Zeichenkette. `tools/shaderlint.mjs` gibt es genau dafür — es kann diesen Fall
+aber **nicht** finden, weil die Datei danach nicht mehr parst und der Linter
+gar nicht erst läuft. Der Bauabbruch ist hier der Melder, nicht der Linter.
+
+**Und eine Warnung, die ich selbst geschrieben und nicht gebaut habe.** Ein
+Prüfbild darf jetzt `station: 180` verlangen, damit der zweite Mond überhaupt
+ins Bild kommt. Über der Funktion steht: *„und danach ohne Vermerk
+zurückgestellt — sonst bliebe die ganze Reihe danach verdreht."* Genau das ist
+passiert: `f-kante` wurde auf der Nachtseite gerendert und stand als fast
+schwarzes Bild in der Reihe. Geschrieben war die Warnung, gebaut war sie nicht.
+
+#### Gemessen
+
+| | vorher | jetzt |
+| --- | --- | --- |
+| Draw-Calls | 13–18 / 120 | **16–21 / 120** |
+| Dreiecke | 310 266–313 154 / 350 000 | **318 218–328 506 / 350 000** |
+| Streuung der Sternhelligkeit | 61,3 % | **8,4 %** |
+| Sputnik | — | 6848 Dreiecke, 1 Draw-Call |
+| Blechfetzen | — | 560 Dreiecke, 1 Draw-Call |
+
+Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δmax 8 bei 0,012 %, Insel
+0,585 % ≥ 2 im Rauschband. Konsole frei von Errors und Warnings.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
