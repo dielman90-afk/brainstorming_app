@@ -151,9 +151,15 @@ export const PLANET_SHOTS = [
   },
   {
     name: 'b-mond',
-    title: 'Der Mond im Bild',
+    // **Nicht mehr in der Bildmitte.** Der Prüfer hat den Schwerpunkt der
+    // hellen Scheibe bei (631, 346) auf 1280 x 720 gemessen — „das ist der
+    // schwächstmögliche Ort im Bild, und es ist die eine Kamera, deren einziger
+    // Zweck der Mond ist." Das Blickziel ist deshalb um gut zehn Grad nach
+    // links und sechs nach unten versetzt: Der Mond steht jetzt im rechten
+    // oberen Drittel, mit der Milchstraße als Gegengewicht links unten.
+    title: 'Der Mond im Bild, aus der Mitte gerückt',
     pos: [0, 26.94, 0],
-    look: [131.0, 174.7, -224.6],
+    look: [79.0, 141.0, -246.0],
     fov: 60,
   },
   {
