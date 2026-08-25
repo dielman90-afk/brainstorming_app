@@ -4453,6 +4453,57 @@ const _FBOben = new THREE.Vector3();
 // Alles zusammen ist **ein** Draw-Call: Deckkraft steckt in der vierten
 // Komponente des Farbattributs (three setzt dann USE_COLOR_ALPHA), Farbe ist
 // überall Schwarz.
+// **Wie hoch die Kontaktscheiben über dem Gelände liegen — und warum das keine
+// Konstante sein darf.**
+//
+// Sie holen ihre Scheitelhöhen aus `heightAt`; das Gelände ist ein Netz mit
+// 41 cm Kantenlänge, zwischen zwei Knoten also eine Sehne. Gemessen
+// (`tools/naht.mjs --abstand`, 6000 Stichproben): Das Feld liegt im Median
+// 0,97 mm **über** der Sehne, im Einzelfall aber 273 mm darunter. Wo es
+// darunter liegt, durchdringen sich Scheibe und Boden, und die Verdunklung
+// zerfällt in harte Polygonflecken.
+//
+// Ein fester Hub löst das nicht, sondern verschiebt es:
+//
+//   Hub      20 mm   12 mm    8 mm    5 mm    3 mm
+//   Saumpixel   46      14       7       4       2
+//
+// 20 mm halten die Verdunklung sauber und lassen die Scheibe über jeden Grat
+// hinausragen — das ist der helle Faden, den der Prüfer in `e-boden` gefunden
+// hat. 5 mm nehmen den Faden weg und zerlegen die Verdunklung. Ein reiner
+// Tiefenversatz (`polygonOffset`) war der erste Anlauf und hat dasselbe
+// angerichtet: Er verschiebt den Tiefenwert, aber eine Durchdringung bleibt
+// eine Durchdringung.
+//
+// **Beide Forderungen betreffen verschiedene Orte.** Das Netz liegt genau dort
+// über dem Feld, wo das Feld **konkav** ist — in Mulden. Auf einem Kamm, also
+// genau dort, wo der Saum entsteht, schneidet die Sehne unter das Feld, und die
+// Scheibe liegt ohnehin schon darüber. Der Hub wird deshalb je Scheitelpunkt
+// aus der Krümmung gebildet: Mittelwert des Feldes auf einem Ring von einer
+// Kantenlänge, minus dem Feld am Punkt, bei null geklemmt. Das ist der
+// diskrete Laplace-Operator — positiv in der Mulde, null auf dem Kamm.
+const SCHEIBEN_HUB_MIN = 0.002;
+const KANTE = 0.41; // Kantenlänge des Geländenetzes, 1,0515 · R / (detail + 1)
+const _hubRing = new THREE.Vector3();
+const _hubOst = new THREE.Vector3();
+const _hubNord = new THREE.Vector3();
+function scheibenHub(dir, h, heightAt) {
+  tangentialSystem(dir, _hubOst, _hubNord);
+  const w = KANTE / PLANET_R;
+  let summe = 0;
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2;
+    _hubRing
+      .copy(dir)
+      .multiplyScalar(Math.cos(w))
+      .addScaledVector(_hubOst, Math.sin(w) * Math.cos(a))
+      .addScaledVector(_hubNord, Math.sin(w) * Math.sin(a))
+      .normalize();
+    summe += heightAt(_hubRing);
+  }
+  return SCHEIBEN_HUB_MIN + Math.max(0, summe / 6 - h);
+}
+
 let _kontaktMaterial = null;
 // **Auf der Kugel.** Eine Stelle wird nicht mehr durch x und z beschrieben,
 // sondern durch eine Richtung `ort` vom Planetenmittelpunkt aus; die Scheibe
@@ -4540,7 +4591,8 @@ function makeKontaktAO(stellen, heightAt) {
             .addScaledVector(_kNord, (Math.sin(w) * oz) / q)
             .normalize();
         }
-        const rr2 = PLANET_R + heightAt(_kP) + 0.02;
+        const hP = heightAt(_kP);
+        const rr2 = PLANET_R + hP + scheibenHub(_kP, hP, heightAt);
         pos.push(_kP.x * rr2, _kP.y * rr2, _kP.z * rr2);
         col.push(c.r, c.g, c.b, a);
       }
