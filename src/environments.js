@@ -7444,6 +7444,37 @@ function createNightEnvironment() {
   mond2.renderOrder = 21;
   himmelGruppe.add(mond2);
 
+  // **Und er leuchtet.**
+  //
+  // Der Auftraggeber will den Planeten von allen Seiten beleuchtet haben. Das
+  // steht in einer Spannung zur Grundregel dieses Auftrags — „es bleibt Nacht,
+  // wer den Mond zur Sonne macht, hat die Aufgabe verfehlt" —, und die Auflösung
+  // steht schon am Himmel: Es gibt einen **zweiten** Mond, und der stand bisher
+  // als Bild da, ohne etwas zu tun. Ein Körper, der eine halbe Scheibe voll
+  // Sonnenlicht zeigt, wirft welches zurück.
+  //
+  // Damit ist die abgewandte Seite kein Schwarz mehr, sondern eine **zweite,
+  // andersfarbige Nacht** — rostrot statt blauweiß, ein Sechstel so hell, und
+  // aus der Gegenrichtung. Wer den Rundgang macht, läuft aus einem kalten Licht
+  // in ein warmes und wieder zurück.
+  //
+  // **Ohne Schattenwurf.** Zwei Schattenkarten wären zwei Durchgänge über
+  // 328 000 Dreiecke, und zwei Schattensätze aus verschiedenen Richtungen lesen
+  // in einer Nachtszene als Fehler, nicht als Licht. Die eine gerichtete Quelle
+  // mit Schatten bleibt der Mond; dies hier ist Fülllicht mit einer Richtung.
+  const mond2Licht = new THREE.DirectionalLight(0xd08a62, 0.78);
+  mond2Licht.position.copy(MOND2_RICHTUNG).multiplyScalar(MOND_FERN);
+  // **Ein eigenes Ziel, kein geteiltes.** `moonLight` entsteht erst hundert
+  // Zeilen weiter unten; ein Verweis darauf liefe hier in die zeitliche
+  // Totzone. Das Ziel muss ohnehin dasselbe **sein**, nicht dasselbe Objekt:
+  // der Planetenmittelpunkt, und der liegt im Ursprung der Umgebungsgruppe —
+  // die dreht sich nicht mit, das Ziel bleibt also stehen, während die Quelle
+  // in der Himmelsgruppe mitwandert.
+  mond2Licht.target.position.set(0, 0, 0);
+  group.add(mond2Licht.target);
+  mond2Licht.castShadow = false;
+  himmelGruppe.add(mond2Licht);
+
   // --- Licht -----------------------------------------------------------------
   //
   // **Der Befund, der dieses Paket ausgelöst hat.** `main.js` hält eine globale

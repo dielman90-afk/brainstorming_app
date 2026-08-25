@@ -2700,6 +2700,38 @@ Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δmax 5 bei 0,008 %, Insel
 * Der Prüfer hat den Sputnik noch nie gesehen; sein Bericht ist von vor seinem
   Einbau.
 
+### „Von allen Seiten beleuchtet" — ohne den Mond zur Sonne zu machen
+
+Der Auftraggeber will den Planeten von allen Seiten beleuchtet haben. Das steht
+in einer Spannung zur Grundregel dieses Auftrags — *„Es bleibt Nacht. Wer den
+Mond zur Sonne macht, hat die Aufgabe verfehlt."* — und die Auflösung stand
+schon am Himmel, seit einem Durchlauf, ohne dass ich sie benutzt hätte: **Es
+gibt einen zweiten Mond.** Er stand als Bild da und tat nichts. Ein Körper, der
+eine halbe Scheibe voll Sonnenlicht zeigt, wirft welches zurück.
+
+Der rote Halbmond bekommt deshalb eine gerichtete Quelle: 0,78 gegen 3,8 des
+weißen, in seiner eigenen Farbe (0xd08a62), **ohne Schattenwurf**. Zwei
+Schattenkarten wären zwei Durchgänge über 328 000 Dreiecke, und zwei
+Schattensätze aus verschiedenen Richtungen lesen in einer Nachtszene als Fehler,
+nicht als Licht. Die eine gerichtete Quelle mit Schatten bleibt der Mond; dies
+ist Fülllicht mit einer Richtung.
+
+Damit ist die abgewandte Seite kein Schwarz mehr, sondern eine **zweite,
+andersfarbige Nacht**. Wer den Rundgang macht, läuft aus einem kalten Licht in
+ein warmes und wieder zurück. Über die sechs mondlosen Stationen:
+
+| | Mittel | Tonwertspanne |
+| --- | --- | --- |
+| vor dem zweiten Licht | 11,2 – 17,3 | 9,2 – 33,0 |
+| jetzt | **17,1 – 20,0** | **12,7 – 46,8** |
+
+In der Totale `d-orbit` ist die schwarze Hälfte verschwunden: Der Körper trägt
+jetzt rundherum Form, kalt auf der einen und rostrot auf der anderen Seite.
+
+**Es bleibt Nacht.** Das hellste Bild des Rundgangs steht bei einem Mittel von
+93,8 von 255, das dunkelste bei 17,1. Der zweite Mond ist ein Sechstel so stark
+wie der erste und leuchtet aus der Gegenrichtung — er ist ein Mond, keine Sonne.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
