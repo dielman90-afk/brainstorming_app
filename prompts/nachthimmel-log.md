@@ -2342,6 +2342,104 @@ stimmte, ist kein Messgerät mehr, sondern ein Gerücht mit Nachkommastellen. Be
 Fassungen von `silhouette.mjs` sind an derselben Annahme gescheitert, und beide
 Male stand die Annahme im Kommentar darüber.
 
+### Der leuchtende Saum war drei Durchläufe lang falsch zugeordnet
+
+Der Saum steht seit Durchlauf 12 im Protokoll: ein bis drei Bildpunkte über der
+Geländekante ein neutralgrauer Faden, drei- bis vierfach heller als Himmel und
+Boden, die er trennt. Der Prüfer hat ihn erneut gefunden und diesmal genau
+lokalisiert: `e-boden`, x 1025 bis 1187, ein Pixel breit, rund 160 Bildpunkte
+Lauflänge.
+
+Das Protokoll führte ihn als **Lichtleck der Schattenkarte**, mit einer
+gemessenen Wanne über `normalBias` (0,025 → 165 Saumpixel). Das war falsch, und
+zwei Messungen zeigen es.
+
+**Erstens: er reagiert nicht auf die Schattenkarte.** `tools/naht.mjs` (neu)
+fährt ein Feld aus dreizehn Paarungen von `bias` und `normalBias` ab und zählt
+zwei Dinge — den Saum über der Geländekante und die Schattenakne im Gelände:
+
+| bias | −0,0004 | −0,0015 | −0,004 | −0,01 | −0,02 |
+| --- | --- | --- | --- | --- | --- |
+| Saum | 43 | 43 | 42 | 42 | 42 |
+| Akne | 352 | 326 | 267 | 209 | 204 |
+
+Die Akne fällt um 42 %, der Saum um ein einziges Pixel. **Die Schattenkarte
+reagiert, der Saum nicht.**
+
+**Zweitens: ein Strahl sagt, was da steht.** `tools/strahl.mjs` durch (1140, 223)
+trifft `kontaktverdunklung` in 4,40 m — und `nacht-planet` überhaupt nicht.
+Dasselbe bei (1140, 225), (1100, 218), (1160, 226). Ausgeblendet fallen die
+Saumpixel über sechs Kameras von 46 auf 5.
+
+Es ist keine Naht im Boden. Es sind die **Kontaktscheiben**, die 2 cm über dem
+Gelände liegen und über einen Grat hinweg um genau diesen Betrag über die
+Silhouette ragen. Sie sind `toneMapped: false` und können aufhellen (die
+Staubfahnen tun das) — vor dem schwarzen Himmel liest das als heller Faden.
+
+**Warum die alte Zuordnung trotzdem plausibel war:** Sie stützte sich auf
+Station 300, nicht auf `e-boden`, und dort steht ausdrücklich, dass ein
+Ausblenden von `kontaktverdunklung` nichts geändert hat. Entweder waren es zwei
+verschiedene Artefakte, oder die damalige Zählung hat Sterne mitgezählt — mein
+erster Anlauf mit dem neuen Werkzeug tat genau das und meldete 750 bis 1000
+„Saumpixel" über sechs Kameras, von denen die große Mehrheit am Himmel stand.
+Ein Stern **ist** ein heller Punkt zwischen dunklen Nachbarn. Der Zähler bekam
+daraufhin dieselbe schwellenfreie Geländemaske wie `tools/sterne-hinter.mjs`.
+
+#### Zwei Anläufe, die scheiterten, und warum
+
+**`polygonOffset` statt Anhebung.** Der Gedanke: Der Abstand zum Boden gehört in
+die Tiefe, nicht in den Raum; ein Tiefenversatz kann eine Scheibe niemals über
+eine Silhouette heben. Der Saum fiel auf 2 Pixel — und die Verdunklung zerfiel
+in harte Polygonflecken. **Ein Tiefenversatz heilt keine Durchdringung.**
+
+**Ein kleinerer fester Hub.** Gemessen über die sechs Kameras:
+
+| Hub | 20 mm | 12 mm | 8 mm | 5 mm | 3 mm |
+| --- | --- | --- | --- | --- | --- |
+| Saumpixel | 46 | 14 | 7 | 4 | 2 |
+
+Der Saum **ist** der Hub, linear. Aber bei 5 mm zerfiel die Verdunklung wieder —
+und mein Kantenzähler hat das nicht gesehen (20 541 gegen 20 566, flach über die
+ganze Reihe), weil er von den Felssilhouetten dominiert wird. **Aufgefallen ist
+es nur, weil ich den Ausschnitt angesehen habe.** Ein Maß, das den Fehler nicht
+findet, den man sucht, ist kein Beleg für seine Abwesenheit.
+
+#### Was schließlich trägt: der Hub folgt der Krümmung
+
+`tools/naht.mjs --abstand` misst, wie weit das Höhenfeld vom gerenderten Netz
+abweicht — 6000 radiale Strahlen gegen `nacht-planet`:
+
+| | kleinster | Median | p95 | größter |
+| --- | --- | --- | --- | --- |
+| Feld minus Netz | −273 mm | +0,97 mm | +12,4 mm | +165 mm |
+
+Und darin steht die Lösung. Das Netz liegt genau dort **über** dem Feld, wo das
+Feld konkav ist — in Mulden. Auf einem Kamm, also genau dort, wo der Saum
+entsteht, schneidet die Sehne unter das Feld, und die Scheibe liegt ohnehin
+schon darüber. **Die beiden Forderungen betreffen verschiedene Orte.**
+
+Der Hub kommt deshalb je Scheitelpunkt aus der Krümmung: Mittelwert des Feldes
+auf einem Ring von einer Netzkantenlänge (41 cm), minus dem Feld am Punkt, bei
+null geklemmt — der diskrete Laplace-Operator, positiv in der Mulde, null auf
+dem Kamm. Dazu 2 mm Grundabstand.
+
+| | Saumpixel | Verdunklung |
+| --- | --- | --- |
+| 20 mm fest (vorher) | 46 | weich ✅ |
+| 5 mm fest | 4 | zerfallen ❌ |
+| `polygonOffset` | 2 | zerfallen ❌ |
+| **Hub aus der Krümmung** | **2** | **weich ✅** |
+
+Kosten: sechs zusätzliche `heightAt`-Aufrufe je Scheibenscheitelpunkt beim
+Aufbau, keine zur Laufzeit, kein Draw-Call, kein Byte Textur.
+
+**Die Lehre:** Drei Durchläufe lang habe ich an einer Schraube gedreht, die mit
+dem Fehler nichts zu tun hatte, weil die erste Vermutung plausibel klang und nie
+gegen eine Alternative geprüft wurde. Ein Strahl durch das Pixel hätte das in
+einer Minute geklärt — und im Kopf von `tools/strahl.mjs` steht seit Paket 7,
+dass er die **erste** Handlung bei einem unerklärten Fleck sein soll, nicht die
+vierte. Diesmal war er die vierte.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
