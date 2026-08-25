@@ -2196,6 +2196,58 @@ neues Objekt und keine einzige neue Karte.
   0,493 m, auf dem Planeten bei 0,387 m. Ich habe diese Konstante nicht
   angefasst; das wäre eine Änderung an allen Umgebungen zugleich.
 
+### „Alle Werkzeuge sind broke. Wahrscheinlich verschwinden sie irgendwo im Gestein"
+
+So hat der Nutzer es gemeldet, und er hatte auf den Meter recht.
+
+An fünf Stellen im Programm stellt sich etwas vor den Nutzer — das Whiteboard,
+der Zeitgeber, eine neue Zone, die Kartenreihe und das Flussdiagramm. Alle fünf
+hatten dieselbe Zeile:
+
+```js
+pos.y = THREE.MathUtils.clamp(camPos.y + versatz, 0.6…1.0, 2.0…2.2);
+```
+
+Die Grenzen sind **absolute Welthöhen**. Sie setzen stillschweigend voraus, dass
+der Boden bei y = 0 liegt — auf den vier flachen Umgebungen stimmt das. Auf
+einer Kugel von 25 m Halbmesser steht der Nutzer bei y ≈ 26,97; die obere Grenze
+schlägt an, und die Tafel landet bei y = 2,0.
+
+`tools/panelhoehe.mjs` (neu) misst die Höhe **über dem Boden unter dem Nutzer**
+statt über y = 0, weil nur die erste Zahl etwas darüber sagt, ob man die Tafel
+sieht:
+
+| | vorher | nachher |
+| --- | --- | --- |
+| Whiteboard auf dem Planeten | **−23,37 m** | +1,50 m |
+| Zeitgeber | **−23,17 m** | +1,75 m |
+| Zone | — | +1,60 m |
+| Kartenreihe | — | +1,55 m |
+| Flussdiagramm | — | +1,58 m |
+
+Auf den vier flachen Umgebungen ändert sich **keine einzige Stelle hinter dem
+Komma**: Dort ist die Bodenhöhe null, und `boden + clamp(camY − boden + v, u, o)`
+ist dann Zeichen für Zeichen die alte Rechnung. Auf der Insel (Boden −0,40 m)
+stand das Whiteboard vorher wie nachher bei y = 1,10.
+
+**Ein zweiter Fehler an derselben Stelle.** `layoutFlow` hängte die Knoten mit
+`scene.attach(node.group)` um. Auf dem Planeten hängen Karten an der Weltgruppe;
+wer sie in die Szene umhängt, löst sie vom Planeten, und beim nächsten Schritt
+läuft die Welt unter ihnen weg. Der Kommentar über der Zeile warnte ausdrücklich
+davor, an den falschen Elternteil zu hängen — er kannte nur die Heimat noch
+nicht, die es damals nicht gab. Jetzt geht es an `cardManager.heimat`, und die
+Prüfung fragt das eigens nach.
+
+**Warum es die bestehenden Prüfungen nicht gefunden haben.**
+`tools/karten-planet.mjs` legt Karten und Zonen über `addCard`/`addZone` an und
+setzt die Pose selbst — es prüft das Speicherformat und die Heimat, nie den Weg
+über `placeInFront`. Die Höhe einer Tafel hat schlicht nie jemand gemessen.
+
+**Die Lehre:** Eine Konstante mit einer Einheit ist eine Aussage über einen
+Bezugspunkt. „0,9 bis 2,0 Meter" ist ohne die Angabe *wovon* keine Höhe, sondern
+eine Zahl. Auf der Platte fielen Weltnull und Boden zusammen, und deshalb konnte
+der Unterschied zwanzig Umgebungswechsel lang unbemerkt bleiben.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**

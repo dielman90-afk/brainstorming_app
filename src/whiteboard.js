@@ -179,9 +179,12 @@ const GLYPHS = {
 };
 
 export class Whiteboard {
-  constructor(scene, { onSketch } = {}) {
+  constructor(scene, { onSketch, floorY = () => 0 } = {}) {
     this.scene = scene;
     this.onSketch = onSketch;
+    // Die Bodenhöhe unter dem Nutzer. Vorgabe null, damit die Klemmung in
+    // `placeInFront` ohne diese Angabe genau das tut, was sie vorher tat.
+    this.floorY = floorY;
     this.group = new THREE.Group();
     this.group.name = 'whiteboard';
     this.group.visible = false;
@@ -544,7 +547,20 @@ export class Whiteboard {
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
     dir.normalize();
     const pos = camPos.clone().addScaledVector(dir, 1.7);
-    pos.y = THREE.MathUtils.clamp(camPos.y - 0.1, 0.9, 2.0);
+    // **Die Klemmung misst ab dem Boden, nicht ab y = 0.**
+    //
+    // Hier stand `clamp(camPos.y + versatz, unten, oben)` mit absoluten Welthöhen.
+    // Das setzt stillschweigend voraus, dass der Boden bei null liegt — auf den vier
+    // flachen Umgebungen stimmt das, auf einer Kugel von 25 m Halbmesser nicht: Der
+    // Nutzer steht dort bei y ≈ 26,9, die obere Grenze schlägt an, und die Tafel
+    // landet **23,4 m unter seinen Füßen**, also im Gestein. Gemessen mit
+    // `tools/panelhoehe.mjs`.
+    //
+    // Mit dem Boden als Bezug bleibt das Verhalten auf ebenem Grund Zahl für Zahl
+    // dasselbe (dort ist `boden` null), und auf der Kugel steht die Tafel dort, wo
+    // sie hingehört.
+    const boden = this.floorY();
+    pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden - 0.1, 0.9, 2.0);
     this.group.position.copy(pos);
     this.group.lookAt(camPos.x, pos.y, camPos.z);
   }

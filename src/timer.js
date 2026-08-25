@@ -26,8 +26,10 @@ function layer(mesh, order) {
 }
 
 export class Timer {
-  constructor(scene) {
+  constructor(scene, { floorY = () => 0 } = {}) {
     this.scene = scene;
+    // Siehe `placeInFront`: Die Klemmung misst ab dem Boden, nicht ab y = 0.
+    this.floorY = floorY;
     this.group = new THREE.Group();
     this.group.name = 'timer';
     this.group.visible = false;
@@ -285,7 +287,20 @@ export class Timer {
     // etwas seitlich versetzt, damit die Uhr nicht die Karten verdeckt
     const side = new THREE.Vector3(dir.z, 0, -dir.x);
     const pos = camPos.clone().addScaledVector(dir, 1.5).addScaledVector(side, 0.7);
-    pos.y = THREE.MathUtils.clamp(camPos.y + 0.15, 1.0, 2.2);
+    // **Die Klemmung misst ab dem Boden, nicht ab y = 0.**
+    //
+    // Hier stand `clamp(camPos.y + versatz, unten, oben)` mit absoluten Welthöhen.
+    // Das setzt stillschweigend voraus, dass der Boden bei null liegt — auf den vier
+    // flachen Umgebungen stimmt das, auf einer Kugel von 25 m Halbmesser nicht: Der
+    // Nutzer steht dort bei y ≈ 26,9, die obere Grenze schlägt an, und die Tafel
+    // landet **23,4 m unter seinen Füßen**, also im Gestein. Gemessen mit
+    // `tools/panelhoehe.mjs`.
+    //
+    // Mit dem Boden als Bezug bleibt das Verhalten auf ebenem Grund Zahl für Zahl
+    // dasselbe (dort ist `boden` null), und auf der Kugel steht die Tafel dort, wo
+    // sie hingehört.
+    const boden = this.floorY();
+    pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden + 0.15, 1.0, 2.2);
     this.group.position.copy(pos);
     this.group.lookAt(camPos.x, pos.y, camPos.z);
   }
