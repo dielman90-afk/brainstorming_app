@@ -36,6 +36,24 @@
 //
 // Gemeldet wird die Anzahl und eine Kostprobe mit Koordinate, Punkthelligkeit
 // und Umgebungshelligkeit.
+//
+// **Und dann ist die Voraussetzung ein zweites Mal weggebrochen.** Die
+// Kantensuche oben hängt daran, dass der Himmel dunkler als L 7 ist. Der
+// Nachthimmel trägt inzwischen einen Verlauf und Luftglühen; am oberen Bildrand
+// stehen L 9 bis 16. Damit ist die Bedingung „35 Zeilen am Stück heller als 7"
+// schon in der ersten geprüften Zeile erfüllt, die Kante wird bei y = 40
+// gefunden, und das Werkzeug zählt gewöhnliche Sterne **im Himmel** — oder
+// meldet null, weil es unterhalb seiner Scheinkante nichts findet.
+//
+// Der Prüfer hat das aufgedeckt, nachdem er von Hand 104 Sterne vor dem Gelände
+// in `rund-210` gefunden hatte, während dieses Werkzeug schwieg. Sein Satz
+// dazu: „Wer diesem Werkzeug eine 0 entnommen hat, hat nichts gemessen."
+//
+// Deshalb prüft es jetzt **seine eigene Voraussetzung** und verweigert die
+// Auskunft, statt eine falsche zu geben. Eine bessere Kantensuche wäre die
+// falsche Antwort: Jede Schwelle über der Helligkeit bricht beim nächsten Mal
+// wieder. Wer die Zahl wirklich braucht, nimmt `tools/sterne-hinter.mjs` — das
+// rät nicht, sondern schaltet das Sternfeld ab und vergleicht.
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
 
@@ -65,6 +83,28 @@ const umgebung = (x, y) => {
   }
   return s / n;
 };
+
+// --- Selbstprüfung: hält die Annahme über den Himmel noch? ------------------
+//
+// Gemessen wird der Median der obersten 26 Zeilen. Dort ist in jeder Prüfkamera
+// Himmel; wären Sterne der Grund für einen hohen Wert, träfe es den Median
+// nicht, denn sie belegen weit unter der Hälfte der Fläche.
+const HIMMEL_SCHWELLE = 7;
+const obenWerte = [];
+for (let y = 0; y < Math.min(26, p.height); y++) {
+  for (let x = 0; x < p.width; x += 3) obenWerte.push(L(x, y));
+}
+obenWerte.sort((a, b) => a - b);
+const himmelMedian = obenWerte[obenWerte.length >> 1];
+if (himmelMedian > HIMMEL_SCHWELLE) {
+  process.stdout.write(
+    `${datei.split('/').slice(-2).join('/')}: KEINE AUSSAGE — der Himmel ist zu hell für dieses Werkzeug\n` +
+      `  Median der obersten 26 Zeilen: L ${himmelMedian.toFixed(1)}, gebraucht wird höchstens ${HIMMEL_SCHWELLE}.\n` +
+      `  Die Kantensuche würde bei y = 40 anschlagen und Himmel als Gelände zählen.\n` +
+      `  Nimm stattdessen: node tools/sterne-hinter.mjs\n`
+  );
+  process.exit(2);
+}
 
 const treffer = [];
 for (let x = 6; x < p.width - 6; x++) {
