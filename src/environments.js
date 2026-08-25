@@ -3958,6 +3958,17 @@ function marsMaps() {
 const MOND_ORT = new THREE.Vector3(14, 16, -24);
 const MOND_RICHTUNG = MOND_ORT.clone().normalize();
 
+// **Der Pol der Milchstraßenebene, auf Modulebene.**
+//
+// Er stand bis jetzt in `makeNachtKuppel` — dort wird das Band gezeichnet. Das
+// Sternfeld braucht ihn aber auch: Der Prüfer hat die Milchstraße als „ein
+// weichgezeichnetes graues Band ohne eine einzige Punktquelle" beanstandet, und
+// eine Milchstraße besteht nun einmal aus Sternen. Ein Teil des Sternfelds wird
+// deshalb zur Bandebene hin verdichtet — und dafür müssen Band und Verdichtung
+// **dieselbe** Ebene meinen. Zwei Kopien derselben Zahl wären genau die Sorte
+// Fehler, die man erst bemerkt, wenn eine davon wandert.
+const MILCH_POL = new THREE.Vector3(0.78, 0.52, 0.35).normalize();
+
 // **Der Wind auf der Kugel.** Auf der Platte waren das zwei 2D-Richtungen in
 // x/z. Auf einer Kugel gibt es kein x/z: Wer die Rippelphase aus der
 // waagerechten Projektion der Weltkoordinate zieht, bekommt am „Äquator" der
@@ -4447,7 +4458,13 @@ function faerbeBruchstein(
     // irgendwo an.
     const abgewandt = Math.max(0, -n.dot(mondRichtung));
     const unten = Math.max(0, -ny);
-    const kaeltefalle = smoothstep(0.25, 0.85, abgewandt) * (0.45 + 0.55 * unten);
+    // **Dritter Anlauf am Frost.** Der Prüfer hat ihn nach dem zweiten immer
+    // noch nicht gefunden: 0,00 bis 0,18 % der Bodenpixel, in `e-boden` null.
+    // Die Kante war richtig, der Einsatzpunkt zu spät — bei 0,25 begann die
+    // Kruste erst 75 Grad hinter dem Terminator, und so weit abgewandte
+    // Flächen sind ohnehin fast schwarz. 0,05 bis 0,55 legt sie auf die
+    // **schattige Flanke**, wo man sie sieht.
+    const kaeltefalle = smoothstep(0.05, 0.55, abgewandt) * (0.55 + 0.45 * unten);
     c.lerp(frostFarbe, kaeltefalle * frost);
 
     // Kontaktverdunklung am Fuß, wie gehabt.
@@ -5037,6 +5054,15 @@ function makeMarsPlanet(rand) {
     { vonBogen: 12, vonAz: 128, bisBogen: 21, bisAz: 172, breite: 5.5, h: 3.2 },
     { vonBogen: 30, vonAz: 42, bisBogen: 48, bisAz: 74, breite: 6.5, h: 3.9 },
     { vonBogen: 52, vonAz: -108, bisBogen: 68, bisAz: -152, breite: 6.0, h: 3.4 },
+    // **Für die leere Station.** Der Prüfer über `rund-030`: „eine Kuppe auf
+    // etwa 85 % der Fläche, kein Fels, kein Maßstab, kein Horizontereignis —
+    // eine von zwölf Stationen, an der es nichts zu sehen gibt."
+    //
+    // Der Rundgang läuft nach Azimut 180; Station 30 steht bei 13,1 m Bogen und
+    // blickt weiter in dieselbe Richtung. Dieser Grat quert den Weg bei 22 bis
+    // 30 m Bogen — aus 9 bis 17 m Entfernung, und mit 3,5 m Kammhöhe reicht die
+    // Sichtweite (8,9 + sqrt(2·25·3,5) = 22,1 m) genau bis dorthin.
+    { vonBogen: 22, vonAz: 158, bisBogen: 30, bisAz: 202, breite: 5.8, h: 3.5 },
   ];
   grate.forEach((g, i) => {
     g.a = ortVon(STARTPUNKT, g.vonBogen, g.vonAz);
@@ -5444,7 +5470,7 @@ function makeMarsPlanet(rand) {
     // Ein alter Brocken ist eingestaubt, ein frisch zerbrochener zeigt den Bruch.
     faerbeBruchstein(geoR, rockHex, rock.quaternion, MOND_RICHTUNG, {
       staub: 0.35 + alter * 0.45,
-      frost: 0.3 + (1 - alter) * 0.35,
+      frost: 0.5 + (1 - alter) * 0.4,
       alter,
       oben: dir,
       bruchachse: bruchRichtung(dir, i * 5.3, i * 2.9, _bruch),
@@ -5603,7 +5629,7 @@ function makeMarsPlanet(rand) {
         m.receiveShadow = true;
         faerbeBruchstein(g, 0x7a4a37, m.quaternion, MOND_RICHTUNG, {
           staub: 0.5,
-          frost: 0.42,
+          frost: 0.62,
           alter: 0.4,
           oben: dirT,
           bruchachse: bruchRichtung(
@@ -5682,7 +5708,7 @@ function makeMarsPlanet(rand) {
         // Szene fallen.
         faerbeBruchstein(g, 0x6d4432, m.quaternion, MOND_RICHTUNG, {
           staub: 0.34,
-          frost: 0.42,
+          frost: 0.62,
           alter: 0.5,
           oben: dirF,
           bruchachse: bruchRichtung(
@@ -6812,12 +6838,43 @@ function mondHof(name, innen, aussen, exponent, groesse, staerke) {
 //
 // Reihenfolge: Kuppel (−2), Sterne (−1), alles andere (0).
 function makeSternfeld(rand, R = 41) {
-  const ANZAHL = 2600;
+  // **Der halbe Himmel hat gefehlt, und zwar messbar.**
+  //
+  // Hier stand eine **Kappe** von y = −0,36 bis y = +1: die obere Halbkugel
+  // plus die zwanzig Grad bis zur Geländekante. Auf der 96-m-Platte war das
+  // richtig — was tiefer lag, deckten Boden und Nebel ab.
+  //
+  // Auf dem Planeten dreht das Sternfeld mit der Welt, weil sonst der Mond nie
+  // unterginge. Die Kappe dreht mit — und zeigt nach einer halben Runde nach
+  // **unten**. Gemessen in `h-mond-rot` (Station 180): In den obersten 240
+  // Bildzeilen stand **kein einziger** heller Punkt, während unten 510 standen.
+  // Der Auftraggeber hat es zweimal gemeldet, bevor ich es nachgezählt habe.
+  //
+  // Jetzt die volle Kugel. Was unter dem Horizont steht, verdeckt der Boden —
+  // das kostet nichts und ist die einzige Verteilung, die unter jeder Drehung
+  // richtig bleibt.
+  //
+  // **Die Anzahl steigt dabei, ohne den gesäten Strom zu verschieben.** Über
+  // die ganze Kugel statt über eine Kappe wäre dieselbe Zahl halb so dicht.
+  // `makeSternfeld` läuft aber **vor** dem Bau des Planeten, und jeder
+  // zusätzliche `rand()`-Zug verschöbe die Lage sämtlicher Brocken,
+  // Formationen und Findlinge. Deshalb: genau so viele Züge aus dem gesäten
+  // Strom verbrauchen wie bisher, und danach mit einem eigenen Strom bauen.
+  const ANZAHL_ALT = 2600;
+  const ZUEGE_JE_STERN = 5; // u, phi, Helligkeit, Farbe, Phase
+  for (let i = 0; i < ANZAHL_ALT * ZUEGE_JE_STERN; i++) rand();
+  const mr = mulberry32(90210077);
+
+  const ANZAHL = 5200;
 
   const positions = new Float32Array(ANZAHL * 3);
   const farben = new Float32Array(ANZAHL * 3);
   const groessen = new Float32Array(ANZAHL);
   const phasen = new Float32Array(ANZAHL);
+  // Wie stark ein Stern der Gleichhelligkeit unterliegt — je Stern gebacken,
+  // weil Mond und Sternfeld in derselben Gruppe sitzen und ihre gegenseitige
+  // Lage sich nie ändert.
+  const gleichAn = new Float32Array(ANZAHL);
 
   // Farbtemperaturleiter von heiß nach kühl. Die Anteile sind grob an eine
   // Sichtbarkeitsauswahl angelehnt, nicht an eine Katalogstatistik – es ist
@@ -6832,67 +6889,94 @@ function makeSternfeld(rand, R = 41) {
 
   const c = new THREE.Color();
   for (let i = 0; i < ANZAHL; i++) {
-    // Gleichverteilt auf der Kugel. `u` ist der Kosinus des Polarwinkels –
-    // ohne diese Umrechnung ballen sich die Punkte an den Polen.
-    const u = rand() * 2 - 1;
-    const phi = rand() * Math.PI * 2;
-    // **Bis 21 Grad unter Augenhöhe, nicht bis null.**
+    // Gleichverteilt auf der **ganzen** Kugel. `y` ist der Kosinus des
+    // Polarwinkels – ohne diese Umrechnung ballen sich die Punkte an den Polen.
+    let y = mr() * 2 - 1;
+    const phi = mr() * Math.PI * 2;
+    let sn = Math.sqrt(Math.max(0, 1 - y * y));
+    let dx = sn * Math.cos(phi);
+    let dz = sn * Math.sin(phi);
+
+    // **Ein gutes Drittel der Sterne gehört ins Band.**
     //
-    // Vorher stand hier `Math.abs(u) * 0.98 - 0.02` — die obere Halbkugel mit
-    // einem Fingerbreit Rest darunter. Auf der 96-m-Platte war das richtig:
-    // Was unter Augenhöhe lag, deckten Boden und Nebel ohnehin ab.
+    // Der Prüfer: „ein weichgezeichnetes graues Band ohne eine einzige
+    // Punktquelle […] in `a-augenhoehe` steht sie neben einer echten Staubfahne
+    // und ist von ihr nicht zu unterscheiden." Eine Milchstraße besteht aus
+    // Sternen; ein Band ohne welche ist Rauch.
     //
-    // Auf einer Kugel mit 25 m Halbmesser liegt der Horizont **20,0 Grad unter
-    // Augenhöhe** (acos(25/26,6)). Zwischen dem alten Schnitt und der
-    // Geländekante klaffte damit ein zwanzig Grad breiter Streifen ohne einen
-    // einzigen Stern — und das ist genau der Streifen, in den man auf einem
-    // kleinen Planeten am meisten schaut. Der Auftraggeber hat es als
-    // „fehlende Sterne" gemeldet, und das war es auch.
-    //
-    // Verteilt wird jetzt gleichmäßig über die Kappe von y = −0,36 bis y = 1.
-    // Weil `u` schon gleichverteilt in [−1, 1] liegt und die Fläche einer
-    // Kugelzone linear in y wächst (Archimedes), genügt eine lineare
-    // Abbildung — **ohne** eine zusätzliche Ziehung aus dem gesäten Strom.
-    const y = 0.32 + u * 0.68;
-    // ACHTUNG: Der Sinus des Polarwinkels muss aus **y** kommen, nicht aus u.
-    // Solange y ungefähr |u| war, fiel das nicht auf; jetzt fielen die Sterne
-    // sonst von der Kugel.
-    const s = Math.sqrt(Math.max(0, 1 - y * y));
-    positions[i * 3] = s * Math.cos(phi) * R;
+    // Die Verdichtung ist eine Stauchung, keine zweite Ziehung: Der Anteil der
+    // Richtung entlang des Bandpols wird auf ein Fünftel zusammengedrückt und
+    // die Richtung neu normiert. Aus einer gleichverteilten Kugel wird damit
+    // ein Gürtel von rund elf Grad Halbbreite — und die Verteilung *innerhalb*
+    // des Gürtels bleibt gleichmäßig, ohne Ballung an einem Rand.
+    if (mr() < 0.36) {
+      const w = dx * MILCH_POL.x + y * MILCH_POL.y + dz * MILCH_POL.z;
+      const k = 0.2;
+      let nx = dx - MILCH_POL.x * w * (1 - k);
+      let ny = y - MILCH_POL.y * w * (1 - k);
+      let nz = dz - MILCH_POL.z * w * (1 - k);
+      const l = Math.hypot(nx, ny, nz) || 1;
+      dx = nx / l;
+      y = ny / l;
+      dz = nz / l;
+      sn = Math.sqrt(Math.max(0, 1 - y * y));
+    }
+    positions[i * 3] = dx * R;
     positions[i * 3 + 1] = y * R;
-    positions[i * 3 + 2] = s * Math.sin(phi) * R;
+    positions[i * 3 + 2] = dz * R;
 
-    // **Alle Sterne gleich hell** — so gewünscht, und auf einem luftlosen
-    // Körper auch das Richtige. Drei Dinge machten sie vorher ungleich, und
-    // alle drei sind hier verschwunden:
+    // **Gleich hell — aber nur dort, wo der Mond nicht scheint.**
     //
-    //   * die **Größenklassenverteilung** `pow(rand, 2.6)`, die zwei Dutzend
-    //     helle über zweieinhalbtausend schwache setzte,
-    //   * die **Extinktion** zum Horizont hin — sie beschreibt Luft, und Luft
-    //     gibt es hier nicht,
-    //   * das **Flimmern**, das ebenfalls Luft beschreibt (Szintillation
-    //     entsteht in der Atmosphäre; im Vakuum steht ein Stern still).
+    // Der erste Anlauf hat *alle* Sterne gleich hell gemacht; gemeint war die
+    // mondabgewandte Seite. Das ist zum Glück die einfachere Aufgabe: Mond und
+    // Sternfeld sitzen in derselben Gruppe, ihre gegenseitige Lage ändert sich
+    // beim Rundgang **nie**. Der Anteil lässt sich deshalb je Stern einbacken,
+    // statt ihn je Bild zu rechnen.
     //
-    // **Der Zug aus dem gesäten Strom bleibt trotzdem stehen.** Er wird nur
-    // nicht mehr verwendet. Ohne ihn verschöbe sich jede folgende Ziehung, und
-    // damit die Lage sämtlicher Sterne, Brocken und Landmarken.
-    rand();
-    groessen[i] = 0.63;
+    // Am Mond behält der Himmel seine Größenklassen — dort blendet sein Hof
+    // die schwachen ohnehin aus, und die wenigen hellen sind genau das, was
+    // man neben einem Mond sieht. Auf der Gegenseite stehen sie alle gleich
+    // hell und damit alle sichtbar.
+    const zumMond = dx * MOND_RICHTUNG.x + y * MOND_RICHTUNG.y + dz * MOND_RICHTUNG.z;
+    const abgewandt = smoothstep(0.30, -0.45, zumMond);
+    gleichAn[i] = abgewandt;
 
-    // **Die Farbtemperatur bleibt.** „Gleich hell" ist keine Aussage über die
-    // Farbe; ein Himmel aus lauter weißen Punkten hätte nur einen Zug weniger.
-    // Damit die Farbe die Helligkeit nicht durch die Hintertür wieder ungleich
-    // macht, wird jeder Ton auf **gleiche Leuchtdichte** normiert.
-    const temp = TEMPERATUREN[Math.floor(rand() * TEMPERATUREN.length)];
+    // Helligkeitsverteilung für die Mondseite: `pow(rand, 2.6)` liefert viele
+    // schwache und wenige helle.
+    const m = Math.pow(mr(), 2.6);
+    const groesseNat = 0.13 + m * 0.78;
+    const GROESSE_GLEICH = 0.60;
+    groessen[i] = groesseNat + (GROESSE_GLEICH - groesseNat) * abgewandt;
+
+    // Farbe: auf der Gleichseite auf gleiche Leuchtdichte normiert, damit die
+    // Farbtemperatur die Helligkeit nicht durch die Hintertür wieder ungleich
+    // macht. Auf der Mondseite wie bisher anteilig mit der Größenklasse.
+    const temp = TEMPERATUREN[Math.floor(mr() * TEMPERATUREN.length)];
+    const saettigung = 0.18 + m * 0.72;
+    const rNat = 1 + (temp[0] - 1) * saettigung;
+    const gNat = 1 + (temp[1] - 1) * saettigung;
+    const bNat = 1 + (temp[2] - 1) * saettigung;
     const y709 = 0.2126 * temp[0] + 0.7152 * temp[1] + 0.0722 * temp[2];
-    const HELLIGKEIT = 0.55;
-    const k = HELLIGKEIT / y709;
-    c.setRGB(temp[0] * k, temp[1] * k, temp[2] * k);
+
+    // **Keine Extinktion mehr.** Sie beschreibt Luft, und die gibt es hier
+    // nicht; auf der vollen Kugel wäre sie ohnehin nur eine Verdunklung der
+    // Sterne, die unter dem Boden stehen.
+    const HELL_GLEICH = 0.62;
+    const hellNat = 0.30 + m * 0.70;
+    const hell = hellNat + (HELL_GLEICH - hellNat) * abgewandt;
+    const kNat = hell;
+    const kGleich = hell / y709;
+    const k = kNat + (kGleich - kNat) * abgewandt;
+    c.setRGB(
+      (rNat + (temp[0] - rNat) * abgewandt) * k,
+      (gNat + (temp[1] - gNat) * abgewandt) * k,
+      (bNat + (temp[2] - bNat) * abgewandt) * k
+    );
     farben[i * 3] = c.r;
     farben[i * 3 + 1] = c.g;
     farben[i * 3 + 2] = c.b;
 
-    phasen[i] = rand() * Math.PI * 2;
+    phasen[i] = mr() * Math.PI * 2;
   }
 
   const geometry = new THREE.BufferGeometry();
@@ -6900,6 +6984,7 @@ function makeSternfeld(rand, R = 41) {
   geometry.setAttribute('farbe', new THREE.BufferAttribute(farben, 3));
   geometry.setAttribute('groesse', new THREE.BufferAttribute(groessen, 1));
   geometry.setAttribute('phase', new THREE.BufferAttribute(phasen, 1));
+  geometry.setAttribute('gleich', new THREE.BufferAttribute(gleichAn, 1));
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -6919,18 +7004,24 @@ function makeSternfeld(rand, R = 41) {
       attribute float groesse;
       attribute vec3 farbe;
       attribute float phase;
+      attribute float gleich;
       uniform float pxSkala;
       uniform float zeit;
       varying vec3 vFarbe;
       varying float vSchwund;
       void main() {
-        // **Kein Flimmern mehr.** Szintillation entsteht in der Atmosphäre;
-        // auf einem luftlosen Körper steht ein Stern still. Sie war zugleich
-        // der letzte Rest, der die Sterne untereinander ungleich hell machte.
-        // Attribut phase und Uniform zeit bleiben stehen, damit die Puffer
-        // und die Zeitanbindung unveraendert sind.
-        float f = 1.0;
-        vFarbe = farbe;
+        // **Flimmern nur auf der Mondseite.**
+        //
+        // Der erste Anlauf hat es ganz abgeschafft — mit dem Argument, dass
+        // Szintillation in der Atmosphaere entsteht und ein luftloser Koerper
+        // keine hat. Das stimmt, kostet aber einen der vier Traeger von
+        // Bewegung, und gemeint war ohnehin nur die abgewandte Seite. Dort, wo
+        // die Sterne gleich hell stehen sollen, waere ein Flimmern genau der
+        // Rest, der sie wieder ungleich macht; auf der Mondseite darf der
+        // Himmel weiter atmen.
+        float f = 1.0 + sin(zeit * (1.7 + fract(phase) * 2.3) + phase)
+                        * 0.16 * (1.2 - groesse) * (1.0 - gleich);
+        vFarbe = farbe * f;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         // **Ein Stern unter zweieinhalb Bildpunkten wird nicht kleiner,
         // sondern schwächer.** Der Prüfer hat die schwachen Sterne bei
@@ -7015,7 +7106,7 @@ function makeNachtKuppel(radius = 44, horizontSinus = 0) {
   //   0,423 · Mondrichtung + 0,906 · (waagerechter Vektor senkrecht dazu),
   // was den Pol fast waagerecht stellt und das Band damit **steil** — es
   // kreuzt den Himmel schräg statt am Horizont zu liegen.
-  const mwPol = new THREE.Vector3(0.78, 0.52, 0.35).normalize();
+  const mwPol = MILCH_POL;
   // Zwei orthonormale Vektoren in der Bandebene. Sie legen fest, wo u = 0
   // liegt; welche es sind, ist gleichgültig, solange sie senkrecht stehen.
   const mwA = new THREE.Vector3(0, 1, 0).cross(mwPol).normalize();
@@ -7398,7 +7489,29 @@ function createNightEnvironment() {
   // Himmelsgruppe: Eine Hemisphärenleuchte rechnet mit `normal.y` in
   // Weltkoordinaten. Sie mitzudrehen hieße, dass „oben" für sie irgendwohin
   // wandert, während der Nutzer weiterhin nach oben schaut.
-  const skyFill = new THREE.HemisphereLight(0x7595b4, 0x4e2a1c, 2.0);
+  // **Ein Schatten nimmt nur das gerichtete Licht weg.**
+  //
+  // Der Prüfer hat keine Schlagschatten gefunden. `tools/schattenwurf.mjs`
+  // (neu) rendert jede Kamera zweimal — mit und ohne Schattenwurf — und misst,
+  // was dazwischen liegt. Ergebnis: Schatten **gibt** es (in `d-orbit`
+  // 1,79 % der Bildfläche mit einem mittleren Abfall von 39), aber in
+  // Augenhöhe sind es 0,01 bis 0,22 %. Zwei Gründe, und nur einer ist zu
+  // beheben:
+  //
+  //   * **Geometrie.** Die Brocken sind 14 bis 56 cm groß und zu einem Drittel
+  //     eingesunken; ihr Schatten ist bei 30 Grad Mondhöhe einen halben Meter
+  //     lang. Das sind wenige hundert Bildpunkte. Der Sputnik zeigt, was ein
+  //     Körper mit Aufbauten kann: 6,91 %.
+  //   * **Das Verhältnis der Quellen.** Bei Himmel 2,0 gegen Mond 3,1 · sin 30°
+  //     = 1,55 kam mehr als die Hälfte des Lichts aus einer Quelle, die kein
+  //     Schatten je abhält. Gemessen über die Reihe:
+  //
+  //       Himmel/Mond   2,0/3,1   1,4/3,8   1,0/4,4   0,6/5,0
+  //       größter Abfall     54        72        81        79
+  //
+  // 1,45/3,8 ist der Kompromiss: ein Drittel mehr Schattentiefe, und die
+  // Nachtseite — die **nur** vom Himmelslicht lebt — verliert nur ein Viertel.
+  const skyFill = new THREE.HemisphereLight(0x7595b4, 0x4e2a1c, 1.45);
   group.add(skyFill);
 
   // **Eine** gerichtete Quelle. Der Mond steht bei [14 | 16 | −24], das sind
@@ -7416,7 +7529,7 @@ function createNightEnvironment() {
   //
   // 0xe2eaf0 ist (226 | 234 | 240): immer noch kühl, aber zwischen Blau und
   // Cyan statt darüber hinaus. Linear fällt Blau um 13 %, Rot steigt um 10 %.
-  const moonLight = new THREE.DirectionalLight(0xe2eaf0, 3.1);
+  const moonLight = new THREE.DirectionalLight(0xe2eaf0, 3.8);
   // In der Himmelsgruppe, also dreht das Licht mit dem Mond mit: Wer um den
   // Planeten läuft, läuft in die Nacht hinein und wieder heraus.
   moonLight.position.copy(MOND_RICHTUNG).multiplyScalar(MOND_FERN);

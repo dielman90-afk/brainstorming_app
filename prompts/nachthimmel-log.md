@@ -2575,6 +2575,131 @@ schwarzes Bild in der Reihe. Geschrieben war die Warnung, gebaut war sie nicht.
 Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δmax 8 bei 0,012 %, Insel
 0,585 % ≥ 2 im Rauschband. Konsole frei von Errors und Warnings.
 
+### Der halbe Sternhimmel, und was „gleich hell" wirklich hieß
+
+Zwei Korrekturen des Auftraggebers, beide berechtigt, und die erste war ein
+handfester Fehler, den er zweimal melden musste, bevor ich ihn nachgezählt habe.
+
+#### Die Kappe
+
+Das Sternfeld war eine **Kappe** von y = −0,36 bis y = +1: die obere Halbkugel
+plus die zwanzig Grad bis zur Geländekante. Auf der 96-m-Platte war das richtig
+— was tiefer lag, deckten Boden und Nebel ab.
+
+Auf dem Planeten dreht das Sternfeld mit der Welt, weil sonst der Mond nie
+unterginge. **Die Kappe dreht mit** — und zeigt nach einer halben Runde nach
+unten. In `h-mond-rot` (Station 180), zeilenweise gezählt:
+
+| Bildzeilen | 0–120 | 120–240 | 240–360 | 360–480 | 480–600 | 600–720 |
+| --- | --- | --- | --- | --- | --- | --- |
+| vorher | **0** | **0** | 510 | 162 | 130 | 239 |
+| jetzt | 449 | 469 | 965 | 636 | 431 | 397 |
+
+Jetzt die volle Kugel. Was unter dem Horizont steht, verdeckt der Boden — das
+kostet nichts und ist die einzige Verteilung, die unter jeder Drehung stimmt.
+
+**Die Anzahl steigt von 2600 auf 5200, ohne den gesäten Strom zu verschieben.**
+`makeSternfeld` läuft **vor** dem Bau des Planeten; jeder zusätzliche
+`rand()`-Zug verschöbe die Lage sämtlicher Brocken, Formationen und Findlinge.
+Deshalb: genau so viele Züge verbrauchen wie bisher (2600 × 5), und danach mit
+einem eigenen gesäten Strom bauen.
+
+#### „Gleich hell" hieß: auf der Seite ohne Mond
+
+Ich hatte **alle** Sterne gleich hell gemacht. Gemeint war die mondabgewandte
+Seite — und das ist zum Glück die einfachere Aufgabe: Mond und Sternfeld sitzen
+in derselben Gruppe, ihre gegenseitige Lage ändert sich beim Rundgang **nie**.
+Der Anteil lässt sich deshalb je Stern einbacken, statt ihn je Bild zu rechnen.
+
+Am Mond behält der Himmel seine Größenklassen — dort blendet sein Hof die
+schwachen ohnehin aus, und die wenigen hellen sind genau das, was man neben
+einem Mond sieht. Auf der Gegenseite stehen sie alle gleich hell und damit alle
+sichtbar. Das **Flimmern** kommt auf derselben Grundlage zurück: nur dort, wo
+die Sterne nicht gleich hell sein sollen — es war einer der vier Träger von
+Bewegung, und auf der Gleichseite wäre es genau der Rest, der sie wieder
+ungleich macht.
+
+### Vier weitere Befunde des Prüfers
+
+**10 — Die Milchstraße ist Rauch.** *„Ein weichgezeichnetes graues Band ohne
+eine einzige Punktquelle."* Eine Milchstraße besteht aus Sternen. 36 % des
+Sternfelds werden jetzt zur Bandebene hin **gestaucht**: Der Anteil der Richtung
+entlang des Bandpols wird auf ein Fünftel zusammengedrückt und neu normiert —
+aus der gleichverteilten Kugel wird ein Gürtel von rund elf Grad Halbbreite, und
+die Verteilung darin bleibt gleichmäßig. Damit Band und Verdichtung dieselbe
+Ebene meinen, steht `MILCH_POL` jetzt auf Modulebene statt in `makeNachtKuppel`.
+
+**12 — Der Mond in der Bildmitte.** Schwerpunkt (631, 346) auf 1280 × 720 —
+*„der schwächstmögliche Ort im Bild, und es ist die eine Kamera, deren einziger
+Zweck der Mond ist."* Das Blickziel ist um gut zehn Grad nach links und sechs
+nach unten versetzt; der Mond steht jetzt im rechten oberen Drittel, mit der
+Milchstraße als Gegengewicht.
+
+**8 — Keine Schlagschatten.** `tools/schattenwurf.mjs` (neu) rendert jede Kamera
+zweimal — mit und ohne Schattenwurf — und misst, was dazwischen liegt.
+Schwellenfrei, ohne Raterei, welches Pixel dazugehört. Ergebnis:
+
+| | a-augenhoehe | e-boden | d-orbit | g-sputnik |
+| --- | --- | --- | --- | --- |
+| Schattenfläche | 0,22 % | 0,01 % | 1,79 % | **6,91 %** |
+
+Schatten **gibt** es. Zwei Gründe, warum sie in Augenhöhe kaum ankommen, und
+nur einer ist zu beheben:
+
+* **Geometrie.** Die Brocken sind 14 bis 56 cm groß und zu einem Drittel
+  eingesunken; ihr Schatten ist bei 30 Grad Mondhöhe einen halben Meter lang.
+  Der Sputnik zeigt mit 6,91 %, was ein Körper mit Aufbauten kann — das ist
+  keine Lichtfrage, das ist eine Frage, was dasteht.
+* **Das Verhältnis der Quellen.** Bei Himmel 2,0 gegen Mond 3,1 · sin 30° = 1,55
+  kam mehr als die Hälfte des Lichts aus einer Quelle, die kein Schatten je
+  abhält. Gemessen:
+
+  | Himmel / Mond | 2,0/3,1 | 1,4/3,8 | 1,0/4,4 | 0,6/5,0 |
+  | --- | --- | --- | --- | --- |
+  | größter Abfall | 54 | 72 | 81 | 79 |
+
+1,45/3,8 ist der Kompromiss. Die Nachtseite lebt **nur** vom Himmelslicht;
+gemessen über die sechs mondlosen Stationen fällt ihr Mittel von 13,7–18,5 auf
+11,2–17,3, ihre Tonwertspanne **steigt** aber von 7,8–29,8 auf **9,2–33,0** —
+weil dort jetzt mehr und hellere Sterne stehen. Dunkler im Mittel, mehr
+Zeichnung im Bild.
+
+**5 — Frost, dritter Anlauf.** Nach dem zweiten stand er immer noch bei 0,00 bis
+0,18 % der Bodenpixel, in `e-boden` bei null. Die Kante war richtig, der
+Einsatzpunkt zu spät: `smoothstep(0.25, 0.85, abgewandt)` ließ die Kruste erst
+75 Grad hinter dem Terminator beginnen, und so weit abgewandte Flächen sind
+ohnehin fast schwarz. `smoothstep(0.05, 0.55, …)` legt sie auf die schattige
+Flanke, wo man sie sieht. Jetzt 0,05 bis 0,29 %, in `e-boden` 0,14 % statt null
+— und im Bild tragen mehrere Brocken eine sichtbare kalte Kruste.
+
+**11 — `rund-030` ist ein leeres Bild.** Der Rundgang läuft nach Azimut 180;
+Station 30 steht bei 13,1 m Bogen. Ein Grat quert den Weg jetzt bei 22 bis 30 m
+Bogen — aus 9 bis 17 m Entfernung, und mit 3,5 m Kammhöhe reicht die Sichtweite
+(8,9 + sqrt(2·25·3,5) = 22,1 m) genau bis dorthin.
+
+#### Gemessen
+
+| | Wert |
+| --- | --- |
+| Draw-Calls | 16–21 / 120 |
+| Dreiecke | 318 218–328 506 / 350 000 |
+| Rundgang schließt | 1,30 cm |
+| längste gerade Kante im Gelände | 119 px (vorher 192) |
+| Sterne in den obersten 240 Zeilen bei Station 180 | 0 → **918** |
+| Frost auf Bodenpixeln | 0,00–0,18 % → **0,05–0,29 %** |
+| größter Schattenabfall | 54 → **72** |
+
+Regression: Zen bitgleich, Konstrukt Δmax 1, Dojo Δmax 5 bei 0,008 %, Insel
+0,495 % ≥ 2 im Rauschband. Konsole frei von Errors und Warnings.
+
+#### Was offen bleibt
+
+* **Die Schattenfläche in Augenhöhe** ist geometriebegrenzt, nicht
+  lichtbegrenzt. Mehr Schatten hieße größere Körper oder mehr Aufbauten — das
+  ist eine Entscheidung über die Landschaft, keine über die Beleuchtung.
+* Der Prüfer hat den Sputnik noch nie gesehen; sein Bericht ist von vor seinem
+  Einbau.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
