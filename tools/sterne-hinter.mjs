@@ -1,6 +1,13 @@
 // Stehen Sterne VOR dem Gelände? — als harte Messung statt als Heuristik.
 //
-//   node tools/sterne-hinter.mjs [--out tools/shots/xxx]
+//   node tools/sterne-hinter.mjs [--out tools/shots/xxx] [--rundgang]
+//
+// `--rundgang` prüft statt der sechs festen Kameras die **zwölf Stationen des
+// Rundgangs**. Das ist kein Zusatz, sondern eine Lücke, die sich gerächt hat:
+// Der Prüfer hat 104 Sterne vor dem Gelände in `rund-210` gefunden, dazu welche
+// in 240, 270 und 300 — sämtlich Stationen, die dieses Werkzeug nie gesehen
+// hat, weil es nur die sechs Standbilder kannte. Vier von zwölf Stationen
+// betroffen, und die Messung meldete null, weil sie woanders hinsah.
 //
 // `tools/silhouette.mjs` sucht die Geländekante über eine Luminanzschwelle und
 // nimmt dabei an, der Himmel sei dunkler als L 7. Das galt, solange der Himmel
@@ -23,11 +30,53 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import { ROOT, shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import {
+  ROOT,
+  shotsFor,
+  PLANET_SHOTS,
+  startServer,
+  launchBrowser,
+  openApp,
+  selectEnv,
+  lockCamera,
+  ladeThree,
+} from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const outArg = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : null;
+const rundgang = argv.includes('--rundgang');
 const SHOTS = shotsFor('night');
+
+// Eine Station des Rundgangs einnehmen: die Welt um `grad` drehen und die
+// Kamera aus dem Höhenfeld auf den Boden setzen — wortgleich wie in
+// `tools/rundgang.mjs`, damit beide Werkzeuge dieselben zwölf Bilder meinen.
+async function stelleStation(page, grad) {
+  const s0 = PLANET_SHOTS[0];
+  const blick = [s0.look[0] - s0.pos[0], s0.look[1] - s0.pos[1], s0.look[2] - s0.pos[2]];
+  const { augeY, ziel } = await page.evaluate(
+    ({ grad, blick }) => {
+      const T = window.__THREE;
+      const app = window.__app;
+      app.env.setWalkEnabled?.(false);
+      const welt = app.scene.getObjectByName('nacht-welt');
+      const himmel = app.scene.getObjectByName('nacht-himmel');
+      const kuppel = app.scene.getObjectByName('nacht-kuppel');
+      welt.quaternion.setFromAxisAngle(new T.Vector3(1, 0, 0), (grad * Math.PI) / 180);
+      himmel.quaternion.copy(welt.quaternion);
+      kuppel.userData.setzeWeltdrehung(welt.quaternion);
+      welt.updateMatrixWorld(true);
+      const boden = app.scene.getObjectByName('nacht-welt-boden');
+      const oben = new T.Vector3(0, 1, 0).applyQuaternion(welt.quaternion.clone().invert());
+      const y = 25 + boden.userData.heightAt(oben) + 1.6;
+      return { augeY: y, ziel: [blick[0], y + blick[1], blick[2]] };
+    },
+    { grad, blick }
+  );
+  // **Und dann die Kamera festnageln.** Ohne `lockCamera` setzt die Bildschleife
+  // sie zwischen den drei Aufnahmen nach, und A, B und C zeigten verschiedene
+  // Ansichten — der Vergleich wäre wertlos.
+  await lockCamera(page, { name: `rund-${grad}`, pos: [0, augeY, 0], look: ziel, fov: s0.fov }, 6.0);
+}
 
 const sichtbarkeit = (page, namen, sichtbar) =>
   page.evaluate(
@@ -46,10 +95,18 @@ let vorDemGelaende = 0;
 try {
   const { page } = await openApp(browser);
   await selectEnv(page, 'night');
+  await ladeThree(page);
   if (outArg) await fs.mkdir(path.resolve(ROOT, outArg), { recursive: true });
 
-  for (const shot of SHOTS) {
-    await lockCamera(page, shot, 6.0);
+  const posen = rundgang
+    ? Array.from({ length: 12 }, (_, k) => ({
+        name: `rund-${String(k * 30).padStart(3, '0')}`,
+        setzen: () => stelleStation(page, k * 30),
+      }))
+    : SHOTS.map((shot) => ({ name: shot.name, setzen: () => lockCamera(page, shot, 6.0) }));
+
+  for (const shot of posen) {
+    await shot.setzen();
     await page.waitForTimeout(350);
     const A = PNG.sync.read(await page.screenshot());
 
@@ -141,7 +198,9 @@ try {
         `  (an der Kante, gezählt nicht: ${amRand})\n`
     );
   }
-  process.stdout.write(`\nSumme über alle sechs Kameras: ${vorDemGelaende}\n`);
+  process.stdout.write(
+    `\nSumme über ${rundgang ? 'alle zwölf Stationen' : 'alle sechs Kameras'}: ${vorDemGelaende}\n`
+  );
 } finally {
   await browser.close();
   await server.stop();

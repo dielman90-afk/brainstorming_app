@@ -2248,6 +2248,100 @@ Bezugspunkt. „0,9 bis 2,0 Meter" ist ohne die Angabe *wovon* keine Höhe, sond
 eine Zahl. Auf der Platte fielen Weltnull und Boden zusammen, und deshalb konnte
 der Unterschied zwanzig Umgebungswechsel lang unbemerkt bleiben.
 
+### Der schwerste Befund war eine Konstante — und der drittschwerste gab es nicht
+
+Der Prüfer hat seinen Bericht mit einem Satz geschlossen: *„Man steht auf einem
+Mond und schaut auf einen ausgeschnittenen Karton."* Sein Befund 1: Jede
+mondabgewandte Geländemasse ist **eine einzige flache Farbe**, RGB(28,13,9), und
+zwar dasselbe Zahlentripel in vier verschiedenen Bildern auf vier verschiedenen
+Graten. In `rund-270` waren das 3,93 % aller Bildpunkte in einer
+zusammenhängenden Fläche von 36 158 px.
+
+RGB(28,13,9) ist `0x1c0d09`. Das ist die Nebelfarbe.
+
+**Linearer Nebel sättigt bei `far` vollständig.** `far` stand auf 13 m — für
+eine Welt gerechnet, deren fernster Punkt der Horizont bei 8,9 m ist. Das war
+richtig, solange nichts darüber hinausragte. Seit dem letzten Durchlauf ragt
+etwas darüber hinaus: die Grate und die zwei großen Einschläge, die genau dafür
+gebaut wurden, den Mittelgrund zu tragen. Sie standen bei 16 bis 24 m und wurden
+restlos zu Nebelfarbe. **Ich habe den Mittelgrund gebaut und im selben Zug
+zugedeckt.**
+
+Der Prüfer hat die Ursache nicht gekannt und die Wirkung trotzdem exakt benannt.
+Sein Satz „das größte Objekt im Bild ist kein Objekt, es hat einen Umriss und
+sonst nichts" ist die genaue Beschreibung eines gesättigten Nebels.
+
+#### Gemessen, nicht geraten
+
+`tools/nebelversuch.mjs` (neu) rendert vier Einstellungen an denselben vier
+Kameras; `tools/nebelanteil.mjs` (neu) zählt, wie viele Bildpunkte exakt die
+Nebelfarbe tragen und wie groß die größte zusammenhängende solche Fläche ist.
+
+| Nebel | reine Nebelfarbe (vier Kameras) |
+| --- | --- |
+| 5 → 13 m (vorher) | 0,75 bis 1,56 % |
+| 5 → 24 m | 0,00 bis 0,24 % |
+| **6 → 34 m (jetzt)** | **überall 0,00 %** |
+| ganz aus | 0,00 % |
+
+Über die zwölf Rundgangsstationen fällt die größte zusammenhängende Fläche reiner
+Nebelfarbe von **36 158 px auf 0**.
+
+Das ist wenig Nebel — und das ist richtig so. **Ein luftloser Körper hat keine
+Luftperspektive.** Was übrig bleibt, ist ein kompositorischer Anstoß, keine
+Physik; die Tiefe trägt hier die Krümmung. In `rund-270` stehen jetzt zwei
+bereifte Blöcke vor einem modellierten Rücken, wo vorher eine Fläche war; in
+`f-kante` ist aus dem schwarzen Ausschnitt ein Fels mit Facetten geworden.
+
+### Die Sterne vor dem Boden, die es nicht gab
+
+Befund 3 des Prüfers: 104 helle Punkte unterhalb der Geländekante in `rund-210`,
+dazu welche in 240, 270, 300 — „der eine Fehler in dieser Liste, den auch ein
+völlig unaufmerksamer Betrachter bemerkt".
+
+**Er hat sich geirrt, und zwar aus demselben Grund, aus dem er Befund 1 gefunden
+hat.** Im alten Bild war das Gelände jenseits von 13 m reine Nebelfarbe, L 15,6 —
+nicht unterscheidbar vom dunklen Himmel am Horizont. Wer die Geländekante über
+die Helligkeit sucht, findet dort, wo das beleuchtete Nahfeld aufhört, eine
+Kante — und die liegt weit **über** dem wirklichen Horizont. Alles dazwischen ist
+Himmel.
+
+Nachgemessen an seiner eigenen Koordinate. `tools/sterne-hinter.mjs` rät nicht,
+sondern schaltet das Sternfeld ab, setzt den Hintergrund auf Magenta und liest
+die Geländemaske aus der Szene:
+
+| | Prüfer | gemessen |
+| --- | --- | --- |
+| Geländekante in Spalte 386 | y = 418 | **y = 479** |
+| (386, 458) | „Stern 40 px im Boden" | **Himmel, kein Gelände** |
+| (840, 433) | Stern im Boden | Himmel |
+| (239, 511) | Stern im Boden | Himmel |
+| Sterne vor dem Gelände, zwölf Stationen | 104 + | **0** |
+
+Das ist kein Punkt gegen ihn: **Mein eigenes Werkzeug hatte genau denselben
+Fehler**, und er hat ihn gefunden, nicht ich. `tools/silhouette.mjs` sucht die
+Kante als „oberste Zeile, ab der 35 Zeilen heller als L 7 sind" und setzt laut
+eigenem Kommentar voraus, dass der Himmel bei L 2 bis 4 liegt. Er liegt bei L 9
+bis 16. Sein Satz dazu: *„Wer diesem Werkzeug eine 0 entnommen hat, hat nichts
+gemessen."* Das war ich.
+
+#### Zwei Reparaturen am Prüfstand
+
+* **`tools/silhouette.mjs` prüft jetzt seine eigene Voraussetzung** und
+  verweigert die Auskunft, statt eine falsche zu geben: Es misst den Median der
+  obersten 26 Zeilen und bricht mit Rückgabewert 2 ab, wenn der über 7 liegt.
+  Eine bessere Schwelle wäre die falsche Antwort gewesen — jede Schwelle über
+  der Helligkeit bricht beim nächsten Mal wieder.
+* **`tools/sterne-hinter.mjs --rundgang`** prüft jetzt auch die zwölf Stationen.
+  Dass es sie nicht kannte, war die eigentliche Lücke: Der Fehler wurde an
+  Stationen behauptet, die die Messung nie gesehen hat. Vier von zwölf, und die
+  Antwort lautete null, weil sie woanders hinsah.
+
+**Die Lehre:** Ein Werkzeug, dessen Annahme über die Szene irgendwann einmal
+stimmte, ist kein Messgerät mehr, sondern ein Gerücht mit Nachkommastellen. Beide
+Fassungen von `silhouette.mjs` sind an derselben Annahme gescheitert, und beide
+Male stand die Annahme im Kommentar darüber.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**

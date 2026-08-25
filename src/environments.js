@@ -6966,14 +6966,30 @@ function createNightEnvironment() {
     id: 'night',
     name: '🌌 Nachthimmel',
     background: new THREE.Color(0x0a0605),
-    // **Der Nebel ist neu vermessen, nicht neu geraten.** 22 bis 48 m stammten
-    // von der 96-m-Platte; auf einer Kugel mit 25 m Halbmesser liegt der
-    // Horizont bei 9,1 m Bogen und in Sichtlinie bei 8,9 m — der alte Bereich
-    // begann also erst weit hinter dem Rand der Welt und hat nie etwas getan.
-    // 5 bis 13 m staffeln jetzt genau die Strecke, die es noch gibt: Was auf
-    // dem eigenen Hügel steht, ist klar, was über die Krümmung steigt, sitzt im
-    // Dunst.
-    fog: new THREE.Fog(0x1c0d09, 5, 13),
+    // **Der Nebel hat den Mittelgrund aufgefressen.**
+    //
+    // 5 bis 13 m war für eine Welt gerechnet, deren fernster Punkt der Horizont
+    // bei 8,9 m ist. Das stimmte, solange nichts darüber hinausragte. Seit es
+    // Grate und große Einschläge gibt, ragt etwas darüber hinaus — und
+    // **linearer Nebel sättigt bei `far` vollständig**: Jeder Grat ab 13 m
+    // wurde exakt `0x1c0d09` und sonst nichts.
+    //
+    // Der Prüfer hat das als schwerwiegendsten Mangel benannt, ohne die Ursache
+    // zu kennen: „In `rund-270` sind 3,93 % aller Bildpixel dieser eine Wert
+    // […] das größte Objekt im Bild ist kein Objekt." RGB(28,13,9) ist
+    // `0x1c0d09`. Vier Bilder, vier verschiedene Grate, ein Zahlentripel —
+    // weil es dieselbe Konstante war.
+    //
+    // 6 bis 34 m ist gemessen (`tools/nebelversuch.mjs`, vier Einstellungen an
+    // vier Kameras): Bei 5–13 waren 0,75 bis 1,56 % der Bildpunkte reine
+    // Nebelfarbe, bei 5–24 noch 0,00 bis 0,24 %, bei 6–34 **nirgends mehr
+    // etwas**. Der fernste sichtbare Geländepunkt liegt bei rund 24 m
+    // Sichtlinie; dort bleiben jetzt 36 % der Modellierung stehen statt null.
+    //
+    // Das ist wenig Nebel — und das ist richtig so. Ein luftloser Körper hat
+    // **keine** Luftperspektive. Was übrig bleibt, ist ein kompositorischer
+    // Anstoß, keine Physik; die Tiefe trägt hier die Krümmung.
+    fog: new THREE.Fog(0x1c0d09, 6, 34),
     group,
 
     // Das globale Grundlicht aus main.js aus. Begründung oben beim Lichtblock:
