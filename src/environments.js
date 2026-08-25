@@ -4109,6 +4109,25 @@ function marsGroundMaterial() {
              // Viertel einer Periode. (Nicht A * f * Teilung: Der Fehler hat
              // auf der Insel 4 % gerechnet und 90 % ins Bild gestellt.)
              float versatz = sin(laengs * 0.7) * 0.35 + sin(laengs * 0.23 + 1.7) * 0.5;
+
+             // **Maeandern allein macht keine Gabelung.**
+             //
+             // Der Pruefer: „Die Rippelkaemme laufen ueber den gesamten
+             // sichtbaren Hang parallel, mit gleichem Abstand und gleicher
+             // Amplitude, ohne eine einzige Gabelung." Er hat recht, und der
+             // Grund steht in der Zeile darueber: versatz haengt nur von
+             // laengs ab — also von der Lage **entlang** der Kaemme. Alle
+             // Kaemme werden damit um denselben Betrag verschoben und bleiben
+             // deshalb parallel, so krumm sie auch laufen.
+             //
+             // Eine Gabelung entsteht, wo benachbarte Kaemme **verschieden**
+             // weit verschoben werden — dort aendert sich der lokale Abstand,
+             // und wo er unter eine halbe Periode faellt, laufen zwei Kaemme
+             // zusammen. Dafuer muss der Versatz auch von der Lage **quer**
+             // dazu abhaengen, also von phi.
+             float bogenQuer = planetR * phi * sinTh;
+             versatz += sin(laengs * 1.27 + bogenQuer * 0.29) * 0.46;
+             versatz += sin(laengs * 0.61 - bogenQuer * 0.13 + 2.4) * 0.33;
              float phase = windKaemme * phi + versatz * K;
 
              // Ausblenden, sobald eine Periode unter zwei Pixel faellt. Ohne
@@ -4143,7 +4162,14 @@ function marsGroundMaterial() {
                0.5 + 0.5 * (sin(dot(vWeltOrt, vec3(0.13, 0.05, 0.09)))
                           + sin(dot(vWeltOrt, vec3(-0.07, 0.11, 0.17)) + 2.1)) * 0.5,
                0.0, 1.0);
-             rippelAn *= flach * feld;
+             // **Und sie laufen nicht ununterbrochen durch.** Ein zweiter,
+             // feinerer Fleckenmasstab (drei bis sechs Meter) laesst die
+             // Rippelung stellenweise ganz aussetzen — dort liegt glatter,
+             // verwehter Staub. Zusammen mit den Gabelungen oben nimmt das dem
+             // Feld den Kordsamt: Es gibt Stellen ohne Kaemme, Stellen mit
+             // engen und Stellen mit weiten.
+             float flecken = 0.5 + 0.5 * sin(laengs * 1.9 + sin(bogenQuer * 0.41) * 1.6);
+             rippelAn *= flach * feld * (0.25 + 0.75 * smoothstep(0.12, 0.62, flecken));
 
              // Saegezahnprofil statt Sinus: Eine Rippel hat eine flache Luv-
              // und eine steile Leeseite. Ein reiner Sinus liest als Duenung.
@@ -4621,6 +4647,294 @@ function makeKontaktAO(stellen, heightAt) {
   mesh.name = 'kontaktverdunklung';
   mesh.renderOrder = 1; // knapp über dem opaken Boden
   return mesh;
+}
+
+// --- Der beschädigte Sputnik -------------------------------------------------
+//
+// **Das einzige Metall der Szene, und das einzige Menschenwerk.** Er trägt
+// zweierlei, das der Boden nicht kann: eine *glatte* Fläche mit spiegelndem
+// Glanzlicht, und eine Form, die niemand für Geologie halten kann. Auf einem
+// Körper aus lauter Steinen ist das der Blickfang, den die Komposition bisher
+// nicht hatte.
+//
+// Gebaut wird der echte: eine Kugel von 58 cm Durchmesser aus zwei
+// Halbschalen, an einem Äquatorflansch verschraubt, mit vier Peitschenantennen
+// von 2,4 und 2,9 m Länge, paarweise nach hinten gestellt. Beschädigt heißt
+// hier nicht „zufällig verbeult", sondern eine erzählbare Geschichte: Er ist
+// auf der Flanke aufgeschlagen, die Schale dort eingedrückt, der Flansch
+// aufgesprungen, zwei Antennen abgerissen, eine geknickt, eine krumm. Die
+// Aufschlagseite ist versengt, die Oberseite eingestaubt.
+//
+// Alles in **einem** Material und damit in einem Draw-Call.
+// `obenLokal` ist die Richtung im Eigensystem, die nach dem Hinlegen nach oben
+// zeigt. Ohne sie säße der Staub dort, wo vor dem Kippen oben war — und ein
+// Körper, der auf der Seite liegt, hätte den Belag an der Flanke.
+function makeSputnik(obenLokal) {
+  const gruppe = new THREE.Group();
+  const teile = [];
+
+  // Die Aufschlagrichtung im Eigensystem des Körpers. Alles Beschädigte zeigt
+  // dorthin: die Delle, der Ruß, die abgerissenen Antennen.
+  // **Der Schaden muss ins Bild.** Der erste Anlauf legte die Delle 35 Grad
+  // neben die Unterseite — sie steckte damit im Regolith, und im Bild lag eine
+  // makellose Kuppel. 79 Grad bringen sie an die Flanke, wo sie von einem
+  // stehenden Betrachter zu sehen ist. Ein Schaden, den man nicht sieht, ist
+  // keiner.
+  const SCHLAG = obenLokal
+    .clone()
+    .negate()
+    .applyAxisAngle(new THREE.Vector3(0.31, 0.52, -0.79).normalize(), 1.38)
+    .normalize();
+
+  // **Metall ohne Umgebungskarte ist schwarz.**
+  //
+  // Der erste Anlauf stand auf `metalness: 0.82` — physikalisch richtig für
+  // Aluminium und in dieser Szene fatal. Bei einem Metall kommt fast die ganze
+  // Antwort aus der **Spiegelung der Umgebung**, und diese Szene hat aus gutem
+  // Grund keine: Eine PMREM-Karte für eine Nachtszene bringt nichts, was das
+  // Hemisphärenlicht nicht schon tut, und kostet eine Abtastung je Fragment
+  // (die Begründung steht bei `marsMaps`). Übrig blieb ein fast schwarzer
+  // Ballon mit einem einzigen weißen Glanzfleck — im Bild eine Seifenblase.
+  //
+  // Also andersherum: niedrige Metallizität, helle Albedo, geringe Rauheit. Das
+  // Glanzlicht des Mondes trägt dann den Metallcharakter, und die diffuse
+  // Antwort sorgt dafür, dass der Körper überhaupt eine Form hat. Es ist die
+  // gleiche Entscheidung wie beim Verzicht auf die PMREM-Karte: In einer Szene
+  // mit **einer** Lichtquelle beschreibt man Material über das, was diese eine
+  // Quelle tut.
+  const metall = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    // Drei Anläufe an diesen zwei Zahlen, und die Lehre steht dazwischen:
+    // **Jeder Punkt Metallizität ohne Umgebungskarte ist ein Punkt Schwarz.**
+    // 0,82 gab eine Seifenblase, 0,45 einen schwarzen Käfer. 0,25 mit
+    // Rauheit 0,20 lässt das Glanzlicht des Mondes eng genug für Metall und
+    // die diffuse Antwort hell genug für eine lesbare Form.
+    metalness: 0.25,
+    roughness: 0.20,
+    flatShading: false,
+  });
+
+  // --- Die Kugel ------------------------------------------------------------
+  //
+  // **Und wieder die Falle mit `detail`.** Ich habe hier „Detail 4 gibt 5120
+  // Dreiecke" hingeschrieben — dieselbe Verwechslung, an der der Planet selbst
+  // schon einmal hing und die im Protokoll unter „Eine API-Zahl, deren
+  // Bedeutung man zu kennen glaubt, gehört nachgezählt" steht. `detail` ist
+  // **keine** Rekursionstiefe: three unterteilt jede der 20 Grundflächen in
+  // (detail+1)², also 20 · (d+1)² Dreiecke. Detail 4 sind 500, nicht 5120.
+  // Nachgezählt hat es `tools/inspect.mjs`: Der ganze Sputnik stand mit 2228
+  // Dreiecken in der Liste, wo allein die Kugel 5120 haben sollte.
+  //
+  // Detail 15 gibt 5120 Dreiecke bei 1,9 cm Kantenlänge. Aus 1,15 m Abstand
+  // füllt der Körper 400 Bildzeilen; 1,9 cm sind dort 13 Bildpunkte, und damit
+  // trägt die geglättete Normale die Rundung, ohne dass die Facetten im
+  // Glanzlicht aufbrechen.
+  const kugel = new THREE.IcosahedronGeometry(0.29, 15);
+  {
+    const pos = kugel.attributes.position;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const d = v.clone().normalize();
+      // **Die Delle.** Ein Aufschlag drückt eine Kalotte ein, und zwar mit
+      // einem aufgeworfenen Wulst am Rand — Blech gibt nach, aber es
+      // verschwindet nicht. cos^8 hält die Kalotte eng (60 Grad Öffnung), der
+      // Wulst sitzt als schmaler Ring bei rund 70 Grad.
+      const t = Math.max(0, d.dot(SCHLAG));
+      const kalotte = Math.pow(t, 8) * 0.085;
+      const wulst = Math.exp(-Math.pow((t - 0.55) / 0.13, 2)) * 0.012;
+      // **Vier weitere Beulen, über den Körper verteilt.** Ein Körper, der
+      // einmal aufschlägt, rollt danach — und praktisch: Eine einzige Delle
+      // ist aus der Hälfte aller Blickrichtungen unsichtbar, und dann steht
+      // dort eine makellose Kugel. Verteilter Schaden liest aus jeder
+      // Richtung.
+      let beulen = 0;
+      for (const [bx, by, bz, tief, eng] of [
+        [-0.61, 0.44, 0.66, 0.042, 9],
+        [0.78, 0.36, -0.51, 0.033, 11],
+        [0.12, 0.93, 0.35, 0.028, 14],
+        [-0.82, -0.31, -0.48, 0.037, 8],
+      ]) {
+        const bt = Math.max(0, d.x * bx + d.y * by + d.z * bz);
+        beulen += Math.pow(bt, eng) * tief;
+      }
+      // Feine Blechunruhe, damit die Kugel nicht mathematisch glatt bleibt.
+      const unruhe = (hashNoise(d.x * 9, d.y * 9, d.z * 9) - 0.5) * 0.005;
+      v.setLength(0.29 - kalotte + wulst - beulen + unruhe);
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    kugel.computeVertexNormals();
+  }
+  teile.push(new THREE.Mesh(kugel, metall));
+
+  // --- Der Äquatorflansch, aufgesprungen ------------------------------------
+  //
+  // Die beiden Halbschalen des Originals sind an einem umlaufenden Ring
+  // verschraubt. Hier steht er 8 mm über und ist auf der Aufschlagseite
+  // aufgebogen — der sichtbare Beleg dafür, dass das Ding aus zwei Teilen ist.
+  {
+    const ring = new THREE.TorusGeometry(0.288, 0.009, 6, 64);
+    ring.rotateX(Math.PI / 2);
+    const pos = ring.attributes.position;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const w = Math.atan2(v.z, v.x);
+      // Aufbiegen dort, wo der Schlag hinkam.
+      const auf = Math.max(0, Math.cos(w - Math.atan2(SCHLAG.z, SCHLAG.x)));
+      v.y += Math.pow(auf, 6) * 0.055;
+      v.multiplyScalar(1 + Math.pow(auf, 6) * 0.07);
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    ring.computeVertexNormals();
+    teile.push(new THREE.Mesh(ring, metall));
+  }
+
+  // --- Die vier Antennen ----------------------------------------------------
+  //
+  // Paarweise nach hinten gestellt, 35 Grad von der Achse. Zwei sind an der
+  // Wurzel abgerissen und stehen als Stümpfe, eine ist auf halber Länge
+  // geknickt, eine ist krumm, aber ganz. Jede besteht aus kurzen Gliedern,
+  // damit sie sich biegen kann — eine Peitschenantenne ist kein Stab.
+  const antenne = (azimut, neigung, laenge, knickBei, knickWinkel, krumm) => {
+    const GLIEDER = 14;
+    const stueck = laenge / GLIEDER;
+    // Startrichtung im Eigensystem.
+    const richtung = new THREE.Vector3(
+      Math.cos(azimut) * Math.sin(neigung),
+      -Math.cos(neigung),
+      Math.sin(azimut) * Math.sin(neigung)
+    ).normalize();
+    // Die Achse, um die geknickt und gekrümmt wird: quer zur Antenne.
+    const quer = new THREE.Vector3(-Math.sin(azimut), 0, Math.cos(azimut));
+    const p = richtung.clone().multiplyScalar(0.28);
+    const dir = richtung.clone();
+    for (let k = 0; k < GLIEDER; k++) {
+      const t = k / GLIEDER;
+      // Verjüngung: an der Wurzel 14 mm Durchmesser, an der Spitze 6 mm.
+      //
+      // Der erste Anlauf hatte 9 auf 3 mm — maßstäblich näher am Original und
+      // im Bild ein **einziger Bildpunkt**: Bei 55 Grad Bildwinkel auf 720
+      // Zeilen deckt ein Punkt 1,33 mrad ab, und 3 mm auf drei Meter sind 1,0.
+      // Was dabei entsteht, liest nicht als Antenne, sondern als Kratzer im
+      // Bild. Eine Form, die dünner ist als ein Bildpunkt, ist keine Form.
+      const r0 = 0.007 * (1 - t * 0.55);
+      const r1 = 0.007 * (1 - (t + 1 / GLIEDER) * 0.55);
+      const g = new THREE.CylinderGeometry(r1, r0, stueck, 6, 1, true);
+      g.translate(0, stueck / 2, 0);
+      const m = new THREE.Mesh(g, metall);
+      m.position.copy(p);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      teile.push(m);
+      p.addScaledVector(dir, stueck);
+      // Krümmung über die ganze Länge, plus ein harter Knick an einer Stelle.
+      dir.applyAxisAngle(quer, krumm / GLIEDER);
+      if (knickBei > 0 && k === Math.round(knickBei * GLIEDER)) {
+        dir.applyAxisAngle(quer, knickWinkel);
+      }
+      dir.normalize();
+    }
+    // Der Bruch am Ende: eine schräg abgeschnittene Scheibe, damit die Spitze
+    // nicht wie fabrikneu aussieht.
+    const bruch = new THREE.CylinderGeometry(0.007 * 0.45, 0.007 * 0.45, 0.005, 6);
+    bruch.rotateZ(0.7);
+    const bm = new THREE.Mesh(bruch, metall);
+    bm.position.copy(p);
+    bm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    teile.push(bm);
+  };
+
+  // **Antennenschuhe.** Jede Peitsche sitzt in einem kegeligen Fuß — das ist
+  // beim Original der auffälligste Zug neben der Kugel selbst, und es ist
+  // zugleich das, was den Körper als *gebautes* Ding lesbar macht: Eine glatte
+  // Kugel mit vier Drähten könnte alles sein, eine Kugel mit vier verschraubten
+  // Füßen ist Technik.
+  const schuh = (azimut, neigung) => {
+    const richtung = new THREE.Vector3(
+      Math.cos(azimut) * Math.sin(neigung),
+      -Math.cos(neigung),
+      Math.sin(azimut) * Math.sin(neigung)
+    ).normalize();
+    const g = new THREE.CylinderGeometry(0.016, 0.038, 0.06, 12);
+    g.translate(0, 0.03, 0);
+    const m = new THREE.Mesh(g, metall);
+    m.position.copy(richtung).multiplyScalar(0.265);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), richtung);
+    teile.push(m);
+  };
+  for (const az of [0.25, 0.75, 1.25, 1.75]) schuh(Math.PI * az, 2.16);
+
+  // 2,9 m nach vorn links — krumm, aber ganz.
+  antenne(Math.PI * 0.25, 2.16, 2.9, 0, 0, 0.55);
+  // 2,4 m nach vorn rechts — auf zwei Dritteln scharf geknickt.
+  antenne(Math.PI * 0.75, 2.16, 2.4, 0.62, 1.15, 0.22);
+  // Zwei Stümpfe auf der Aufschlagseite: 22 und 9 cm.
+  antenne(Math.PI * 1.25, 2.16, 0.22, 0, 0, 0.9);
+  antenne(Math.PI * 1.75, 2.16, 0.09, 0, 0, 1.4);
+
+  // --- Einfärben ------------------------------------------------------------
+  //
+  // Drei Zustände auf einem Körper: poliertes Metall, versengtes Metall auf der
+  // Aufschlagseite, Staub auf allem, was nach oben zeigt. Bei einem Metall ist
+  // die Albedo die Reflexionsfarbe — der Ruß macht die Fläche damit von selbst
+  // stumpf, ohne dass eine zweite Rauheitskarte nötig wäre.
+  // **Warmgrau, nicht weiß.** Das Hemisphärenlicht dieser Szene ist blaugrau
+  // (0x7595b4 bei Stärke 2,0); eine fast weiße Albedo nimmt das an, und der
+  // Körper las als Eiskuppel. Poliertes Aluminium-Magnesium ist ohnehin
+  // leicht warm, und nach einem Aufschlag erst recht.
+  const ZWEITSCHLAG = SCHLAG.clone()
+    .applyAxisAngle(new THREE.Vector3(0.7, -0.2, 0.68).normalize(), 2.35)
+    .normalize();
+  const POLIERT = new THREE.Color(0xbdb6ab);
+  const RUSS = new THREE.Color(0x2a2320);
+  const STAUB = new THREE.Color(0x8a5540);
+  const c = new THREE.Color();
+  const n = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  for (const teil of teile) {
+    teil.updateMatrix();
+    const g = teil.geometry;
+    // Die Antennenglieder haben ihre eigene Lage; für die Einfärbung zählt der
+    // Ort im Eigensystem des ganzen Körpers.
+    const pos = g.attributes.position;
+    const nor = g.attributes.normal;
+    const farben = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(teil.matrix);
+      n.fromBufferAttribute(nor, i).transformDirection(teil.matrix);
+      c.copy(POLIERT);
+      // Ruß: dort, wo der Schlag hinkam, und mit dem Abstand vom Mittelpunkt
+      // zurückgehend — die Antennenspitzen sind sauber geblieben.
+      const zumSchlag = Math.max(0, v.clone().normalize().dot(SCHLAG));
+      const nah = 1 - smoothstep(0.35, 1.2, v.length());
+      // **Ruß ist ein Fleck, kein Anstrich.** Mit Exponent 1,6 lag er über
+      // dem halben Körper und machte aus dem Sputnik einen schwarzen Käfer;
+      // Exponent 3,4 hält ihn auf der Aufschlagseite.
+      c.lerp(RUSS, Math.pow(zumSchlag, 3.4) * (0.4 + 0.6 * nah) * 0.9);
+      // Ein zweiter, schwaecherer Fleck auf der Gegenseite: Er ist nach dem
+      // Aufschlag noch ein Stueck gerollt. Praktisch sorgt er dafuer, dass der
+      // Schaden aus **jeder** Richtung zu sehen ist und nicht nur aus einer.
+      const zweit = Math.max(0, v.clone().normalize().dot(ZWEITSCHLAG));
+      c.lerp(RUSS, Math.pow(zweit, 5.0) * nah * 0.55);
+      // Staub auf dem, was nach dem Hinlegen nach oben zeigt.
+      c.lerp(STAUB, Math.pow(Math.max(0, n.dot(obenLokal)), 2.0) * 0.42);
+      // Streiflichtkanten: Wo das Blech gerade noch glänzt, ein Hauch heller.
+      const kante = Math.pow(Math.max(0, 1 - Math.abs(n.dot(obenLokal))), 3) * 0.1;
+      farben[i * 3] = Math.min(1, c.r + kante);
+      farben[i * 3 + 1] = Math.min(1, c.g + kante);
+      farben[i * 3 + 2] = Math.min(1, c.b + kante);
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+
+  for (const m of verschmelzeObjekte(teile, 'nacht-sputnik')) {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    gruppe.add(m);
+  }
+  gruppe.name = 'nacht-sputnik-gruppe';
+  return gruppe;
 }
 
 function makeMarsPlanet(rand) {
@@ -5397,6 +5711,94 @@ function makeMarsPlanet(rand) {
     }
   }
 
+  // --- Der Sputnik ----------------------------------------------------------
+  //
+  // Er liegt bei 5,5 m Bogen in Azimut 150 — in Blickrichtung der
+  // Eingangskamera, gut vier Schritte vom Startpunkt und damit im
+  // **Vordergrund**, den der Prüfer als leer gemeldet hat („in `e-boden` liegen
+  // 240 000 Pixel ohne eine einzige Kante direkt vor den Füßen"). Weit genug
+  // weg, dass er die Kartenreihe bei 1,15 bis 1,5 m nicht stört.
+  {
+    const KIPP = new THREE.Euler(1.24, 0.72, -0.16);
+    const _q = new THREE.Quaternion().setFromEuler(KIPP);
+    // Die Richtung im Eigensystem, die nach dem Hinlegen nach oben zeigt.
+    const obenLokal = new THREE.Vector3(0, 1, 0).applyQuaternion(_q.clone().invert());
+    const sput = makeSputnik(obenLokal);
+    const ort = ortVon(STARTPUNKT, 5.5, 150);
+    const hS = heightAt(ort);
+    // **Eingesunken, nicht vergraben.** `stelleAuf` setzt den **Mittelpunkt**
+    // auf den angegebenen Halbmesser — ein Wert unter der Geländehöhe versenkt
+    // damit mehr als die halbe Kugel. Der erste Anlauf lag 11 cm darunter, der
+    // zweite 2 cm, und beide zeigten nur eine Kuppe. 8 cm **darüber** lassen
+    // 37 der 58 cm frei, also gut ein Drittel eingesunken; die Kippung von
+    // 71 Grad stellt den Äquatorflansch schräg ins Bild.
+    stelleAuf(sput, ort, PLANET_R + hS + 0.08, KIPP.x, KIPP.y, KIPP.z);
+    group.add(sput);
+
+    // Die Spur des Aufschlags: eine Mulde unter ihm, eine flache Schleifspur
+    // dahinter und ein Kranz aufgeworfenen Staubs. Dieselbe Maschinerie wie bei
+    // den Brocken — nichts Neues, nur ein anderer Anlass.
+    aoStellen.push({ ort, r: 0.85, staerke: 0.62 });
+    aoStellen.push({
+      ort,
+      r: 1.5,
+      staerke: 0.3,
+      farbe: 0xcaa78e,
+      zug: leeZug(ort, 3.2),
+    });
+    // Ein paar abgerissene Blechfetzen in der Schleifspur. Flache, scharfe
+    // Splitter — sie lesen sofort als „nicht Stein".
+    const fetzen = [];
+    const blechMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      metalness: 0.22,
+      roughness: 0.3,
+    });
+    for (let i = 0; i < 7; i++) {
+      const s2 = 0.05 + hashNoise(i * 4.1, 3.3, 8.8) * 0.09;
+      const g2 = bruchGeometrie(s2, 8800 + i * 37, {
+        facetten: 5,
+        verwitterung: 0.02,
+        kanten: 0.02,
+        unterteilung: 1,
+      });
+      // Zu Blech plattgedrückt.
+      g2.scale(1.35, 0.24, 1.05);
+      // **Dasselbe Material wie der Körper.** Der erste Anlauf gab ihnen
+      // `marsRockMaterial()` und eine helle Scheitelfarbe — im Bild lagen
+      // daraufhin weiße Papierschnipsel im Sand. Blech ist kein heller Stein.
+      const m2 = new THREE.Mesh(g2, blechMaterial);
+      const weit = 0.9 + hashNoise(i * 2.7, 1.1, 5.5) * 2.6;
+      const seit = (hashNoise(i * 5.9, 7.7, 2.2) - 0.5) * 1.4;
+      const dirF = versetzeAufKugel(ort, seit, -weit, new THREE.Vector3());
+      stelleAuf(
+        m2,
+        dirF,
+        PLANET_R + heightAt(dirF) + s2 * 0.1,
+        (hashNoise(i, 2, 3) - 0.5) * 1.2,
+        hashNoise(i, 5, 7) * Math.PI * 2,
+        (hashNoise(i, 8, 9) - 0.5) * 1.2
+      );
+      m2.castShadow = true;
+      m2.receiveShadow = true;
+      faerbeBruchstein(g2, 0xa9a49b, m2.quaternion, MOND_RICHTUNG, {
+        staub: 0.55,
+        frost: 0.1,
+        alter: 0.0,
+        oben: dirF,
+        bruchachse: bruchRichtung(dirF, i * 3.7, i * 6.1, _bruch),
+      });
+      fetzen.push(m2);
+      aoStellen.push({ ort: dirF, r: s2 * 2.2, staerke: 0.42 });
+    }
+    for (const m of verschmelzeObjekte(fetzen, 'nacht-sputnik-fetzen')) {
+      m.castShadow = true;
+      m.receiveShadow = true;
+      group.add(m);
+    }
+  }
+
   // **Erst hier, nachdem alles eingetragen ist.** Der Aufruf stand einmal direkt
   // hinter der Brockenschleife — die Findlinge tragen ihre Stellen aber später
   // ein, und ihre Verdunklung und ihre Staubfahne wären dadurch nie gebaut
@@ -6062,16 +6464,63 @@ function makeMeteor() {
 // Sonnenscheibe stand dort zu 20,7 % auf exakt (255,255,255) und hatte damit
 // keine Farbe mehr. Hier liegt das Hochland bei 236, die Maria bei 150 bis 170
 // — kein Pixel erreicht 255, und die Oberfläche bleibt lesbar.
-let _mondKarte = null;
-function mondScheibe() {
-  if (_mondKarte) return _mondKarte;
+// **Ein Bauer, zwei Monde.**
+//
+// Der zweite Mond ist ein anderer Körper, kein anderer Anstrich: rötlich,
+// kleiner, exakt halb beleuchtet, stärker zerschlagen. Was ihn vom ersten
+// unterscheidet, sind Farben, Phase, Kraterzahl und Saat — alles Zahlen. Die
+// zweihundert Zeilen Scheibenbau darunter zu verdoppeln wäre die Sorte
+// Kopie, bei der beim nächsten Mal nur eine der beiden gepflegt wird.
+const MOND_STIL = {
+  // Der Erdmond: kühles Hochland, graue Maria, drei Viertel beleuchtet.
+  weiss: {
+    saat: 31415926,
+    hochland: '#e8eaf0',
+    fleckHell: 'rgba(250,251,255,0.16)',
+    fleckDunkel: 'rgba(176,180,194,0.18)',
+    maria: 'rgba(150,155,170,',
+    kraterBoden: '132,136,150',
+    wallHell: '252,253,255',
+    wallDunkel: '108,112,126',
+    strahlenFarbe: '232,234,240',
+    phaseZ: 0.47,
+    krater: 90,
+    strahlen: true,
+    erdschein: 0.055,
+  },
+  // Der Begleiter auf der Gegenseite: eisenrotes Hochland, dunkelrostige
+  // Becken, **exakt Halbmond** (phaseZ = 0 heißt Terminator genau über die
+  // Mitte), doppelt so viele Krater und keine Strahlensysteme — ein alter,
+  // zerschlagener Körper neben einem jüngeren. Der Erdschein ist niedriger:
+  // Der Planet, der ihn anleuchten würde, ist selbst nur 50 m groß.
+  rot: {
+    saat: 271828182,
+    hochland: '#c98a63',
+    fleckHell: 'rgba(226,166,132,0.17)',
+    fleckDunkel: 'rgba(122,60,44,0.22)',
+    maria: 'rgba(112,54,40,',
+    kraterBoden: '104,50,38',
+    wallHell: '236,182,150',
+    wallDunkel: '74,34,26',
+    strahlenFarbe: '224,168,136',
+    phaseZ: 0.0,
+    krater: 170,
+    strahlen: false,
+    erdschein: 0.03,
+  },
+};
+
+const _mondKarten = new Map();
+function mondScheibe(stilName = 'weiss') {
+  if (_mondKarten.has(stilName)) return _mondKarten.get(stilName);
+  const stil = MOND_STIL[stilName];
   const S = 512;
   const R = S * 0.47;
   const M = S / 2;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = S;
   const ctx = canvas.getContext('2d');
-  const mr = mulberry32(31415926);
+  const mr = mulberry32(stil.saat);
 
   // --- A: Albedo ------------------------------------------------------------
   // **Zweiter Anlauf am Grundton.** 0xb9bcc4 (185|188|196) ergab nach
@@ -6081,7 +6530,7 @@ function mondScheibe() {
   // vorher wäre das Gegenteil der Aufgabe. Das Hochland liegt jetzt bei 232,
   // die Maria bei rund 150 — mehr Spitze als vorher **und** eine Spanne, wo
   // vorher ein Farbfeld war.
-  ctx.fillStyle = '#e8eaf0';
+  ctx.fillStyle = stil.hochland;
   ctx.beginPath();
   ctx.arc(M, M, R, 0, Math.PI * 2);
   ctx.fill();
@@ -6100,7 +6549,7 @@ function mondScheibe() {
     const rad = 3 + mr() * 16;
     const hell = mr() < 0.5;
     const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
-    g.addColorStop(0, hell ? 'rgba(250,251,255,0.16)' : 'rgba(176,180,194,0.18)');
+    g.addColorStop(0, hell ? stil.fleckHell : stil.fleckDunkel);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
@@ -6132,12 +6581,12 @@ function mondScheibe() {
     const cx = M + m.x * R;
     const cy = M + m.y * R;
     const cr = m.r * R;
-    blob(cx, cy, cr, 'rgba(150,155,170,0.88)');
+    blob(cx, cy, cr, stil.maria + '0.88)');
     const n = 7 + Math.floor(mr() * 6);
     for (let k = 0; k < n; k++) {
       const a = mr() * Math.PI * 2;
       const d = cr * (0.6 + mr() * 0.55);
-      blob(cx + Math.cos(a) * d, cy + Math.sin(a) * d, cr * (0.3 + mr() * 0.35), 'rgba(150,155,170,0.74)');
+      blob(cx + Math.cos(a) * d, cy + Math.sin(a) * d, cr * (0.3 + mr() * 0.35), stil.maria + '0.74)');
     }
   }
 
@@ -6162,8 +6611,8 @@ function mondScheibe() {
     ctx.rotate(-winkel);
     // Boden
     const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rad);
-    g.addColorStop(0, `rgba(132,136,150,${0.30 * tiefe})`);
-    g.addColorStop(0.78, `rgba(132,136,150,${0.20 * tiefe})`);
+    g.addColorStop(0, `rgba(${stil.kraterBoden},${0.30 * tiefe})`);
+    g.addColorStop(0.78, `rgba(${stil.kraterBoden},${0.20 * tiefe})`);
     g.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
@@ -6172,17 +6621,17 @@ function mondScheibe() {
     // Wall: heller Bogen zur Sonne, dunkler gegenüber
     ctx.lineWidth = Math.max(1, rad * 0.20);
     const a0 = Math.atan2(SONNE.y, SONNE.x);
-    ctx.strokeStyle = `rgba(252,253,255,${0.5 * tiefe})`;
+    ctx.strokeStyle = `rgba(${stil.wallHell},${0.5 * tiefe})`;
     ctx.beginPath();
     ctx.arc(0, 0, rad * 0.92, a0 - 1.5, a0 + 1.5);
     ctx.stroke();
-    ctx.strokeStyle = `rgba(108,112,126,${0.45 * tiefe})`;
+    ctx.strokeStyle = `rgba(${stil.wallDunkel},${0.45 * tiefe})`;
     ctx.beginPath();
     ctx.arc(0, 0, rad * 0.92, a0 + Math.PI - 1.5, a0 + Math.PI + 1.5);
     ctx.stroke();
     ctx.restore();
   };
-  for (let i = 0; i < 90; i++) {
+  for (let i = 0; i < stil.krater; i++) {
     const a = mr() * Math.PI * 2;
     const r = Math.sqrt(mr()) * R * 0.985;
     krater(M + Math.cos(a) * r, M + Math.sin(a) * r, 2.5 + Math.pow(mr(), 2.4) * 30, 0.5 + mr() * 0.5);
@@ -6190,15 +6639,15 @@ function mondScheibe() {
 
   // Strahlensysteme: zwei junge Krater mit hellem Auswurf. Sie sind der
   // auffälligste Einzelzug auf dem echten Mond und kosten hier fünf Zeilen.
-  for (const s of [{ x: 0.26, y: 0.46, r: 10 }, { x: -0.52, y: 0.40, r: 7 }]) {
+  for (const s of stil.strahlen ? [{ x: 0.26, y: 0.46, r: 10 }, { x: -0.52, y: 0.40, r: 7 }] : []) {
     const cx = M + s.x * R;
     const cy = M + s.y * R;
     for (let k = 0; k < 26; k++) {
       const a = mr() * Math.PI * 2;
       const len = R * (0.16 + mr() * 0.42);
       const g = ctx.createLinearGradient(cx, cy, cx + Math.cos(a) * len, cy + Math.sin(a) * len);
-      g.addColorStop(0, 'rgba(232,234,240,0.30)');
-      g.addColorStop(1, 'rgba(232,234,240,0)');
+      g.addColorStop(0, `rgba(${stil.strahlenFarbe},0.30)`);
+      g.addColorStop(1, `rgba(${stil.strahlenFarbe},0)`);
       ctx.strokeStyle = g;
       ctx.lineWidth = 1.5 + mr() * 4.5;
       ctx.beginPath();
@@ -6207,8 +6656,8 @@ function mondScheibe() {
       ctx.stroke();
     }
     const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, s.r);
-    g.addColorStop(0, 'rgba(240,242,246,0.85)');
-    g.addColorStop(1, 'rgba(240,242,246,0)');
+    g.addColorStop(0, `rgba(${stil.strahlenFarbe},0.85)`);
+    g.addColorStop(1, `rgba(${stil.strahlenFarbe},0)`);
     ctx.fillStyle = g;
     ctx.beginPath();
     ctx.arc(cx, cy, s.r, 0, Math.PI * 2);
@@ -6226,10 +6675,10 @@ function mondScheibe() {
   // wäre Vollmond (kein Terminator), 0,0 Halbmond. 0,47 ergibt rund 74 %
   // beleuchtete Fläche – genug Sichel, dass die Kugelform liest, genug Fläche,
   // dass er die Lichtquelle der Szene bleiben darf.
-  const sl = Math.hypot(SONNE.x, SONNE.y, 0.47);
+  const sl = Math.hypot(SONNE.x, SONNE.y, stil.phaseZ);
   const sx = SONNE.x / sl;
   const sy = SONNE.y / sl;
-  const sz = 0.47 / sl;
+  const sz = stil.phaseZ / sl;
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
       const i = (y * S + x) * 4;
@@ -6252,7 +6701,7 @@ function mondScheibe() {
       // Terminator. Der Rest der Scheibe bleibt schwach sichtbar (Erdschein),
       // sonst wäre die unbeleuchtete Seite ein Loch im Sternhimmel.
       const cosI = nx * sx + ny * sy + nz * sz;
-      const phase = 0.055 + 0.945 * smoothstep(-0.10, 0.22, cosI);
+      const phase = stil.erdschein + (1 - stil.erdschein) * smoothstep(-0.10, 0.22, cosI);
 
       const f = rand * phase;
       d[i] = Math.min(252, d[i] * f);
@@ -6268,7 +6717,7 @@ function mondScheibe() {
 
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  _mondKarte = tex;
+  _mondKarten.set(stilName, tex);
   return tex;
 }
 
@@ -6413,33 +6862,32 @@ function makeSternfeld(rand, R = 41) {
     positions[i * 3 + 1] = y * R;
     positions[i * 3 + 2] = s * Math.sin(phi) * R;
 
-    // Helligkeitsverteilung: `pow(rand, 2.6)` liefert viele schwache und
-    // wenige helle. Der Exponent ist so gewählt, dass rund 2 % der Sterne
-    // über der Hälfte der Höchsthelligkeit liegen – das sind die zwei
-    // Dutzend, die man als „hell" wahrnimmt.
-    const m = Math.pow(rand(), 2.6);
-    groessen[i] = 0.13 + m * 0.78;
+    // **Alle Sterne gleich hell** — so gewünscht, und auf einem luftlosen
+    // Körper auch das Richtige. Drei Dinge machten sie vorher ungleich, und
+    // alle drei sind hier verschwunden:
+    //
+    //   * die **Größenklassenverteilung** `pow(rand, 2.6)`, die zwei Dutzend
+    //     helle über zweieinhalbtausend schwache setzte,
+    //   * die **Extinktion** zum Horizont hin — sie beschreibt Luft, und Luft
+    //     gibt es hier nicht,
+    //   * das **Flimmern**, das ebenfalls Luft beschreibt (Szintillation
+    //     entsteht in der Atmosphäre; im Vakuum steht ein Stern still).
+    //
+    // **Der Zug aus dem gesäten Strom bleibt trotzdem stehen.** Er wird nur
+    // nicht mehr verwendet. Ohne ihn verschöbe sich jede folgende Ziehung, und
+    // damit die Lage sämtlicher Sterne, Brocken und Landmarken.
+    rand();
+    groessen[i] = 0.63;
 
-    // Farbe erst ab einer Helligkeitsschwelle, und dann nur anteilig.
+    // **Die Farbtemperatur bleibt.** „Gleich hell" ist keine Aussage über die
+    // Farbe; ein Himmel aus lauter weißen Punkten hätte nur einen Zug weniger.
+    // Damit die Farbe die Helligkeit nicht durch die Hintertür wieder ungleich
+    // macht, wird jeder Ton auf **gleiche Leuchtdichte** normiert.
     const temp = TEMPERATUREN[Math.floor(rand() * TEMPERATUREN.length)];
-    const saettigung = 0.18 + m * 0.72;
-    const r = 1 + (temp[0] - 1) * saettigung;
-    const g = 1 + (temp[1] - 1) * saettigung;
-    const b = 1 + (temp[2] - 1) * saettigung;
-
-    // Extinktion: Zum Horizont hin steht mehr Atmosphäre im Weg. Sterne
-    // werden dort schwächer **und** wärmer – dasselbe, was die Sonne beim
-    // Untergehen rot macht. Weil die Schale nur um Y gedreht wird, bleibt
-    // die Höhe je Stern konstant und der Faktor darf eingebacken werden.
-    const durchsicht = 0.12 + 0.88 * smoothstep(-0.02, 0.34, y);
-    const roetung = (1 - durchsicht) * 0.55;
-    const helligkeit = (0.30 + m * 0.70) * durchsicht;
-
-    c.setRGB(
-      Math.min(1, r + roetung * 0.5) * helligkeit,
-      Math.max(0, g - roetung * 0.18) * helligkeit,
-      Math.max(0, b - roetung * 0.5) * helligkeit
-    );
+    const y709 = 0.2126 * temp[0] + 0.7152 * temp[1] + 0.0722 * temp[2];
+    const HELLIGKEIT = 0.55;
+    const k = HELLIGKEIT / y709;
+    c.setRGB(temp[0] * k, temp[1] * k, temp[2] * k);
     farben[i * 3] = c.r;
     farben[i * 3 + 1] = c.g;
     farben[i * 3 + 2] = c.b;
@@ -6476,12 +6924,13 @@ function makeSternfeld(rand, R = 41) {
       varying vec3 vFarbe;
       varying float vSchwund;
       void main() {
-        // Flimmern: jeder Stern mit eigener Phase und eigenem Tempo, damit
-        // nichts im Gleichtakt läuft. Schwache Sterne flimmern stärker –
-        // das ist auch in Wirklichkeit so, weil sie näher an der
-        // Wahrnehmungsschwelle liegen.
-        float f = 1.0 + sin(zeit * (1.7 + fract(phase) * 2.3) + phase) * 0.16 * (1.2 - groesse);
-        vFarbe = farbe * f;
+        // **Kein Flimmern mehr.** Szintillation entsteht in der Atmosphäre;
+        // auf einem luftlosen Körper steht ein Stern still. Sie war zugleich
+        // der letzte Rest, der die Sterne untereinander ungleich hell machte.
+        // Attribut phase und Uniform zeit bleiben stehen, damit die Puffer
+        // und die Zeitanbindung unveraendert sind.
+        float f = 1.0;
+        vFarbe = farbe;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         // **Ein Stern unter zweieinhalb Bildpunkten wird nicht kleiner,
         // sondern schwächer.** Der Prüfer hat die schwachen Sterne bei
@@ -6860,6 +7309,49 @@ function createNightEnvironment() {
   });
   moon.renderOrder = 20;
   himmelGruppe.add(moon);
+
+  // --- Der zweite Mond ------------------------------------------------------
+  //
+  // Ein rötlicher Halbmond auf der **Gegenseite**. Er steht dem ersten
+  // gegenüber (Richtung negiert, danach um 34 Grad in der Höhe versetzt, damit
+  // die beiden nicht auf einer Geraden durch den Planeten liegen und exakt
+  // gleichzeitig auf- und untergehen). Damit gehört er der dunklen Hälfte des
+  // Rundgangs: Wenn der weiße Mond untergegangen ist, steht er hoch.
+  //
+  // **Er ist keine Lichtquelle.** Die Szene hat genau eine gerichtete Quelle,
+  // und das bleibt so — wer den Mond zur Sonne macht, hat die Aufgabe verfehlt,
+  // und wer zwei daraus macht, erst recht. Was er beiträgt, ist eine Form am
+  // Himmel und ein zweiter Farbklang.
+  //
+  // Er unterscheidet sich in **fünf** Merkmalen vom ersten, damit er nicht als
+  // Kopie liest: Farbe (eisenrot gegen kühlgrau), Phase (exakt halb gegen drei
+  // Viertel), Größe (17 gegen 26 Einheiten, also 3,2 gegen 5,0 Grad), Zustand
+  // (170 Krater ohne Strahlensysteme gegen 90 mit) und Hof (eine schwache
+  // rötliche Lage gegen drei blaue).
+  const MOND2_RICHTUNG = MOND_RICHTUNG.clone()
+    .negate()
+    .applyAxisAngle(new THREE.Vector3(1, 0, 0).cross(MOND_RICHTUNG).normalize(), 0.6)
+    .normalize();
+  const mond2 = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: mondScheibe('rot'),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      fog: false,
+      toneMapped: false,
+    })
+  );
+  mond2.name = 'nacht-mond-rot';
+  mond2.position.copy(MOND2_RICHTUNG).multiplyScalar(MOND_FERN);
+  mond2.scale.set(17, 17, 1);
+  const hof2 = mondHof('nacht-mondhof-rot', 0x8a4632, 0x2a1008, 3.4, 5.6, 0.26);
+  hof2.position.copy(mond2.position);
+  hof2.scale.multiplyScalar(MOND_FERN / 32.06);
+  hof2.renderOrder = 13;
+  himmelGruppe.add(hof2);
+  mond2.renderOrder = 21;
+  himmelGruppe.add(mond2);
 
   // --- Licht -----------------------------------------------------------------
   //
