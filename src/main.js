@@ -237,7 +237,19 @@ controls.update();
 
 // --- Bausteine ---
 
-const cardManager = new CardManager(scene);
+const cardManager = new CardManager(scene, { floorY: () => _floorY ?? 0 });
+
+// **Ein Aufruf, drei Stellen.** Das Flussdiagramm braucht zwei Angaben, die es
+// selbst nicht kennt: die Bodenhöhe unter dem Nutzer (sonst legt es sich auf
+// y = 1,5 und damit auf dem Planeten unter den Boden) und die Heimat der Karten
+// (sonst hängt es sie vom Planeten ab in die Szene). Beides stand an drei
+// Aufrufstellen zu wiederholen — genau die Bauart, an der der Freiraum der
+// Fortbewegung schon einmal auseinandergelaufen ist.
+const ordneFluss = () =>
+  layoutFlow(cardManager.cards, connectionManager.connections, camera, scene, {
+    heimat: cardManager.heimat,
+    boden: _floorY ?? 0,
+  });
 // Jetzt gibt es einen Empfänger für die Heimatwahl — und die Umgebung steht
 // schon fest, also einmal nachziehen.
 meldeWeltHeimat((ziel) => cardManager.setHeimat(ziel));
@@ -261,9 +273,12 @@ try {
   // Ohne gemerkte Stufe bleibt es bei „Normal"
 }
 
-const whiteboard = new Whiteboard(scene, { onSketch: () => handleAction('sketch') });
+const whiteboard = new Whiteboard(scene, {
+  onSketch: () => handleAction('sketch'),
+  floorY: () => _floorY ?? 0,
+});
 
-const zoneManager = new ZoneManager(scene);
+const zoneManager = new ZoneManager(scene, { floorY: () => _floorY ?? 0 });
 // Zonen sind Rahmen, vor denen Karten stehen — sie müssen dieselbe Heimat haben
 // wie die Karten, sonst löst sich die Gruppierung beim Weitergehen auf.
 meldeWeltHeimat((ziel) => zoneManager.setHeimat(ziel));
@@ -276,7 +291,7 @@ zoneManager.onRename = async (zone) => {
   }
 };
 
-const timer = new Timer(scene);
+const timer = new Timer(scene, { floorY: () => _floorY ?? 0 });
 
 function boardToJSON() {
   return {
@@ -625,7 +640,7 @@ async function handleAction(action) {
       return;
     }
     if (action === 'flow-layout') {
-      const count = layoutFlow(cardManager.cards, connectionManager.connections, camera, scene);
+      const count = ordneFluss();
       if (!count) {
         setStatus('Noch keine Prozessschritte da – erst „Schritt" oder „Aus Text" benutzen.');
         return;
@@ -1051,7 +1066,7 @@ async function buildFlowFromText() {
       const to = byResponseId.get(edge.to);
       if (from && to) connectionManager.connect(from, to, { label: edge.label });
     }
-    layoutFlow(cardManager.cards, connectionManager.connections, camera, scene);
+    ordneFluss();
     commit('Prozess erzeugt');
     setStatus(
       previous.length
@@ -1895,7 +1910,8 @@ window.__app = {
   connectionManager,
   keyboard,
   flow: {
-    layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera, scene),
+    layout: () =>
+      ordneFluss(),
     types: FLOW_TYPES,
   },
   tweener,

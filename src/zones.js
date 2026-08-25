@@ -180,7 +180,20 @@ class Zone {
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
     dir.normalize();
     const pos = camPos.clone().addScaledVector(dir, 2.4);
-    pos.y = THREE.MathUtils.clamp(camPos.y, 1.0, 2.2);
+    // **Die Klemmung misst ab dem Boden, nicht ab y = 0.**
+    //
+    // Hier stand `clamp(camPos.y + versatz, unten, oben)` mit absoluten
+    // Welthöhen. Das setzt stillschweigend voraus, dass der Boden bei null
+    // liegt — auf den vier flachen Umgebungen stimmt das, auf einer Kugel von
+    // 25 m Halbmesser nicht: Der Nutzer steht dort bei y ≈ 26,9, die obere
+    // Grenze schlägt an, und die Tafel landet **23,4 m unter seinen Füßen**,
+    // also im Gestein. Gemessen mit `tools/panelhoehe.mjs`.
+    //
+    // Mit dem Boden als Bezug bleibt das Verhalten auf ebenem Grund Zahl für
+    // Zahl dasselbe (dort ist `boden` null), und auf der Kugel steht die Tafel
+    // dort, wo sie hingehört.
+    const boden = this.manager.floorY();
+    pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden, 1.0, 2.2);
     // Gerechnet wird in Weltkoordinaten — die Zone stellt sich vor den Nutzer,
     // nicht vor den Planeten. Erst danach in die Heimat umgerechnet.
     const m = this.manager;
@@ -217,8 +230,11 @@ class Zone {
 }
 
 export class ZoneManager {
-  constructor(scene) {
+  constructor(scene, { floorY = () => 0 } = {}) {
     this.scene = scene;
+    // Die Bodenhöhe unter dem Nutzer; `Zone.placeInFront` fragt sie über den
+    // Verwalter ab. Vorgabe null, damit ohne Angabe alles bleibt, wie es war.
+    this.floorY = floorY;
     // **Zonen gehören zur Welt, nicht zum Nutzer.** Eine Zone ist der Rahmen,
     // vor dem Karten stehen; wenn die Karten mit dem Planeten wandern und der
     // Rahmen vor dem Nutzer stehen bleibt, ist die Gruppierung nach zwanzig

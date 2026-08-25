@@ -116,7 +116,7 @@ export function rankNodes(nodes, edges) {
 
 // Positionen berechnen. Getrennt vom Anwenden, damit sich das Ergebnis testen
 // lässt, ohne eine Szene aufzubauen.
-export function computeLayout(nodes, edges, { origin, right, forward }) {
+export function computeLayout(nodes, edges, { origin, right, forward, boden = 0 }) {
   const rank = rankNodes(nodes, edges);
   const rows = new Map();
   for (const n of nodes) {
@@ -153,7 +153,11 @@ export function computeLayout(nodes, edges, { origin, right, forward }) {
         .clone()
         .addScaledVector(forward, distance)
         .addScaledVector(right, x);
-      position.y = EYE_Y + top - i * gap;
+      // **`EYE_Y` ist eine Höhe über dem Boden, keine Welthöhe.** Solange der
+      // Boden bei null lag, war das dasselbe; auf der Kugel steht der Nutzer
+      // bei y ≈ 26,9, und ein Diagramm auf y = 1,5 läge dreiundzwanzig Meter
+      // unter seinen Füßen.
+      position.y = boden + EYE_Y + top - i * gap;
       placed.set(node.id, position);
     });
   });
@@ -163,7 +167,7 @@ export function computeLayout(nodes, edges, { origin, right, forward }) {
 // Prozessknoten des Boards auf die Tafel legen und zum Nutzer drehen.
 //
 // `scene` wird gebraucht, um gegriffene Knoten zurückzuhängen – siehe unten.
-export function layoutFlow(cards, connections, camera, scene = null) {
+export function layoutFlow(cards, connections, camera, scene = null, { heimat = null, boden = 0 } = {}) {
   const nodes = cards.filter((c) => c.flowType);
   if (!nodes.length) return 0;
   const ids = new Set(nodes.map((n) => n.id));
@@ -182,7 +186,10 @@ export function layoutFlow(cards, connections, camera, scene = null) {
   // die Flussrichtung und ein Dreher ließe den Prozess nach links laufen.
   const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
 
-  const placed = computeLayout(nodes, edges, { origin: camPos, right, forward });
+  const placed = computeLayout(nodes, edges, { origin: camPos, right, forward, boden });
+  // Wohin die Knoten gehängt werden. Auf dem Planeten ist das die Weltgruppe,
+  // sonst die Szene — dieselbe Unterscheidung wie in `CardManager`.
+  const ziel = heimat ?? scene;
   for (const node of nodes) {
     const target = placed.get(node.id);
     if (!target) continue;
@@ -193,7 +200,10 @@ export function layoutFlow(cards, connections, camera, scene = null) {
     // Controllers ist das Player-Rig, nicht die Szene. Der Knoten wäre dann
     // dort hängengeblieben und bei jeder Fortbewegung mitgefahren. Dasselbe
     // Muster wie in `CardManager.applyState`.
-    if (scene && node.group.parent !== scene) scene.attach(node.group);
+    // **An die Heimat, nicht an die Szene.** Auf dem Planeten hängen Karten an
+    // der Weltgruppe; wer sie hier in die Szene umhängt, löst sie vom Planeten,
+    // und beim nächsten Schritt läuft die Welt unter ihnen weg.
+    if (ziel && node.group.parent !== ziel) ziel.attach(node.group);
     node.group.position.copy(target);
     node.group.lookAt(camPos.x, target.y, camPos.z);
   }

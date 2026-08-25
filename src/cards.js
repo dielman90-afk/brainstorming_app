@@ -181,8 +181,11 @@ export class IdeaCard {
 }
 
 export class CardManager {
-  constructor(scene) {
+  constructor(scene, { floorY = () => 0 } = {}) {
     this.scene = scene;
+    // Die Bodenhöhe unter dem Nutzer; siehe `arrangeInArc`. Vorgabe null,
+    // damit ohne Angabe alles bleibt, wie es war.
+    this.floorY = floorY;
     // Wo Karten hängen: die Szene, oder auf dem Planeten dessen Weltgruppe.
     // Die Begründung steht vollständig in heimat.js.
     this.heimat = scene;
@@ -273,7 +276,20 @@ export class CardManager {
     const step = THREE.MathUtils.degToRad(24);
     const radius = 1.15;
     const rowOffset = (((batch + 1) % 3) - 1) * 0.24;
-    const y = THREE.MathUtils.clamp(camPos.y - 0.05 + rowOffset, 0.6, 2.1);
+    // **Die Klemmung misst ab dem Boden, nicht ab y = 0.**
+    //
+    // Hier stand `clamp(camPos.y + versatz, unten, oben)` mit absoluten
+    // Welthöhen. Das setzt stillschweigend voraus, dass der Boden bei null
+    // liegt — auf den vier flachen Umgebungen stimmt das, auf einer Kugel von
+    // 25 m Halbmesser nicht: Der Nutzer steht dort bei y ≈ 26,9, die obere
+    // Grenze schlägt an, und die Tafel landet **23,4 m unter seinen Füßen**,
+    // also im Gestein. Gemessen mit `tools/panelhoehe.mjs`.
+    //
+    // Mit dem Boden als Bezug bleibt das Verhalten auf ebenem Grund Zahl für
+    // Zahl dasselbe (dort ist `boden` null), und auf der Kugel steht die Tafel
+    // dort, wo sie hingehört.
+    const boden = this.floorY();
+    const y = boden + THREE.MathUtils.clamp(camPos.y - boden - 0.05 + rowOffset, 0.6, 2.1);
 
     cards.forEach((card, i) => {
       const angle = baseAngle + (i - (cards.length - 1) / 2) * step;
@@ -314,7 +330,9 @@ export class CardManager {
     const n = clusterDefs.length;
     const step = THREE.MathUtils.degToRad(n <= 2 ? 50 : n === 3 ? 40 : 32);
     const radius = 1.5;
-    const titleY = THREE.MathUtils.clamp(camPos.y + 0.3, 1.0, 2.2);
+    // Ebenso wie in `arrangeInArc`: Bezug ist der Boden, nicht y = 0.
+    const bodenC = this.floorY();
+    const titleY = bodenC + THREE.MathUtils.clamp(camPos.y - bodenC + 0.3, 1.0, 2.2);
 
     clusterDefs.forEach((def, i) => {
       const angle = baseAngle + (i - (n - 1) / 2) * step;
