@@ -144,6 +144,13 @@ const browser = await launchBrowser();
 try {
   const { page } = await openApp(browser);
   await selectEnv(page, 'night');
+  // **Eine Station als Schalter.** Der Saum, den der Prüfer zuletzt gemeldet
+  // hat, sitzt auf der **Nachtseite** — und die sechs festen Kameras stehen
+  // alle auf der Mondseite. Ohne diesen Schalter misst das Werkzeug an einer
+  // Stelle, an der es den Fehler gar nicht geben kann.
+  const stationArg = process.argv.indexOf('--station');
+  const station = stationArg > 0 ? +process.argv[stationArg + 1] : 0;
+
 
   if (process.argv.includes('--abstand')) {
     await ladeThree(page);
@@ -188,7 +195,7 @@ try {
   // Die Maske hängt nur an der Geometrie, nicht am Bias — einmal je Kamera.
   const masken = {};
   for (const shot of PLANET_SHOTS) {
-    await lockCamera(page, shot, 6.0);
+    await lockCamera(page, { ...shot, station }, 6.0);
     await page.waitForTimeout(280);
     masken[shot.name] = await gelaendeMaske(page);
   }
@@ -228,7 +235,7 @@ try {
     let akne = 0;
     let kanten = 0;
     for (const shot of PLANET_SHOTS) {
-      await lockCamera(page, shot, 6.0);
+      await lockCamera(page, { ...shot, station }, 6.0);
       await page.waitForTimeout(280);
       const buf = await page.screenshot();
       const z = zaehle(buf, masken[shot.name]);

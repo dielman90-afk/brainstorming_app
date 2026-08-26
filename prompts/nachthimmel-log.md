@@ -2732,6 +2732,73 @@ jetzt rundherum Form, kalt auf der einen und rostrot auf der anderen Seite.
 93,8 von 255, das dunkelste bei 17,1. Der zweite Mond ist ein Sechstel so stark
 wie der erste und leuchtet aus der Gegenrichtung — er ist ein Mond, keine Sonne.
 
+### Der Frost war zu hell, und der Saum ist nicht, wofür ich ihn gehalten habe
+
+Zwei Befunde aus dem zweiten Prüfbericht, beide von mir verursacht, beide auf
+der halben Runde sichtbar. Einer ist behoben, der andere nicht — und der Weg
+dorthin ist der lehrreichere.
+
+#### Frost, vierter Anlauf — diesmal nach unten
+
+Der Prüfer, als schwersten Mangel: In `rund-270` steht ein vereister Brocken bei
+L = 46,5, der Boden ringsum bei L = 19,9 — **das 2,4-Fache** — und farblich
+neutral bis kühl (B ≥ R), obwohl das einzige gerichtete Licht dort das warme
+rote Fülllicht ist. *„Marshmallows in einer roten Wüste."*
+
+Die Ursache ist nicht der Frost, sondern was ihn beleuchtet: Das
+Hemisphärenlicht (0x7595b4) ist **blaugrau** und trifft alles, was nach oben
+zeigt, unabhängig von jeder Richtung. Eine blauweiße Albedo darunter wird
+zwangsläufig das Hellste und Kühlste im Bild. Der Regolith entgeht dem nur, weil
+er dunkel und warm ist.
+
+`0xbcd0e0` hatte eine Leuchtdichte von 0,79 und 36 Stufen Blauüberschuss;
+`0x8e969a` liegt bei 0,58 und bei 12. Dazu die Menge von 0,9 auf 0,54 zurück.
+
+| `rund-270` (830, 470) | vorher | jetzt |
+| --- | --- | --- |
+| RGB | (57, 43, 50) | **(44, 24, 22)** |
+| Leuchtdichte | 46,5 | **28,1** |
+| Verhältnis zum Boden | 2,4× | **1,41×** |
+| Farbe | kühl (B > G) | **warm (R > G > B)** |
+
+Der Frost bleibt auffindbar (0,03 bis 0,29 % der Bodenpixel), widerspricht aber
+der Beleuchtung nicht mehr.
+
+#### Der Saum an der Kontaktlinie — drei Verdächtige, alle freigesprochen
+
+Der Prüfer: unter jedem Brocken der Nachtseite ein harter heller Saum,
+`rund-210` bei (270, 576) mit L = 75,6 gegen Boden L ≈ 20 — *„es bringt die
+Steine zum Schweben, statt sie einzubetten."*
+
+**Erster Verdacht: die Staubfahnen der Kontaktverdunklung.** Sie sind
+`MeshBasicMaterial` und `toneMapped: false`, ihr Wert steht also unabhängig vom
+Licht am Ort fest. Auf der Mondseite liest das als Verweher, auf der Nachtseite
+als glühender Ring. Der Anteil wird jetzt eingebacken — das geht, weil die Lage
+des Mondes **relativ zur Planetenoberfläche** fest ist. **Wirkung auf den Saum:
+keine.** Die Änderung bleibt trotzdem drin; eine Staubfahne, die im Dunkeln
+leuchtet, ist unabhängig davon falsch.
+
+**Zweiter Verdacht: Feinstaub und Brocken.** Je einzeln ausgeblendet
+(`tools/naht.mjs --station 210 --ohne …`, neu): keine Wirkung.
+
+**Dritter Verdacht: das Fülllicht ohne Schatten.** Die Farbe stützte ihn stark —
+RGB(105, 66, 54) ist das Verhältnis 1 : 0,63 : 0,51, und das Fülllicht
+(0xd08a62) hat 1 : 0,66 : 0,47. Also bekam es versuchsweise eine eigene
+Schattenkarte, 1024 Texel, dieselbe Box. **An derselben Stelle steht danach
+exakt RGB(105, 66, 54).** Nicht ein Pixelwert hat sich bewegt.
+
+Die Karte ist deshalb wieder heraus. Ein zweiter Schattendurchgang über
+328 000 Dreiecke ist auf einer Brille kein Rundungsfehler, und man bezahlt ihn
+nicht für eine Wirkung, die man nicht nachweisen kann. Der Saum bleibt offen —
+mit vier ausgeschlossenen Ursachen statt keiner.
+
+**Und mein Saumzähler misst das Falsche.** `tools/naht.mjs` sucht einen hellen
+Punkt **über** der Geländekante; der Prüfer meint einen hellen Bogen **an der
+Kontaktlinie**, also mitten im Gelände. Am Prüfstand liegt Station 210 bei 27
+Saumpixeln und rührt sich bei keinem der Versuche — er hat den Fehler nie
+gesehen. Das ist die dritte Stelle in diesem Auftrag, an der ein Messwerkzeug
+etwas anderes gemessen hat als das, was auf dem Bild steht.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**

@@ -4395,7 +4395,25 @@ function faerbeBruchstein(
   const grund = new THREE.Color(grundHex);
   const staubFarbe = new THREE.Color(0x8a5540);
   const bruchFarbe = new THREE.Color(0xb2a49b);
-  const frostFarbe = new THREE.Color(0xbcd0e0);
+  // **Vierter Anlauf am Frost — diesmal nach unten.**
+  //
+  // Nach dem dritten war er auffindbar; der Prüfer hat ihn daraufhin als
+  // schwersten Mangel gemeldet: In `rund-270` steht ein vereister Brocken bei
+  // L = 46,5, der Boden ringsum bei L = 19,9 — **das 2,4-Fache** — und
+  // farblich neutral bis kühl (B ≥ R), obwohl das einzige gerichtete Licht
+  // dort das warme rote Fülllicht des zweiten Mondes ist. „Marshmallows in
+  // einer roten Wüste."
+  //
+  // Die Ursache ist nicht der Frost, sondern was ihn beleuchtet: Das
+  // Hemisphärenlicht (0x7595b4) ist **blaugrau** und trifft alles, was nach
+  // oben zeigt, unabhängig von jeder Richtung. Eine blauweiße Albedo darunter
+  // wird zwangsläufig das Hellste und Kühlste im Bild. Der Regolith
+  // (0x854c33) entgeht dem nur, weil er dunkel und warm ist.
+  //
+  // `0xbcd0e0` hatte eine Leuchtdichte von 0,79 und einen Blauüberschuss von
+  // 36 Stufen. `0x8e969a` liegt bei 0,58 und bei 12 — noch kühler als der Fels,
+  // aber kein Leuchtkörper mehr.
+  const frostFarbe = new THREE.Color(0x8e969a);
   const n = new THREE.Vector3();
   const v = new THREE.Vector3();
   const c = new THREE.Color();
@@ -4590,11 +4608,34 @@ function makeKontaktAO(stellen, heightAt) {
   const _kP = new THREE.Vector3();
   for (const stelle of stellen) {
     const { ort, r, staerke, farbe = 0x000000, zug = null } = stelle;
+    // **Eine Staubfahne, die im Dunkeln leuchtet, ist keine Fahne.**
+    //
+    // Die Scheiben sind `MeshBasicMaterial` und `toneMapped: false` — ihr Wert
+    // steht fest, unabhängig davon, wie viel Licht am Ort ankommt. Für die
+    // Verdunklung ist das richtig (sie ist eine Korrektur des fertigen Bildes),
+    // für die aufhellende Staubfahne war es falsch: Auf der Mondseite las sie
+    // als heller Verweher, auf der Nachtseite als **glühender Ring**.
+    //
+    // Der Prüfer hat es an der Kontaktlinie gefunden: `rund-210` bei (270, 576)
+    // steht L = 75,6, während der Boden ringsum bei L ≈ 20 liegt — das
+    // 3,8-Fache, und ausgerechnet auf der lichtabgewandten Unterkante. Sein
+    // Urteil: „Der Sinn einer Kontaktverdunklung ist damit umgekehrt."
+    //
+    // Der Anteil wird deshalb eingebacken. Das geht, weil die Lage des Mondes
+    // **relativ zur Planetenoberfläche** fest ist: Himmelsgruppe und Weltgruppe
+    // tragen dieselbe Drehung, der Mond wandert über den Himmel des Spielers,
+    // aber nicht über den Boden.
+    const imLicht = smoothstep(-0.05, 0.32, ort.dot(MOND_RICHTUNG));
     // Das Tangentensystem der Stelle. `zug` gibt seine Richtung in eben diesen
     // Koordinaten an (x entlang Ost, y entlang Nord), damit der Rest der
     // Rechnung Wort für Wort die der Ebene bleiben kann.
     tangentialSystem(ort, _kOst, _kNord);
     c.set(farbe);
+    // Eine aufhellende Scheibe (Staubfahne) wird zur Nachtseite hin gegen
+    // Schwarz gezogen und damit zu einer reinen Verdunklung; eine dunkle
+    // Scheibe (die eigentliche Kontaktverdunklung) bleibt unberührt.
+    const hellt = c.r + c.g + c.b > 0.02;
+    if (hellt) c.multiplyScalar(imLicht);
     const basis = pos.length / 3;
     for (let ring = 0; ring < RINGE.length; ring++) {
       const rr = RINGE[ring] * r;
@@ -5470,7 +5511,7 @@ function makeMarsPlanet(rand) {
     // Ein alter Brocken ist eingestaubt, ein frisch zerbrochener zeigt den Bruch.
     faerbeBruchstein(geoR, rockHex, rock.quaternion, MOND_RICHTUNG, {
       staub: 0.35 + alter * 0.45,
-      frost: 0.5 + (1 - alter) * 0.4,
+      frost: 0.3 + (1 - alter) * 0.24,
       alter,
       oben: dir,
       bruchachse: bruchRichtung(dir, i * 5.3, i * 2.9, _bruch),
@@ -5629,7 +5670,7 @@ function makeMarsPlanet(rand) {
         m.receiveShadow = true;
         faerbeBruchstein(g, 0x7a4a37, m.quaternion, MOND_RICHTUNG, {
           staub: 0.5,
-          frost: 0.62,
+          frost: 0.36,
           alter: 0.4,
           oben: dirT,
           bruchachse: bruchRichtung(
@@ -5708,7 +5749,7 @@ function makeMarsPlanet(rand) {
         // Szene fallen.
         faerbeBruchstein(g, 0x6d4432, m.quaternion, MOND_RICHTUNG, {
           staub: 0.34,
-          frost: 0.62,
+          frost: 0.36,
           alter: 0.5,
           oben: dirF,
           bruchachse: bruchRichtung(
@@ -7458,10 +7499,26 @@ function createNightEnvironment() {
   // aus der Gegenrichtung. Wer den Rundgang macht, läuft aus einem kalten Licht
   // in ein warmes und wieder zurück.
   //
-  // **Ohne Schattenwurf.** Zwei Schattenkarten wären zwei Durchgänge über
-  // 328 000 Dreiecke, und zwei Schattensätze aus verschiedenen Richtungen lesen
-  // in einer Nachtszene als Fehler, nicht als Licht. Die eine gerichtete Quelle
-  // mit Schatten bleibt der Mond; dies hier ist Fülllicht mit einer Richtung.
+  // **Ohne Schattenwurf — und das ist eine gemessene Entscheidung, keine
+  // Bequemlichkeit.**
+  //
+  // Der Prüfer hat unter jedem Brocken der Nachtseite einen hellen Saum
+  // gefunden (`rund-210` bei (270, 576): L = 75,6 gegen Boden L ≈ 20) und ihn
+  // einem Licht ohne Schatten zugeschrieben — „es bringt die Steine zum
+  // Schweben, statt sie einzubetten". Die Farbe stützte das: RGB(105, 66, 54)
+  // ist das Verhältnis 1 : 0,63 : 0,51, und dieses Fülllicht hat
+  // 1 : 0,66 : 0,47.
+  //
+  // **Der Versuch hat es widerlegt.** Mit einer eigenen Schattenkarte
+  // (1024 Texel, dieselbe Box) steht an derselben Stelle weiterhin exakt
+  // RGB(105, 66, 54). Der Saum kommt nicht von hier. Die Karte ist deshalb
+  // wieder heraus: Ein zweiter Schattendurchgang über 328 000 Dreiecke ist auf
+  // einer Brille kein Rundungsfehler, und man bezahlt ihn nicht für eine
+  // Wirkung, die man nicht nachweisen kann.
+  //
+  // Ausgeschlossen sind damit: Kontaktverdunklung, Feinstaub und Brocken (je
+  // einzeln ausgeblendet, ohne Wirkung) und dieses Licht. Der Saum bleibt
+  // offen.
   const mond2Licht = new THREE.DirectionalLight(0xd08a62, 0.78);
   mond2Licht.position.copy(MOND2_RICHTUNG).multiplyScalar(MOND_FERN);
   // **Ein eigenes Ziel, kein geteiltes.** `moonLight` entsteht erst hundert
