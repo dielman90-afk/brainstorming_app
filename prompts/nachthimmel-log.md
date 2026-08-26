@@ -2846,6 +2846,58 @@ Mangel** stehen. Ein eigener, je Bildpunkt gedrehter PCF-Kern wäre ein Eingriff
 in einen three-Shaderbaustein, der alle fünf Umgebungen trägt — das ist kein
 Preis für ein Muster, das man bei achtfacher Vergrößerung findet.
 
+### Der Fingerabdruck im Sand: zwei Windsysteme statt eines
+
+Der Prüfer über den Boden: *„gleichabständige, gleichbreite Rillen, die überall
+exakt der Höhenlinie folgen — man sieht nicht Sand, sondern eine
+Höhenlinienkarte."* Im Ausschnitt von `c-krater` ist es unverkennbar ein
+**Fingerabdruck**: verschachtelte Bögen um ein Zentrum.
+
+Das Zentrum ist der **Windpol**. Ein zonaler Wind hat zwei davon, und dort
+laufen seine Kämme als konzentrische Kreise zusammen. Der Kommentar im Code
+kannte das Problem seit dem Umbau auf die Kugel — er hat es als unvermeidlich
+verbucht (*„ein Vektorfeld ohne Nullstelle gibt es auf der Kugel nicht, Satz vom
+Igel"*) und nur den Pol weit vom Startpunkt weggestellt. Auf einer Platte hätte
+das gereicht. Auf einem Körper, den man in einer Minute umrundet, kommt man an
+jedem Pol vorbei.
+
+**Die Pole sind nicht wegzurechnen, aber wegzublenden.** Zwei Systeme mit Polen
+90 Grad auseinander: Am Pol von A steht B im Äquator und hat dort gerade Kämme.
+Sichtbar ist immer das System, dessen Pol **weiter weg** ist.
+
+**Der erste Anlauf hat zwei Fehler auf einmal gemacht.** Er hat beide Systeme
+über ein breites Band überblendet (`smoothstep(0.82, 0.97, |sinBr|)`). Der
+Wirbel blieb trotzdem stehen — die Blende setzte erst bei 55 Grad Breite ein,
+und der Fingerabdruck ist lange vorher zu sehen — und im Überlappungsbereich
+stand ein **regelmäßiges Rautengitter**, also ein neuer Programmierer-Tell an
+Stelle des alten. Jetzt entscheidet ein Vergleich der beiden Polabstände mit
+einer absichtlich **schmalen** Blende (rund sechs Grad). Was bleibt, ist eine
+schmale Scherlinie zwischen zwei Rippelrichtungen — die gibt es in einem echten
+Dünenfeld auch.
+
+**Und ein Fehler in meinem eigenen Shader, der fast durchgegangen wäre.** Der
+erste Entwurf hatte in der Systemschleife zwei `continue`, um Rechenschritte zu
+sparen. In der Schleife steht ein `fwidth`, und **Ableitungen in nicht-uniformem
+Kontrollfluss sind in GLSL undefiniert**: Der Wert kommt aus den
+Nachbarfragmenten, und wenn eines davon die Schleife verlassen hat, ist er Müll.
+Gespart hätte ich ein paar Takte, bezahlt hätte ich mit einem Artefakt genau an
+der Blendkante, die der Umbau beseitigen soll.
+
+### Der Linter war in Ordnung, mein Vorgehen nicht
+
+**Zum dritten Mal in dieser Sitzung** habe ich einen Backtick in einen
+Shader-Kommentar geschrieben und damit das Template-Literal beendet.
+`tools/shaderlint.mjs` gibt es genau dafür, seit Runde 6, und es findet den Fall
+auch zuverlässig — an einer Testdatei gegengeprüft: `t.js:2 Backtick im
+Kommentar innerhalb eines Template-Literals`, Rückgabewert 1.
+
+Es hat nur nie jemand vorher aufgerufen. Ich habe es dreimal **nach** dem
+Bauabbruch laufen lassen, und dann meldete es folgerichtig „keine Funde".
+
+`package.json` hat deshalb jetzt ein `prebuild`: `npm run build` ruft den Linter
+von selbst auf und bricht ab, bevor der Bau überhaupt beginnt. **Eine Prüfung,
+an die man denken muss, ist keine Prüfung.**
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
