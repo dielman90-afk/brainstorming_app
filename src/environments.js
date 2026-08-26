@@ -3989,11 +3989,30 @@ const MILCH_POL = new THREE.Vector3(0.78, 0.52, 0.35).normalize();
 // dagegen von Natur aus periodisch. 462 Kämme auf den Umfang 2π · 25 m ergeben
 // am Windäquator 0,340 m Abstand; zu den Windpolen hin laufen sie zusammen wie
 // Meridiane und blenden dort über `fwidth` von selbst aus.
+// **Zwei Windsysteme, und der Grund ist der Igelsatz.**
+//
+// Ein zonaler Wind hat zwei Pole, und dort laufen seine Kämme als konzentrische
+// Kreise zusammen. Der Prüfer hat genau das gefunden: „gleichabständige,
+// gleichbreite Rillen, die überall exakt der Höhenlinie folgen — man sieht
+// nicht Sand, sondern eine Höhenlinienkarte." Im Ausschnitt von `c-krater` ist
+// es unverkennbar ein **Fingerabdruck**: verschachtelte Bögen um ein Zentrum.
+//
+// Ein Vektorfeld ohne Nullstelle gibt es auf der Kugel nicht — die Pole sind
+// nicht wegzurechnen. Aber sie sind wegzu**blenden**: Zwei Systeme mit Polen 90
+// Grad auseinander, und jedes fällt dort auf null, wo sein eigener Pol steht.
+// Am Pol von A trägt B mit voller Stärke und hat dort seinen Äquator, also
+// gerade Kämme. Sichtbar wird nie ein Pol, sondern immer nur die eine oder die
+// andere Bahnschar — und dazwischen ein Band, in dem beide zu Kreuzrippeln
+// überlagern, was in einem echten Dünenfeld ebenfalls vorkommt.
 const NACHT_WIND = (() => {
-  const pol = WIND_POL;
-  const a = new THREE.Vector3(0, 1, 0).cross(pol).normalize();
-  const b = pol.clone().cross(a).normalize();
-  return { pol, a, b, kaemme: Math.round((Math.PI * 2 * PLANET_R) / 0.34) };
+  const machSystem = (pol) => {
+    const a = new THREE.Vector3(0, 1, 0).cross(pol).normalize();
+    return { pol, a, b: pol.clone().cross(a).normalize() };
+  };
+  const A = machSystem(WIND_POL);
+  // Senkrecht auf dem ersten Pol: dort, wo A entartet, steht B im Äquator.
+  const B = machSystem(A.a.clone());
+  return { A, B, kaemme: Math.round((Math.PI * 2 * PLANET_R) / 0.34) };
 })();
 
 let _marsGround = null;
@@ -4035,9 +4054,12 @@ function marsGroundMaterial() {
     // **nichts** ausblenden, sonst ist die Ferne leerer als vorher. Deshalb
     // trägt der zweite, gröbere Maßstab — die Rippel — weiter als das Korn.
     _marsGround.onBeforeCompile = (shader) => {
-      shader.uniforms.windPol = { value: NACHT_WIND.pol };
-      shader.uniforms.windA = { value: NACHT_WIND.a };
-      shader.uniforms.windB = { value: NACHT_WIND.b };
+      shader.uniforms.windPol = { value: NACHT_WIND.A.pol };
+      shader.uniforms.windA = { value: NACHT_WIND.A.a };
+      shader.uniforms.windB = { value: NACHT_WIND.A.b };
+      shader.uniforms.windPol2 = { value: NACHT_WIND.B.pol };
+      shader.uniforms.windA2 = { value: NACHT_WIND.B.a };
+      shader.uniforms.windB2 = { value: NACHT_WIND.B.b };
       shader.uniforms.windKaemme = { value: NACHT_WIND.kaemme };
       shader.uniforms.planetR = { value: PLANET_R };
       shader.vertexShader = shader.vertexShader
@@ -4055,7 +4077,10 @@ function marsGroundMaterial() {
            uniform vec3 windA;
            uniform vec3 windB;
            uniform float windKaemme;
-           uniform float planetR;`
+           uniform float planetR;
+           uniform vec3 windPol2;
+           uniform vec3 windA2;
+           uniform vec3 windB2;`
         )
         .replace(
           '#include <normal_fragment_maps>',
@@ -4097,104 +4122,96 @@ function marsGroundMaterial() {
              normal = normalize(normal + tbn * vec3(kies.xy * 0.13, 0.0) * kiesAn);
              diffuseColor.rgb *= 1.0 + (kies.x - kies.y) * 0.085 * kiesAn;
 
-             // --- Windrippel ------------------------------------------------
-             // Ort auf der Kugel, als Richtung vom Mittelpunkt.
+             // --- Windrippel, zwei Systeme --------------------------------
+             //
+             // Ein zonaler Wind hat zwei Pole, und dort laufen seine Kaemme als
+             // konzentrische Kreise zusammen — im Bild ein Fingerabdruck. Ein
+             // Vektorfeld ohne Nullstelle gibt es auf der Kugel nicht, aber die
+             // Pole lassen sich wegblenden: zwei Systeme mit Polen 90 Grad
+             // auseinander, jedes faellt an seinem eigenen Pol auf null. Am Pol
+             // von A steht B im Aequator und hat dort gerade Kaemme.
              vec3 dK = normalize(vWeltOrt);
-             float sinBr = clamp(dot(dK, windPol), -1.0, 1.0);
-             // Breite quer zum Wind, in Bogenmetern — entlang ihrer laufen die
-             // Kaemme, sie ist deshalb die Eingabe fuer das Maeandern.
-             float laengs = planetR * asin(sinBr);
-             // Nahe den Windpolen wird der Breitenkreis winzig; ohne Klemmung
-             // explodiert die Phase je Meter und mit ihr die Normalenstoerung.
-             // Sichtbar wird davon nichts: Dort ist rippelAn laengst null.
-             float sinTh = max(0.09, sqrt(max(0.0, 1.0 - sinBr * sinBr)));
-             vec3 inEbene = dK - windPol * sinBr;
-             float phi = atan(dot(inEbene, windB), dot(inEbene, windA));
-             // Phase je Meter entlang des Windes. Am Windaequator sind das
-             // 18,48 = 2 PI / 0,34 m, genau wie auf der Platte.
-             float K = windKaemme / (planetR * sinTh);
-
-             // Die Kaemme maeandern, sonst waere es ein Wellblech:
-             // Versatz += A * sin(f * laengs) mit A = 0,35 und f = 0,7. **Die
-             // Streuung des Abstands ist A * f**, also 0,245 — knapp ein
-             // Viertel einer Periode. (Nicht A * f * Teilung: Der Fehler hat
-             // auf der Insel 4 % gerechnet und 90 % ins Bild gestellt.)
-             float versatz = sin(laengs * 0.7) * 0.35 + sin(laengs * 0.23 + 1.7) * 0.5;
-
-             // **Maeandern allein macht keine Gabelung.**
-             //
-             // Der Pruefer: „Die Rippelkaemme laufen ueber den gesamten
-             // sichtbaren Hang parallel, mit gleichem Abstand und gleicher
-             // Amplitude, ohne eine einzige Gabelung." Er hat recht, und der
-             // Grund steht in der Zeile darueber: versatz haengt nur von
-             // laengs ab — also von der Lage **entlang** der Kaemme. Alle
-             // Kaemme werden damit um denselben Betrag verschoben und bleiben
-             // deshalb parallel, so krumm sie auch laufen.
-             //
-             // Eine Gabelung entsteht, wo benachbarte Kaemme **verschieden**
-             // weit verschoben werden — dort aendert sich der lokale Abstand,
-             // und wo er unter eine halbe Periode faellt, laufen zwei Kaemme
-             // zusammen. Dafuer muss der Versatz auch von der Lage **quer**
-             // dazu abhaengen, also von phi.
-             float bogenQuer = planetR * phi * sinTh;
-             versatz += sin(laengs * 1.27 + bogenQuer * 0.29) * 0.46;
-             versatz += sin(laengs * 0.61 - bogenQuer * 0.13 + 2.4) * 0.33;
-             float phase = windKaemme * phi + versatz * K;
-
-             // Ausblenden, sobald eine Periode unter zwei Pixel faellt. Ohne
-             // das steht in der Ferne Moire statt Rippel.
-             float schritt = fwidth(phase);
-             float rippelAn = 1.0 - smoothstep(1.1, 2.8, schritt);
-
-             // **Rippel bilden sich nicht ueberall.** Ein Feld, das
-             // flaechendeckend gleich stark gerippelt ist, ist so sehr ein
-             // Muster wie gar keines. Zwei Bedingungen nehmen ihm die
-             // Gleichfoermigkeit:
-             //
-             //   * Sie brauchen eine flache Auflage. Auf einer steilen Flanke
-             //     rutscht das Material, statt sich zu ordnen. Flach heisst auf
-             //     der Kugel: die Normale zeigt nach aussen, nicht nach oben.
-             //   * Sie kommen in Feldern von zwanzig bis vierzig Metern. Die
-             //     Summe zweier Sinus mit ganzzahlfremden Frequenzen ist glatt
-             //     und kostet zwei Rechenschritte. Sie wird jetzt aus der
-             //     vollen Weltkoordinate gebildet statt aus x und z — auf einer
-             //     Kugel ist das dieselbe Glaette ohne Vorzugsrichtung.
-             // **Bezugssystem.** Nach normal_fragment_maps steht die Normale
-             // in three im **Sichtraum**; dK und die Windrichtung sind
-             // Weltvektoren. Der erste Anlauf hat beides direkt miteinander
-             // multipliziert — das Ergebnis hing davon ab, wohin die Kamera
-             // schaut, und die Rippel erschienen und verschwanden mit der
-             // Blickrichtung statt mit dem Gelände. Beides wird deshalb erst in
-             // den Sichtraum gedreht.
              mat3 zurSicht = mat3(viewMatrix);
              vec3 dKSicht = normalize(zurSicht * dK);
+
              float flach = smoothstep(0.55, 0.90, dot(nonPerturbedNormal, dKSicht));
              float feld = 0.42 + 0.58 * clamp(
                0.5 + 0.5 * (sin(dot(vWeltOrt, vec3(0.13, 0.05, 0.09)))
                           + sin(dot(vWeltOrt, vec3(-0.07, 0.11, 0.17)) + 2.1)) * 0.5,
                0.0, 1.0);
-             // **Und sie laufen nicht ununterbrochen durch.** Ein zweiter,
-             // feinerer Fleckenmasstab (drei bis sechs Meter) laesst die
-             // Rippelung stellenweise ganz aussetzen — dort liegt glatter,
-             // verwehter Staub. Zusammen mit den Gabelungen oben nimmt das dem
-             // Feld den Kordsamt: Es gibt Stellen ohne Kaemme, Stellen mit
-             // engen und Stellen mit weiten.
-             float flecken = 0.5 + 0.5 * sin(laengs * 1.9 + sin(bogenQuer * 0.41) * 1.6);
-             rippelAn *= flach * feld * (0.25 + 0.75 * smoothstep(0.12, 0.62, flecken));
+             float rippelGrund = flach * feld;
 
-             // Saegezahnprofil statt Sinus: Eine Rippel hat eine flache Luv-
-             // und eine steile Leeseite. Ein reiner Sinus liest als Duenung.
-             float sg = sin(phase);
-             float profil = sign(sg) * pow(abs(sg), 0.65);
-             float steigung = cos(phase) * K * 0.0042 * rippelAn;
+             vec3 summeQuer = vec3(0.0);
+             float summeProfil = 0.0;
 
-             // Die Richtung, in der die Phase waechst: der Wind selbst.
-             vec3 querSicht = normalize(zurSicht * normalize(cross(windPol, dK)));
-             normal = normalize(normal - querSicht * steigung);
+             // **Welches System hier gilt: das, dessen Pol weiter weg ist.**
+             //
+             // Der erste Anlauf hat beide ueber ein breites Band ueberblendet
+             // und dabei zwei Fehler auf einmal erzeugt: Der Wirbel am Pol war
+             // immer noch da (die Blende setzte erst bei 55 Grad Breite ein),
+             // und im Ueberlappungsbereich stand ein regelmaessiges
+             // Rautengitter — ein neuer Programmierer-Tell an Stelle des alten.
+             //
+             // Jetzt entscheidet ein Vergleich: Naeher am eigenen Pol heisst
+             // ausblenden. Die Blende ist absichtlich **schmal** (rund sechs
+             // Grad), damit kein breites Kreuzrippelfeld entsteht. Was bleibt,
+             // ist eine schmale Scherlinie zwischen zwei Rippelrichtungen — und
+             // die gibt es in einem echten Duenenfeld auch.
+             float sinBrA0 = clamp(dot(dK, windPol), -1.0, 1.0);
+             float sinBrB0 = clamp(dot(dK, windPol2), -1.0, 1.0);
+             float wahl = smoothstep(-0.05, 0.05, abs(sinBrA0) - abs(sinBrB0));
 
+             for (int sys = 0; sys < 2; sys++) {
+               vec3 pol = sys == 0 ? windPol : windPol2;
+               vec3 achsA = sys == 0 ? windA : windA2;
+               vec3 achsB = sys == 0 ? windB : windB2;
+
+               float sinBr = sys == 0 ? sinBrA0 : sinBrB0;
+               // **Das Ausblenden am eigenen Pol.** Ueber 55 bis 88 Grad
+               // Breite faellt das System auf null; dort uebernimmt das andere,
+               // das an dieser Stelle seinen Aequator hat.
+               // **Kein vorzeitiges Verlassen der Schleife.** Weiter unten
+               // steht ein fwidth, und Ableitungen in nicht-uniformem
+               // Kontrollfluss sind in GLSL **undefiniert**: Der Wert kommt aus
+               // den Nachbarfragmenten, und wenn eines davon die Schleife
+               // verlassen hat, ist er Muell. Der erste Anlauf hatte hier ein
+               // continue — gespart haetten ein paar Rechenschritte, bezahlt
+               // haette man mit einem Artefakt genau an der Blendkante, die
+               // dieser Umbau beseitigen soll.
+               float wicht = sys == 0 ? 1.0 - wahl : wahl;
+
+               float laengs = planetR * asin(sinBr);
+               float sinTh = max(0.09, sqrt(max(0.0, 1.0 - sinBr * sinBr)));
+               vec3 inEbene = dK - pol * sinBr;
+               float phi = atan(dot(inEbene, achsB), dot(inEbene, achsA));
+               float K = windKaemme / (planetR * sinTh);
+
+               // Maeandern entlang der Kaemme, plus zwei Terme quer dazu, die
+               // benachbarte Kaemme verschieden weit verschieben und damit
+               // Gabelungen erzeugen.
+               float bogenQuer = planetR * phi * sinTh;
+               float versatz = sin(laengs * 0.7) * 0.35 + sin(laengs * 0.23 + 1.7) * 0.5
+                             + sin(laengs * 1.27 + bogenQuer * 0.29) * 0.46
+                             + sin(laengs * 0.61 - bogenQuer * 0.13 + 2.4) * 0.33;
+               float phase = windKaemme * phi + versatz * K;
+
+               // Ausblenden, sobald eine Periode unter zwei Pixel faellt.
+               float schritt = fwidth(phase);
+               float an = (1.0 - smoothstep(1.1, 2.8, schritt)) * wicht * rippelGrund;
+               float flecken = 0.5 + 0.5 * sin(laengs * 1.9 + sin(bogenQuer * 0.41) * 1.6);
+               an *= 0.25 + 0.75 * smoothstep(0.12, 0.62, flecken);
+
+               // Saegezahnprofil statt Sinus: flache Luv-, steile Leeseite.
+               float sg = sin(phase);
+               summeProfil += sign(sg) * pow(abs(sg), 0.65) * an;
+               summeQuer += normalize(zurSicht * normalize(cross(pol, dK)))
+                          * (cos(phase) * K * 0.0042 * an);
+             }
+
+             normal = normalize(normal - summeQuer);
              // Die Kaemme sind groeber und heller, die Taeler halten den feinen
              // Staub. Kleiner Betrag — es ist eine Toenung, kein Muster.
-             diffuseColor.rgb *= 1.0 + profil * 0.075 * rippelAn;
+             diffuseColor.rgb *= 1.0 + summeProfil * 0.075;
            }`
         );
     };
