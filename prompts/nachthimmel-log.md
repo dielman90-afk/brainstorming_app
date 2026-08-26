@@ -2898,6 +2898,53 @@ Bauabbruch laufen lassen, und dann meldete es folgerichtig „keine Funde".
 von selbst auf und bricht ab, bevor der Bau überhaupt beginnt. **Eine Prüfung,
 an die man denken muss, ist keine Prüfung.**
 
+### Komposition: die Steine folgen jetzt dem Gelände — und die Kennzahl misst die Kugel
+
+Der Prüfer hat die Komposition als schwächstes Kriterium benannt: *„Masse links
+zu rechts 1,00 bis 1,07 in **allen zwanzig Bildern** — kein einziges hat eine
+Gewichtsachse."*
+
+Die Ursache der Gleichförmigkeit stand in zwei Zeilen: `u` und `phi`
+gleichverteilt über die Kugel. 240 Brocken auf 7854 m² sind einer je 33 m²; ein
+Blick über den 8,9-m-Horizont deckt rund 250 m² ab, und darin liegen **immer**
+dieselben sieben. Jede Ansicht ist dieselbe Stichprobe derselben Verteilung.
+
+Auf einem echten Körper liegt Blockwerk dort, wo es hergekommen ist: als
+Auswurfdecke um einen Einschlag und als Schutthalde am Fuß eines Grats. Genau
+diese Orte gibt es hier schon. Zwei Drittel der Brocken werden ihnen jetzt
+zugeordnet, nach Gewicht (ein großer Krater bekommt mehr als ein kleiner), ein
+Drittel bleibt verstreut — **ohne einen einzigen zusätzlichen `rand()`-Zug**:
+Welcher Brocken zu welchem Feld gehört, kommt aus `hashNoise`, und seine beiden
+Lagezüge werden umgedeutet (`u` wird zum flächengleichen Radialanteil im Kranz,
+`phi` bleibt der Winkel).
+
+#### Was das bringt, und was nicht
+
+Über die **zwölf Stationen des Rundgangs**, Anteil der Felspixel je Bild:
+
+| | vorher | jetzt |
+| --- | --- | --- |
+| Streuung | 8,43 | **11,64** |
+| Spanne | 24,4 | **42,7** Prozentpunkte |
+
+Es gibt jetzt Stationen mit 42,9 % Blockwerk und Stationen mit 0,24 %. Das ist
+der Unterschied zwischen Verteilung und Komposition, und in `d-orbit` sieht man
+ihn direkt: Gruppen und kahle Flächen statt gleichmäßigem Streusel.
+
+**An der Kennzahl des Prüfers ändert es fast nichts** — Masse links zu rechts
+bleibt bei 1,00 bis 1,04. Das ist kein Versäumnis, sondern eine Eigenschaft der
+Kennzahl: In einer Nachtszene trägt die **dunkle Masse** die Komposition, und
+die dunkle Masse ist hier der Boden. Wer auf einer Kugel von 25 m Halbmesser
+steht, hat den Horizont ringsum bei 8,9 m; der Boden füllt die untere Bildhälfte
+**immer** symmetrisch, und 240 Brocken von 14 bis 56 cm bewegen daran nichts.
+
+Was diese Zahl bewegen würde, sind Formen, die die Horizontlinie asymmetrisch
+brechen — also mehr oder größere Landmarken, gesetzt mit Blick auf den Rundgang.
+Das ist eine Entscheidung über die Landschaft, keine über die Steinverteilung,
+und sie steht offen. Der Kantenanteil im unteren Bilddrittel, die andere Hälfte
+seines Befunds, hat sich dort bewegt, wo Blockwerk dazukam: `c-krater` von
+0,96 % auf 1,39 %.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
