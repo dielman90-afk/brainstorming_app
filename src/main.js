@@ -83,6 +83,30 @@ renderer.toneMappingExposure = 1.1;
 // Folgenlos für Umgebungen ohne Werfer: Ohne castShadow und receiveShadow
 // rendert three keine Schattenkarte und ändert kein Pixel.
 renderer.shadowMap.enabled = true;
+// **PCF, und die Alternativen sind gemessen durchgefallen.**
+//
+// Der Prüfer hat im Halbschatten ein 2-Pixel-Schachbrett gefunden — die
+// Quantisierung, die hartes PCF am Texelraster der Schattenkarte hinterlässt.
+// `tools/raster.mjs` (neu) misst sie als Autokorrelation des Hochpasses; mit
+// Schatten steht r(1,0) bei −0,374, ohne Schatten bei +0,765.
+//
+// Vier Auswege, alle nachgemessen:
+//
+//   * `PCFSoftShadowMap` — in three r185 **abgekündigt**; three meldet beim
+//     Setzen „has been deprecated. Using PCFShadowMap instead." Der klassische
+//     Hebel existiert nicht mehr.
+//   * Schattenkarte 4096 statt 2048 — RMS 1,075 → 0,974, also **10 % für die
+//     vierfache Karte**. Auf einer Brille kein Handel.
+//   * `shadow.radius` 2 und 6 — macht es **schlechter** (RMS 2,5 und 4,3):
+//     Der größere Kernel spreizt die Quantisierung, statt sie zu glätten.
+//   * `VSMShadowMap` — löscht das Gitter, aber nur, weil es die Schatten
+//     gleich mitlöscht: Der Sputnik wirft keinen mehr, das Bild wird um 18
+//     Helligkeitsstufen heller, und die Himmelsinsel ändert sich um Δmax 118.
+//
+// Es bleibt deshalb bei PCF, und das Gitter bleibt als bekannter, gemessener
+// Mangel stehen. Ein eigener, gedrehter PCF-Kern wäre ein Eingriff in einen
+// three-Shaderbaustein, der alle fünf Umgebungen trägt — das ist kein Preis
+// für ein Muster, das man bei achtfacher Vergrößerung findet.
 renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 

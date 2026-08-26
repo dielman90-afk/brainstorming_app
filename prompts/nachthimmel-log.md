@@ -2799,6 +2799,53 @@ Saumpixeln und rührt sich bei keinem der Versuche — er hat den Fehler nie
 gesehen. Das ist die dritte Stelle in diesem Auftrag, an der ein Messwerkzeug
 etwas anderes gemessen hat als das, was auf dem Bild steht.
 
+### Das Schachbrett im Halbschatten: vier Auswege, vier Fehlschläge
+
+Der Prüfer hat unter dem Sputnik ein regelmäßiges 2-Pixel-Schachbrett gefunden
+und es „das einzige echte Pixelgitter der Szene — kein Stilmittel, sondern eine
+Rechenspur" genannt. Sein Nachweis war die Autokorrelation des Hochpasses.
+
+`tools/raster.mjs` (neu) macht daraus eine wiederholbare Messung und, wichtiger,
+eine, mit der sich der Verursacher einkreisen lässt: Es rendert dieselbe Ansicht
+mehrfach und schaltet dabei je einen Kandidaten um.
+
+| Fall | RMS | r(1,0) | r(2,0) |
+| --- | --- | --- | --- |
+| Stand | 1,525 | **−0,374** | 0,325 |
+| Schatten aus | 0,636 | +0,765 | 0,505 |
+
+Damit ist die Quelle eindeutig: **die Schattenkarte**. Hartes PCF vergleicht je
+Bildpunkt gegen das Texelraster, und dort, wo der Halbschatten einsetzt, kippt
+der Vergleich zwischen benachbarten Bildpunkten hin und her. Der Wert −0,374
+deckt sich mit den −0,39, die der Prüfer gemessen hat.
+
+Vier Auswege, alle nachgemessen, alle durchgefallen:
+
+* **`PCFSoftShadowMap`** — in three r185 **abgekündigt**. three meldet beim
+  Setzen „has been deprecated. Using PCFShadowMap instead" und rendert Zeichen
+  für Zeichen dasselbe Bild (RMS 1,525 → 1,525). Der klassische Hebel gegen
+  genau dieses Artefakt existiert nicht mehr.
+* **Schattenkarte 4096 statt 2048** — RMS 1,075 → 0,974, also **zehn Prozent
+  für die vierfache Karte**. 1024 macht es schlechter (1,385). Auf einer Brille
+  ist das kein Handel.
+* **`shadow.radius` 2 und 6** — macht es **schlechter**, nicht besser: RMS 2,5
+  und 4,3. Der größere Kernel spreizt die Quantisierung, statt sie zu glätten.
+* **`VSMShadowMap`** — löscht das Gitter vollständig (RMS 0,620, r(1,0)
+  +0,756). Und zwar, weil es die **Schatten gleich mitlöscht**: Der Wert ist
+  identisch mit „Schatten aus", der Sputnik wirft keinen Schatten mehr, das Bild
+  wird um 18 Helligkeitsstufen heller, 89,5 % der Bildpunkte ändern sich, und
+  die Himmelsinsel — die ihn gar nichts angeht — verschiebt sich um Δmax 118.
+
+**Der Wert, der zu gut aussieht, war der Hinweis.** RMS 0,620 gegen 0,636 für
+„gar keine Schatten" ist kein Erfolg, sondern derselbe Zustand unter anderem
+Namen. Zwei Zahlen, die auf drei Stellen übereinstimmen, wo eine Verbesserung
+stehen sollte, sind ein Grund nachzusehen, kein Grund zu feiern.
+
+Es bleibt deshalb bei PCF, und das Gitter bleibt als **bekannter, gemessener
+Mangel** stehen. Ein eigener, je Bildpunkt gedrehter PCF-Kern wäre ein Eingriff
+in einen three-Shaderbaustein, der alle fünf Umgebungen trägt — das ist kein
+Preis für ein Muster, das man bei achtfacher Vergrößerung findet.
+
 ### Die Lehren dieser Runde
 
 * **Eine API-Zahl, deren Bedeutung man zu kennen glaubt, gehört nachgezählt.**
