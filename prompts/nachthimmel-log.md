@@ -3376,3 +3376,33 @@ anderen vier im bekannten Rauschband, Konsole ohne Errors und Warnings, Budget
 * **`Object3D.traverse` kann keinen Teilbaum auslassen.** Ein `return` im
   Rückruf überspringt den Rest des Rückrufs, nicht die Kinder. Wer einen Zweig
   wirklich überspringen will, schreibt seine eigene Rekursion.
+
+### Der Prüfer ist in dieser Runde ausgefallen
+
+Er wurde frisch beauftragt (claude-opus-5, hoher Aufwand, ausdrücklich mit dem
+Hinweis, dass es eine Nachtszene ist) und ist nach wenigen Schritten mit einem
+API-Fehler abgebrochen: monatliches Ausgabenlimit erreicht. Sein letzter Satz
+war eine Ankündigung, keine Feststellung; es liegt **kein Befund** von ihm vor.
+
+**Deshalb steht hier nicht „bestanden".** An der eigenen Arbeit ist man nicht
+unbefangen, und was folgt, ist Selbstprüfung, kein Urteil.
+
+Selbst angesehen habe ich die acht festen Kameras. Was dabei auffiel:
+
+* **`d-orbit` hat keinen Terminator mehr.** Die sichtbare Halbkugel ist
+  durchgehend beleuchtet. Das ist die Folge des Wunsches „der Planet soll von
+  allen Seiten beleuchtet sein" und insofern gewollt — es kostet aber die
+  Modellierung des Körpers im Raum, und die Kamera trägt den Terminator noch im
+  Titel. Der Hintergrund dieser Kamera ist ohnehin irreführend: Die Himmelskuppe
+  ist am Spieler verankert, und diese Kamera steht außerhalb von ihr.
+* **Die Streifen in der Milchstraße sind gemessen und praktisch unsichtbar.** Im
+  6-fachen Ausschnitt sah es nach regelmäßigen Diagonalen aus. Senkrecht zum
+  Band abgetastet und hochpassgefiltert: **2,43 Stufen von 255** bei rund 6,7 px
+  Periode. Das ist die 8-Bit-Quantisierung eines weichen Verlaufs, kein
+  Texturfehler. Die offene Frage „Himmelsbänderung" bleibt damit offen, aber sie
+  ist kleiner, als sie im Ausschnitt aussieht.
+* **Der rötliche Halbmond liest als Halbmond**, mit sauberem Terminator und
+  deutlich anderer Farbe als der weiße. Bei rund 42 px Durchmesser ist von den
+  170 Kratern wenig zu sehen; das ist eine Frage der Größe, nicht der Machart.
+* Die Peitschenantenne des Sputnik als 0,7 px breite Linie steht weiter offen
+  (siehe oben).
