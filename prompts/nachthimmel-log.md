@@ -3130,3 +3130,116 @@ dünner ist als ein Bildpunkt, ist keine Form* —, und in der Brille wird sie b
   0,85 % wird kein Erfolg, indem man die Zahl weglässt. Der Wert dieser Runde
   liegt in der Eingrenzung: Es ist jetzt gerechnet, dass Geometrie neben dem Weg
   dieses Problem nicht lösen kann.
+
+---
+
+## Kiesel in Armeslänge — Struktur ohne Dreiecke
+
+Der vorige Eintrag endet mit einem Zeigefinger: *„Was das Band von 1,4 bis 3,7 m
+in jeder Richtung füllen kann, ist der Boden selbst."* Das ist dieser Eintrag.
+
+### Der Befund als Zahl
+
+Verteilung der Helligkeitssprünge zwischen benachbarten Bildpunkten im **unteren
+Bilddrittel**, gemessen an den festen Kameras. Die Kennzahl des Prüfers zählt
+alles über 26:
+
+| | Mittel L | p50 | p90 | p99 | größter |
+| --- | --- | --- | --- | --- | --- |
+| `e-boden` | 70,2 | 1,9 | 4,3 | 7,6 | **15** |
+| `a-augenhoehe` | 79,1 | 4,9 | 11,3 | 22,6 | 160 |
+| `c-krater` | 83,0 | 2,8 | 7,9 | 31,2 | 163 |
+
+In `e-boden` liegt der **größte** Sprung über 240 000 Bildpunkte bei 15 — die
+Schwelle wird nirgends erreicht, nicht einmal knapp. Wo `a-augenhoehe` und
+`c-krater` über die Schwelle kommen, sind es die Brocken (p99,9 bei 84 bis 86),
+nicht der Boden.
+
+Der Boden hatte drei Maßstäbe: Korn aus der Normalenkarte (1,9 cm, blendet ab
+6 m aus), Kies aus derselben Karte auf vierfacher Kachel (7,6 cm, bis 30 m) und
+die Windrippel (34 cm). Der Kies stand auf **0,13** Neigung, also 7,4 Grad, und
+mehr verträgt er nicht: Der erste Anlauf mit 0,42 hatte die Rippel vollständig
+übertönt. Ein Flüstern über die ganze Fläche ist aber kein Vordergrund.
+
+### Der Unterschied zwischen Rauschen und einem Ding
+
+**Ein Kiesel hat einen Rand.** Rauschen hat keinen. Deshalb hier keine vierte
+Karte, sondern verstreute Scheiben, gerechnet aus der Weltposition: ein Gitter
+von 22 cm, je Zelle ein versetzter Mittelpunkt aus einer Hashfunktion, und nur
+gut ein Viertel der Zellen trägt überhaupt einen. Halbmesser 3,1 bis 6,6 cm,
+netto rund 4 % Flächendeckung. Kosten: **null Dreiecke, null Draw-Calls**, vier
+Hashauswertungen je Fragment.
+
+Vier Zellen statt neun, weil Versatz und Halbmesser so begrenzt sind, dass kein
+Kiesel weiter als eine Zellgrenze reicht. Ausgeblendet wird zwischen 2,5 und
+6 m — bei 22 cm Zellweite deckt eine Zelle auf 1,2 m rund 130 Bildpunkte ab, auf
+7 m noch 22; weiter draußen wäre sie Moiré, und dort tragen Kies und Rippel
+weiter.
+
+### Drei Anläufe, drei Fehler
+
+* **Golfball.** Erster Versuch: die Hälfte der Zellen belegt, Halbmesser bis
+  9,2 cm, Neigung 0,5, Tönung 0,34. Das deckte 40 % der Fläche und sah aus wie
+  Mondpocken. Auf ein Viertel der Zellen, 0,34 Neigung und 0,20 Tönung
+  zurückgenommen.
+* **Konfetti.** Kreise, alle gleich rund. Jetzt bekommt jede Zelle eine eigene
+  Achse — aus demselben Hashwert normalisiert statt aus Winkelfunktionen
+  gezogen, das spart je Zelle ein `sin` und ein `cos` — und wird quer dazu auf
+  0,78 gestaucht.
+* **Das Vorzeichen.** In `f-kante` sah die umgekehrte Version besser aus, und
+  beinahe wäre sie so stehen geblieben. Dort steht der Mond aber **hinter der
+  Kamera**: Eine von hinten beleuchtete Kuppe zeigt fast nichts, was sich nicht
+  auch als Mulde lesen ließe. Entschieden hat `e-boden`, wo der Mond links vorn
+  steht — nur mit dem ursprünglichen Vorzeichen liegt das Licht auf der linken
+  Flanke. **Ein Vorzeichen entscheidet man an der Kamera, deren Licht eine
+  Richtung hat, nicht an der, in der es von hinten kommt.**
+
+### Was es bringt
+
+| Kennzahl | vor den Ankern | mit Ankern | mit Kieseln |
+| --- | --- | --- | --- |
+| `a-augenhoehe`, Kantenanteil unten | 0,73 % | 0,73 % | **1,44 %** |
+| `f-kante` | 0,12 % | 0,12 % | **0,74 %** |
+| `c-krater` | 1,39 % | 1,39 % | 1,42 % |
+| `e-boden` | 0,00 % | 0,00 % | 0,03 % |
+| 36 Ansichten (`nahfeld`), Mittel | 0,77 % | 0,85 % | **1,13 %** |
+| Median | 0,23 % | 0,30 % | **0,43 %** |
+| Ansichten unter 0,7 % | 27/36 | 24/36 | **22/36** |
+| größter Sprung in `e-boden` | 15 | 15 | **35** |
+
+Dreiecke, Draw-Calls und Texturspeicher stehen unverändert bei 344 186 / 21 /
+8 MB. Die Regression bleibt im bekannten Band (Insel 0,55 %, Zen, Konstrukt und
+Dojo praktisch bitgleich), die Konsole ist frei von Errors und Warnings.
+
+### Was es nicht bringt, und warum das so bleibt
+
+Zweiundzwanzig von 36 Ansichten liegen weiter unter 0,7 %, und `e-boden` bleibt
+bei 0,03 %. Der Grund ist inzwischen ausgerechnet: Bei 4 % Flächendeckung und
+einer Randzone von 12 % des Halbmessers liegt rund **ein Prozent** der
+Bildpunkte auf einer Kieselkante — genau die p99, die von 7,6 auf 8,8 steigt.
+Für 0,7 % über der Schwelle 26 bräuchte es entweder das Zwanzigfache an Rändern
+oder deutlich mehr Kontrast, und beides sah im Bild falsch aus: Das war der
+Golfball.
+
+**Die Schwelle 26 misst Objektkanten und Schlagschatten, nicht Oberfläche.** Ein
+Boden, der sie flächig erreicht, ist kein Regolith mehr, sondern Schotter. Die
+drei Stationen der Nachtseite (180, 240, 270) bleiben aus einem zweiten Grund
+nahe null: Dort ist schlicht kein Licht, mit dem eine Oberfläche eine Kante
+werfen könnte, und das ist richtig so.
+
+Was sich wirklich geändert hat, steht nicht in dieser Kennzahl, sondern im Bild:
+`c-krater` und `e-boden` zeigen jetzt einen Maßstab zwischen Korn und Brocken,
+an dem das Auge Entfernung abliest. Genau das war der ursprüngliche Prüferbefund
+hinter der Zahl.
+
+### Die Lehren dieser Runde
+
+* **Wenn eine Kennzahl nach mehr Kontrast verlangt, als das Bild verträgt, ist
+  die Kennzahl am Ende ihrer Zuständigkeit.** Man sagt das und hört auf, sie zu
+  füttern — man erfindet keine dritte Auslegung.
+* **Ein Detail, das ein Ding sein soll, braucht einen Rand.** Vier Maßstäbe
+  Rauschen übereinander bleiben Rauschen; eine Scheibe mit Kante liest sofort
+  als Kiesel.
+* **Ein Vorzeichen prüft man dort, wo das Licht eine Richtung hat.** Bei
+  Gegenlicht sehen Kuppe und Mulde gleich aus, und die Kamera, an der es am
+  ehesten auffällt, ist die falsche zum Entscheiden.

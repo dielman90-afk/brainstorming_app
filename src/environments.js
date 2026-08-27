@@ -4080,7 +4080,14 @@ function marsGroundMaterial() {
            uniform float planetR;
            uniform vec3 windPol2;
            uniform vec3 windA2;
-           uniform vec3 windB2;`
+           uniform vec3 windB2;
+           // Drei unabhaengige Zufallszahlen je Zelle: Versatz in x und y und
+           // eine dritte, aus der Groesse und Toenung des Kiesels kommen.
+           vec3 kieselHash(vec2 z) {
+             vec3 p3 = fract(vec3(z.xyx) * vec3(0.1031, 0.1030, 0.0973));
+             p3 += dot(p3, p3.yxz + 33.33);
+             return fract((p3.xxy + p3.yxx) * p3.zyx);
+           }`
         )
         .replace(
           '#include <normal_fragment_maps>',
@@ -4121,6 +4128,88 @@ function marsGroundMaterial() {
              // beide nebeneinander bestehen.
              normal = normalize(normal + tbn * vec3(kies.xy * 0.13, 0.0) * kiesAn);
              diffuseColor.rgb *= 1.0 + (kies.x - kies.y) * 0.085 * kiesAn;
+
+             // --- Kiesel in Armeslaenge -------------------------------------
+             //
+             // **Gemessen war der Boden direkt vor den Fuessen glatt.** Im
+             // unteren Bilddrittel von e-boden liegt der groesste
+             // Helligkeitssprung zwischen benachbarten Bildpunkten bei 15 von
+             // 255, der Median bei 1,9 — ueber 240 000 Bildpunkte hinweg keine
+             // einzige Kante. Der Prueferbefund dazu lautete, dort liege
+             // Flaeche und sonst nichts.
+             //
+             // Struktur, die aus Geometrie kaeme, ist nicht zu bezahlen: Das
+             // Band von 1,4 bis 3,7 m lueckenlos mit Steinen zu belegen kostet
+             // 68 Bloecke und 43 520 Dreiecke, und frei sind 5 800. Was der
+             // Kiesmassstab oben liefert, ist zu wenig — 0,13 Neigung sind 7,4
+             // Grad, also ein Fluestern, und mehr vertraegt er nicht, ohne die
+             // Windrippel zu uebertoenen (das war der erste Anlauf mit 0,42).
+             //
+             // **Der Unterschied ist, dass ein Kiesel ein Ding ist und kein
+             // Rauschen.** Er hat einen Rand, eine Woelbung und eine eigene
+             // Farbe. Deshalb hier keine weitere Karte, sondern verstreute
+             // Scheiben: ein Gitter von 22 cm, je Zelle ein versetzter
+             // Mittelpunkt, und nur gut die Haelfte der Zellen traegt
+             // ueberhaupt einen. Vier Zellen werden abgefragt, nicht neun —
+             // der Versatz bleibt innerhalb der halben Zelle und der Halbmesser
+             // unter der halben Zelle, damit kein Kiesel weiter als eine
+             // Zellgrenze reicht.
+             //
+             // **Nur im Nahfeld.** Bei 22 cm Zellweite deckt eine Zelle auf
+             // 1,2 m rund 130 Bildpunkte ab, auf 7 m noch 22. Weiter draussen
+             // waere sie Moire, deshalb blendet das Feld zwischen 3 und 7 m
+             // aus — dort uebernehmen Kies und Rippel, die bis 30 m tragen.
+             float kieselAn = 1.0 - smoothstep(2.5, 6.0, tiefe);
+             vec2 kieselM = vNormalMapUv * 1.6 / 0.22; // Zellkoordinaten
+             vec2 kieselI = floor(kieselM);
+             float kieselDeckung = 0.0;
+             vec2 kieselNeig = vec2(0.0);
+             float kieselTon = 0.0;
+             for (int jy = 0; jy <= 1; jy++) {
+               for (int jx = 0; jx <= 1; jx++) {
+                 vec2 zelle = kieselI + vec2(float(jx), float(jy));
+                 vec3 h = kieselHash(zelle);
+                 // Nur gut ein Viertel der Zellen traegt einen Stein. Der erste
+                 // Anlauf liess die Haelfte tragen und deckte damit 40 % der
+                 // Flaeche: Das las als Golfball, nicht als Regolith.
+                 float da = step(0.72, h.z);
+                 vec2 mitte = zelle + 0.25 + h.xy * 0.5;
+                 vec2 ab = kieselM - mitte;
+                 // **Ein Stein ist kein Kreis.** Je Zelle eine eigene Achse aus
+                 // demselben Zug — normalisiert statt aus Winkelfunktionen
+                 // gezogen, das spart je Zelle ein sin und ein cos — und quer
+                 // dazu auf 0,78 gestaucht. Aus Konfetti werden damit Kiesel.
+                 vec2 achse = normalize(h.xy - 0.5 + vec2(1e-3, 2e-3));
+                 ab = vec2(dot(ab, achse), dot(ab, vec2(-achse.y, achse.x)) / 0.78);
+                 float d = length(ab);
+                 // Halbmesser 0,14 bis 0,30 Zellweiten, also 3,1 bis 6,6 cm;
+                 // netto rund 4 % Flaechendeckung.
+                 float r = 0.14 + h.z * 0.16;
+                 float innen = (1.0 - smoothstep(r * 0.88, r, d)) * da;
+                 kieselDeckung = max(kieselDeckung, innen);
+                 // Kuppe statt Mulde: Die Normale kippt nach **aussen**, und die
+                 // Neigung waechst zum Rand hin. Der erste Anlauf hatte das
+                 // Vorzeichen andersherum und hat den Boden mit Dellen
+                 // uebersaet — im Bild ein Golfball.
+                 kieselNeig += (d > 1e-4 ? ab / d : vec2(0.0))
+                             * innen * smoothstep(0.0, r, d);
+                 // Jeder Kiesel hat seine eigene Toenung, hellere und dunklere
+                 // nebeneinander — ein einheitlich dunkles Streufeld laese als
+                 // Schmutz.
+                 kieselTon += innen * (fract(h.z * 17.3) - 0.45);
+               }
+             }
+             // **Das Vorzeichen ist geprueft, nicht geraten.** Ein Versuch mit
+             // umgekehrtem Zeichen sah in f-kante besser aus — dort steht der
+             // Mond hinter der Kamera, und eine von hinten beleuchtete Kuppe
+             // zeigt fast nichts, was sich mit einer Mulde verwechseln laesst.
+             // Entschieden hat e-boden: Dort steht der Mond links vorn, und nur
+             // mit **plus** liegt das Licht auf der linken Flanke.
+             normal = normalize(normal + tbn * vec3(kieselNeig * 0.34 * kieselAn, 0.0));
+             diffuseColor.rgb *= 1.0 + kieselTon * 0.20 * kieselAn;
+             // Der Staub sammelt sich am Fuss des Steins: ein schmaler heller
+             // Saum, der die Kante gegen den Boden absetzt.
+             diffuseColor.rgb *= 1.0 + kieselDeckung * 0.03 * kieselAn;
 
              // --- Windrippel, zwei Systeme --------------------------------
              //
@@ -4218,7 +4307,7 @@ function marsGroundMaterial() {
     // Ohne eigenen Cache-Schlüssel hält three das Programm eines anderen
     // Materials mit derselben Signatur für austauschbar und der Einschub
     // landet nie im Shader.
-    _marsGround.customProgramCacheKey = () => 'nacht-regolith-v1';
+    _marsGround.customProgramCacheKey = () => 'nacht-regolith-v5';
   }
   return _marsGround;
 }
