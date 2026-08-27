@@ -5496,6 +5496,30 @@ function makeMarsPlanet(rand) {
   }
   const gewichtSumme = streuFelder.reduce((s2, f) => s2 + f.gewicht, 0);
 
+  // **Ein Ort am Weg, in Metern längs und quer.**
+  //
+  // Der Rundgang läuft auf einem Großkreis: `welt.quaternion` dreht um die
+  // X-Achse, der Punkt unter dem Spieler ist also Y, um −s/R um X gedreht. Die
+  // Bahnebene ist damit die Y-Z-Ebene, und „quer" heißt: heraus in Richtung X.
+  //
+  // **Warum nicht über Azimut.** Ein Ort ließe sich auch als (Bogen, Azimut)
+  // vom Startpunkt aus angeben — so stehen die Landmarken. Für Anker am Weg
+  // taugt das nicht: Bei 70 m Bogen ist man 8,5 m vom Gegenpol entfernt, dort
+  // laufen alle Azimute zusammen, und der größte erreichbare Querabstand
+  // beträgt 8,5 m. Wer dort 12 m quer haben will, kann rechnen, was er mag.
+  const _wegP = new THREE.Vector3();
+  const _wegX = new THREE.Vector3(1, 0, 0);
+  const ortAmWeg = (entlang, quer) => {
+    _wegP.set(0, 1, 0).applyAxisAngle(_wegX, -entlang / PLANET_R);
+    const c = Math.cos(quer / PLANET_R);
+    const sn = Math.sin(quer / PLANET_R);
+    return new THREE.Vector3(
+      _wegP.x * c + sn,
+      _wegP.y * c,
+      _wegP.z * c
+    ).normalize();
+  };
+
   const brocken = [];
   const _feldOrt = new THREE.Vector3();
   for (let i = 0; i < 240; i++) {
@@ -5599,6 +5623,107 @@ function makeMarsPlanet(rand) {
       zug: leeZug(dir, weit * (2.4 + hashNoise(dir.x * 3, dir.y * 3, 11) * 1.8)),
     });
   }
+  // --- Anker am Weg -----------------------------------------------------------
+  //
+  // Die zweite Hälfte des Kompositionsbefunds: *„Kantenanteil im unteren
+  // Bilddrittel bei 15 von 20 Bildern unter 0,7 %, bei dreien 0,00 % — in
+  // `e-boden` liegen 240 000 Bildpunkte ohne eine einzige Kante direkt vor den
+  // Füßen."*
+  //
+  // **Dahin reicht keine Landmarke.** Gerechnet für die Augenhöhenkamera
+  // (Neigung −15°, 70° Bildwinkel) deckt das untere Bilddrittel den Bogen von
+  // **1,4 bis 3,7 m** ab — dahinter beginnt schon der Horizont bei 8,9 m, und
+  // der liegt eine Bildhöhe weiter oben. Eine Formation bei 20 m Bogen kann
+  // dort nichts ausrichten. Was dort steht, muss in Armeslänge stehen.
+  //
+  // Zwanzig Blöcke, alle sieben bis neun Meter einer, abwechselnd links und
+  // rechts der Bahn, mit Versatz längs, damit kein Takt entsteht. Weil die
+  // Seite wechselt, bekommt jedes Bild eine Gewichtsachse — genau das, was die
+  // Masse links zu rechts von 1,00 nicht hergibt.
+  //
+  // **Sie sind klein, und das ist gemessen.** Der erste Anlauf gab ihnen 0,66
+  // bis 1,71 m Halbmesser bei Unterteilung 2. Im Bild von Station 90 stand
+  // daraufhin ein Körper von 2,5 m Breite anderthalb Meter vor der Nase, dessen
+  // Facetten 0,5 m maßen — bei 0,097° je Bildpunkt sind das 250 px je Facette,
+  // und weil `faerbeBruchstein` sie kaum gegeneinander abtönt, las das Ganze als
+  // glattes Kissen statt als Stein. Ein Anker darf Anker sein, nicht Hindernis
+  // (dieselbe Lehre wie bei den Findlingen). Jetzt 0,34 bis 0,72 m bei
+  // Unterteilung 3: Kantenlänge 1,0515 · r / 4, also höchstens 19 cm, und die
+  // Verwitterung ist verdoppelt, weil diese Steine die nächsten im Bild sind.
+  //
+  // **Der Querabstand liegt im Fenster, und das ist der zweite Fehler des
+  // ersten Anlaufs.** Er lief von 1,9 bis 4,5 m — alles über 3,7 m kann das
+  // untere Bilddrittel gar nicht mehr erreichen, ganz gleich, wo man steht.
+  // Ein Drittel der Blöcke war damit für den Zweck, zu dem sie gesetzt wurden,
+  // wirkungslos. Jetzt 2,0 bis 3,5 m: unten im Bild, und immer noch außerhalb
+  // der Kartenreihe, die sich bei 1,15 bis 1,5 m um den Nutzer anordnet.
+  //
+  // **Zwanzig, und mehr gibt das Budget nicht her.** Ein Block trägt 320
+  // Dreiecke und wirft Schatten, kostet also 640 je Bild. Bei zwanzig steht die
+  // Umgebung bei 344 000 von 350 000; für lückenlose Deckung bräuchte es 2,3 m
+  // Abstand, also 68 Blöcke und 43 520 Dreiecke — das Zweieinhalbfache dessen,
+  // was frei ist. Die Grenze ist gerechnet, nicht geschätzt.
+  //
+  // **Damit ist auch gesagt, was diese Blöcke nicht leisten.** Sie geben dem
+  // Rundgang alle acht Meter etwas in Armeslänge — an neun von zwölf Stationen
+  // liegt ein Stein zwischen 1,5 und 4,9 m, wo vorher keiner lag. Den leeren
+  // unteren Bildrand schließen sie nicht: Gemessen über 36 Ansichten steigt der
+  // Kantenanteil dort nur von 0,77 auf 0,82 %. Was ihn schließen könnte, ist
+  // Struktur im Boden selbst, und die kostet keine Dreiecke.
+  //
+  // Alle Parameter kommen aus `hashNoise` — kein zusätzlicher Zug aus dem
+  // gesäten Strom, sonst verschöbe sich alles Vorherige.
+  for (let i = 0; i < 20; i++) {
+    const entlang = 5.0 + i * 7.85 + (hashNoise(i * 1.3, 2.7, 8.8) - 0.5) * 4.0;
+    const seite = i % 2 === 0 ? 1 : -1;
+    const sA = 0.34 + hashNoise(i * 1.9, 4.4, 2.8) * 0.38;
+    const quer = seite * (1.6 + sA * 1.1 + hashNoise(i * 3.3, 1.7, 6.2) * 1.0);
+    const dirA = ortAmWeg(entlang, quer);
+    const geoA = bruchGeometrie(sA, 7300 + i * 113, {
+      facetten: 10 + Math.round(hashNoise(i * 2.6, 9.1, 3.3) * 7),
+      verwitterung: 0.22 + hashNoise(i * 4.7, 0.6, 7.7) * 0.3,
+      kanten: 0.09 + hashNoise(i * 5.5, 3.1, 1.4) * 0.09,
+      unterteilung: 3,
+    });
+    boxProjectUV(geoA, 0.3);
+    const mA = new THREE.Mesh(geoA, marsRockMaterial());
+    mA.scale.set(
+      1 + hashNoise(i * 6.1, 2.2, 8.4) * 0.35,
+      0.6 + hashNoise(i * 7.3, 5.5, 0.9) * 0.4,
+      1 + hashNoise(i * 8.9, 6.6, 4.1) * 0.35
+    );
+    const hA = heightAt(dirA);
+    stelleAuf(
+      mA,
+      dirA,
+      PLANET_R + hA,
+      (hashNoise(i * 9.7, 1.1, 5.3) - 0.5) * 0.5,
+      hashNoise(i * 2.1, 7.9, 3.6) * Math.PI * 2,
+      (hashNoise(i * 3.7, 8.3, 2.2) - 0.5) * 0.5
+    );
+    const massA = ausdehnung(geoA, mA, dirA);
+    mA.position.copy(dirA).multiplyScalar(PLANET_R + hA + massA.laengs * 0.42);
+    mA.castShadow = true;
+    mA.receiveShadow = true;
+    const alterA = hashNoise(i * 4.1, 2.9, 9.6);
+    faerbeBruchstein(geoA, rockColors[i % rockColors.length], mA.quaternion, MOND_RICHTUNG, {
+      staub: 0.3 + alterA * 0.4,
+      frost: 0.3 + (1 - alterA) * 0.24,
+      alter: alterA,
+      oben: dirA,
+      bruchachse: bruchRichtung(dirA, i * 6.7, i * 8.1, _bruch),
+    });
+    brocken.push(mA);
+    aoStellen.push({ ort: dirA, r: massA.quer * 1.4, staerke: 0.52 });
+    aoStellen.push({
+      ort: dirA,
+      r: massA.quer * 1.2,
+      staerke: 0.24,
+      farbe: 0xcaa78e,
+      zug: leeZug(dirA, massA.quer * 2.8),
+    });
+  }
+
   for (const m of verschmelzeObjekte(brocken, 'nacht-brocken')) {
     m.castShadow = true;
     m.receiveShadow = true;
