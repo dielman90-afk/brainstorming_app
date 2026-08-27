@@ -2975,3 +2975,158 @@ seines Befunds, hat sich dort bewegt, wo Blockwerk dazukam: `c-krater` von
 * **Eine Kugel hat immer einen Terminator.** Alles, was auf der Platte unter
   30° Lichteinfall getestet war — Schattenbias, Kontaktverdunklung, aufgemalte
   Staubfahnen —, sieht sich hier einmal je Rundgang streifendem Licht gegenüber.
+
+---
+
+## Anker am Weg — und was sie nicht können
+
+Der offene Punkt aus der letzten Runde war die Komposition: *„Was diese Zahl
+bewegen würde, sind Formen, die die Horizontlinie asymmetrisch brechen — also
+mehr oder größere Landmarken, gesetzt mit Blick auf den Rundgang."* Die
+Entscheidung dafür ist gefallen, und die Umsetzung hat drei Anläufe gebraucht,
+von denen die ersten beiden falsch waren.
+
+### Erst rechnen, wohin überhaupt etwas gehört
+
+Die sechzehn Landmarken stehen bereits neben der Laufspur, mit gerechnetem
+Querabstand. Mehr davon hätte den Befund nicht getroffen, denn seine zweite
+Hälfte lautete: *„Kantenanteil im unteren Bilddrittel bei 15 von 20 Bildern
+unter 0,7 %, bei dreien 0,00 %."*
+
+**Welchen Bogen zeigt dieses Drittel?** Für die Augenhöhenkamera — Neigung
+−15°, Bildwinkel 70° — reicht es von −27,6° bis −50° Tiefenwinkel. Auf einer
+Kugel von 25 m Halbmesser bei 1,6 m Augenhöhe ist der Tiefenwinkel zu einem
+Bodenpunkt in Bogenabstand *s*
+
+```
+tief(s) = atan2( 1,6 + 25·(1 − cos(s/25)) , 25·sin(s/25) )
+```
+
+also 58° bei 1 m, 40° bei 2 m, 25,7° bei 4 m und 20,0° am Horizont bei 8,9 m.
+**Das untere Bilddrittel zeigt den Bogen von 1,4 bis 3,7 m — ein Band von 2,3 m
+Tiefe, direkt vor den Füßen.** Eine Formation bei 20 m Bogen steht dort niemals;
+sie steht immer oben im Bild. Dieser Befund verlangt nicht nach Landmarken, er
+verlangt nach etwas in Armeslänge.
+
+Dazu kommt eine zweite Rechnung, die dem Werkzeug gilt und nicht der Szene:
+`ortAmWeg(entlang, quer)` setzt Steine seitlich der Bahn, aber die
+Augenhöhenkamera blickt 30° **neben** die Laufrichtung — sie schaut zum Mond.
+Ein Stein bei 2,5 m Querabstand steht aus 2,7 m Entfernung unter 43° zur Bahn;
+auf der einen Seite fällt er knapp ins Bild, auf der anderen liegt er 73° neben
+der Achse und damit außerhalb der halben Bildbreite von 52°. **Die Hälfte aller
+Nahanker kann diese Kamera grundsätzlich nicht sehen.** Dafür gibt es jetzt
+`tools/nahfeld.mjs`: zwölf Stationen, je drei Blickrichtungen (geradeaus und
+45° nach links und rechts), Kantenanteil nach demselben Maß wie
+`tools/komposition.mjs`.
+
+### Erster Anlauf: ein Kissen vor der Nase
+
+Achtzehn Blöcke von 0,66 bis 1,71 m Halbmesser bei Unterteilung 2. Die Kennzahl
+sprang, wo einer im Bild stand — Station 90 von 0,11 % auf **1,68 %** —, und
+das Bild hatte zum ersten Mal eine Gewichtsachse. Der Blick auf dasselbe Bild
+zeigte den Preis: ein Körper von 2,5 m Breite anderthalb Meter vor der Nase,
+dessen Facetten 0,5 m maßen. Bei 0,097° je Bildpunkt sind das rund 250 px je
+Facette, und weil `faerbeBruchstein` benachbarte Facetten kaum gegeneinander
+abtönt, las das Ganze als **glattes Kissen**, nicht als Stein. Die Findlinge
+tragen die Lehre schon im Kommentar: *„Ein Anker darf Anker sein, nicht
+Hindernis."*
+
+Zwei weitere Fehler standen daneben: der Querabstand lief bis 4,5 m — alles über
+3,7 m kann das gemessene Band gar nicht erreichen, ein Drittel der Blöcke war
+also für seinen Zweck wirkungslos —, und die Größe war unabhängig vom Abstand
+gewürfelt, so dass große Steine nah standen und kleine fern.
+
+### Die Grenze ist das Dreiecksbudget, und sie ist gerechnet
+
+Der naheliegende Ausweg — kleinere Steine, dafür mehr davon — stößt sofort an
+das Budget. Vor dieser Runde stand die Umgebung bei **337 626** von 350 000
+Dreiecken je Bild. Ein Block bei Unterteilung 3 trägt 320 Dreiecke und wirft
+Schatten, kostet also 640. Für lückenlose Deckung des 2,3-m-Bands bräuchte es
+2,3 m Abstand, also 68 Blöcke und **43 520 Dreiecke** — das Siebenfache des
+Freiraums.
+
+Bevor irgendetwas anderes gestrichen wurde, war der größte Posten des
+Schattendurchgangs zu prüfen: `nacht-planet` liefert 81 920 der 151 132
+Dreiecke, mehr als die Hälfte. Ein Versuch mit `castShadow = false` ergab in
+allen vier festen Kameras **Δmax = 0** — bitgleich, kein einziger Bildpunkt.
+
+**Und genau daran wäre diese Runde beinahe gescheitert.** Vier Standbilder sind
+kein Beweis; `tools/rundgang.mjs` misst am Gelände Steigungen bis 1,46, und eine
+solche Flanke muss sich bei streifendem Licht selbst verschatten. Dieselbe
+Messung über zwölf Stationen des Rundgangs:
+
+| Station | 0–120 | **150** | 180 | **210** | 240–300 | **330** |
+| --- | --- | --- | --- | --- | --- | --- |
+| Δmax ohne Planetenschatten | 0 | **70** | 0 | **94** | 0 | **46** |
+| Bildpunkte ≥ 2 | 0 % | **17,89 %** | 0 % | 0,10 % | 0 % | **10,35 %** |
+
+Die drei Stationen mit Wirkung sind die Terminatorstationen: Mondhöhe −3,3°,
+−53,7° und +3,3°. **Die vier festen Kameras stehen allesamt dort, wo der
+Selbstschatten nichts tut** — sie taugen zur Beurteilung dieses Postens nicht.
+Die 81 920 Dreiecke sind verdient und bleiben.
+
+Damit steht die Grenze fest: **zwanzig Blöcke**, Unterteilung 3, Halbmesser 0,34
+bis 0,72 m, Querabstand 2,0 bis 3,5 m, Abstand längs 7,85 m mit Versatz. Die
+Umgebung liegt jetzt bei **344 186** von 350 000.
+
+### Was sie leisten, gemessen
+
+Strahlen von der Augenhöhe aus, 36 Azimute je Station bei −30° Tiefenwinkel,
+gezählt wird, was auf Fels trifft:
+
+| | vorher | jetzt |
+| --- | --- | --- |
+| Stationen mit Fels in Reichweite | 0 von 12 | **9 von 12** |
+| nächster Fels | — | **1,5 bis 4,9 m** |
+
+Über die 36 Ansichten von `tools/nahfeld.mjs`:
+
+| | vorher | jetzt |
+| --- | --- | --- |
+| Kantenanteil unteres Drittel, Mittel | 0,77 % | 0,85 % |
+| Median | 0,23 % | 0,30 % |
+| Ansichten unter 0,7 % | 27 von 36 | **24 von 36** |
+
+**Das ist ehrlich gesagt wenig.** Der Rundgang hat jetzt alle acht Meter etwas
+in Armeslänge, und das ist für den Gang durch die Landschaft ein Gewinn; den
+leeren unteren Bildrand schließt es nicht. Der Grund steht in der Zahl darüber:
+Zwei bis sechs von 36 Richtungen treffen Fels, also 6 bis 17 % Rundum-Deckung.
+Ein Bildausschnitt von 70° deckt sieben dieser Richtungen ab — die Wahrscheinlichkeit,
+dabei einen der zwei Treffer zu erwischen, ist klein. Für „fast immer" bräuchte
+es 30 bis 50 % Deckung, also das Drei- bis Fünffache an Steinen, und das verbietet
+das Budget.
+
+**Damit ist der Befund nicht erledigt, sondern eingegrenzt**, und die Eingrenzung
+sagt zugleich, wo die Lösung nicht liegt: nicht in Geometrie neben dem Weg. Ein
+Nahanker muss klein sein, weil er in Armeslänge steht; ein großer muss zurücktreten
+und ist dann Mittelgrund. Was das Band von 1,4 bis 3,7 m in **jeder** Richtung
+füllen kann, ist der Boden selbst — Struktur im Regolithschattierer, die keine
+Dreiecke kostet. Das ist der nächste Zug.
+
+### Nebenbefund, nicht in dieser Runde behoben
+
+In `a-augenhoehe` läuft eine schnurgerade, dunkle Linie von einem Bildpunkt
+Breite quer über den Sand. Es ist keine Naht, sondern eine **Peitschenantenne
+des Sputnik**: 7 mm Wurzeldurchmesser auf 6 m Entfernung sind 1,17 mrad, also
+0,7 Bildpunkte. Die Lehre aus Paket 3 gilt hier gegen mich — *eine Form, die
+dünner ist als ein Bildpunkt, ist keine Form* —, und in der Brille wird sie bei
+72 Bildern je Sekunde flimmern. Notiert, nicht behoben.
+
+### Die Lehren dieser Runde
+
+* **Bevor man etwas gegen eine Kennzahl baut, rechnet man aus, was die Kennzahl
+  überhaupt sehen kann.** „Unteres Bilddrittel" klang nach Vordergrund und war
+  ein Band von 2,3 m Tiefe. Drei Zeilen Trigonometrie hätten den ersten Anlauf
+  gespart.
+* **Ein Prüfbild misst die Szene und die Kamera.** Die Augenhöhenkamera blickt
+  30° neben die Laufrichtung; die Hälfte aller Nahanker ist für sie unsichtbar,
+  ganz gleich, wie viele es sind. Wer das nicht trennt, optimiert die Szene auf
+  einen Winkel.
+* **Bitgleich in vier Kameras heißt nicht wirkungslos.** Der Selbstschatten des
+  Planeten war in allen festen Ansichten auf den Bit genau folgenlos und ändert
+  an einer Terminatorstation 17,9 % der Bildpunkte. Ein Sparvorschlag, der auf
+  vier Standbildern beruht, ist keiner.
+* **Wenn eine Änderung die Kennzahl nicht bewegt, sagt man das.** Aus 0,77 auf
+  0,85 % wird kein Erfolg, indem man die Zahl weglässt. Der Wert dieser Runde
+  liegt in der Eingrenzung: Es ist jetzt gerechnet, dass Geometrie neben dem Weg
+  dieses Problem nicht lösen kann.
