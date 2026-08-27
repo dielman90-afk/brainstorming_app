@@ -3243,3 +3243,136 @@ hinter der Zahl.
 * **Ein Vorzeichen prüft man dort, wo das Licht eine Richtung hat.** Bei
   Gegenlicht sehen Kuppe und Mulde gleich aus, und die Kamera, an der es am
   ehesten auffällt, ist die falsche zum Entscheiden.
+
+---
+
+## Die Werkzeuge auf dem Planeten: vier Fehler in einem Bezugssystem
+
+Gemeldet wurden zwei Dinge aus dem Betrieb: *„Das Whiteboard wird bei Bewegung
+mitgezogen"* und *„Kärtchen verschwinden, wenn man sie verschieben möchte."*
+Beide stimmen, beide sind Folgen derselben Sache, und beim Nachmessen kamen zwei
+weitere heraus, die noch niemand gemeldet hatte.
+
+Neu dafür: `tools/werkzeuge.mjs`.
+
+### Der gemeinsame Grund
+
+Auf einer Ebene ist die lokale Lage eines Objekts in der Szene gleich seiner
+Weltlage — die Szene steht im Ursprung und ist nicht gedreht. Im Nachthimmel ist
+der Elter von Karten, Zonen und (seit dieser Runde) Werkzeugen die **Weltgruppe
+des Planeten**: Sie steht zwar auch im Ursprung, trägt aber die Drehung des
+Rundgangs, und ihre Kinder liegen 25 m vom Mittelpunkt entfernt. Jede Zeile, die
+`group.position` neben einen Weltwert stellt, ist damit falsch — und zwar erst,
+**nachdem der Nutzer losgegangen ist**. Steht die Welt noch unverdreht, stimmt
+alles zufällig.
+
+### 1. Die Tafel klebte am Nutzer
+
+Sie hing an der Szene, mit der ausdrücklichen Begründung, sie sei „ein Werkzeug,
+kein Gegenstand der Welt". Auf den vier ortsfesten Umgebungen ist das folgenlos:
+Man geht von ihr weg. Auf dem Planeten steht der Nutzer **still** — was an der
+Szene hängt, steht damit für immer vor ihm.
+
+| | vorher | jetzt |
+| --- | --- | --- |
+| Abstand nach einer Vierteldrehung (39,3 m Bogen) | **0,00 m** | 38,07 m |
+
+Die Tafel bekommt dieselbe Heimat wie Karten und Zonen, dazu `frame: 'planet'`
+im Stand. Verloren geht sie nicht: Der Knopf blendet sie aus, und beim nächsten
+Einblenden stellt `placeInFront` sie wieder vor den Nutzer. **Die Zeituhr hat
+dasselbe Problem und bekommt dieselbe Behandlung** — gemeldet war sie nicht, sie
+verhält sich aber Zeile für Zeile gleich.
+
+### 2. Der Mauszug warf die Karte quer über den Planeten
+
+`_onPointerDown` spannte die Ziehebene durch `group.position` — **lokal** — und
+bildete den Versatz gegen `hit.point` aus dem Raycast — **Welt**.
+
+| | vorher | jetzt |
+| --- | --- | --- |
+| Ein Zug über 40 Bildpunkte, Welt um 40° gedreht | **18,95 m** | 0,11 m |
+
+Der Zug rechnet jetzt durchgehend in Weltkoordinaten und schreibt erst beim
+Setzen über `parent.worldToLocal` zurück. Derselbe Griff steckt in
+`_beginneZug`/`_fuehreZug`, damit Karte und Griffleiste ihn teilen.
+
+**Dieselbe Verwechslung stand dreimal weiter im Code**, und alle drei Stellen
+sind mitgeprüft:
+
+* Der Vergleich am Ende des Zugs (`position.distanceToSquared(start)`) — lokal
+  gegen Welt. Er meldete auf dem Planeten **jede Berührung** als Verschiebung an
+  den Undo-Verlauf.
+* Dasselbe im XR-Pfad in `_onSelectEnd`, zweimal.
+* `layoutFlow` schrieb die aus `camPos` gebaute Weltlage blank in
+  `node.group.position` — das Flussdiagramm lag nach ein paar Schritten quer
+  über dem Planeten.
+
+### 3. `inHeimat` verändert seinen Vektor, und zwei Aufrufer wussten es nicht
+
+`worldToLocal` rechnet **an Ort und Stelle**. `Zone.placeInFront` gab deshalb
+anschließend `pos.y` als Weltziel an `lookAt` — und da stand längst die lokale
+Höhe. **Das war schon in Betrieb**, es hat nur niemand gemeldet, weil eine Zone
+selten aufgestellt wird, nachdem man gelaufen ist. Beim Bauen der Tafel habe ich
+denselben Fehler frisch danebengestellt.
+
+Belegt mit einer Gegenprobe: den Fix im Timer zurückgenommen und gemessen —
+das Panel stand **77,5 Grad** gegen die Senkrechte, also fast auf der Seite.
+`cards.js` macht es an derselben Stelle richtig; dort steht die Welthöhe in
+einer eigenen Variablen.
+
+### 4. Ein Budget, das plötzlich um das Neunfache überschritten war
+
+Nach dem Umhängen meldete `tools/verify.mjs` **73,82 MB** Texturspeicher gegen
+ein Budget von 60. Aufgeschlüsselt:
+
+| Teilbaum | MB |
+| --- | --- |
+| whiteboard | 58,85 |
+| timer | 6,96 |
+| nacht-welt-boden | 2,67 |
+| nacht-himmel | 4,00 |
+| nacht-himmel-fest | 1,33 |
+
+**Die Umgebung hatte sich um kein Byte geändert** — 8,00 MB vorher, 8,00 MB
+nachher. Geändert hatte sich der Elter eines Werkzeugs, und das Messwerkzeug lief
+blind durch `env-night` hindurch. `tools/measure.mjs` überspringt jetzt Teilbäume
+mit `userData.nichtUmgebung` (Tafel, Uhr, Karten, Zonen) und weist sie **getrennt
+aus, statt sie zu verschweigen**.
+
+Nebenbefund, den diese Aufschlüsselung erst sichtbar gemacht hat: **Die Tafel
+allein belegt 58,85 MB Textur.** Das gilt in allen fünf Umgebungen gleichermaßen
+und ist nicht Gegenstand dieser Runde, aber auf einer Quest 3 ist es echter
+Speicher. Notiert.
+
+### Nachweis
+
+`tools/werkzeuge.mjs` prüft vier Dinge, je einmal auf dem Planeten und einmal im
+Zen-Garten als Gegenprobe: was liegen bleibt, ob ein Mauszug zieht statt springt,
+ob Uhr, Zone und Flussknoten senkrecht und in Reichweite stehen, und ob die Tafel
+das Speichern übersteht. Alle acht Prüfungen grün.
+
+Die acht Prüfbilder des Nachthimmels sind gegen den Stand davor **bitgleich**
+(Δmax 0) — es war eine Änderung am Bezugssystem, nicht am Bild. Regression der
+anderen vier im bekannten Rauschband, Konsole ohne Errors und Warnings, Budget
+21 Draw-Calls / 344 186 Dreiecke / 8,00 MB.
+
+### Die Lehren dieser Runde
+
+* **Ein Fehler, der erst nach dem Losgehen auftritt, wird von einem Test im
+  Ruhezustand nie gefunden.** Der erste Anlauf dieses Werkzeugs hat die
+  Weltdrehung vorher zurückgesetzt, damit der Gegenstand im Bild steht — und
+  damit genau die Verwechslung ausgeblendet, die er suchen sollte. Er meldete
+  „alles in Ordnung", während ein Zug die Karte 19 m weit warf.
+* **Ein Prüfstand, der die Kamera festhält, während sich die Welt dreht, erfindet
+  Fehler.** Ein Bild zeigte den Planeten als dünne Scheibe mit Sternen darunter.
+  Das war die eingefrorene Augenhöhe des Werkzeugs, nicht die Szene.
+* **Ein Helfer, der seinen Eingabewert verändert, ist eine Falle mit Ansage.**
+  `inHeimat` tut das, weil `cards.js` sich darauf verlässt. Zwei andere Aufrufer
+  haben es nicht gewusst. Jetzt steht es im Kommentar der Funktion, mit beiden
+  Namen.
+* **Wenn eine Budgetzahl plötzlich springt, ohne dass etwas gebaut wurde, misst
+  man erst das Messwerkzeug.** 73,82 statt 8,00 MB sahen nach einem groben
+  Fehler aus und waren eine Frage der Zuordnung.
+* **`Object3D.traverse` kann keinen Teilbaum auslassen.** Ein `return` im
+  Rückruf überspringt den Rest des Rückrufs, nicht die Kinder. Wer einen Zweig
+  wirklich überspringen will, schreibt seine eigene Rekursion.

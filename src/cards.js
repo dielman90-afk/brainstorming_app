@@ -74,6 +74,8 @@ export class IdeaCard {
     this.flowType = flowType;
 
     this.group = new THREE.Group();
+    // Inhalt, nicht Umgebung — siehe `nichtUmgebung` in tools/measure.mjs.
+    this.group.userData.nichtUmgebung = true;
     this.group.userData.card = this;
     this._build();
   }

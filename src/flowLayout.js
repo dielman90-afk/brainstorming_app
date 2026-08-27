@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { inHeimat } from './heimat.js';
 
 // Automatisches Anordnen eines Prozessflussdiagramms.
 //
@@ -204,8 +205,18 @@ export function layoutFlow(cards, connections, camera, scene = null, { heimat = 
     // der Weltgruppe; wer sie hier in die Szene umhängt, löst sie vom Planeten,
     // und beim nächsten Schritt läuft die Welt unter ihnen weg.
     if (ziel && node.group.parent !== ziel) ziel.attach(node.group);
-    node.group.position.copy(target);
-    node.group.lookAt(camPos.x, target.y, camPos.z);
+    // **`target` steht in Weltkoordinaten** — `computeLayout` baut es aus
+    // `camPos` auf. `group.position` ist aber die Lage **im Elter**, und der ist
+    // auf dem Planeten die Weltgruppe mit der Drehung des Rundgangs. Hier stand
+    // ein blankes `copy(target)`: Dieselbe Verwechslung wie beim Mausziehen,
+    // und sie warf das ganze Flussdiagramm quer über den Planeten, sobald man
+    // ein paar Schritte gegangen war.
+    //
+    // Die Höhe wird vorher gesichert, weil `inHeimat` den Vektor an Ort und
+    // Stelle umrechnet und `lookAt` ein **Weltziel** braucht.
+    const weltY = target.y;
+    node.group.position.copy(inHeimat(ziel ?? scene, scene, target));
+    node.group.lookAt(camPos.x, weltY, camPos.z);
   }
   return nodes.length;
 }

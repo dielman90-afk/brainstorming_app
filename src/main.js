@@ -306,6 +306,9 @@ const zoneManager = new ZoneManager(scene, { floorY: () => _floorY ?? 0 });
 // Zonen sind Rahmen, vor denen Karten stehen — sie müssen dieselbe Heimat haben
 // wie die Karten, sonst löst sich die Gruppierung beim Weitergehen auf.
 meldeWeltHeimat((ziel) => zoneManager.setHeimat(ziel));
+// Und die Tafel: Sie soll da stehen bleiben, wo man sie aufgestellt hat, statt
+// auf dem Planeten für immer vor dem Nutzer zu schweben.
+meldeWeltHeimat((ziel) => whiteboard.setHeimat(ziel));
 zoneManager.onRename = async (zone) => {
   const text = await getUserText();
   if (text) {
@@ -316,6 +319,7 @@ zoneManager.onRename = async (zone) => {
 };
 
 const timer = new Timer(scene, { floorY: () => _floorY ?? 0 });
+meldeWeltHeimat((ziel) => timer.setHeimat(ziel));
 
 function boardToJSON() {
   return {

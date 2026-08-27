@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { wechsleHeimat, inHeimat } from './heimat.js';
 import { createTextPanel } from './textPanel.js';
 import { makeRoundedPanel } from './wristMenu.js';
 
@@ -30,8 +31,13 @@ export class Timer {
     this.scene = scene;
     // Siehe `placeInFront`: Die Klemmung misst ab dem Boden, nicht ab y = 0.
     this.floorY = floorY;
+    // Dieselbe Heimat wie Karten, Zonen und Tafel — und aus demselben Grund:
+    // Auf dem Planeten steht der Nutzer still, und was an der Szene hängt,
+    // schwebt für immer vor ihm mit. Die Begründung steht in heimat.js.
+    this.heimat = scene;
     this.group = new THREE.Group();
     this.group.name = 'timer';
+    this.group.userData.nichtUmgebung = true;
     this.group.visible = false;
 
     this.durationSec = 5 * 60;
@@ -66,6 +72,7 @@ export class Timer {
     this.header.mesh.position.set(-0.03, PANEL_H / 2 - 0.06, 0.004);
     this.header.mesh.userData.grabTarget = {
       group: this.group,
+      heimat: () => this.heimat,
       getScale: () => this.group.scale.x,
       setScale: (v) => this.group.scale.setScalar(THREE.MathUtils.clamp(v, 0.6, 2.2)),
     };
@@ -276,6 +283,13 @@ export class Timer {
     return this.group.visible ? [this.header.mesh, ...this.buttons] : [];
   }
 
+  setHeimat(ziel) {
+    const neu = ziel ?? this.scene;
+    const alt = this.heimat;
+    this.heimat = neu;
+    wechsleHeimat(alt, neu, [this.group]);
+  }
+
   placeInFront(camera) {
     const camPos = new THREE.Vector3();
     camera.getWorldPosition(camPos);
@@ -301,8 +315,11 @@ export class Timer {
     // sie hingehört.
     const boden = this.floorY();
     pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden + 0.15, 1.0, 2.2);
-    this.group.position.copy(pos);
-    this.group.lookAt(camPos.x, pos.y, camPos.z);
+    // Weltlage sichern, bevor `inHeimat` den Vektor an Ort und Stelle umrechnet
+    // — `lookAt` braucht ein Weltziel.
+    const weltY = pos.y;
+    this.group.position.copy(inHeimat(this.heimat, this.scene, pos));
+    this.group.lookAt(camPos.x, weltY, camPos.z);
   }
 
   setVisible(visible) {
