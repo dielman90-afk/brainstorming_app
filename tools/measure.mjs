@@ -60,7 +60,43 @@ try {
       const mip = t.generateMipmaps === false ? 1 : 4 / 3;
       textures.set(t.uuid, Math.round(w * h * 4 * mip));
     };
-    group.traverse((o) => {
+    // **Was zur Umgebung gehört und was nur darin hängt.**
+    //
+    // Seit Tafel, Zeituhr, Karten und Zonen auf dem Planeten an der Weltgruppe
+    // hängen — damit sie liegen bleiben, wenn man weitergeht —, stehen sie im
+    // Szenengraphen **unter** `env-night`. Ein blindes `traverse` zählt ihre
+    // Canvas-Texturen damit gegen das Umgebungsbudget: gemessen 73,82 MB statt
+    // 8,00, und davon allein 58,85 MB Whiteboard. Die Umgebung hat sich dabei
+    // um kein Byte geändert; nur der Elter eines Werkzeugs.
+    //
+    // Gezählt wird deshalb, was die Umgebung selbst gebaut hat. Die App
+    // markiert ihre eigenen Gruppen mit `userData.nichtUmgebung`; die werden
+    // getrennt ausgewiesen, nicht verschwiegen.
+    const werkzeugTex = new Map();
+    const werkzeuge = [];
+    const zaehleTeilbaum = (wurzel, ziel) => {
+      wurzel.traverse((o) => {
+        const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+        for (const m of mats) {
+          const nimm = (t) => {
+            if (!t || ziel.has(t.uuid)) return;
+            const img = t.image || {};
+            ziel.set(t.uuid, Math.round((img.width || 0) * (img.height || 0) * 4 * (t.generateMipmaps === false ? 1 : 4 / 3)));
+          };
+          for (const key of ['map', 'alphaMap', 'emissiveMap', 'normalMap', 'roughnessMap', 'aoMap', 'bumpMap']) nimm(m[key]);
+          if (m.uniforms) for (const u of Object.values(m.uniforms)) if (u.value?.isTexture) nimm(u.value);
+        }
+      });
+    };
+    // **Eigene Rekursion, kein `traverse`.** `Object3D.traverse` kann keinen
+    // Teilbaum auslassen: Ein `return` im Rückruf überspringt nur den Rest des
+    // Rückrufs, die Kinder werden trotzdem besucht. Ein erster Anlauf hat genau
+    // das versucht und hätte die Werkzeuge weiter mitgezählt.
+    const geheDurch = (o) => {
+      if (o.userData?.nichtUmgebung) {
+        werkzeuge.push(o);
+        return;
+      }
       if (o.isMesh || o.isPoints || o.isLine || o.isSprite) meshes++;
       const g = o.geometry;
       if (g) {
@@ -75,15 +111,22 @@ try {
         }
         if (m.uniforms) for (const u of Object.values(m.uniforms)) if (u.value?.isTexture) addTex(u.value);
       }
-    });
+      for (const kind of o.children) geheDurch(kind);
+    };
+    geheDurch(group);
+    for (const w of werkzeuge) zaehleTeilbaum(w, werkzeugTex);
     let bytes = 0;
     for (const b of textures.values()) bytes += b;
+    let wBytes = 0;
+    for (const b of werkzeugTex.values()) wBytes += b;
     return {
       envTriangles: Math.round(triangles),
       envNodes: meshes,
       textureCount: textures.size,
       textureBytes: bytes,
       textureMB: +(bytes / 1048576).toFixed(2),
+      werkzeugMB: +(wBytes / 1048576).toFixed(2),
+      werkzeuge: werkzeuge.map((w) => w.name || '(namenlos)'),
     };
   }, envId);
 
@@ -138,6 +181,7 @@ try {
     trianglesMax: Math.max(...shots.map((s) => s.triangles)),
     programs: Math.max(...shots.map((s) => s.programs)),
     textureMB: result.static.textureMB,
+    werkzeugMB: result.static.werkzeugMB,
     renderMsMean: +(shots.reduce((s, v) => s + v.renderMsMean, 0) / shots.length).toFixed(2),
     renderMsWorst: Math.max(...shots.map((s) => s.renderMsMean)),
   };
@@ -151,6 +195,14 @@ try {
   process.stdout.write('\n--- Budget ---\n');
   for (const [k, [v, limit]] of Object.entries(budget)) {
     process.stdout.write(`${k.padEnd(12)} ${String(v).padStart(9)} / ${limit}  ${v <= limit ? 'OK' : 'ÜBERSCHRITTEN'}\n`);
+  }
+  // Getrennt ausgewiesen, nicht verschwiegen: Was die App an Werkzeugen und
+  // Inhalten mitbringt, liegt auf dem Planeten im selben Teilbaum, gehört aber
+  // nicht zur Umgebung — es ist in allen fünf dasselbe.
+  if (result.static.werkzeugMB > 0) {
+    process.stdout.write(
+      `dazu Werkzeuge ${String(result.static.werkzeugMB).padStart(7)} MB (${result.static.werkzeuge.join(', ')}) — nicht Teil der Umgebung\n`
+    );
   }
   process.stdout.write(`renderMs     ${String(result.summary.renderMsWorst).padStart(9)} (Software-Rasterizer, nur Vergleichswert)\n`);
   process.stdout.write(`Konsole      ${messages.length ? `${messages.length} Meldung(en)` : 'sauber'}\n`);

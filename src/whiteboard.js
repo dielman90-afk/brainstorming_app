@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { wechsleHeimat, inHeimat, poseInHeimat } from './heimat.js';
 import { createTextPanel } from './textPanel.js';
 import { makeRoundedPanel } from './wristMenu.js';
 
@@ -185,8 +186,28 @@ export class Whiteboard {
     // Die Bodenhöhe unter dem Nutzer. Vorgabe null, damit die Klemmung in
     // `placeInFront` ohne diese Angabe genau das tut, was sie vorher tat.
     this.floorY = floorY;
+    // **Die Tafel gehört an den Ort, an dem man sie aufstellt.**
+    //
+    // Hier stand einmal die Begründung, sie sei „ein Werkzeug, kein Gegenstand
+    // der Welt", und bleibe deshalb an der Szene. Auf den vier ortsfesten
+    // Umgebungen ist das folgenlos — man geht von ihr weg. Auf dem Planeten
+    // steht der Nutzer still und die Welt dreht sich unter ihm: Was an der
+    // Szene hängt, steht damit **für immer vor ihm** und lässt sich nicht
+    // verlassen. Gemessen mit `tools/werkzeuge.mjs`: nach einer Vierteldrehung
+    // der Welt — 39,3 m Bogen — hatte sich die Tafel um **0,00 m** vom Nutzer
+    // entfernt. Genau das ist die Meldung „das Whiteboard wird bei Bewegung
+    // mitgezogen".
+    //
+    // Sie bekommt deshalb dieselbe Heimat wie Karten und Zonen. Verloren geht
+    // sie dadurch nicht: Der Knopf blendet sie aus und beim nächsten Einblenden
+    // stellt `placeInFront` sie wieder vor den Nutzer.
+    this.heimat = scene;
     this.group = new THREE.Group();
     this.group.name = 'whiteboard';
+    // Siehe `nichtUmgebung` in tools/measure.mjs: Diese Gruppe hängt auf dem
+    // Planeten in der Weltgruppe, gehört aber nicht zur Umgebung und darf
+    // nicht gegen deren Budget zählen.
+    this.group.userData.nichtUmgebung = true;
     this.group.visible = false;
     this.scale = 1;
     this.tool = 'pen';
@@ -260,6 +281,9 @@ export class Whiteboard {
     handleBg.position.set(0, BOARD_H / 2 + 0.06, 0.004);
     handleBg.userData.grabTarget = {
       group: this.group,
+      // Damit das Loslassen in XR sie wieder an die Heimat hängt und nicht an
+      // die Szene — sonst klebte sie nach jedem Anfassen wieder am Nutzer.
+      heimat: () => this.heimat,
       getScale: () => this.scale,
       setScale: (v) => this.setScale(v),
     };
@@ -538,6 +562,13 @@ export class Whiteboard {
     return this.group.visible ? [this.surface, this.handle, ...this.buttons] : [];
   }
 
+  setHeimat(ziel) {
+    const neu = ziel ?? this.scene;
+    const alt = this.heimat;
+    this.heimat = neu;
+    wechsleHeimat(alt, neu, [this.group]);
+  }
+
   placeInFront(camera) {
     const camPos = new THREE.Vector3();
     camera.getWorldPosition(camPos);
@@ -561,8 +592,18 @@ export class Whiteboard {
     // sie hingehört.
     const boden = this.floorY();
     pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden - 0.1, 0.9, 2.0);
-    this.group.position.copy(pos);
-    this.group.lookAt(camPos.x, pos.y, camPos.z);
+    // Gerechnet wird in Weltkoordinaten — die Tafel stellt sich vor den Nutzer,
+    // nicht vor den Planeten. Erst danach in die Heimat umgerechnet.
+    //
+    // **Die Höhe muss vorher gesichert werden.** `inHeimat` rechnet den Vektor
+    // an Ort und Stelle um; danach steht in `pos.y` die lokale Höhe. `lookAt`
+    // braucht ein Weltziel. Gemessen: Ohne diese Zeile stand die Tafel nach
+    // 40 Grad Weltdrehung verdreht im Bild, und der Griff lag nicht mehr dort,
+    // wo ihn die Maus suchte.
+    const weltY = pos.y;
+    this.group.position.copy(inHeimat(this.heimat, this.scene, pos));
+    // `lookAt` bekommt ein Weltziel und rechnet die Elternmatrix selbst heraus.
+    this.group.lookAt(camPos.x, weltY, camPos.z);
   }
 
   // --- Zeichnen (uv aus dem Raycast der Zeichenfläche) ---
@@ -711,8 +752,12 @@ export class Whiteboard {
   toJSON() {
     return {
       visible: this.group.visible,
-      position: this.group.position.toArray(),
-      quaternion: this.group.quaternion.toArray(),
+      // `frame` ist reine Auskunft für den Leser der Datei; gelesen wird immer
+      // relativ zu der Heimat, die beim Laden gerade gilt. Die Begründung steht
+      // bei `poseInHeimat` in heimat.js. Über die Weltpose gerechnet, damit
+      // auch eine gerade gegriffene Tafel (Elter = Controller) stimmt.
+      ...(this.heimat !== this.scene ? { frame: 'planet' } : {}),
+      ...poseInHeimat(this.heimat, this.scene, this.group),
       scale: this.scale,
       image: this.hasContent ? this.toDataURL() : null,
     };

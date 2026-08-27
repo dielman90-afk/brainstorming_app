@@ -54,6 +54,8 @@ class Zone {
     this.colorIndex = colorIndex % ZONE_COLORS.length;
     this.scale = 1;
     this.group = new THREE.Group();
+    // Inhalt, nicht Umgebung — siehe `nichtUmgebung` in tools/measure.mjs.
+    this.group.userData.nichtUmgebung = true;
     this.group.name = 'zone';
     this.buttons = [];
 
@@ -197,9 +199,15 @@ class Zone {
     // Gerechnet wird in Weltkoordinaten — die Zone stellt sich vor den Nutzer,
     // nicht vor den Planeten. Erst danach in die Heimat umgerechnet.
     const m = this.manager;
+    // **Die Höhe vorher sichern.** `inHeimat` rechnet den Vektor an Ort und
+    // Stelle um; nach dem Aufruf steht in `pos.y` die **lokale** Höhe in der
+    // Heimat. Unten braucht `lookAt` aber ein **Weltziel** — sonst kippt die
+    // Zone auf dem Planeten um genau den Betrag, um den die Weltgruppe gedreht
+    // ist, und steht schräg im Gelände.
+    const weltY = pos.y;
     this.group.position.copy(inHeimat(m.heimat, m.scene, pos));
     // `lookAt` bekommt ein Weltziel und rechnet die Elternmatrix selbst heraus.
-    this.group.lookAt(camPos.x, pos.y, camPos.z);
+    this.group.lookAt(camPos.x, weltY, camPos.z);
   }
 
   get uiTargets() {

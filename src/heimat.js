@@ -14,9 +14,13 @@ import * as THREE from 'three';
 // was man ablegt, und der Planet wird zu der begehbaren Gedächtnislandkarte,
 // für die sich der ganze Umbau lohnt.
 //
-// Das Whiteboard bekommt bewusst **keine** Heimat: Es wird ein- und
-// ausgeblendet und bei jedem Einblenden vor den Nutzer gesetzt. Es ist ein
-// Werkzeug, kein Gegenstand der Welt, und gehört damit zur Szene.
+// **Auch das Whiteboard.** Hier stand einmal das Gegenteil: Es sei ein
+// Werkzeug, kein Gegenstand der Welt, und gehöre deshalb an die Szene. Das war
+// auf einer Ebene folgenlos und auf einer Kugel falsch — wer stillsteht, kann
+// sich von nichts entfernen, was an der Szene hängt. Gemessen war die Tafel
+// nach einer Vierteldrehung der Welt um **0,00 m** vom Nutzer weggekommen.
+// Verloren geht sie trotzdem nicht: Der Knopf blendet sie aus, und beim
+// nächsten Einblenden stellt `placeInFront` sie wieder vor den Nutzer.
 //
 // Dieses Modul hält die drei Handgriffe, die Karten und Zonen dafür teilen —
 // zweimal dieselbe Rechnung von Hand wäre zweimal dieselbe Gelegenheit, sie
@@ -40,6 +44,14 @@ export function wechsleHeimat(alt, neu, gruppen) {
 
 // Eine **Weltkoordinate** in die Heimat umrechnen, an Ort und Stelle. Solange
 // die Heimat die Szene ist (und die steht im Ursprung), ist das ein Nichtstun.
+//
+// **Achtung: der übergebene Vektor wird verändert.** `worldToLocal` rechnet in
+// place und gibt denselben Vektor zurück. `cards.js` verlässt sich darauf
+// (`_inHeimat(group.position.set(…))` schreibt direkt in die Kartenlage), und
+// deshalb bleibt es so. Wer den Weltwert **nach** dem Aufruf noch braucht, muss
+// ihn vorher sichern — genau das ist in `Zone.placeInFront` und
+// `Whiteboard.placeInFront` einmal schiefgegangen: Beide gaben anschließend
+// `pos.y` als Weltziel an `lookAt`, und das war da längst die lokale Höhe.
 export function inHeimat(heimat, scene, v) {
   if (heimat === scene) return v;
   heimat.updateMatrixWorld(true);
