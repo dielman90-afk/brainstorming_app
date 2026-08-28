@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { wechsleHeimat, inHeimat } from './heimat.js';
+import { wechsleHeimat, stelleAn } from './heimat.js';
 import { createTextPanel } from './textPanel.js';
 import { makeRoundedPanel } from './wristMenu.js';
 
@@ -315,11 +315,15 @@ export class Timer {
     // sie hingehört.
     const boden = this.floorY();
     pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden + 0.15, 1.0, 2.2);
-    // Weltlage sichern, bevor `inHeimat` den Vektor an Ort und Stelle umrechnet
-    // — `lookAt` braucht ein Weltziel.
-    const weltY = pos.y;
-    this.group.position.copy(inHeimat(this.heimat, this.scene, pos));
-    this.group.lookAt(camPos.x, weltY, camPos.z);
+    stelleAn(this.group, this.heimat, this.scene, pos, camPos);
+  }
+
+  get breite() {
+    return PANEL_W * this.group.scale.x;
+  }
+
+  stelleAnOrt(weltOrt, camPos) {
+    stelleAn(this.group, this.heimat, this.scene, weltOrt, camPos);
   }
 
   setVisible(visible) {

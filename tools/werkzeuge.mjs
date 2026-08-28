@@ -347,6 +347,100 @@ try {
     pruefe(speichern.rahmen === null, 'ortsfeste Umgebung: der Stand bleibt im alten Format');
   }
 
+  // --- 5: Der Knopf „Werkzeuge ordnen" ------------------------------------
+  //
+  // Zwei Dinge muss er leisten: die Werkzeuge zurückholen, nachdem man
+  // weitergegangen ist, und sie **nebeneinander** stellen statt übereinander.
+  // Das zweite ist der Grund, warum `placeInFront` allein nicht reicht — es
+  // setzt jedes Panel für sich auf dieselbe Stelle.
+  const ordnen = await page.evaluate(() => {
+    const T = window.__THREE;
+    const app = window.__app;
+    const welt = app.cardManager.heimat !== app.scene ? app.cardManager.heimat : null;
+    if (welt) {
+      welt.quaternion.identity();
+      app.scene.updateMatrixWorld(true);
+    }
+    app.whiteboard.setVisible(true);
+    app.whiteboard.placeInFront(app.camera);
+    app.timer.setVisible(true);
+    app.timer.placeInFront(app.camera);
+    app.scene.updateMatrixWorld(true);
+
+    const auge = app.camera.getWorldPosition(new T.Vector3());
+    const mitte = (g) => g.getWorldPosition(new T.Vector3());
+    // Überlappen sich zwei Panels? Gemessen am Winkelabstand ihrer Mitten
+    // gegen die Summe ihrer halben Winkelbreiten.
+    const winkelAbstand = (a, b) => {
+      const va = mitte(a).sub(auge);
+      const vb = mitte(b).sub(auge);
+      va.y = 0;
+      vb.y = 0;
+      return (va.angleTo(vb) * 180) / Math.PI;
+    };
+    const halbwinkel = (g, breite) => {
+      const r = mitte(g).sub(auge).length();
+      return (Math.atan(breite / 2 / r) * 180) / Math.PI;
+    };
+    const vorher = {
+      abstand: winkelAbstand(app.whiteboard.group, app.timer.group),
+      noetig: halbwinkel(app.whiteboard.group, app.whiteboard.breite) + halbwinkel(app.timer.group, app.timer.breite),
+    };
+
+    // Eine halbe Runde weiterlaufen, dann ordnen.
+    if (welt) {
+      welt.quaternion.setFromAxisAngle(new T.Vector3(1, 0, 0), Math.PI);
+      app.scene.updateMatrixWorld(true);
+    }
+    const wegVorher = mitte(app.whiteboard.group).distanceTo(auge);
+    app.ordneWerkzeuge();
+    app.scene.updateMatrixWorld(true);
+
+    const nachher = {
+      abstand: winkelAbstand(app.whiteboard.group, app.timer.group),
+      noetig: halbwinkel(app.whiteboard.group, app.whiteboard.breite) + halbwinkel(app.timer.group, app.timer.breite),
+      tafelWeg: mitte(app.whiteboard.group).distanceTo(auge),
+      uhrWeg: mitte(app.timer.group).distanceTo(auge),
+      // Steht das Panel senkrecht und schaut es zum Nutzer?
+      tafelNeigung:
+        (Math.acos(
+          Math.min(1, Math.abs(new T.Vector3(0, 1, 0).applyQuaternion(app.whiteboard.group.getWorldQuaternion(new T.Quaternion())).y))
+        ) * 180) / Math.PI,
+      // Winkel zwischen der Flächennormale und der Richtung zum Auge: 0 heißt,
+      // das Panel schaut den Nutzer an.
+      tafelSchielt: (() => {
+        const n = new T.Vector3(0, 0, 1).applyQuaternion(app.whiteboard.group.getWorldQuaternion(new T.Quaternion()));
+        const zumAuge = auge.clone().sub(mitte(app.whiteboard.group)).normalize();
+        n.y = 0;
+        zumAuge.y = 0;
+        return (n.normalize().angleTo(zumAuge.normalize()) * 180) / Math.PI;
+      })(),
+    };
+    return { planet: Boolean(welt), vorher, nachher, wegVorher };
+  });
+
+  console.log('\n=== 5. Der Knopf „Werkzeuge ordnen" ===');
+  console.log(
+    `  Vorher (beide mit placeInFront gesetzt): Winkelabstand ${ordnen.vorher.abstand.toFixed(1)}°,` +
+      ` nötig wären ${ordnen.vorher.noetig.toFixed(1)}°`
+  );
+  console.log(
+    `  Nach einer halben Runde stand die Tafel ${ordnen.wegVorher.toFixed(1)} m entfernt`
+  );
+  console.log(
+    `  Nachher: Winkelabstand ${ordnen.nachher.abstand.toFixed(1)}°, nötig ${ordnen.nachher.noetig.toFixed(1)}°;` +
+      ` Tafel ${ordnen.nachher.tafelWeg.toFixed(2)} m, Uhr ${ordnen.nachher.uhrWeg.toFixed(2)} m`
+  );
+  pruefe(ordnen.vorher.abstand < ordnen.vorher.noetig, 'vorher überlappten sich Tafel und Uhr tatsächlich');
+  pruefe(
+    ordnen.nachher.abstand >= ordnen.nachher.noetig,
+    `nachher überlappen sie nicht mehr (${ordnen.nachher.abstand.toFixed(1)}° ≥ ${ordnen.nachher.noetig.toFixed(1)}°)`
+  );
+  pruefe(ordnen.nachher.tafelWeg > 1.0 && ordnen.nachher.tafelWeg < 3.3, 'die Tafel steht wieder in Reichweite');
+  pruefe(ordnen.nachher.uhrWeg > 1.0 && ordnen.nachher.uhrWeg < 3.3, 'die Uhr steht wieder in Reichweite');
+  pruefe(ordnen.nachher.tafelNeigung < 2, `die Tafel steht senkrecht (${ordnen.nachher.tafelNeigung.toFixed(1)}°)`);
+  pruefe(ordnen.nachher.tafelSchielt < 2, `die Tafel schaut den Nutzer an (${ordnen.nachher.tafelSchielt.toFixed(1)}°)`);
+
   console.log(messages.length ? `\n❌ Konsole: ${messages.join(' | ')}` : '\n✓ Konsole sauber');
   console.log(fehler ? `\n❌ ${fehler} Prüfung(en) fehlgeschlagen` : '\n✅ alles in Ordnung');
 } finally {
