@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
-import { wechsleHeimat, inHeimat, poseInHeimat } from './heimat.js';
+import { wechsleHeimat, poseInHeimat, stelleAn } from './heimat.js';
 
 // Räumliche Zonen / Rahmen: beschriftete, halbtransparente Flächen, vor denen
 // man Karten thematisch gruppiert (z. B. „To Do / Doing / Done"). Greifbar zum
@@ -199,19 +199,53 @@ class Zone {
     // Gerechnet wird in Weltkoordinaten — die Zone stellt sich vor den Nutzer,
     // nicht vor den Planeten. Erst danach in die Heimat umgerechnet.
     const m = this.manager;
-    // **Die Höhe vorher sichern.** `inHeimat` rechnet den Vektor an Ort und
-    // Stelle um; nach dem Aufruf steht in `pos.y` die **lokale** Höhe in der
-    // Heimat. Unten braucht `lookAt` aber ein **Weltziel** — sonst kippt die
-    // Zone auf dem Planeten um genau den Betrag, um den die Weltgruppe gedreht
-    // ist, und steht schräg im Gelände.
-    const weltY = pos.y;
-    this.group.position.copy(inHeimat(m.heimat, m.scene, pos));
-    // `lookAt` bekommt ein Weltziel und rechnet die Elternmatrix selbst heraus.
-    this.group.lookAt(camPos.x, weltY, camPos.z);
+    // Umrechnung in die Heimat und Drehung zum Nutzer stehen zusammen in
+    // `stelleAn` (heimat.js) — samt der Begründung, warum beides zusammengehört.
+    stelleAn(this.group, m.heimat, m.scene, pos, camPos);
+  }
+
+  // An einen gerechneten Weltort stellen statt vor den Nutzer — für das
+  // Anordnen. Dieselbe Rechnung, anderer Ort.
+  stelleAnOrt(weltOrt, camPos) {
+    const m = this.manager;
+    stelleAn(this.group, m.heimat, m.scene, weltOrt, camPos);
   }
 
   get uiTargets() {
     return [this.header.mesh, ...this.buttons];
+  }
+
+  // Die Breite im Raum, für das Anordnen nebeneinander.
+  get breite() {
+    return WIDTH * this.scale;
+  }
+
+  // Die Höhe im Raum — das Anordnen braucht sie, um die Kartenreihen
+  // **unter** die Wand zu legen statt davor.
+  get hoehe() {
+    return HEIGHT * this.scale;
+  }
+
+  // **Liegt dieser Weltpunkt vor dem Rahmen?**
+  //
+  // Eine Zone weiß nicht, welche Karten zu ihr gehören — es gibt keine
+  // Mitgliedschaft, nur Nähe. Wer die Zone verschiebt und ihre Karten
+  // stehenlässt, löst damit eine Gruppierung auf, die der Nutzer von Hand
+  // gebaut hat. Deshalb diese Frage: Sie ist die einzige Definition von
+  // „gehört dazu", die es gibt.
+  //
+  // Der Test läuft im Koordinatensystem der Zone; `worldToLocal` rechnet die
+  // Skalierung dabei heraus, verglichen wird also gegen das Sollmaß. Nach vorn
+  // ist der Streifen großzügiger als nach hinten: Karten legt man **vor** einen
+  // Rahmen, nicht dahinter.
+  umfasst(weltPunkt) {
+    const l = this.group.worldToLocal(weltPunkt.clone());
+    return (
+      Math.abs(l.x) <= WIDTH / 2 &&
+      Math.abs(l.y) <= HEIGHT / 2 &&
+      l.z >= -0.25 &&
+      l.z <= 0.6
+    );
   }
 
   dispose() {

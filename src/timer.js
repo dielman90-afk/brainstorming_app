@@ -322,6 +322,12 @@ export class Timer {
     return PANEL_W * this.group.scale.x;
   }
 
+  // Die Höhe im Raum — das Anordnen braucht sie, um die Kartenreihen
+  // **unter** die Wand zu legen statt davor.
+  get hoehe() {
+    return PANEL_H * this.group.scale.y;
+  }
+
   stelleAnOrt(weltOrt, camPos) {
     stelleAn(this.group, this.heimat, this.scene, weltOrt, camPos);
   }

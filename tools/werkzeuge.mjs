@@ -393,7 +393,7 @@ try {
       app.scene.updateMatrixWorld(true);
     }
     const wegVorher = mitte(app.whiteboard.group).distanceTo(auge);
-    app.ordneWerkzeuge();
+    app.ordneAlles();
     app.scene.updateMatrixWorld(true);
 
     const nachher = {
@@ -440,6 +440,81 @@ try {
   pruefe(ordnen.nachher.uhrWeg > 1.0 && ordnen.nachher.uhrWeg < 3.3, 'die Uhr steht wieder in Reichweite');
   pruefe(ordnen.nachher.tafelNeigung < 2, `die Tafel steht senkrecht (${ordnen.nachher.tafelNeigung.toFixed(1)}°)`);
   pruefe(ordnen.nachher.tafelSchielt < 2, `die Tafel schaut den Nutzer an (${ordnen.nachher.tafelSchielt.toFixed(1)}°)`);
+
+  // --- 6: Zonen nehmen ihre Karten mit ------------------------------------
+  //
+  // Eine Zone weiß nicht, welche Karten zu ihr gehören — es gibt nur Nähe.
+  // Würde `ordneAlles` die Rahmen einsammeln und die Karten getrennt neu
+  // verteilen, löste ein Klick jede Gruppierung auf, die von Hand gebaut wurde.
+  // Geprüft wird deshalb die Lage **relativ zur Zone**, vor und nach dem Ordnen.
+  const mitziehen = await page.evaluate(() => {
+    const T = window.__THREE;
+    const app = window.__app;
+    app.zoneManager.clear();
+    app.cardManager.clear?.();
+    app.scene.updateMatrixWorld(true);
+
+    const zone = app.zoneManager.addZone({ title: 'Gruppe A' });
+    zone.placeInFront(app.camera);
+    app.scene.updateMatrixWorld(true);
+
+    // Drei Karten vor den Rahmen legen, in seinem eigenen Koordinatensystem.
+    const drin = [];
+    for (const [dx, dy] of [[-0.4, 0.2], [0.0, -0.1], [0.45, -0.3]]) {
+      const k = app.cardManager.addCard('in der Zone');
+      const welt = zone.group.localToWorld(new T.Vector3(dx, dy, 0.05));
+      const h = app.cardManager.heimat;
+      k.group.position.copy(h === app.scene ? welt : h.worldToLocal(welt.clone()));
+      drin.push(k);
+    }
+    // Und zwei weit weg, die frei bleiben müssen.
+    const draussen = [];
+    for (let i = 0; i < 2; i++) {
+      const k = app.cardManager.addCard('frei');
+      const auge = app.camera.getWorldPosition(new T.Vector3());
+      const welt = auge.clone().add(new T.Vector3(3 + i, -0.3, -1));
+      const h = app.cardManager.heimat;
+      k.group.position.copy(h === app.scene ? welt : h.worldToLocal(welt.clone()));
+      draussen.push(k);
+    }
+    app.scene.updateMatrixWorld(true);
+
+    const relativ = (k) =>
+      zone.group.worldToLocal(k.group.getWorldPosition(new T.Vector3())).toArray();
+    const vorher = drin.map(relativ);
+    const erkannt = drin.filter((k) => zone.umfasst(k.group.getWorldPosition(new T.Vector3()))).length;
+    const falschErkannt = draussen.filter((k) => zone.umfasst(k.group.getWorldPosition(new T.Vector3()))).length;
+
+    app.ordneAlles();
+    app.scene.updateMatrixWorld(true);
+    const nachher = drin.map(relativ);
+    let groessteAbweichung = 0;
+    for (let i = 0; i < vorher.length; i++) {
+      groessteAbweichung = Math.max(
+        groessteAbweichung,
+        Math.hypot(vorher[i][0] - nachher[i][0], vorher[i][1] - nachher[i][1], vorher[i][2] - nachher[i][2])
+      );
+    }
+    // Und die freien Karten: Stehen sie danach vor dem Nutzer statt drei Meter daneben?
+    const auge = app.camera.getWorldPosition(new T.Vector3());
+    const freiWeg = draussen.map((k) => k.group.getWorldPosition(new T.Vector3()).distanceTo(auge));
+    return { erkannt, falschErkannt, groessteAbweichung, freiWeg };
+  });
+
+  console.log('\n=== 6. Zonen nehmen ihre Karten mit ===');
+  console.log(`  Von 3 Karten vor dem Rahmen erkannt: ${mitziehen.erkannt}`);
+  console.log(`  Von 2 Karten weit weg fälschlich zugeordnet: ${mitziehen.falschErkannt}`);
+  console.log(
+    `  Größte Abweichung ihrer Lage relativ zur Zone: ${(mitziehen.groessteAbweichung * 1000).toFixed(3)} mm`
+  );
+  console.log(`  Freie Karten stehen danach ${mitziehen.freiWeg.map((v) => v.toFixed(2)).join(' und ')} m entfernt`);
+  pruefe(mitziehen.erkannt === 3, 'alle drei Karten vor dem Rahmen werden erkannt');
+  pruefe(mitziehen.falschErkannt === 0, 'die weit entfernten werden nicht zugeordnet');
+  pruefe(mitziehen.groessteAbweichung < 0.001, 'die Zonenkarten behalten ihre Lage zur Zone auf den Millimeter');
+  pruefe(
+    mitziehen.freiWeg.every((v) => v > 0.8 && v < 2.4),
+    'die freien Karten stehen danach in Reichweite vor dem Nutzer'
+  );
 
   console.log(messages.length ? `\n❌ Konsole: ${messages.join(' | ')}` : '\n✓ Konsole sauber');
   console.log(fehler ? `\n❌ ${fehler} Prüfung(en) fehlgeschlagen` : '\n✅ alles in Ordnung');

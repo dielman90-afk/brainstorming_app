@@ -3465,3 +3465,88 @@ Band, Budget 21 Draw-Calls / 344 186 Dreiecke / 8,00 MB, Konsole sauber.
 **Nicht enthalten:** Karten und Zonen. Die sind Inhalt, kein Werkzeug — auf dem
 Planeten ist ihr Liegenbleiben der Zweck der ganzen Umgebung, und eine Zone vor
 den Nutzer zu holen risse sie von den Karten los, die sie zusammenfasst.
+
+---
+
+## „Alles ordnen": Karten und Zonen kommen mit
+
+Der Knopf aus der Runde davor holte nur Tafel und Zeitgeber. Gewünscht war er
+für **alles** — Karten und Zonen eingeschlossen. Das ist mehr als eine erweiterte
+Liste, aus zwei Gründen.
+
+### Zonen wissen nicht, welche Karten zu ihnen gehören
+
+Es gibt keine Mitgliedschaft, nur Nähe: Eine Zone ist ein Rahmen, davor liegen
+Karten. Wer die Rahmen einsammelt und die Karten getrennt neu verteilt, **löst
+mit einem Klick jede Gruppierung auf**, die der Nutzer von Hand gebaut hat.
+
+Die einzige Definition von „gehört dazu", die es gibt, steht jetzt als
+`Zone.umfasst(weltPunkt)` in der Zone selbst: der Streifen vor dem Rahmen, im
+Koordinatensystem der Zone geprüft, nach vorn großzügiger als nach hinten (0,6
+gegen 0,25 m) — Karten legt man vor einen Rahmen, nicht dahinter. Die zugehörigen
+Karten werden **starr mitgeführt**, über die Matrix relativ zur Zone. Gemessen:
+Ihre Lage zur Zone ändert sich um **0,000 mm**.
+
+Bei überlappenden Rahmen gewinnt die **nächste** Zone, nicht die zuerst angelegte
+— sonst bekäme der ältere Rahmen auch die Karten, die sichtbar vor dem anderen
+liegen.
+
+### Zwei Ebenen, nicht eine Reihe
+
+„Nebeneinander" kann nicht heißen, eine Karte von 0,32 m neben eine Tafel von
+1,92 m zu stellen; bei dreißig Karten wäre die Reihe 12 m lang. Die großen
+Flächen bilden deshalb eine Wand, die freien Karten stehen in Reihen zu sechst
+davor.
+
+**Der erste Anlauf hat sie davor gestellt und damit verdeckt.** Im Bild lagen
+„Freie Idee 1, 2, 3, 5" quer über der Tafel und beiden Zonen: Zwei Ebenen in der
+Tiefe reichen nicht, sie müssen sich auch in der Höhe trennen. Die Wand steigt
+jetzt um 0,22 m je nötiger Kartenreihe, und die Karten beginnen unter der
+Unterkante der höchsten Fläche.
+
+### Wie breit die Wand werden darf
+
+Der Wert stand auf 80 Grad. Mit Tafel, zwei Zonen und Zeitgeber schob das den
+ganzen Aufbau auf **3,10 m** zurück — und die Tafel ist das, worauf man zeichnet.
+
+Die Kamera der App hat 70 Grad senkrecht, im Format 16:9 also **102 Grad
+waagerecht**. 100 Grad Aufbau passt damit rechnerisch gerade eben und steht
+praktisch am Bildrand, wo die Perspektive die Panels stark verzerrt. Bei 90 Grad
+bleibt Rand, und die Tafel steht bei 2,70 statt 3,10 m.
+
+**Das ist eine Obergrenze, keine Zusage.** Reichen die 3,0 m Höchstabstand nicht
+— vier Flächen ergeben zusammen 5,58 m Breite —, legt sich der Aufbau um den
+Nutzer, und die äußeren Flächen liegen hinter dem Bildrand, bis er den Kopf
+dreht. Das ist Geometrie, nicht Nachlässigkeit: Vier Flächen dieser Größe passen
+nicht gleichzeitig nah und in ein Blickfeld.
+
+### Rückgängig machbar, und das ist kein Beiwerk
+
+Auf dem Planeten sind die abgelegten Karten eine begehbare Gedächtnislandkarte.
+Ein Klick auf diesen Knopf holt sie **alle** ein. Die Aktion schreibt deshalb
+einen Verlaufseintrag; Strg+Z stellt die Landkarte wieder her, und die
+Statuszeile sagt das auch.
+
+### Nachweis
+
+`tools/werkzeuge.mjs` prüft es als Schritte 5 und 6, je einmal auf dem Planeten
+und einmal im Zen-Garten: dass Tafel und Uhr sich vorher überlappten (25,0° bei
+40,6° nötigen) und nachher nicht mehr, dass alle drei Karten vor einem Rahmen
+erkannt und zwei weit entfernte nicht zugeordnet werden, dass die Zonenkarten
+ihre Lage auf 0,000 mm behalten und die freien Karten danach in Reichweite
+stehen.
+
+Acht Prüfbilder unverändert (Δmax 0), Regression im bekannten Band, Budget
+21 Draw-Calls / 344 186 Dreiecke / 8,00 MB, Konsole sauber.
+
+### Die Lehren dieser Runde
+
+* **Wo es keine Datenstruktur gibt, gibt es trotzdem eine Bedeutung.** „Diese
+  Karten gehören in diese Zone" steht nirgends im Modell — es steht in der
+  Anordnung, die der Nutzer gebaut hat. Eine Funktion, die aufräumt, muss das
+  respektieren, sonst räumt sie Arbeit weg.
+* **Zwei Ebenen in der Tiefe sind keine zwei Ebenen im Bild.** Karten bei 1,3 m
+  und Panels bei 2,4 m verdecken sich trotzdem, weil beide auf Augenhöhe stehen.
+* **Eine Zahl wie „passt ins Blickfeld" braucht das Blickfeld.** 70 Grad
+  senkrecht sind bei 16:9 102 waagerecht — ohne diese Umrechnung wäre die
+  Grenze geraten gewesen.

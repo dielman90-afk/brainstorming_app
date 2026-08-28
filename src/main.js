@@ -29,6 +29,7 @@ import { createEnvironments } from './environments.js';
 import { Whiteboard } from './whiteboard.js';
 import { ZoneManager } from './zones.js';
 import { Timer } from './timer.js';
+import { inHeimat } from './heimat.js';
 import { Locomotion } from './locomotion.js';
 import { History } from './history.js';
 import { Hud } from './hud.js';
@@ -269,35 +270,121 @@ const cardManager = new CardManager(scene, { floorY: () => _floorY ?? 0 });
 // (sonst hängt es sie vom Planeten ab in die Szene). Beides stand an drei
 // Aufrufstellen zu wiederholen — genau die Bauart, an der der Freiraum der
 // Fortbewegung schon einmal auseinandergelaufen ist.
-// **Alle offenen Werkzeuge nebeneinander vor den Nutzer holen.**
+// **Alles, was offen ist, nebeneinander vor den Nutzer holen.**
 //
-// Zwei Gründe, warum das ein eigener Knopf ist und nicht nur Bequemlichkeit:
+// Drei Gründe, warum das ein eigener Knopf ist:
 //
-//   * Im 🌌 Nachthimmel **bleiben die Werkzeuge liegen**, wenn man weitergeht —
-//     das ist seit dem Umbau so gewollt. Wer eine halbe Runde gelaufen ist, hat
-//     sie damit hinter sich, und der einzige Weg zurück war bisher, sie aus- und
-//     wieder einzublenden.
+//   * Im 🌌 Nachthimmel **bleibt liegen, was man ablegt** — das ist seit dem
+//     Umbau der Zweck der Umgebung. Wer eine halbe Runde gelaufen ist, hat
+//     Tafel, Uhr, Zonen und Karten hinter sich; der einzige Weg zurück war,
+//     die Werkzeuge aus- und wieder einzublenden.
 //   * `placeInFront` setzt jedes Panel für sich auf dieselbe Stelle. Tafel und
-//     Zeituhr standen dadurch übereinander: Die Uhr (0,66 m breit) verschwand
-//     hinter der Tafel (1,92 m), sobald beide offen waren.
+//     Zeituhr standen dadurch übereinander: gemessen 25,0° Winkelabstand, wo
+//     40,6° nötig gewesen wären.
+//   * Karten und Zonen haben gar keinen gemeinsamen Aufruf dafür.
 //
-// Angeordnet wird auf einem Bogen um den Nutzer. Ein Panel der Breite b im
-// Abstand r nimmt den Winkel 2·atan(b/2r) ein; die Winkel werden aufsummiert,
-// eine Lücke dazwischen gerechnet und das Ganze auf die Blickrichtung
-// zentriert. **Der Abstand ist nicht fest**, sondern wächst, bis alles in ein
-// Blickfeld von 80 Grad passt — sonst stünde die Tafel bei zwei offenen Panels
-// so weit außen, dass man sich nach ihr umdrehen müsste.
+// **Zwei Ebenen, nicht eine Reihe.** „Nebeneinander" kann nicht heißen, eine
+// Karte von 0,32 m neben eine Tafel von 1,92 m zu stellen — bei dreißig Karten
+// wäre die Reihe 12 m lang. Die großen Flächen (Tafel, Uhr, Zonen) bilden
+// deshalb eine Wand, die Karten stehen in Reihen davor. Das ist auch die
+// Ordnung, in der beides ohnehin benutzt wird.
 //
-// Das breiteste Panel steht in der Mitte, die kleineren wechselweise rechts und
-// links: So liegt das, woran man arbeitet, geradeaus.
+// **Zonen nehmen ihre Karten mit.** Eine Zone weiß nicht, welche Karten zu ihr
+// gehören — es gibt keine Mitgliedschaft, nur Nähe (`Zone.umfasst`). Würde man
+// die Rahmen einsammeln und die Karten getrennt neu verteilen, löste ein Klick
+// jede Gruppierung auf, die der Nutzer von Hand gebaut hat. Die Karten vor
+// einem Rahmen werden deshalb **starr mitgeführt**: ihre Lage relativ zur Zone
+// bleibt auf den Millimeter erhalten.
 const WERKZEUG_LUECKE = 0.12; // Meter zwischen zwei Panels
-const WERKZEUG_SICHT = THREE.MathUtils.degToRad(80);
-function ordneWerkzeuge() {
-  const offen = [];
-  if (whiteboard.group.visible) offen.push(whiteboard);
-  if (timer.group.visible) offen.push(timer);
-  if (!offen.length) return 0;
+// **Wie breit die Wand werden darf, bevor sie nach hinten weicht.**
+//
+// Erst standen hier 80 Grad. Mit Tafel, zwei Zonen und Zeitgeber schob das den
+// ganzen Aufbau auf 3,10 m zurück — und die Tafel ist das, worauf man zeichnet;
+// sie gehört nach vorn.
+//
+// Die Kamera der App hat 70 Grad senkrecht, im Format 16:9 also **102 Grad
+// waagerecht**. Ein Aufbau von 100 Grad passt damit rechnerisch gerade eben und
+// steht praktisch am Bildrand, wo die Perspektive die Panels stark verzerrt.
+// 90 Grad lässt Rand: Die äußerste Kante liegt bei 45 Grad, und die Tafel
+// bleibt bei gut zwei Metern statt bei drei.
+const WERKZEUG_SICHT = THREE.MathUtils.degToRad(90);
+// Karten dürfen nicht breiter stehen als die Wand darüber, sonst ragen sie
+// seitlich darunter hervor. Derselbe Wert, aus demselben Grund.
+//
+// **Beides ist eine Obergrenze, keine Zusage.** Reicht `radiusMax` nicht aus —
+// bei Tafel, zwei Zonen und Zeitgeber sind es zusammen 5,58 m Panelbreite —,
+// legt sich der Aufbau um den Nutzer herum, und die äußeren Flächen liegen
+// hinter dem Bildrand, bis er den Kopf dreht. Das ist keine Nachlässigkeit,
+// sondern Geometrie: Vier Flächen dieser Größe passen nicht gleichzeitig nah
+// und in ein Blickfeld.
+const KARTEN_SICHT = THREE.MathUtils.degToRad(90);
+const KARTEN_LUECKE = 0.07;
+const KARTEN_REIHE = 6;
+const _oW = new THREE.Vector3();
+const _oM = new THREE.Matrix4();
+const _oM2 = new THREE.Matrix4();
+const _oS = new THREE.Vector3();
+const _oZ = new THREE.Vector3();
 
+// Eine Reihe von Blöcken auf einem Bogen um den Nutzer, das breiteste in der
+// Mitte, die übrigen wechselweise rechts und links daneben.
+//
+// **Nicht die ganze Reihe zentrieren:** Bei Tafel und Zeitgeber stünde die
+// Tafel dann elf Grad neben der Achse, und man arbeitet nicht auf etwas, das
+// schief vor einem hängt.
+function bogenReihe(bloecke, { camPos, blick, rechts, hoehe, radiusStart, sicht, luecke, radiusMax }) {
+  if (!bloecke.length) return;
+  const sortiert = [...bloecke].sort((a, b) => b.breite - a.breite);
+
+  // **Der Abstand wird aus der wirklichen Spanne gerechnet, nicht aus der Summe
+  // der Breiten.** Weil das Hauptpanel mittig steht und die übrigen einseitig
+  // wachsen, ist die Anordnung nicht symmetrisch. Ein erster Anlauf hat die
+  // Summe als zentrierten Block geprüft (77°) und eine Anordnung von 85°
+  // gebaut — der Zeitgeber stand daraufhin am Bildrand.
+  const spanne = (r) => {
+    const h = (w) => Math.atan(w.breite / 2 / r);
+    const l = 2 * Math.atan(luecke / 2 / r);
+    let re = h(sortiert[0]);
+    let li = -re;
+    for (let i = 1; i < sortiert.length; i++) {
+      if (i % 2 === 1) re += l + 2 * h(sortiert[i]);
+      else li -= l + 2 * h(sortiert[i]);
+    }
+    return re - li;
+  };
+  let radius = radiusStart;
+  while (radius < radiusMax && spanne(radius) > sicht) radius += 0.1;
+
+  const halbwinkel = (w) => Math.atan(w.breite / 2 / radius);
+  const winkelLuecke = 2 * Math.atan(luecke / 2 / radius);
+  const setze = (w, winkel) => {
+    _oW.copy(blick)
+      .multiplyScalar(Math.cos(winkel) * radius)
+      .addScaledVector(rechts, Math.sin(winkel) * radius)
+      .add(camPos);
+    _oW.y = hoehe;
+    w.stelleAnOrt(_oW, camPos);
+  };
+
+  setze(sortiert[0], 0);
+  let randRechts = halbwinkel(sortiert[0]);
+  let randLinks = -randRechts;
+  for (let i = 1; i < sortiert.length; i++) {
+    const w = sortiert[i];
+    const h = halbwinkel(w);
+    if (i % 2 === 1) {
+      const winkel = randRechts + winkelLuecke + h;
+      setze(w, winkel);
+      randRechts = winkel + h;
+    } else {
+      const winkel = randLinks - winkelLuecke - h;
+      setze(w, winkel);
+      randLinks = winkel - h;
+    }
+  }
+}
+
+function ordneAlles() {
   const camPos = camera.getWorldPosition(new THREE.Vector3());
   const blick = camera.getWorldDirection(new THREE.Vector3());
   blick.y = 0;
@@ -305,73 +392,130 @@ function ordneWerkzeuge() {
   blick.normalize();
   // Die Rechte des Betrachters. Dasselbe Vorzeichen wie in `flowLayout`.
   const rechts = new THREE.Vector3().crossVectors(blick, new THREE.Vector3(0, 1, 0)).normalize();
-
-  // Das breiteste Panel kommt auf die Blickachse, die kleineren wechselweise
-  // rechts und links daneben. **Nicht die ganze Reihe zentrieren:** Bei zwei
-  // offenen Werkzeugen stünde die Tafel dann elf Grad neben der Achse, und man
-  // arbeitet nicht auf etwas, das schief vor einem hängt. Der Zeitgeber darf
-  // seitlich stehen — man schaut ihn an, man benutzt ihn nicht.
-  const nachBreite = [...offen].sort((a, b) => b.breite - a.breite);
-
-  // **Der Abstand wird aus der wirklichen Spanne gerechnet, nicht aus der Summe
-  // der Breiten.** Weil das Hauptpanel mittig steht und die übrigen einseitig
-  // wachsen, ist die Anordnung nicht symmetrisch: Bei Tafel und Zeitgeber
-  // reicht sie von −29,5° bis +55,5°, also 85° — während die Summe der Breiten
-  // als zentrierter Block nur 77° ergäbe. Der erste Anlauf hat das Zweite
-  // geprüft und das Erste gebaut, und der Zeitgeber stand dann am Bildrand.
-  const spanne = (r) => {
-    const h = (w) => Math.atan(w.breite / 2 / r);
-    const l = 2 * Math.atan(WERKZEUG_LUECKE / 2 / r);
-    let re = h(nachBreite[0]);
-    let li = -re;
-    for (let i = 1; i < nachBreite.length; i++) {
-      if (i % 2 === 1) re += l + 2 * h(nachBreite[i]);
-      else li -= l + 2 * h(nachBreite[i]);
-    }
-    return re - li;
-  };
-  // 1,7 m ist der Abstand, den `placeInFront` für ein einzelnes Panel benutzt.
-  // Weiter weg heißt hier nicht „außer Reichweite": Gezeichnet wird mit dem
-  // Strahl des Controllers, nicht mit dem Finger. 3,2 m ist trotzdem Schluss,
-  // sonst wird die Schrift auf den Knöpfen unlesbar.
-  let radius = 1.7;
-  while (radius < 3.2 && spanne(radius) > WERKZEUG_SICHT) radius += 0.1;
-
-  // Eine gemeinsame Höhe, sonst ist es keine Reihe. Bezug ist der Boden unter
-  // dem Nutzer, nicht y = 0 — auf dem Planeten steht er bei y ≈ 26,9.
   const boden = _floorY ?? 0;
-  const hoehe = boden + THREE.MathUtils.clamp(camPos.y - boden - 0.08, 0.95, 2.05);
+  const heimat = cardManager.heimat;
 
-  const halbwinkel = (w) => Math.atan(w.breite / 2 / radius);
-  const luecke = 2 * Math.atan(WERKZEUG_LUECKE / 2 / radius);
-  const ort = new THREE.Vector3();
-  const setze = (w, winkel) => {
-    ort
-      .copy(blick)
-      .multiplyScalar(Math.cos(winkel) * radius)
-      .addScaledVector(rechts, Math.sin(winkel) * radius)
-      .add(camPos);
-    ort.y = hoehe;
-    w.stelleAnOrt(ort, camPos);
-  };
+  // --- Wer gehört zu wem? --------------------------------------------------
+  //
+  // Erst zuordnen, dann bewegen: Nach dem ersten verschobenen Rahmen stimmt die
+  // Nachbarschaft nicht mehr, und die Zuordnung wäre eine andere.
+  scene.updateMatrixWorld(true);
+  const zonen = zoneManager.zones;
+  const gebunden = new Map(); // Zone -> [{ karte, rel }]
+  const frei = [];
+  for (const karte of cardManager.cards) {
+    karte.group.getWorldPosition(_oW);
+    // **Die nächste Zone, nicht die erste.** Zwei Rahmen können sich
+    // überlappen — dann bekäme sonst der zuerst angelegte alle Karten, auch
+    // die, die sichtbar vor dem anderen liegen.
+    let zone = null;
+    let naechste = Infinity;
+    for (const z of zonen) {
+      if (!z.umfasst(_oW)) continue;
+      const d = z.group.getWorldPosition(_oZ).distanceToSquared(_oW);
+      if (d < naechste) {
+        naechste = d;
+        zone = z;
+      }
+    }
+    if (!zone) {
+      frei.push(karte);
+      continue;
+    }
+    // Die Lage der Karte **relativ zur Zone**, als Matrix. Damit überlebt auch
+    // eine gedrehte oder skalierte Zone das Verschieben unverändert.
+    const rel = new THREE.Matrix4()
+      .copy(zone.group.matrixWorld)
+      .invert()
+      .multiply(karte.group.matrixWorld);
+    if (!gebunden.has(zone)) gebunden.set(zone, []);
+    gebunden.get(zone).push({ karte, rel });
+  }
 
-  setze(nachBreite[0], 0);
-  let randRechts = halbwinkel(nachBreite[0]);
-  let randLinks = -randRechts;
-  for (let i = 1; i < nachBreite.length; i++) {
-    const w = nachBreite[i];
-    const h = halbwinkel(w);
-    if (i % 2 === 1) {
-      const winkel = randRechts + luecke + h;
-      setze(w, winkel);
-      randRechts = winkel + h;
-    } else {
-      const winkel = randLinks - luecke - h;
-      setze(w, winkel);
-      randLinks = winkel - h;
+  // --- Ebene 1: die großen Flächen ----------------------------------------
+  const flaechen = [];
+  if (whiteboard.group.visible) flaechen.push(whiteboard);
+  if (timer.group.visible) flaechen.push(timer);
+  for (const z of zonen) flaechen.push(z);
+  // **Die Wand steht höher, wenn Karten darunter müssen.** Der erste Anlauf
+  // hat die Panels auf Augenhöhe gesetzt und die freien Karten bei 1,3 m davor
+  // — im Bild lagen „Freie Idee 1, 2, 3, 5" quer über der Tafel und beiden
+  // Zonen. Zwei Ebenen in der Tiefe reichen nicht; sie müssen sich auch in der
+  // Höhe trennen.
+  const freieVor = cardManager.cards.length - [...gebunden.values()].reduce((n, l) => n + l.length, 0);
+  const reihenNoetig = Math.ceil(freieVor / KARTEN_REIHE);
+  const hoeheFlaeche =
+    boden +
+    THREE.MathUtils.clamp(
+      camPos.y - boden - 0.08 + Math.min(reihenNoetig, 3) * 0.22,
+      0.95,
+      2.35
+    );
+  bogenReihe(flaechen, {
+    camPos,
+    blick,
+    rechts,
+    hoehe: hoeheFlaeche,
+    radiusStart: 1.7,
+    radiusMax: 3.0,
+    sicht: WERKZEUG_SICHT,
+    luecke: WERKZEUG_LUECKE,
+  });
+
+  // --- Die Karten der Zonen ziehen starr mit ------------------------------
+  scene.updateMatrixWorld(true);
+  const heimatInv = heimat === scene ? null : _oM2.copy(heimat.matrixWorld).invert();
+  for (const [zone, liste] of gebunden) {
+    for (const { karte, rel } of liste) {
+      _oM.multiplyMatrices(zone.group.matrixWorld, rel);
+      if (heimatInv) _oM.premultiply(heimatInv);
+      _oS.copy(karte.group.scale);
+      _oM.decompose(karte.group.position, karte.group.quaternion, karte.group.scale);
+      // Die Skalierung der Karte gehört ihr, nicht der Rechnung: Sie kürzt sich
+      // zwar heraus, aber ein Rundungsfehler in `decompose` bliebe sonst
+      // stehen und summierte sich über wiederholtes Ordnen auf.
+      karte.group.scale.copy(_oS);
     }
   }
-  return nachBreite.length;
+
+  // --- Ebene 2: die freien Karten, in Reihen davor ------------------------
+  //
+  // Sechs je Reihe: Eine Karte von 0,32 m nimmt bei 1,3 m Abstand rund 17° ein,
+  // sechs davon 100°. Die Reihen stehen untereinander, mittig auf Augenhöhe.
+  const reihen = [];
+  for (let i = 0; i < frei.length; i += KARTEN_REIHE) reihen.push(frei.slice(i, i + KARTEN_REIHE));
+  const reihenHoehe = 0.24;
+  // Unter der Unterkante der höchsten Fläche beginnen, nicht auf Augenhöhe.
+  // Ohne Flächen gibt es nichts zu unterlaufen — dann stehen die Karten selbst
+  // auf Augenhöhe, wie sie es von `arrangeInArc` gewohnt sind.
+  const hoechste = flaechen.reduce((m, f) => Math.max(m, f.hoehe), 0);
+  const oberkante = flaechen.length
+    ? hoeheFlaeche - hoechste / 2 - 0.14
+    : boden + THREE.MathUtils.clamp(camPos.y - boden - 0.05, 0.6, 2.1) + ((reihen.length - 1) / 2) * reihenHoehe;
+  reihen.forEach((reihe, r) => {
+    const hoehe = Math.max(boden + 0.35, oberkante - r * reihenHoehe);
+    bogenReihe(
+      reihe.map((karte) => ({
+        breite: 0.32 * karte.scale,
+        stelleAnOrt: (ort, cp) => {
+          karte.group.position.copy(inHeimat(heimat, scene, ort.clone()));
+          karte.group.lookAt(cp.x, ort.y, cp.z);
+        },
+      })),
+      {
+        camPos,
+        blick,
+        rechts,
+        hoehe,
+        radiusStart: 1.3,
+        radiusMax: 2.2,
+        sicht: KARTEN_SICHT,
+        luecke: KARTEN_LUECKE,
+      }
+    );
+  });
+
+  return { flaechen: flaechen.length, karten: cardManager.cards.length };
 }
 
 const ordneFluss = () =>
@@ -872,14 +1016,19 @@ async function handleAction(action) {
       return;
     }
     if (action === 'tools-order') {
-      const n = ordneWerkzeuge();
-      setStatus(
-        n === 0
-          ? 'Keine Werkzeuge offen – Whiteboard oder Timer einblenden.'
-          : n === 1
-            ? '🧭 Werkzeug vor dich geholt.'
-            : `🧭 ${n} Werkzeuge nebeneinander vor dich geholt.`
-      );
+      const { flaechen, karten } = ordneAlles();
+      if (!flaechen && !karten) {
+        setStatus('Nichts zum Ordnen da – erst eine Karte, eine Zone oder ein Werkzeug öffnen.');
+        return;
+      }
+      // **Rückgängig machbar, und das ist kein Beiwerk.** Auf dem Planeten sind
+      // die abgelegten Karten eine begehbare Gedächtnislandkarte; ein Klick
+      // holt sie alle ein. Ohne Verlaufseintrag wäre das nicht zurückzuholen.
+      commit('Neu angeordnet');
+      const teile = [];
+      if (flaechen) teile.push(`${flaechen} Fläche${flaechen === 1 ? '' : 'n'}`);
+      if (karten) teile.push(`${karten} Karte${karten === 1 ? '' : 'n'}`);
+      setStatus(`🧭 ${teile.join(' und ')} vor dich geordnet. Strg+Z macht es rückgängig.`);
       return;
     }
     if (action === 'timer') {
@@ -2070,7 +2219,7 @@ window.__app = {
   controls,
   handleAction,
   // Für tools/werkzeuge.mjs: die Anordnung ohne den Umweg über die Statuszeile.
-  ordneWerkzeuge,
+  ordneAlles,
   setStatus,
   history,
   hud,
