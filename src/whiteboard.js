@@ -248,10 +248,20 @@ export class Whiteboard {
     this.group.add(frame);
 
     // Rückwand, damit das Board von hinten solide wirkt
-    const back = makeRoundedPanel(BOARD_W + 0.05, BOARD_H + 0.05, {
-      fill: '#17151b',
-      border: 'rgba(255,255,255,0.05)',
-    });
+    // **Die Rückwand braucht keine 1400 Bildpunkte je Meter.**
+    //
+    // Sie ist eine einfarbige Fläche mit einem kaum sichtbaren Rand, und man
+    // sieht sie nur von hinten. Gemessen belegte sie **23,76 MB** — der größte
+    // einzelne Posten der ganzen Anwendung, mehr als der gesamte Nachthimmel
+    // (8,00 MB). Bei 400 Bildpunkten je Meter sind es 2,0 MB, und weil
+    // `makeRoundedPanel` seine Formkonstanten mitskaliert, ist die Weltgestalt
+    // dieselbe.
+    const back = makeRoundedPanel(
+      BOARD_W + 0.05,
+      BOARD_H + 0.05,
+      { fill: '#17151b', border: 'rgba(255,255,255,0.05)' },
+      400
+    );
     back.material.toneMapped = false;
     back.rotation.y = Math.PI;
     back.position.z = -0.01;
@@ -312,7 +322,13 @@ export class Whiteboard {
 
   _makeFrame() {
     const pad = 0.16;
-    const pxPerMeter = 900;
+    // **Ein Schlagschatten ist das Gegenteil von Detail.** Sein Inhalt ist ein
+    // Weichzeichner über 70 Bildpunkte — eine reine Tieffrequenz. Bei 900
+    // Bildpunkten je Meter belegte er 14,43 MB; bei 400 sind es 3,0 MB, und
+    // alle Formkonstanten unten skalieren mit, damit die Weltgestalt gleich
+    // bleibt.
+    const pxPerMeter = 400;
+    const s = pxPerMeter / 900;
     const outerW = BOARD_W + 0.05 + pad * 2;
     const outerH = BOARD_H + 0.05 + pad * 2;
     const W = Math.round(outerW * pxPerMeter);
@@ -325,21 +341,21 @@ export class Whiteboard {
     const by = pad * pxPerMeter;
     const bw = (BOARD_W + 0.05) * pxPerMeter;
     const bh = (BOARD_H + 0.05) * pxPerMeter;
-    const r = 74;
+    const r = 74 * s;
 
     ctx.save();
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 70;
-    ctx.shadowOffsetY = 26;
+    ctx.shadowBlur = 70 * s;
+    ctx.shadowOffsetY = 26 * s;
     roundRectPath(ctx, bx, by, bw, bh, r);
     ctx.fillStyle = 'rgba(32, 29, 38, 0.98)';
     ctx.fill();
     ctx.restore();
 
     // feiner heller Lichtrand oben für Tiefe
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * s;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.13)';
-    roundRectPath(ctx, bx + 1.5, by + 1.5, bw - 3, bh - 3, r);
+    roundRectPath(ctx, bx + 1.5 * s, by + 1.5 * s, bw - 3 * s, bh - 3 * s, r);
     ctx.stroke();
 
     const texture = new THREE.CanvasTexture(canvas);

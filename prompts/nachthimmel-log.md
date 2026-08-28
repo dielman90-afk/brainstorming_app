@@ -3680,3 +3680,44 @@ der Preis. Er ist unsichtbar.
 Budget unverändert (21 Draw-Calls, 344 186 Dreiecke, 8,00 MB) — dieselbe
 Dreieckszahl, nur dicker. `c-krater`, `e-boden` und `h-mond-rot` sind bitgleich;
 geändert haben sich nur die beiden Bilder, in denen der Sputnik steht.
+
+---
+
+## Punkt 2 der offenen Liste: 33 MB Texturspeicher, die niemand sieht
+
+Aufgeschlüsselt belegten Tafel und Zeituhr **65,75 MB**, davon drei Texturen
+allein 54,5:
+
+| MB | Größe | was es ist |
+| --- | --- | --- |
+| 23,76 | 2758×1694 | **Rückwand** der Tafel — eine einfarbige Fläche mit kaum sichtbarem Rand, die man nur von hinten sieht |
+| 16,31 | 2304×1392 | die **Zeichenfläche** |
+| 14,43 | 2061×1377 | **Rahmen mit Schlagschatten** — Inhalt ist ein Weichzeichner über 70 Bildpunkte |
+
+Rückwand und Rahmen laufen jetzt auf 400 statt 1400 bzw. 900 Bildpunkten je
+Meter. **Damit die Weltgestalt gleich bleibt, skalieren die Formkonstanten mit**
+— Eckradius, Randbreite, Weichzeichnerbreite und Schattenversatz. In
+`makeRoundedPanel` ist der Faktor bei der Vorgabe 1400 genau eins, alle
+bisherigen Aufrufer (Handgelenkmenü, Zeituhr, Werkzeugleiste) bekommen also
+bitgleich dieselbe Textur wie vorher.
+
+| | vorher | jetzt |
+| --- | --- | --- |
+| Tafel und Uhr zusammen | 65,75 MB | **32,41 MB** |
+| Rückwand | 23,76 | 1,94 |
+| Rahmen | 14,43 | 2,85 |
+
+Im Bild aus 1,15 m Abstand: 0,73 % der Bildpunkte weichen um ≥ 2 ab, 0,015 % um
+≥ 8, größte Abweichung 36 am äußersten Rand des Schlagschattens. Ecken, Rand und
+Werkzeugleiste sind unverändert scharf.
+
+**Die Zeichenfläche bleibt, wie sie ist.** 2304 Bildpunkte auf 1,92 m sind bei
+einer Quest 3 (rund 1215 Bildpunkte Bildbreite für die Tafel auf 1,7 m) knapp
+das Doppelte der Bildauflösung — das ist Reserve für den Fall, dass der Nutzer
+die Tafel vergrößert, und es ist die **einzige** der drei Texturen, deren
+Auflösung wirklich benutzt wird. Sie zu halbieren hieße außerdem, alle
+Strichbreiten mitzuskalieren; das ist eine Verhaltensänderung und kein
+Aufräumen.
+
+Umgebungsbudget unverändert bei 8,00 MB, 21 Draw-Calls, 344 186 Dreiecken;
+`tools/werkzeuge.mjs` grün, Regression im bekannten Band.
