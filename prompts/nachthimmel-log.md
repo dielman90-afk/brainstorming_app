@@ -3550,3 +3550,87 @@ Acht Prüfbilder unverändert (Δmax 0), Regression im bekannten Band, Budget
 * **Eine Zahl wie „passt ins Blickfeld" braucht das Blickfeld.** 70 Grad
   senkrecht sind bei 16:9 102 waagerecht — ohne diese Umrechnung wäre die
   Grenze geraten gewesen.
+
+---
+
+## Ein Himmel, ein Muster — die Sondersterne sind weg
+
+Gemeldet: *„Ich verstehe nicht, wieso die Sterne unterschiedlich sind. Alle
+Sterne sollen das gleiche Muster haben, also kleine und große und manche
+leuchtend."*
+
+Das war keine Einbildung, sondern gebaut — und zwar von mir, auf einen früheren
+Wunsch hin: *„die Sterne auf der Seite, wo der Mond nicht scheint"* sollten
+gleich hell sein. Ich habe das wörtlich umgesetzt und damit auf der halben
+Himmelskugel genau das abgeschaltet, was einen Sternhimmel ausmacht.
+
+### Der Befund
+
+Neu: `tools/sterne-muster.mjs` — die Verteilung von Größe und Helligkeit,
+gestaffelt nach dem Winkel zum Mond.
+
+| Band vom Mond | n | Streuung der Größe | Streuung der Helligkeit |
+| --- | --- | --- | --- |
+| 0–36° | 553 | 0,232 | 0,187 |
+| 36–72° | 1267 | 0,221 | 0,172 |
+| 72–108° | 1440 | 0,174 | 0,133 |
+| 108–144° | 1326 | **0,011** | **0,008** |
+| 144–180° | 614 | **0,000** | **0,000** |
+
+**Sechshundertvierzehn Sterne mit einer Streuung von exakt null** — alle Größe
+0,60, alle Helligkeit 0,62. Im Bild dasselbe: Die Streuung der Fleckenfläche lag
+auf der Gegenseite bei 5,73 gegen 25,43 auf der Mondseite.
+
+Verantwortlich war ein je Stern eingebackener Anteil `gleich`, der über
+`smoothstep(0.30, −0.45, zumMond)` von null auf eins stieg und drei Dinge auf
+einmal plattdrückte: Größe, Helligkeit samt Farbnormierung, und das Flimmern.
+
+### Die Änderung
+
+Die Sonderbehandlung ist ersatzlos weg — Attribut, Shader-Zweig und alle drei
+Sonderfälle. Es gilt überall dieselbe Verteilung `pow(zufall, 2,6)`: viele
+schwache, wenige helle. **Der Mond blendet die schwachen in seiner Nähe ohnehin
+aus; dafür braucht es keine zweite Regel im Code, das macht sein Hof von
+selbst.**
+
+Ein Faktor von 1,18 auf die Helligkeit gleicht die weggefallene Anhebung aus. Er
+wirkt auf **alle** Sterne gleich und lässt das Muster deshalb unangetastet — das
+ist der Unterschied zwischen einer Verstärkung und einer Abflachung.
+
+### Was daraus geworden ist
+
+| Band vom Mond | Streuung der Größe | Streuung der Helligkeit |
+| --- | --- | --- |
+| 0–36° | 0,232 | 0,220 |
+| 36–72° | 0,221 | 0,203 |
+| 72–108° | 0,230 | 0,215 |
+| 108–144° | 0,228 | 0,212 |
+| 144–180° | 0,231 | 0,209 |
+
+Verhältnis größte zu kleinste Streuung: **1,0:1** bei der Größe, 1,1:1 bei der
+Helligkeit. Vorher war es 231 760:1.
+
+Und die Sorge, die zum ersten Wunsch geführt hatte — auf der Gegenseite sei zu
+wenig zu sehen — ist gemessen unbegründet:
+
+| Gegenseite (Station 180) | vorher | jetzt |
+| --- | --- | --- |
+| gezählte Sterne im Himmelsteil | 760 | **775** |
+| Streuung der Fleckenfläche | 5,73 | **7,20** |
+| Streuung der Spitzenhelligkeit | 69,6 | **76,8** |
+
+Es sind **mehr** Sterne sichtbar als vorher, nicht weniger. Was schrumpft, ist
+die belegte Fläche (6703 auf 4838 px) — die gleich großen Scheiben von 0,60 sind
+weg, und das war der Zweck.
+
+Nachtseite im Rundgang unverändert (Tonwertspanne 11,9 bis 26,8), Regression im
+bekannten Band, Budget 21 Draw-Calls / 344 186 Dreiecke / 8,00 MB, Konsole
+sauber.
+
+### Die Lehre dieser Runde
+
+**Einen Wunsch wörtlich zu erfüllen kann heißen, ihn zu verfehlen.** „Gleich
+hell" hieß „alle sichtbar", nicht „alle identisch". Der Unterschied zwischen
+einer Verstärkung (jeder Stern mal 1,18) und einer Abflachung (jeder Stern auf
+0,62) ist genau der zwischen beidem — und er war an einer einzigen Zeile
+abzulesen, wenn man gefragt hätte, was mit der Streuung passiert.

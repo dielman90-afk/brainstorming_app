@@ -7197,10 +7197,6 @@ function makeSternfeld(rand, R = 41) {
   const farben = new Float32Array(ANZAHL * 3);
   const groessen = new Float32Array(ANZAHL);
   const phasen = new Float32Array(ANZAHL);
-  // Wie stark ein Stern der Gleichhelligkeit unterliegt — je Stern gebacken,
-  // weil Mond und Sternfeld in derselben Gruppe sitzen und ihre gegenseitige
-  // Lage sich nie ändert.
-  const gleichAn = new Float32Array(ANZAHL);
 
   // Farbtemperaturleiter von heiß nach kühl. Die Anteile sind grob an eine
   // Sichtbarkeitsauswahl angelehnt, nicht an eine Katalogstatistik – es ist
@@ -7251,52 +7247,45 @@ function makeSternfeld(rand, R = 41) {
     positions[i * 3 + 1] = y * R;
     positions[i * 3 + 2] = dz * R;
 
-    // **Gleich hell — aber nur dort, wo der Mond nicht scheint.**
+    // **Ein Himmel, ein Muster.**
     //
-    // Der erste Anlauf hat *alle* Sterne gleich hell gemacht; gemeint war die
-    // mondabgewandte Seite. Das ist zum Glück die einfachere Aufgabe: Mond und
-    // Sternfeld sitzen in derselben Gruppe, ihre gegenseitige Lage ändert sich
-    // beim Rundgang **nie**. Der Anteil lässt sich deshalb je Stern einbacken,
-    // statt ihn je Bild zu rechnen.
+    // Hier stand eine Sonderbehandlung der mondabgewandten Seite: Dort bekam
+    // *jeder* Stern dieselbe Größe (0,60) und dieselbe Helligkeit (0,62), und
+    // das Flimmern war abgeschaltet. Sie kam aus dem Wunsch, die Sterne auf der
+    // Seite ohne Mond „gleich hell" zu machen — und sie hat ihn wörtlich
+    // erfüllt und dabei zerstört, was einen Sternhimmel ausmacht.
     //
-    // Am Mond behält der Himmel seine Größenklassen — dort blendet sein Hof
-    // die schwachen ohnehin aus, und die wenigen hellen sind genau das, was
-    // man neben einem Mond sieht. Auf der Gegenseite stehen sie alle gleich
-    // hell und damit alle sichtbar.
-    const zumMond = dx * MOND_RICHTUNG.x + y * MOND_RICHTUNG.y + dz * MOND_RICHTUNG.z;
-    const abgewandt = smoothstep(0.30, -0.45, zumMond);
-    gleichAn[i] = abgewandt;
-
-    // Helligkeitsverteilung für die Mondseite: `pow(rand, 2.6)` liefert viele
-    // schwache und wenige helle.
+    // Gemessen mit `tools/sterne-muster.mjs`: Im Band 144–180° vom Mond lag die
+    // Streuung der Größe bei **0,000** über 614 Sterne — sechshundert
+    // identische Punkte. Im Bild war die Streuung der Fleckenfläche dort 5,73
+    // gegen 25,43 auf der Mondseite.
+    //
+    // Jetzt gilt überall dieselbe Verteilung: `pow(zufall, 2,6)` — viele
+    // schwache, wenige helle. Der Mond blendet die schwachen in seiner Nähe
+    // ohnehin aus; dafür braucht es keine zweite Regel im Code, das macht sein
+    // Hof von selbst.
     const m = Math.pow(mr(), 2.6);
-    const groesseNat = 0.13 + m * 0.78;
-    const GROESSE_GLEICH = 0.60;
-    groessen[i] = groesseNat + (GROESSE_GLEICH - groesseNat) * abgewandt;
+    groessen[i] = 0.13 + m * 0.78;
 
-    // Farbe: auf der Gleichseite auf gleiche Leuchtdichte normiert, damit die
-    // Farbtemperatur die Helligkeit nicht durch die Hintertür wieder ungleich
-    // macht. Auf der Mondseite wie bisher anteilig mit der Größenklasse.
+    // Die Farbtemperatur greift anteilig zur Größenklasse: Ein schwacher Stern
+    // ist blasser, ein heller zeigt seine Farbe.
     const temp = TEMPERATUREN[Math.floor(mr() * TEMPERATUREN.length)];
     const saettigung = 0.18 + m * 0.72;
-    const rNat = 1 + (temp[0] - 1) * saettigung;
-    const gNat = 1 + (temp[1] - 1) * saettigung;
-    const bNat = 1 + (temp[2] - 1) * saettigung;
-    const y709 = 0.2126 * temp[0] + 0.7152 * temp[1] + 0.0722 * temp[2];
 
-    // **Keine Extinktion mehr.** Sie beschreibt Luft, und die gibt es hier
-    // nicht; auf der vollen Kugel wäre sie ohnehin nur eine Verdunklung der
-    // Sterne, die unter dem Boden stehen.
-    const HELL_GLEICH = 0.62;
-    const hellNat = 0.30 + m * 0.70;
-    const hell = hellNat + (HELL_GLEICH - hellNat) * abgewandt;
-    const kNat = hell;
-    const kGleich = hell / y709;
-    const k = kNat + (kGleich - kNat) * abgewandt;
+    // **Keine Extinktion.** Sie beschreibt Luft, und die gibt es hier nicht;
+    // auf der vollen Kugel wäre sie ohnehin nur eine Verdunklung der Sterne,
+    // die unter dem Boden stehen.
+    //
+    // Der Faktor 1,18 ist der Ausgleich für die weggefallene Anhebung: Ohne ihn
+    // verlöre die Gegenseite die Sichtbarkeit, die der frühere Wunsch ihr
+    // gebracht hat. Er wirkt auf **alle** Sterne gleich und lässt das Muster
+    // deshalb unangetastet — gemessen an der Zahl sichtbarer Sterne auf der
+    // Gegenseite, siehe Protokoll.
+    const hell = (0.30 + m * 0.70) * 1.18;
     c.setRGB(
-      (rNat + (temp[0] - rNat) * abgewandt) * k,
-      (gNat + (temp[1] - gNat) * abgewandt) * k,
-      (bNat + (temp[2] - bNat) * abgewandt) * k
+      (1 + (temp[0] - 1) * saettigung) * hell,
+      (1 + (temp[1] - 1) * saettigung) * hell,
+      (1 + (temp[2] - 1) * saettigung) * hell
     );
     farben[i * 3] = c.r;
     farben[i * 3 + 1] = c.g;
@@ -7310,7 +7299,6 @@ function makeSternfeld(rand, R = 41) {
   geometry.setAttribute('farbe', new THREE.BufferAttribute(farben, 3));
   geometry.setAttribute('groesse', new THREE.BufferAttribute(groessen, 1));
   geometry.setAttribute('phase', new THREE.BufferAttribute(phasen, 1));
-  geometry.setAttribute('gleich', new THREE.BufferAttribute(gleichAn, 1));
 
   const material = new THREE.ShaderMaterial({
     uniforms: {
@@ -7330,23 +7318,23 @@ function makeSternfeld(rand, R = 41) {
       attribute float groesse;
       attribute vec3 farbe;
       attribute float phase;
-      attribute float gleich;
       uniform float pxSkala;
       uniform float zeit;
       varying vec3 vFarbe;
       varying float vSchwund;
       void main() {
-        // **Flimmern nur auf der Mondseite.**
+        // **Flimmern, ueberall gleich.**
         //
-        // Der erste Anlauf hat es ganz abgeschafft — mit dem Argument, dass
-        // Szintillation in der Atmosphaere entsteht und ein luftloser Koerper
-        // keine hat. Das stimmt, kostet aber einen der vier Traeger von
-        // Bewegung, und gemeint war ohnehin nur die abgewandte Seite. Dort, wo
-        // die Sterne gleich hell stehen sollen, waere ein Flimmern genau der
-        // Rest, der sie wieder ungleich macht; auf der Mondseite darf der
-        // Himmel weiter atmen.
+        // Zwei Anlaeufe vorher: erst ganz abgeschafft (Szintillation entsteht
+        // in der Atmosphaere, und ein luftloser Koerper hat keine — richtig,
+        // kostet aber einen der vier Traeger von Bewegung), dann nur auf der
+        // Mondseite, weil die Gegenseite gleich hell stehen sollte. Mit dieser
+        // Sonderregel ist auch das weg: Ein Himmel, ein Muster.
+        //
+        // Schwache Sterne flimmern staerker als helle — das ist der einzige
+        // Unterschied, und er gilt fuer den ganzen Himmel.
         float f = 1.0 + sin(zeit * (1.7 + fract(phase) * 2.3) + phase)
-                        * 0.16 * (1.2 - groesse) * (1.0 - gleich);
+                        * 0.16 * (1.2 - groesse);
         vFarbe = farbe * f;
         vec4 mv = modelViewMatrix * vec4(position, 1.0);
         // **Ein Stern unter zweieinhalb Bildpunkten wird nicht kleiner,
