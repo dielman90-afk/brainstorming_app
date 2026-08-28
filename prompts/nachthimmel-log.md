@@ -3634,3 +3634,49 @@ hell" hieß „alle sichtbar", nicht „alle identisch". Der Unterschied zwische
 einer Verstärkung (jeder Stern mal 1,18) und einer Abflachung (jeder Stern auf
 0,62) ist genau der zwischen beidem — und er war an einer einzigen Zeile
 abzulesen, wenn man gefragt hätte, was mit der Streuung passiert.
+
+---
+
+## Punkt 1 der offenen Liste: die Sputnik-Antenne flimmerte
+
+Notiert war sie als „schnurgerade dunkle Linie von einem Bildpunkt Breite quer
+über den Sand". Nachgemessen an `a-augenhoehe`, Profil senkrecht zur Linie:
+
+| | vorher | jetzt |
+| --- | --- | --- |
+| Halbwertsbreite | **1 px** | 2 px |
+| Kontrast zum Umfeld | 32,7 Stufen | 31,4 Stufen |
+| Profil bei x = 820 | 109 109 **126 75** 112 | 109 109 **77 80** 112 |
+
+Das Aufschlussreiche steht im Profil: Vorher lag neben dem dunklen Bildpunkt ein
+**hellerer als das Umfeld** (126 gegen 108). Das ist kein Schatten, das ist
+Unterabtastung — die Kante fällt zwischen zwei Abtastpunkte, und ein
+Bildpunkt bekommt das beleuchtete Metall, der nächste die Schattenseite. Bei
+jeder Kopfbewegung wechseln sie. Jetzt stehen dort zwei benachbarte dunkle
+Bildpunkte, und der Überschwinger ist weg.
+
+**Meine frühere Notiz war obendrein falsch:** Ich hatte „7 mm
+Wurzeldurchmesser" geschrieben — 0,007 ist der **Radius**, der Durchmesser war
+14 mm. Die Rechnung stimmte trotzdem nicht: 14 mm auf 6 m sind 2,33 mrad, und
+die Kamera löst 70 Grad auf 720 Zeilen auf, also 1,70 mrad je Bildpunkt — 1,4
+Bildpunkte, gemessen 1.
+
+### Warum Verdicken und kein Shader
+
+Der saubere Weg wäre, die Breite im Bildraum zu erzwingen (die Kuppe im
+Vertexschritt aufweiten, bis sie zwei Bildpunkte deckt). Das kostet ein eigenes
+Material, einen zusätzlichen Draw-Call und ein Attribut, das
+`verschmelzeObjekte` durch `angleichen` hindurchschmuggeln müsste.
+
+Dagegen steht eine Rechnung: Der Sputnik ist wegen des 8,9-m-Horizonts nur aus
+**1 bis 12 m** überhaupt sichtbar. Bei 22 mm Durchmesser sind das 1,8
+Bildpunkte auf 7 m und noch 1,1 auf 12 m. **Und bei ein bis zwei Bildpunkten
+Breite kann niemand einen Durchmesser beurteilen** — man sieht nur, ob es
+flimmert. Der Shader wäre teurer und im Ergebnis nicht zu unterscheiden.
+
+Dass die Antenne damit siebenfach zu dick ist (das Original hatte 3,2 mm), ist
+der Preis. Er ist unsichtbar.
+
+Budget unverändert (21 Draw-Calls, 344 186 Dreiecke, 8,00 MB) — dieselbe
+Dreieckszahl, nur dicker. `c-krater`, `e-boden` und `h-mond-rot` sind bitgleich;
+geändert haben sich nur die beiden Bilder, in denen der Sputnik steht.

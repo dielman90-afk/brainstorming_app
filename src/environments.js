@@ -4976,15 +4976,28 @@ function makeSputnik(obenLokal) {
     const dir = richtung.clone();
     for (let k = 0; k < GLIEDER; k++) {
       const t = k / GLIEDER;
-      // Verjüngung: an der Wurzel 14 mm Durchmesser, an der Spitze 6 mm.
+      // Verjüngung: an der Wurzel 22 mm Durchmesser, an der Spitze 14 mm.
       //
-      // Der erste Anlauf hatte 9 auf 3 mm — maßstäblich näher am Original und
-      // im Bild ein **einziger Bildpunkt**: Bei 55 Grad Bildwinkel auf 720
-      // Zeilen deckt ein Punkt 1,33 mrad ab, und 3 mm auf drei Meter sind 1,0.
-      // Was dabei entsteht, liest nicht als Antenne, sondern als Kratzer im
-      // Bild. Eine Form, die dünner ist als ein Bildpunkt, ist keine Form.
-      const r0 = 0.007 * (1 - t * 0.55);
-      const r1 = 0.007 * (1 - (t + 1 / GLIEDER) * 0.55);
+      // **Dritter Anlauf, und die Zahl kommt aus einer Messung.** Der erste
+      // hatte 9 auf 3 mm — maßstäblich näher am Original und im Bild ein
+      // einziger Bildpunkt. Der zweite ging auf 14 auf 6 mm; gemessen in
+      // `a-augenhoehe` war die Linie damit immer noch **1 Bildpunkt** breit,
+      // bei 32,7 Stufen Kontrast und einem hellen Pixel direkt neben dem
+      // dunklen — die Signatur von Unterabtastung. In der Brille flimmert so
+      // etwas bei jeder Kopfbewegung.
+      //
+      // Die Kamera der App löst 70 Grad auf 720 Zeilen auf, also 1,70 mrad je
+      // Bildpunkt. Sichtbar ist der Sputnik wegen des 8,9-m-Horizonts nur aus
+      // rund 1 bis 12 m. Bei 22 mm sind das 1,8 Bildpunkte auf 7 m und noch
+      // 1,1 auf 12 m; bei 14 mm waren es 1,2 und 0,7.
+      //
+      // **Dass er damit siebenfach zu dick ist, sieht niemand.** Bei ein bis
+      // zwei Bildpunkten Breite kann man keinen Durchmesser beurteilen — man
+      // sieht nur, ob es flimmert oder nicht. Genau deshalb ist Verdicken hier
+      // die richtige Antwort und nicht ein Shader, der die Breite im Bildraum
+      // erzwingt: Der wäre teurer und im Ergebnis nicht zu unterscheiden.
+      const r0 = 0.011 * (1 - t * 0.35);
+      const r1 = 0.011 * (1 - (t + 1 / GLIEDER) * 0.35);
       const g = new THREE.CylinderGeometry(r1, r0, stueck, 6, 1, true);
       g.translate(0, stueck / 2, 0);
       const m = new THREE.Mesh(g, metall);
@@ -5001,7 +5014,7 @@ function makeSputnik(obenLokal) {
     }
     // Der Bruch am Ende: eine schräg abgeschnittene Scheibe, damit die Spitze
     // nicht wie fabrikneu aussieht.
-    const bruch = new THREE.CylinderGeometry(0.007 * 0.45, 0.007 * 0.45, 0.005, 6);
+    const bruch = new THREE.CylinderGeometry(0.011 * 0.62, 0.011 * 0.62, 0.005, 6);
     bruch.rotateZ(0.7);
     const bm = new THREE.Mesh(bruch, metall);
     bm.position.copy(p);
