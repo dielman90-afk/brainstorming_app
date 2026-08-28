@@ -36,7 +36,7 @@ export const PAGES = [
       { id: 'zone', label: 'Zone', icon: 'zone' },
       { id: 'timer', label: 'Timer', icon: 'timer' },
       { id: 'whiteboard', label: 'Whiteboard', icon: 'whiteboard' },
-      { id: 'tools-order', label: 'Werkzeuge ordnen', icon: 'layout' },
+      { id: 'tools-order', label: 'Alles ordnen', icon: 'layout' },
       { id: 'environment', label: 'Umgebung', icon: 'environment' },
       // Der Regler für die Bildqualität gehört in die Brille und nicht nur ins
       // Desktop-Overlay: Ob die Quest die volle Fassung trägt, entscheidet sich

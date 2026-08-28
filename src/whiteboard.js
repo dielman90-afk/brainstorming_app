@@ -605,6 +605,12 @@ export class Whiteboard {
     return BOARD_W * this.scale;
   }
 
+  // Die Höhe im Raum — das Anordnen braucht sie, um die Kartenreihen
+  // **unter** die Wand zu legen statt davor.
+  get hoehe() {
+    return BOARD_H * this.scale;
+  }
+
   // An einen gerechneten Weltort stellen, statt vor den Nutzer. Die Höhe kommt
   // dabei vom Aufrufer, alles Übrige bleibt wie in `placeInFront`.
   stelleAnOrt(weltOrt, camPos) {
