@@ -58,6 +58,23 @@ export function inHeimat(heimat, scene, v) {
   return heimat.worldToLocal(v);
 }
 
+// **Eine Gruppe an einen Weltort stellen, zum Nutzer gedreht.**
+//
+// Drei Stellen tun das inzwischen — `Whiteboard.placeInFront`,
+// `Timer.placeInFront` und das Ordnen der Werkzeuge —, und alle drei müssen
+// zweierlei richtig machen: die Weltlage in die Heimat umrechnen, und `lookAt`
+// trotzdem ein **Weltziel** geben. Genau daran ist es schon zweimal
+// gescheitert, weil `inHeimat` seinen Vektor an Ort und Stelle verändert.
+//
+// Deshalb steht es hier einmal, mit einer Kopie statt einer Falle: `weltOrt`
+// bleibt unangetastet, der Aufrufer kann ihn danach weiterverwenden.
+export function stelleAn(gruppe, heimat, scene, weltOrt, camPos) {
+  gruppe.position.copy(inHeimat(heimat, scene, weltOrt.clone()));
+  // Die Höhe des Blickziels ist die des Panels selbst: So schaut es waagerecht
+  // zum Nutzer und kippt nicht nach oben oder unten.
+  gruppe.lookAt(camPos.x, weltOrt.y, camPos.z);
+}
+
 // Die Pose einer Gruppe **relativ zur Heimat**, für das Speichern.
 //
 // Gerechnet wird über die Weltpose und nicht über die lokale: Nur so kommt auch

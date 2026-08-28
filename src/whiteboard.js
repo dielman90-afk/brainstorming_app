@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { wechsleHeimat, inHeimat, poseInHeimat } from './heimat.js';
+import { wechsleHeimat, poseInHeimat, stelleAn } from './heimat.js';
 import { createTextPanel } from './textPanel.js';
 import { makeRoundedPanel } from './wristMenu.js';
 
@@ -593,17 +593,22 @@ export class Whiteboard {
     const boden = this.floorY();
     pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden - 0.1, 0.9, 2.0);
     // Gerechnet wird in Weltkoordinaten — die Tafel stellt sich vor den Nutzer,
-    // nicht vor den Planeten. Erst danach in die Heimat umgerechnet.
-    //
-    // **Die Höhe muss vorher gesichert werden.** `inHeimat` rechnet den Vektor
-    // an Ort und Stelle um; danach steht in `pos.y` die lokale Höhe. `lookAt`
-    // braucht ein Weltziel. Gemessen: Ohne diese Zeile stand die Tafel nach
-    // 40 Grad Weltdrehung verdreht im Bild, und der Griff lag nicht mehr dort,
-    // wo ihn die Maus suchte.
-    const weltY = pos.y;
-    this.group.position.copy(inHeimat(this.heimat, this.scene, pos));
-    // `lookAt` bekommt ein Weltziel und rechnet die Elternmatrix selbst heraus.
-    this.group.lookAt(camPos.x, weltY, camPos.z);
+    // nicht vor den Planeten. Die Umrechnung in die Heimat und das Drehen zum
+    // Nutzer stehen in `stelleAn` (heimat.js), zusammen mit der Begründung,
+    // warum beides zusammengehört.
+    stelleAn(this.group, this.heimat, this.scene, pos, camPos);
+  }
+
+  // Die Breite, die dieses Panel im Blickfeld einnimmt — für das Ordnen der
+  // Werkzeuge nebeneinander. Mit der Skalierung, die der Nutzer eingestellt hat.
+  get breite() {
+    return BOARD_W * this.scale;
+  }
+
+  // An einen gerechneten Weltort stellen, statt vor den Nutzer. Die Höhe kommt
+  // dabei vom Aufrufer, alles Übrige bleibt wie in `placeInFront`.
+  stelleAnOrt(weltOrt, camPos) {
+    stelleAn(this.group, this.heimat, this.scene, weltOrt, camPos);
   }
 
   // --- Zeichnen (uv aus dem Raycast der Zeichenfläche) ---

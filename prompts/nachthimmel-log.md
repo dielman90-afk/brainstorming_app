@@ -3406,3 +3406,62 @@ Selbst angesehen habe ich die acht festen Kameras. Was dabei auffiel:
   170 Kratern wenig zu sehen; das ist eine Frage der Größe, nicht der Machart.
 * Die Peitschenantenne des Sputnik als 0,7 px breite Linie steht weiter offen
   (siehe oben).
+
+---
+
+## „Werkzeuge ordnen" — ein Knopf, zwei Probleme
+
+Gewünscht war ein Knopf, der alle offenen Werkzeuge vor einem ausrichtet. Er
+löst zwei Dinge auf einmal, und das zweite war vorher nicht als Problem benannt:
+
+* **Auf dem Planeten bleiben die Werkzeuge liegen**, seit sie eine Heimat haben.
+  Das ist gewollt — aber wer eine halbe Runde gelaufen ist, hat sie hinter sich,
+  und der einzige Weg zurück war, sie aus- und wieder einzublenden. Gemessen:
+  Nach einer halben Runde stand die Tafel **53,8 m** entfernt, nach dem Knopf
+  1,90 m.
+* **`placeInFront` setzt jedes Panel für sich auf dieselbe Stelle.** Tafel
+  (1,92 m breit) und Zeitgeber (0,66 m) standen dadurch übereinander: gemessen
+  **25,0° Winkelabstand, wo 40,6° nötig gewesen wären** — die Uhr verschwand
+  hinter der Tafel, sobald beide offen waren. Nach dem Ordnen 40,3° bei 36,6°
+  nötigen.
+
+### Wie angeordnet wird
+
+Auf einem Bogen um den Nutzer. Ein Panel der Breite *b* im Abstand *r* nimmt den
+Winkel 2·atan(*b*/2*r*) ein; das breiteste steht auf der Blickachse, die übrigen
+wechselweise rechts und links daneben.
+
+**Nicht die ganze Reihe zentriert** — das war der erste Anlauf, und er stellte
+die Tafel elf Grad neben die Achse. Man arbeitet nicht auf etwas, das schief vor
+einem hängt; der Zeitgeber darf seitlich stehen, den schaut man an.
+
+Der Abstand ist nicht fest, sondern wächst in Schritten von 10 cm, bis alles in
+80° Blickfeld passt (höchstens 3,2 m). **Auch hier ein Fehler, der erst beim
+Nachrechnen auffiel:** Die Prüfung rechnete die Summe der Breiten als
+*zentrierten* Block — 77° —, während die gebaute Anordnung von −29,5° bis +55,5°
+reichte, also 85°. Geprüft wurde etwas anderes, als gebaut wurde, und der
+Zeitgeber stand am Bildrand. Jetzt rechnet dieselbe Funktion die wirkliche
+Spanne, und der Abstand landet bei 1,90 m statt 1,70.
+
+### Eine Stelle statt drei
+
+Tafel und Zeitgeber mussten beide zweierlei richtig machen: die Weltlage in die
+Heimat umrechnen **und** `lookAt` trotzdem ein Weltziel geben. Daran ist es in
+der Runde davor zweimal gescheitert. Mit dem Knopf wäre es eine dritte Stelle
+gewesen — deshalb steht es jetzt einmal in `heimat.js` als `stelleAn()`, mit
+einer Kopie des Vektors statt einer Falle.
+
+### Nachweis
+
+`tools/werkzeuge.mjs` prüft es als Schritt 5, je einmal auf dem Planeten und
+einmal im Zen-Garten: dass sich die Panels vorher wirklich überlappten, dass sie
+es nachher nicht mehr tun, dass beide in Reichweite stehen, senkrecht stehen und
+den Nutzer anschauen (Neigung 0,0°, Schielwinkel 0,0°).
+
+Der Knopf sitzt am Desktop unter „Board" und in VR im Handgelenkmenü unter
+„Board". Die acht Prüfbilder sind unverändert (Δmax 0), Regression im bekannten
+Band, Budget 21 Draw-Calls / 344 186 Dreiecke / 8,00 MB, Konsole sauber.
+
+**Nicht enthalten:** Karten und Zonen. Die sind Inhalt, kein Werkzeug — auf dem
+Planeten ist ihr Liegenbleiben der Zweck der ganzen Umgebung, und eine Zone vor
+den Nutzer zu holen risse sie von den Karten los, die sie zusammenfasst.
