@@ -4070,6 +4070,24 @@ function marsGroundMaterial() {
         );
       shader.fragmentShader = shader.fragmentShader
         .replace(
+          // **Staub glaenzt nicht.**
+          //
+          // `MeshStandardMaterial` gibt jedem Dielektrikum einen festen
+          // Spiegelanteil von F0 = 0,04, und die Fresnel-Kante zieht ihn bei
+          // streifendem Blick gegen eins. Auf einer Flaeche mit vier
+          // uebereinandergelegten Normalenstoerungen ergibt das einzelne
+          // Bildpunkte, die um ein Vielfaches heller sind als ihre Nachbarn —
+          // gemessen 288 solcher Punkte ueber die zwoelf Stationen, die
+          // hellsten voll ausgebrannt bei L = 255. Der Pruefer hat sie fuer
+          // Sterne gehalten, die durch den Boden stanzen.
+          //
+          // Mondstaub hat keinen solchen Lappen; er ist ein poroeses Pulver.
+          // Ihn wegzunehmen ist deshalb keine Notloesung, sondern das richtige
+          // Material.
+          '#include <lights_physical_fragment>',
+          '#include <lights_physical_fragment>\n           material.specularColor = vec3(0.0);\n           material.specularF90 = 0.0;'
+        )
+        .replace(
           '#include <common>',
           `#include <common>
            varying vec3 vWeltOrt;
@@ -4100,7 +4118,36 @@ function marsGroundMaterial() {
              // alte Bereich 7 bis 26 m war für die 96-m-Platte gemacht — auf
              // einem Planeten mit 8,9 m Horizont wäre er nie zu Ende gelaufen.
              float tiefe = -vViewPosition.z;
-             float feinAn = 1.0 - smoothstep(6.0, 14.0, tiefe);
+
+             // **Ausgeblendet wird nach Fussabdruck, nicht nach Entfernung.**
+             //
+             // Der Pruefer hat 366 farbneutrale Lichtpunkte auf dem Kamm von
+             // rund-300 gefunden und sie fuer Sterne gehalten. Es ist der Boden
+             // selbst: Blendet man nacht-planet aus, sind sie weg; mit
+             // roughness = 1 bleiben sie, es ist also kein Glanzlicht. Weg
+             // sind sie erst ohne das gerichtete Mondlicht oder ohne diese
+             // Normalenkarte. Ein Bildpunkt, dessen gestoerte Normale zufaellig
+             // zum Mond zeigt, bekommt bei streifendem Einfall ein Vielfaches
+             // der Beleuchtung seiner Nachbarn — und weil das Mondlicht fast
+             // weiss ist, kippt die Farbe oben in der Tonkurve ins Neutrale.
+             // Gemessen: 288 solche Punkte ueber die zwoelf Stationen, die
+             // hellsten voll ausgebrannt bei L = 255.
+             //
+             // Entscheidend ist nicht, wie weit die Flaeche weg ist, sondern
+             // wie gross der Fussabdruck eines Bildpunkts auf ihr ist — und der
+             // waechst mit 1/cos zwischen Blick und Flaeche. Am Horizont sieht
+             // man den Boden fast von der Kante; dort deckt ein Bildpunkt ein
+             // Vielfaches der Texelbreite ab, und die Mipmap-Mittelung der
+             // Normalen verliert genau die Varianz, die das Funkeln erzeugt.
+             //
+             // **Die Klemmung bei 0,25 ist der Grund, warum der Vordergrund
+             // sein Korn behaelt.** In e-boden liegt der Boden ebenso
+             // streifend im Bild, aber auf 1 bis 3 m: dort bleibt die wirksame
+             // Tiefe unter 12 m und das Korn steht. Am Kamm auf 8,7 m wird
+             // daraus das Dreifache, und es ist aus.
+             float blick = clamp(dot(nonPerturbedNormal, normalize(-vViewPosition)), 0.0, 1.0);
+             float tiefeWirk = tiefe / max(0.25, blick);
+             float feinAn = 1.0 - smoothstep(6.0, 14.0, tiefeWirk);
              normal = normalize(mix(nonPerturbedNormal, normal, feinAn));
 
              // --- Der fehlende Zwischenmaßstab: Kies ------------------------
@@ -4119,7 +4166,9 @@ function marsGroundMaterial() {
              // eigenen Schatten (die Normale) und er ist anders gefärbt als der
              // Staub um ihn herum (die Farbe).
              vec3 kies = texture2D(normalMap, vNormalMapUv * 0.25).xyz * 2.0 - 1.0;
-             float kiesAn = 1.0 - smoothstep(14.0, 30.0, tiefe);
+             // Aus demselben Grund ueber die wirksame Tiefe: Der Kies stammt aus
+             // derselben Karte und funkelt genauso.
+             float kiesAn = 1.0 - smoothstep(14.0, 30.0, tiefeWirk);
              // **Der Betrag ist gedeckelt durch die Rippel.** Deren Neigung
              // liegt bei cos(phase) * K * 0,0042, also höchstens 0,078. Der
              // erste Anlauf stand auf 0,42 — das Fünffache — und hat sie
@@ -4301,13 +4350,23 @@ function marsGroundMaterial() {
              // Die Kaemme sind groeber und heller, die Taeler halten den feinen
              // Staub. Kleiner Betrag — es ist eine Toenung, kein Muster.
              diffuseColor.rgb *= 1.0 + summeProfil * 0.075;
+
+             // --- Kein Glanz auf Staub ---------------------------------------
+             //
+             // Die eigentliche Behebung steht weiter oben als eine Einfuegung
+             // hinter dem Beleuchtungsschritt: Der Regolith bekommt gar
+             // keinen Spiegelanteil mehr. Die Herleitung und die drei
+             // Fehlversuche davor stehen im Protokoll — kurz: Es war weder der
+             // Fussabdruck noch eine abgewandte Flaeche noch ein einzelner
+             // Stoerterm, sondern die Fresnel-Kante des Spiegellappens bei
+             // streifendem Blick auf eine normalengestoerte Flaeche.
            }`
         );
     };
     // Ohne eigenen Cache-Schlüssel hält three das Programm eines anderen
     // Materials mit derselben Signatur für austauschbar und der Einschub
     // landet nie im Shader.
-    _marsGround.customProgramCacheKey = () => 'nacht-regolith-v5';
+    _marsGround.customProgramCacheKey = () => 'nacht-regolith-v11';
   }
   return _marsGround;
 }

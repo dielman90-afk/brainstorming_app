@@ -3721,3 +3721,82 @@ Aufräumen.
 
 Umgebungsbudget unverändert bei 8,00 MB, 21 Draw-Calls, 344 186 Dreiecken;
 `tools/werkzeuge.mjs` grün, Regression im bekannten Band.
+
+---
+
+## Der Prüfer war da — und sein schwerster Befund hatte die falsche Ursache
+
+Diesmal ist er durchgelaufen. Sein Befund 1, „auffällig": *„Sterne stehen auf
+dem Boden"* — 366 farbneutrale Lichtpunkte auf rotem Regolith am Kamm von
+`rund-300`, mit Einzelnachweis: bei (600,397) steht (110,106,107) zwischen zwei
+Bodenpixeln (29,11,6).
+
+**Der Befund stimmt, die Ursache nicht.** Nachgemessen:
+
+| Test | Pixel (600,397) |
+| --- | --- |
+| unverändert | (110,106,107) |
+| ohne Sternfeld, Staub, Staubteufel, Meteor, Höfe, Fetzen, Kuppel, Monde | unverändert |
+| **ohne `nacht-planet`** | **(23,26,28)** |
+| ohne gerichtetes Licht | (17,8,5) |
+| `roughness = 1`, ohne Rauheitskarte | (115,112,113) |
+
+Der Boden leuchtet dort selbst. Kein Stern, und auch kein Glanzlicht im
+naheliegenden Sinn — Rauheit 1 ändert nichts.
+
+Neu dafür: `tools/funkeln.mjs`. Es zählt, was ein Mensch als Fehler sieht: ein
+Bildpunkt, der deutlich heller ist als alle vier Nachbarn, dabei farbneutral,
+während seine Umgebung rot ist. **288 solcher Punkte über die zwölf Stationen**,
+die hellsten voll ausgebrannt bei L = 255.
+
+### Drei Fehlversuche, jeder von der Messung widerlegt
+
+1. **Nach Fußabdruck ausblenden.** Annahme: Am Horizont sieht man den Boden
+   streifend, ein Bildpunkt deckt ein Vielfaches der Texelbreite ab. Ergebnis:
+   288 → 288. Die Flächen dort werden gar nicht streifend gesehen.
+2. **Nach abgewandter Fläche dämpfen.** Annahme: Die Fläche steht im
+   Eigenschatten, und nur eine Beule kippt die Normale ins Licht. Ergebnis:
+   288 → 288. Sie ist dem Mond zugewandt.
+3. **Den Überschuss deckeln** — eine Beule darf nicht viel mehr Licht bekommen
+   als die Fläche, auf der sie sitzt. Erster Anlauf in Weltkoordinaten: ohne
+   Wirkung, weil `MOND_RICHTUNG` in **Planetenkoordinaten** steht und dazwischen
+   die Drehung des Rundgangs liegt — an Station 300 also 300 Grad. Zweiter
+   Anlauf im Sichtraum, korrekt gerechnet: 136 → 135.
+
+Auch die Zerlegung nach Störtermen führte nicht weiter: Rippel aus macht aus 136
+Punkten 133, Korn aus lässt 136 stehen, Kiesel aus 118, Kies aus 131 — **alle
+vier aus macht 7.** Kein einzelner Term, sie stapeln sich.
+
+### Die Ursache
+
+`MeshStandardMaterial` gibt jedem Dielektrikum einen festen Spiegelanteil von
+F0 = 0,04, und die **Fresnel-Kante zieht ihn bei streifendem Blick gegen eins**.
+Das ist der Grund, warum `roughness = 1` nichts half: Der Lappen wird breiter,
+aber er verschwindet nicht, und seine Richtungsabhängigkeit läuft über den
+Halbvektor — dort schlägt eine kleine Normalenänderung viel stärker durch als im
+diffusen Anteil.
+
+Zwei Zeilen hinter dem Beleuchtungsschritt nehmen ihn weg. **Mondstaub ist ein
+poröses Pulver und hat keinen Spiegellappen** — das ist keine Notlösung, sondern
+das richtige Material.
+
+| | vorher | jetzt |
+| --- | --- | --- |
+| Summe über zwölf Stationen | 288 | **98** |
+| `rund-300` (schlimmste) | 136 | **6** |
+| `rund-270` | 66 | **6** |
+
+Die verbliebenen 48 in `rund-060` stehen im hellsten Bild des Rundgangs
+(Mittel 31, p95 108) und sind beleuchtete Felsflächen, kein Funkeln.
+
+Im Bild ändert sich sonst nichts: Rippel, Kiesel und Brocken stehen unverändert.
+Budget 21 Draw-Calls / 344 186 Dreiecke / 8,00 MB, Regression im bekannten Band,
+Konsole sauber.
+
+### Die Lehre dieser Runde
+
+**Ein Befund kann stimmen und seine Begründung trotzdem falsch sein — auch die
+eigene, dreimal hintereinander.** Der Prüfer sagte „Sterne", ich sagte nacheinander
+„Fußabdruck", „Eigenschatten" und „Ausreißerbeule". Vier Erklärungen, vier Mal
+widerlegt, und jedes Mal war es dieselbe Messung, die es entschieden hat. Wer
+nach der ersten Vermutung baut, baut drei Mal umsonst.
