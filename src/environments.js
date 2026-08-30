@@ -8311,7 +8311,7 @@ function createNightEnvironment() {
     // **Das ist kein reines Harness-Thema.** Ein Vergleich, der auf der Kippe
     // steht, steht auf der Brille genauso auf der Kippe — nur heißt er dort
     // nicht „zwei Prüfsummen", sondern „Flimmern bei Kopfbewegung".
-    moonLight.shadow.normalBias = 0.045;
+    moonLight.shadow.normalBias = 0.025;
   }
   himmelGruppe.add(moonLight);
 

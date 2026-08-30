@@ -4354,3 +4354,76 @@ Der Hash-als-Rauschen-Fehler stand hier schon einmal, an einem anderen
 Gegenstand, und ich habe ihn wiederholt. Und die zweite Hälfte: `flatShading:
 false` beschreibt eine *Absicht*, nicht ein *Ergebnis* — solange die Geometrie
 ohne Index ist, gewinnt die Geometrie.
+
+---
+
+## Berichtigung: Es war nicht die Schattenakne, es war ein Schritt
+
+**Der Eintrag „Der Prüfstand hat zwei Zustände" oben hat die Ursache falsch
+benannt, und die Berichtigung gehört an dieselbe Stelle wie der Fehler.**
+
+Dort steht: `shadow.normalBias` habe auf der Kippe gelegen, und 0,045 statt
+0,025 habe es behoben — belegt mit acht Läufen, die alle dieselbe Prüfsumme
+gaben. Zwei Läufe später kam die andere Prüfsumme zurück, mit denselben Zahlen
+wie zuvor (`a-augenhoehe` Δmittel 5,380 gegen vorher 5,383). Der Beleg war
+keiner: **Die Zustände sind zeitlich korreliert** — Läufe kurz nacheinander
+landen im selben Zustand. Zehn Läufe in Folge bei drei verschiedenen
+`normalBias`-Werten sagten deshalb nichts aus, und ich habe sie trotzdem als
+Beweis genommen.
+
+### Wie es diesmal wirklich gemessen wurde
+
+Der Fehler im ersten Anlauf war methodisch: Ich habe Bild und Zustand in
+**getrennten** Läufen gemessen und verglichen. Wenn der Zustand aber springt,
+sagt ein Zustandslauf nichts über einen Bildlauf. `tools/zustand.mjs` schreibt
+beides im **selben** Lauf heraus — Prüfsumme des Bildes und die Weltmatrizen,
+Kameramatrix, Projektionsmatrix, Lichtlage, Nebel, Belichtung, Tiefenbits.
+
+Sechs Läufe, und im sechsten stand es da:
+
+```
+bild=b3bd1ace74   welt: 1 0 0 … 0 1 0 … 0 0 1        (fünfmal)
+bild=73c9132649   welt: 1 0 0 … 0 0.99995 -0.0099998 … (einmal)
+```
+
+`nacht-welt` war um **0,01 Bogenmaß** um die X-Achse gedreht — 0,573 Grad. Auf
+25 m Halbmesser sind das **25 cm Weg, also genau ein Schritt** der
+Fortbewegung: Zwischen Seitenaufbau und `setWalkEnabled(false)` lief in manchen
+Läufen ein einziges Bild mit Fortbewegung durch.
+
+Eine halbe Grad Weltdrehung ist im Bild eine Verschiebung von deutlich unter
+einem Bildpunkt. Sie ändert jede Kante, jeden Stern und jedes Korn ein wenig —
+und sieht in der Summe aus wie Rauschen im Rasterisierer. Genau als solches
+habe ich sie gedeutet.
+
+### Die Behebung
+
+`lockCamera` hat die Kamera von Anfang an **jedes Bild** neu gesetzt, die
+Weltdrehung aber nur **einmal** davor. Jetzt beides im selben Takt. Dazu ist
+der frühe Ausstieg in `setzeStation` gefallen (`if (!grad && !_stationSteht)
+return`) — bei Station 0 hat er die Welt nie zurückgestellt, auch wenn sie
+schief stand. `tools/umrundung.mjs` bekommt dieselbe Klammer.
+
+Zwei getrennte Durchläufe des ganzen festen Bildersatzes: **alle acht Bilder
+Δmittel 0,000, Δmax 0.**
+
+### Und `normalBias` geht zurück auf 0,025
+
+Der Wert 0,045 stand nur wegen der falschen Diagnose. Er hat den Saum nicht
+verschlechtert und die Aknezahl minimal verbessert, aber ein Parameter ohne
+Begründung ist ein Parameter, den beim nächsten Mal niemand einordnen kann.
+Zurück auf 0,025.
+
+### Die Lehre dieser Runde
+
+**Zwei Messungen in zwei Läufen sind keine zwei Messungen desselben Zustands.**
+Wenn eine Größe zwischen Läufen springt, muss alles, was verglichen werden
+soll, aus **einem** Lauf kommen — sonst vergleicht man Zustand A mit Zustand A
+und hält es für einen Beleg.
+
+Und die härtere: **„Acht Läufe stimmten überein" ist kein Beweis, wenn die
+Läufe nicht unabhängig sind.** Ich hatte die Korrelation sogar gesehen — das
+Muster A A B B stand im Protokoll — und trotzdem aufeinanderfolgende Läufe als
+unabhängige Stichproben gezählt. Der Fund davor war richtig (der Prüfstand war
+nicht wiederholbar); die Ursache war falsch, und die falsche Ursache stand mit
+Tabelle und Zahlen da, was sie nicht besser macht, sondern überzeugender.
