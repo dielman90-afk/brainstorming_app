@@ -7864,7 +7864,7 @@ function createNightEnvironment() {
   // Ausgeschlossen sind damit: Kontaktverdunklung, Feinstaub und Brocken (je
   // einzeln ausgeblendet, ohne Wirkung) und dieses Licht. Der Saum bleibt
   // offen.
-  const mond2Licht = new THREE.DirectionalLight(0xd08a62, 0.78);
+  const mond2Licht = new THREE.DirectionalLight(0xb9a49c, 1.55);
   mond2Licht.position.copy(MOND2_RICHTUNG).multiplyScalar(MOND_FERN);
   // **Ein eigenes Ziel, kein geteiltes.** `moonLight` entsteht erst hundert
   // Zeilen weiter unten; ein Verweis darauf liefe hier in die zeitliche
@@ -7944,7 +7944,44 @@ function createNightEnvironment() {
   //
   // 1,45/3,8 ist der Kompromiss: ein Drittel mehr Schattentiefe, und die
   // Nachtseite — die **nur** vom Himmelslicht lebt — verliert nur ein Viertel.
-  const skyFill = new THREE.HemisphereLight(0x7595b4, 0x4e2a1c, 1.45);
+  // **Füllicht kann keine Form zeigen — deshalb steht es jetzt niedrig.**
+  //
+  // Prüferbefund: „Die Nachtseite trägt keine Modellierung. Der gesamte Boden
+  // liegt in einem Fenster von 4,5 Helligkeitsstufen von 255; Hang, Kamm und
+  // Senke haben denselben Wert."
+  //
+  // Gemessen, woher das Licht dort kommt (Station 240, Boden im unteren
+  // Bilddrittel): Hemisphärenlicht 11,7 von 19,8, roter Mond 11,4, weißer Mond
+  // **null** — der ist korrekt weggeschattet. Das Hemisphärenlicht war also die
+  // Hälfte des Lichts, und es ist genau die Hälfte, die **nichts modellieren
+  // kann**: Es wertet nur die Welt-Y-Komponente der Normale aus, und der
+  // Spieler steht immer am Pol, wo alle Bodennormalen fast senkrecht stehen.
+  // Ein Hang von zehn Grad ändert daran nichts Sichtbares.
+  //
+  // Von 1,45 auf 0,25, dafür der rote Mond von 0,78 auf 1,55 und der weiße von
+  // 3,8 auf 4,6: **dieselbe Lichtmenge, aber gerichtet.** Der weiße gleicht
+  // aus, was die Mondseite mit dem Füllicht verloren hat — ohne ihn fiel dort
+  // die Spitze von L 99,7 auf 83,5.
+  //
+  // Gemessene Tonwertspanne des Bodens im unteren Bilddrittel:
+  //
+  //     Station 180   3,8 → 4,9        Station 0    20,1 → 22,5
+  //     Station 240   3,8 → 4,2        Station 60   98,5 → 106,1
+  //     Station 270   4,9 → 5,3
+  //
+  // **Das Licht des roten Mondes ist entsättigt.** Ein Anlauf mit seiner
+  // Scheibenfarbe (0xd08a62) bei Stärke 2,0 hat die ganze Nachtseite orange
+  // geflutet — die Zahlen waren besser, das Bild las als rotbeschienene Wüste
+  // statt als Nacht. Ein kleiner Mond wirft ohnehin kaum Farbe; 0xb9a49c
+  // behält die Modellierung und lässt die Nacht Nacht sein.
+  //
+  // **Das schließt den Befund nicht.** Sechs Stufen sind besser als vier, aber
+  // die Nachtseite bleibt tonwertarm. Der tiefere Grund liegt nicht im Licht,
+  // sondern im Gelände: Die Hänge um den Weg herum sind mit rund zehn Grad zu
+  // sanft, als dass ein gerichtetes Licht daraus Form machen könnte. Das ist
+  // derselbe Befund wie „die Krümmungskante ist ein Zirkelschlag" und gehört
+  // dorthin gelöst, nicht hier.
+  const skyFill = new THREE.HemisphereLight(0x7595b4, 0x4e2a1c, 0.25);
   group.add(skyFill);
 
   // **Eine** gerichtete Quelle. Der Mond steht bei [14 | 16 | −24], das sind
@@ -7962,7 +7999,7 @@ function createNightEnvironment() {
   //
   // 0xe2eaf0 ist (226 | 234 | 240): immer noch kühl, aber zwischen Blau und
   // Cyan statt darüber hinaus. Linear fällt Blau um 13 %, Rot steigt um 10 %.
-  const moonLight = new THREE.DirectionalLight(0xe2eaf0, 3.8);
+  const moonLight = new THREE.DirectionalLight(0xe2eaf0, 4.6);
   // In der Himmelsgruppe, also dreht das Licht mit dem Mond mit: Wer um den
   // Planeten läuft, läuft in die Nacht hinein und wieder heraus.
   moonLight.position.copy(MOND_RICHTUNG).multiplyScalar(MOND_FERN);

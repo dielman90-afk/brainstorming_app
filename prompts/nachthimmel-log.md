@@ -3876,3 +3876,65 @@ im Kommentar, die nur von Akne sprach. Dass derselbe Wert an tangentialen
 Flächen einen leuchtenden Streifen erzeugt, stand nirgends — und der Weg dorthin
 führte über sieben ausgeschlossene Verdächtige. Die Gegenprobe in **beide**
 Richtungen (−0,002 und +0,0005) hätte am Anfang stehen können statt am Ende.
+
+---
+
+## Die Nachtseite: Füllicht kann keine Form zeigen
+
+Prüferbefund 2, „auffällig": *„Die Nachtseite trägt keine Modellierung. Der
+gesamte Boden liegt in einem Fenster von 4,5 Helligkeitsstufen von 255; Hang,
+Kamm und Senke haben denselben Wert."*
+
+### Woher das Licht dort kommt
+
+Gemessen an Station 240, Bodenpixel im unteren Bilddrittel, je ein Licht
+abgeschaltet:
+
+| | Mittel L | Beitrag |
+| --- | --- | --- |
+| alles | 19,8 | — |
+| ohne Hemisphärenlicht | 8,1 | **11,7** |
+| ohne roten Mond | 8,4 | **11,4** |
+| ohne weißen Mond | 19,8 | **0** — korrekt weggeschattet |
+| ohne Umgebungslicht | 19,8 | 0 |
+
+Die Hälfte des Lichts kam vom Hemisphärenlicht, und **das ist genau die Hälfte,
+die nichts modellieren kann**: `HemisphereLight` wertet nur die Welt-Y-Komponente
+der Normale aus. Der Spieler steht immer am Pol, wo alle Bodennormalen fast
+senkrecht stehen; ein Hang von zehn Grad ändert daran nichts Sichtbares.
+
+### Die Änderung
+
+Hemisphäre 1,45 → 0,25, roter Mond 0,78 → 1,55, weißer Mond 3,8 → 4,6.
+Dieselbe Lichtmenge, aber gerichtet. Der weiße gleicht aus, was die Mondseite
+mit dem Füllicht verloren hätte — ohne ihn fiel dort die Spitze von L 99,7 auf
+83,5.
+
+| Tonwertspanne des Bodens | vorher | jetzt |
+| --- | --- | --- |
+| Station 180 | 3,8 | **4,9** |
+| Station 240 | 3,8 | **4,2** |
+| Station 270 | 4,9 | **5,3** |
+| Station 0 (Mondseite) | 20,1 | **22,5** |
+| Station 60 (Mondseite) | 98,5 | **106,1** |
+
+**Ein Zwischenschritt war zu viel des Guten.** Mit dem roten Mond auf 2,0 und
+seiner Scheibenfarbe 0xd08a62 waren die Zahlen besser (5,7 / 4,6 / 6,3), aber
+das Bild las als rotbeschienene Wüste statt als Nacht. Ein kleiner Mond wirft
+ohnehin kaum Farbe; mit 0xb9a49c bleibt die Modellierung und die Nacht bleibt
+Nacht.
+
+### Was das nicht löst
+
+**Fünf Stufen sind besser als vier, aber die Nachtseite bleibt tonwertarm.** Der
+tiefere Grund liegt nicht im Licht, sondern im Gelände: Die Hänge um den Weg
+herum sind mit rund zehn Grad zu sanft, als dass ein gerichtetes Licht daraus
+Form machen könnte. Das ist derselbe Befund wie „die Krümmungskante ist ein
+Zirkelschlag" und gehört dorthin gelöst.
+
+Im Bild ist der Gewinn trotzdem zu sehen: Der Brocken in `rund-240` hat jetzt
+eine beleuchtete Flanke, eine Schattenseite und einen Schlagschatten, wo vorher
+eine gleichmäßig dunkle Form stand.
+
+Budget 21 Draw-Calls / 344 186 Dreiecke / 8,00 MB, Funkeln bei 102 (vorher 98,
+im Rauschen), Regression im bekannten Band, Konsole sauber.
