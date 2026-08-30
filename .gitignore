@@ -7,3 +7,4 @@ dist/
 tools/metrics/
 tools/shots/run-*/
 tools/shots/debug/
+tools/shots/wiederholung/

@@ -4287,3 +4287,70 @@ Drei neue Werkzeuge stehen dafür jetzt bereit — `tools/wiederholung.mjs` (ist
 dasselbe Bild zweimal dasselbe?), `tools/pruefsumme.mjs` (ist die Szene
 dieselbe?) und `tools/spielerort.mjs` (steht die Kamera dort, wo sie stehen
 soll?).
+
+---
+
+## Der Sputnik war ein Dreiecksmosaik, keine Kugel
+
+Beim Nachsehen zum offenen Prüferpunkt („der Schaden liest kaum") fiel etwas
+Größeres auf, das der Prüfer nicht benannt hatte: Die Kugel des Sputnik stand im
+Bild als **Mosaik aus einzeln erkennbaren Dreiecken** in weiß, grau und schwarz.
+Aus 1,15 m Abstand füllt sie 300 Bildpunkte; das war der auffälligste Gegenstand
+der Umgebung, und er sah aus wie ein Darstellungsfehler.
+
+### Zwei Ursachen, beide in fünf Zeilen
+
+**Erstens der Hash als Rauschen.** Die „feine Blechunruhe" kam aus
+`hashNoise(d·9)`. `hashNoise` ist ein Hash: benachbarte Eingaben liefern
+unabhängige Werte. Auf einem Netz mit 1,9 cm Kantenlänge waren das ±2,5 mm
+Zufallsversatz je Scheitelpunkt, also bis zu 27 Grad Normalensprung von Dreieck
+zu Dreieck. Bei Rauheit 0,20 schaltet jede solche Normale zwischen Glanzlicht
+und Schwarz. Es ist **dieselbe Falle wie am Uferwulst des Zen-Teichs**, wo der
+Hash als Umriss einen Zackenstern ergab — dort steht sie seit Monaten im
+Protokoll, hier bin ich trotzdem hineingelaufen.
+
+**Zweitens, und das war der eigentliche Fehler:** `IcosahedronGeometry` ist wie
+jede `PolyhedronGeometry` **ohne Index** gebaut. `computeVertexNormals` mittelt
+über die Dreiecke, die sich einen *Puffereintrag* teilen — und wenn jeder
+Eintrag zu genau einem Dreieck gehört, ist das Ergebnis die **Flächennormale**.
+Die Kugel war flach schattiert, `flatShading: false` hin oder her. Zwei Anläufe
+lang habe ich stattdessen die Unruhe verdächtigt.
+
+Für eine radial verschobene Kugel steht die Normale in geschlossener Form da:
+mit dem Halbmesser r(d) und zwei Tangenten t₁, t₂ ist
+n ∝ d − (∂r/∂t₁ · t₁ + ∂r/∂t₂ · t₂) / r. Die Ableitungen kommen als
+Differenzenquotient über 1/2000 Bogenmaß — zwei Größenordnungen feiner als das
+Netz. Kosten: einmalig beim Bauen, null zur Laufzeit, kein Dreieck mehr.
+
+### Gemessen (Kugelbereich 450|260 bis 700|400 in `g-sputnik`)
+
+| | Hochpass | p95 | Kante waag. | Kante senkr. | >190 |
+| --- | --- | --- | --- | --- | --- |
+| Hash + `computeVertexNormals` | 6,900 | 25,79 | 4,775 | 7,546 | 3,9 % |
+| fbm3 + `computeVertexNormals` | 5,356 | 22,05 | 3,941 | 6,150 | 2,6 % |
+| **fbm3 + gerechnete Normale** | **4,650** | **21,79** | **3,915** | **6,158** | 3,2 % |
+
+Der Hochpass fällt um ein Drittel, die Kantenstärke um 18 Prozent — und im Bild
+steht statt des Mosaiks eine polierte Metallkugel mit weichem Glanzlicht und
+einer feinen Hammerschlagstruktur.
+
+Regression: `b-mond`, `c-krater`, `e-boden`, `f-kante`, `h-mond-rot` **bitgleich**,
+`a-augenhoehe` Δmittel 0,004 und `d-orbit` Δmittel 0,000 (der Sputnik ist dort
+wenige Pixel groß). Budget unverändert: 21 Draw-Calls, 344 186 Dreiecke, 8,00 MB.
+
+### Was **nicht** der Grund war
+
+Der Übergang von der beleuchteten zur dunklen Hälfte ist auf der Kugel
+ausgefranst. Verdacht: die Schattenkarte, deren `normalBias` von 4,5 cm auf
+einem 58-cm-Körper grob ist. **Gegenprobe:** `receiveShadow = false` am ganzen
+Sputnik ändert 0,592 Prozent der Pixel. Der ausgefranste Rand ist der
+Lichtterminator über der Hammerschlagstruktur — dieselbe Physik wie beim
+brennenden Findling, nur im Kleinen. Bleibt.
+
+### Die Lehre dieser Runde
+
+**Eine Lehre, die im Protokoll steht, ist noch keine Lehre, die man anwendet.**
+Der Hash-als-Rauschen-Fehler stand hier schon einmal, an einem anderen
+Gegenstand, und ich habe ihn wiederholt. Und die zweite Hälfte: `flatShading:
+false` beschreibt eine *Absicht*, nicht ein *Ergebnis* — solange die Geometrie
+ohne Index ist, gewinnt die Geometrie.

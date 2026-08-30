@@ -4979,11 +4979,15 @@ function makeSputnik(obenLokal) {
   // Glanzlicht aufbrechen.
   const kugel = new THREE.IcosahedronGeometry(0.29, 15);
   {
-    const pos = kugel.attributes.position;
-    const v = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      const d = v.clone().normalize();
+    // **Der Halbmesser als Funktion der Richtung.** Erst als eigene Funktion
+    // lässt sich die Normale rechnen statt schätzen — siehe unten.
+    const BEULEN = [
+      [-0.61, 0.44, 0.66, 0.042, 9],
+      [0.78, 0.36, -0.51, 0.033, 11],
+      [0.12, 0.93, 0.35, 0.028, 14],
+      [-0.82, -0.31, -0.48, 0.037, 8],
+    ];
+    const hautRadius = (d) => {
       // **Die Delle.** Ein Aufschlag drückt eine Kalotte ein, und zwar mit
       // einem aufgeworfenen Wulst am Rand — Blech gibt nach, aber es
       // verschwindet nicht. cos^8 hält die Kalotte eng (60 Grad Öffnung), der
@@ -4997,21 +5001,81 @@ function makeSputnik(obenLokal) {
       // dort eine makellose Kugel. Verteilter Schaden liest aus jeder
       // Richtung.
       let beulen = 0;
-      for (const [bx, by, bz, tief, eng] of [
-        [-0.61, 0.44, 0.66, 0.042, 9],
-        [0.78, 0.36, -0.51, 0.033, 11],
-        [0.12, 0.93, 0.35, 0.028, 14],
-        [-0.82, -0.31, -0.48, 0.037, 8],
-      ]) {
+      for (const [bx, by, bz, tief, eng] of BEULEN) {
         const bt = Math.max(0, d.x * bx + d.y * by + d.z * bz);
         beulen += Math.pow(bt, eng) * tief;
       }
       // Feine Blechunruhe, damit die Kugel nicht mathematisch glatt bleibt.
-      const unruhe = (hashNoise(d.x * 9, d.y * 9, d.z * 9) - 0.5) * 0.005;
-      v.setLength(0.29 - kalotte + wulst - beulen + unruhe);
-      pos.setXYZ(i, v.x, v.y, v.z);
+      //
+      // **Und der teuerste Einzelfehler dieser Umgebung stand hier.** Der
+      // erste Anlauf hat dafür `hashNoise` genommen — und `hashNoise` ist ein
+      // Hash, kein Rauschen: Zwei benachbarte Scheitelpunkte bekommen
+      // unabhängige Werte. Auf einem Netz mit 1,9 cm Kantenlänge hieß das
+      // ±2,5 mm Zufallsversatz je Punkt, und die Normalen sprangen von
+      // Dreieck zu Dreieck um bis zu 27 Grad. Bei Rauheit 0,20 ist die
+      // Glanzkeule eng genug, dass jede dieser Normalen zwischen Glanzlicht
+      // und Schwarz umschaltet: Im Bild stand keine Kugel, sondern ein Mosaik
+      // aus einzeln erkennbaren Dreiecken in weiß, grau und schwarz.
+      //
+      // Dieselbe Falle wie am Uferwulst des Zen-Teichs, nur eine Ebene
+      // tiefer: Dort ergab der Hash als Umriss einen Zackenstern, hier als
+      // Blechunruhe ein Fliesenmuster. `fbm3` ist stetig; bei Frequenz 11
+      // liegt eine Welle über 13 cm Bogen, und ±1,4 mm darauf sind 1,3 Grad
+      // Normalenabweichung — Unruhe, die man als Blech liest und nicht als
+      // Netz.
+      const unruhe = fbm3(d.x * 11, d.y * 11, d.z * 11) * 0.003;
+      return 0.29 - kalotte + wulst - beulen + unruhe;
+    };
+
+    // **Und warum die Normale gerechnet und nicht von three geholt wird.**
+    //
+    // `IcosahedronGeometry` ist wie jede `PolyhedronGeometry` **ohne Index**
+    // gebaut: Jedes Dreieck hat seine eigenen drei Scheitelpunkte, auch dort,
+    // wo drei Dreiecke denselben Punkt teilen. `computeVertexNormals` mittelt
+    // die Flächennormalen über die Punkte **eines Puffereintrags** — und wenn
+    // jeder Eintrag nur zu einem Dreieck gehört, ist das Ergebnis die
+    // Flächennormale. Die Kugel war damit flach schattiert, `flatShading:
+    // false` hin oder her, und im Bild lag ein Dreiecksmosaik über dem
+    // Verlauf. Zwei Anläufe habe ich stattdessen die Unruhe verdächtigt.
+    //
+    // Für eine radial verschobene Kugel ist die Normale aber in geschlossener
+    // Form da: Mit r(d) und zwei Tangenten t1, t2 ist
+    //
+    //     n ∝ d − (∂r/∂t1 · t1 + ∂r/∂t2 · t2) / r
+    //
+    // Die beiden Ableitungen kommen als Differenzenquotient über 1/2000
+    // Bogenmaß — bei 1,9 cm Kantenlänge ist das zwei Größenordnungen feiner
+    // als das Netz und trifft auch den Wulst der Delle sauber. Kosten:
+    // einmalig beim Bauen, null zur Laufzeit.
+    const pos = kugel.attributes.position;
+    const nor = kugel.attributes.normal;
+    const v = new THREE.Vector3();
+    const d = new THREE.Vector3();
+    const t1 = new THREE.Vector3();
+    const t2 = new THREE.Vector3();
+    const hilf = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const EPS = 0.0005;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      d.copy(v).normalize();
+      const r = hautRadius(d);
+      // Ein Tangentensystem, das an keiner Stelle entartet.
+      t1.set(0, 0, 0);
+      t1[Math.abs(d.x) < 0.9 ? 'setX' : 'setZ'](1);
+      t1.cross(d).normalize();
+      t2.crossVectors(d, t1).normalize();
+      const r1 = hautRadius(hilf.copy(d).addScaledVector(t1, EPS).normalize());
+      const r2 = hautRadius(hilf.copy(d).addScaledVector(t2, EPS).normalize());
+      n.copy(d)
+        .addScaledVector(t1, -(r1 - r) / EPS / r)
+        .addScaledVector(t2, -(r2 - r) / EPS / r)
+        .normalize();
+      pos.setXYZ(i, d.x * r, d.y * r, d.z * r);
+      nor.setXYZ(i, n.x, n.y, n.z);
     }
-    kugel.computeVertexNormals();
+    pos.needsUpdate = true;
+    nor.needsUpdate = true;
   }
   teile.push(new THREE.Mesh(kugel, metall));
 
