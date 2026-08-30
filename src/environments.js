@@ -5282,6 +5282,33 @@ function makeMarsPlanet(rand) {
     // 30 m Bogen — aus 9 bis 17 m Entfernung, und mit 3,5 m Kammhöhe reicht die
     // Sichtweite (8,9 + sqrt(2·25·3,5) = 22,1 m) genau bis dorthin.
     { vonBogen: 22, vonAz: 158, bisBogen: 30, bisAz: 202, breite: 5.8, h: 3.5 },
+    // **Drei Grate für die flachen Abschnitte, gemessen ausgewählt.**
+    //
+    // `tools/gelaende.mjs` tastet das Höhenfeld an 4000 Richtungen ab und dazu
+    // je Station den Kranz bei 8,9 m Bogen — also genau die Linie, aus der die
+    // Silhouette entsteht. Das Ergebnis widerlegt die naheliegende Annahme, das
+    // Gelände sei überall zu sanft:
+    //
+    //     Station  30   Höhenspanne am Kranz  9,35 m   Hang p90  54,1°
+    //     Station  60                         7,92 m             55,2°
+    //     Station 330                         1,24 m             13,1°
+    //     Station   0                         1,33 m              8,4°
+    //     Station 300                         1,65 m              9,2°
+    //
+    // Der Rundgang führt durch zwei völlig verschiedene Landschaften, und die
+    // **festen Prüfkameras stehen alle im flachsten Stück**. Daher der Befund
+    // „die Krümmungskante ist ein Zirkelschlag" — er gilt, aber nicht überall.
+    //
+    // Diese drei liegen deshalb **neben** der Laufspur, nicht darauf: Die Runde
+    // läuft nach Azimut 180 hinaus und über Azimut 0 zurück. Ein Grat, der den
+    // Weg quert, wäre ein Anstieg; einer daneben ist eine Silhouette. Ein Grat
+    // von 3 m Höhe ist bis 8,9 + sqrt(2 · 25 · 3) = 21,1 m Bogen zu sehen.
+    //
+    // Der erste hält Abstand vom Azimut 150 — dort liegen Sputnik und
+    // Findlinge, und ein Grat dahinter nähme ihnen den Himmel.
+    { vonBogen: 14, vonAz: -55, bisBogen: 23, bisAz: -95, breite: 5.4, h: 3.1 },
+    { vonBogen: 20, vonAz: 26, bisBogen: 31, bisAz: 63, breite: 5.8, h: 3.4 },
+    { vonBogen: 44, vonAz: -18, bisBogen: 55, bisAz: -54, breite: 6.2, h: 3.6 },
   ];
   grate.forEach((g, i) => {
     g.a = ortVon(STARTPUNKT, g.vonBogen, g.vonAz);
