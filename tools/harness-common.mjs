@@ -516,7 +516,12 @@ async function setzeStation(page, grad) {
   // **Nachtseite** gerendert und stand als fast schwarzes Bild in der Reihe.
   // Der Kommentar über dieser Funktion hatte genau davor gewarnt; geschrieben
   // war die Warnung, gebaut war sie nicht.
-  if (!grad && !_stationSteht) return;
+  // **Der frühe Ausstieg ist gefallen.** Er stand hier, damit Werkzeuge ohne
+  // three nicht daran scheitern — aber `ladeThree` steht zwei Zeilen weiter
+  // und stellt die Voraussetzung selbst her. Der Preis war zu hoch: Wenn
+  // zwischen Seitenaufbau und `setWalkEnabled(false)` ein Bild der
+  // Fortbewegung durchläuft, steht die Welt schon vor dem ersten Bild schief,
+  // und bei `grad = 0` hat diese Zeile das nie zurückgestellt.
   _stationSteht = grad !== 0;
   // **Das Werkzeug muss three nicht selbst laden.** Der erste Anlauf hat hier
   // geworfen, wenn `window.__THREE` fehlte — und damit jedes Werkzeug, das die
@@ -567,17 +572,51 @@ export async function placeCamera(page, shot, time = 6.0) {
 
 // Kamera nach jedem Frame neu setzen: Die App-Schleife läuft weiter und würde
 // sonst über OrbitControls/Locomotion dazwischenfunken.
+//
+// **Und die Weltdrehung gehört mit in denselben Takt.**
+//
+// Der Prüfstand hat für dasselbe Bild aus getrennten Prozessen zwei
+// verschiedene Prüfsummen geliefert — `a-augenhoehe` Δmittel 5,38,
+// `g-sputnik` 29,0 — und zwar über Wochen, ohne dass es aufgefallen wäre.
+// Sechs Läufe mit `tools/zustand.mjs`, das Bild **und** Zustand im selben Lauf
+// herausschreibt, haben es gezeigt: In fünf Läufen stand `nacht-welt` auf der
+// Einheitsmatrix, im sechsten auf einer Drehung um **0,01 Bogenmaß** um X —
+// und genau dieser Lauf hatte die andere Prüfsumme.
+//
+// 0,01 Bogenmaß auf 25 m Halbmesser sind 25 cm Weg, also **ein einziger
+// Schritt** der Fortbewegung: Zwischen Seitenaufbau und
+// `setWalkEnabled(false)` lief in manchen Läufen ein Bild mit Fortbewegung
+// durch. Das dreht die ganze Welt um ein halbes Grad — im Bild eine
+// Verschiebung unter einem Bildpunkt, die jede Kante, jeden Stern und jedes
+// Korn ändert und in der Summe wie Rauschen aussieht.
+//
+// Die Kamera wurde von Anfang an jedes Bild neu gesetzt, die Weltdrehung nur
+// **einmal** vor der Schleife. Jetzt beides im selben Takt.
 export async function lockCamera(page, shot, time) {
   await nebelHilfe(page);
   await setzeStation(page, shot.station ?? 0);
+  await ladeThree(page);
   await page.evaluate(
-    ({ pos, look, fov, time, nebel, fern }) => {
+    ({ pos, look, fov, time, nebel, fern, station }) => {
+      const T = window.__THREE;
       const app = window.__app;
       app.env.setWalkEnabled?.(false); // siehe placeCamera
       window.__setzeNebel(app.scene, nebel);
       window.__setzeFern(app.camera, fern);
       if (app.__harnessLock) cancelAnimationFrame(app.__harnessLock);
+      const welt = app.scene.getObjectByName('nacht-welt');
+      const himmel = app.scene.getObjectByName('nacht-himmel');
+      const kuppel = app.scene.getObjectByName('nacht-kuppel');
+      const soll = welt
+        ? new T.Quaternion().setFromAxisAngle(new T.Vector3(1, 0, 0), (station * Math.PI) / 180)
+        : null;
       const tick = () => {
+        if (welt && !welt.quaternion.equals(soll)) {
+          welt.quaternion.copy(soll);
+          himmel?.quaternion.copy(soll);
+          kuppel?.userData?.setzeWeltdrehung?.(soll);
+          welt.updateMatrixWorld(true);
+        }
         app.controls.target.set(look[0], look[1], look[2]);
         app.camera.fov = fov;
         app.camera.position.set(pos[0], pos[1], pos[2]);
@@ -588,6 +627,14 @@ export async function lockCamera(page, shot, time) {
       };
       tick();
     },
-    { pos: shot.pos, look: shot.look, fov: shot.fov, time, nebel: shot.nebel !== false, fern: shot.fern ?? 0 }
+    {
+      pos: shot.pos,
+      look: shot.look,
+      fov: shot.fov,
+      time,
+      nebel: shot.nebel !== false,
+      fern: shot.fern ?? 0,
+      station: shot.station ?? 0,
+    }
   );
 }
