@@ -3938,3 +3938,73 @@ eine gleichmäßig dunkle Form stand.
 
 Budget 21 Draw-Calls / 344 186 Dreiecke / 8,00 MB, Funkeln bei 102 (vorher 98,
 im Rauschen), Regression im bekannten Band, Konsole sauber.
+
+---
+
+## Die Krümmungskante: das Gelände war nicht überall sanft
+
+Prüferbefund 7: *„`e-boden`, Horizont x 560–900: y läuft monoton 206 → 195, RMS
+der 2. Ableitung 0,94 px. `f-kante`: 0,69 px. Das ist ein Zirkelschlag."*
+
+Die naheliegende Annahme wäre gewesen, das Höhenfeld sei zu flach. Neu dafür:
+`tools/gelaende.mjs`, das es an 4000 Richtungen abtastet und dazu je Station den
+Kranz bei 8,9 m Bogen — genau die Linie, aus der die Silhouette entsteht.
+
+**Die Annahme war falsch.** Über die ganze Kugel:
+
+| | p50 | p90 | p99 | max |
+| --- | --- | --- | --- | --- |
+| Hangwinkel | 9,8° | **38,8°** | 52,9° | 64,0° |
+| Höhe über dem Sollradius | 0,29 m | 2,41 m | 5,05 m | 9,66 m |
+
+Höhenspanne insgesamt **13,34 m** auf einer Kugel von 25 m Halbmesser. Das ist
+kein sanftes Gelände.
+
+### Wo es wirklich fehlte
+
+Je Station, Höhenspanne auf dem 8,9-m-Kranz:
+
+| Station | 0 | 30 | 60 | 90 | 120 | 150 | 180 | 210 | 240 | 270 | 300 | 330 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| vorher | **1,33** | 9,35 | 7,92 | 2,62 | 2,60 | 4,19 | 3,02 | 4,60 | 3,05 | 2,58 | 1,65 | **1,24** |
+| jetzt | 1,33 | 9,35 | 7,92 | 2,62 | 2,60 | 4,19 | 3,02 | 4,60 | **5,07** | **5,82** | **4,64** | **4,04** |
+
+**Der Rundgang führt durch zwei völlig verschiedene Landschaften**, und die
+Rückstrecke war die leere. Die festen Prüfkameras stehen alle am Startpunkt —
+also im flachsten Stück. Der Befund gilt, aber nicht überall, und er wäre mit
+einer globalen Änderung am Höhenfeld an der falschen Stelle behandelt worden.
+
+### Drei Grate, neben den Weg gesetzt
+
+Die Runde läuft nach Azimut 180 hinaus und über Azimut 0 zurück. Ein Grat, der
+den Weg quert, wäre ein Anstieg; einer daneben ist eine Silhouette. Ein Grat von
+3 m Höhe ist bis 8,9 + sqrt(2 · 25 · 3) = **21,1 m** Bogen zu sehen, reicht also
+über den Horizont.
+
+Der erste hält Abstand vom Azimut 150 — dort liegen Sputnik und Findlinge, und
+ein Grat dahinter nähme ihnen den Himmel.
+
+Hangwinkel p90 im Sichtfeld: Station 240 von 21,4° auf **38,8°**, Station 270 von
+22,1° auf **43,9°**, Station 300 von 9,2° auf **29,4°**, Station 330 von 13,1°
+auf **39,1°**.
+
+### Was offen bleibt
+
+**Station 0 ist unverändert bei 1,33 m** — der Kranz tastet bei genau 8,9 m ab,
+und der erste Grat liegt bei 14 bis 23 m Bogen dahinter. Im Bild steigt er
+trotzdem über die Kante (`rund-000` zeigt links eine Erhebung mit Staubfahne,
+rechts eine Gratschulter), aber die Kennzahl sieht ihn nicht. Wer sie liest,
+muss das wissen.
+
+Laufprofil unverändert (die Grate liegen neben der Spur), Rundgang schließt bei
+1,30 cm, Höhenfeldfehler 0,000 mm. Funkeln 98, Budget 21 Draw-Calls / 344 186
+Dreiecke / 8,00 MB, `karten-planet` und `werkzeuge` grün, Regression im bekannten
+Band, Konsole sauber.
+
+### Die Lehre dieser Runde
+
+**Ein Befund aus festen Kameras beschreibt, was die festen Kameras sehen.** Alle
+acht stehen am Startpunkt; dass die Rückstrecke leer war und die Hinstrecke
+Hänge von 55 Grad hat, konnte keine von ihnen zeigen. Die Kennzahl je Station
+hat das in einem Durchgang sichtbar gemacht — und zugleich verhindert, dass ich
+ein Höhenfeld verstärke, das an neun von zwölf Stellen schon genug hatte.
