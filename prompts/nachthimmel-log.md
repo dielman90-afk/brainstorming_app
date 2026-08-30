@@ -4056,3 +4056,63 @@ Geometrie, nicht der Textur.
 Funkeln unverändert bei 98 — die zusätzliche Normalenstörung erzeugt keine neuen
 Ausreißer, weil der Spiegellappen weg ist. Budget 21 Draw-Calls / 344 186
 Dreiecke / 8,00 MB, Regression im bekannten Band, Konsole sauber.
+
+---
+
+## Der „brennende Findling": kein Fehler, sondern der Terminator
+
+Prüferbefund 4, „auffällig": *„`rund-150`, Brocken bei (700–790, 340–460):
+(750,395) = (179,165,162), L = 167,8 — farbneutral. Umgebender Boden L = 21 bis
+28. **Verhältnis 8:1.** Quer über den Stein läuft ein Terminator von unten
+rechts: eine Lichtquelle unter dem Horizont beleuchtet diesen einen Stein und
+sonst nichts. In derselben Szene ist der weiße Mond nicht am Himmel."*
+
+Nachgemessen, je ein Licht abgeschaltet:
+
+| | hellster Bildpunkt |
+| --- | --- |
+| unverändert | (190,177,172), L = 179 |
+| ohne Hemisphärenlicht | (189,176,171) |
+| ohne Schattenwurf | (190,177,172) |
+| roter Mond von 1,55 auf 1,15 | (190,177,172) — **unverändert** |
+| **ohne weißes Mondlicht** | **weg** |
+
+Es ist das weiße Mondlicht, und der Schattenwurf ändert nichts — der Stein steht
+also wirklich im Licht.
+
+### Warum das richtig ist
+
+An Station 150 steht der Mond bei **−3,3 Grad**, also ein Wimpernschlag unter dem
+Horizont. Der Prüfer hat daraus geschlossen, es könne kein Licht geben. Das
+stimmt für den **Boden**: Seine Normale steht senkrecht, das Skalarprodukt mit
+einer Lichtrichtung 3,3 Grad unter der Waagerechten ist negativ.
+
+Für eine **senkrechte Fläche** gilt das Gegenteil. Ihre Normale liegt waagerecht;
+mit dem Licht 3,3 Grad darunter ergibt das cos(3,3°) = **0,998**, also praktisch
+volle Beleuchtung. Ein aufragender Block bekommt am Terminator das ganze Licht,
+während der Boden daneben nichts bekommt — das Verhältnis müsste rechnerisch
+gegen unendlich gehen und wird nur von der Tonwertkurve auf 8:1 gedeckelt.
+
+**Das ist genau das, was ein Terminator tut**, und es ist einer der wenigen
+Momente des Rundgangs, in denen die Szene dramatisch wird. Geändert wird nichts.
+
+Der rote Halbmond steht in demselben Bild oben links sichtbar am Himmel; die
+Annahme, es gebe dort gar keine Lichtquelle, war also doppelt zu kurz gegriffen.
+
+### Was daran wirklich fehlt
+
+Der rote Mond wirft **keinen Schatten** (`castShadow = false`). Das war
+vertretbar, solange er mit 0,78 ein Füllicht war; seit er mit 1,55 die
+Modellierung der Nachtseite trägt, ist es eine Lücke. Sie ist aber **nicht
+bezahlbar**: Eine zweite Schattenkarte verdoppelt den Schattendurchgang um
+151 132 Dreiecke, und die Umgebung liegt bereits bei 344 186 von 350 000. Selbst
+wenn nur die Brocken hineinzeichneten, wären es 393 000. Notiert als bekannte,
+gerechnete Lücke.
+
+### Die Lehre dieser Runde
+
+**„Der Mond ist nicht am Himmel" heißt nicht „es gibt kein Licht".** Eine
+senkrechte Fläche und ein waagerechter Boden verhalten sich am Terminator genau
+entgegengesetzt; wer nur den Boden prüft, hält das Ergebnis für einen Fehler. Es
+hat vier Messungen gekostet, das auszuschließen — und die letzte, die es
+entschieden hat, war dieselbe Ein-Licht-Probe wie beim Saum.
