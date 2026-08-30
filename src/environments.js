@@ -8221,7 +8221,33 @@ function createNightEnvironment() {
     //
     // +0,0005 dreht es um und lässt vom Saum **nichts** übrig.
     moonLight.shadow.bias = 0.0005;
-    moonLight.shadow.normalBias = 0.025;
+    // **0,045 statt 0,025 — und der Grund ist keine Bildwirkung, sondern
+    // Wiederholbarkeit.**
+    //
+    // Bei 0,025 lag der Tiefenvergleich der Schattenkarte auf dem ganzen
+    // Boden genau auf der Kippe. Das Bild sah in Ordnung aus, aber der
+    // Prüfstand lieferte **zwei** Zustände: Vier Aufnahmen desselben Bildes
+    // aus vier getrennten Prozessen ergaben zweimal die eine und zweimal die
+    // andere Prüfsumme, mit Δmittel 5,4 auf `a-augenhoehe` und 29,0 auf
+    // `g-sputnik` dazwischen. Innerhalb **eines** Seitenaufrufs waren vier
+    // Aufnahmen dagegen bitgleich, und Geometrie, Vertexfarben, Texturen,
+    // Lichter, Kamera, Projektionsmatrix und alle Zeituniformen stimmten in
+    // beiden Zuständen überein (`tools/pruefsumme.mjs`, `tools/spielerort.mjs`).
+    //
+    // Es war also nichts an der Szene, sondern der Rasterisierer: Ein Hauch
+    // Tiefenpräzision genügte, um ein paar Prozent der Bodenpixel zwischen
+    // beschattet und beleuchtet umzuklappen — Schattenakne, die nur deshalb
+    // nicht als Muster auffiel, weil sie fein verteilt war.
+    //
+    // Mit 0,045 sind vier getrennte Prozesse **bitgleich**. Die Grenze liegt
+    // zwischen 0,025 und 0,035; 0,045 hält knapp den doppelten Abstand. Der
+    // Saum an der Gratlinie bleibt dabei bei 23 Pixeln, die Aknezahl fällt
+    // von 4738 auf 4669 (`tools/naht.mjs --nur`).
+    //
+    // **Das ist kein reines Harness-Thema.** Ein Vergleich, der auf der Kippe
+    // steht, steht auf der Brille genauso auf der Kippe — nur heißt er dort
+    // nicht „zwei Prüfsummen", sondern „Flimmern bei Kopfbewegung".
+    moonLight.shadow.normalBias = 0.045;
   }
   himmelGruppe.add(moonLight);
 

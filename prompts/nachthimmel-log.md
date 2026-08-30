@@ -4205,3 +4205,85 @@ Saat sauber getrennt — aber die **Formen** blieben geteilt, und in einer ander
 Farbe verhalten sich dieselben Formen anders. Und: Ein Detail, das bei der
 Bildgröße unter einem Bildpunkt liegt, ist kein Detail. 170 Krater à 0,58 px
 waren Rechenzeit ohne Gegenwert; 120 à 1,85 px sind die Oberfläche.
+
+---
+
+## Der Prüfstand hatte zwei Zustände — und die Ursache lag in der Szene
+
+**Das ist der unangenehmste Fund dieses Auftrags, und er trifft rückwirkend
+jede Δ-Zahl in diesem Protokoll.**
+
+Beim Nachmessen einer Änderung am Sputnik stand plötzlich die ganze Nachtreihe
+im Diff: `a-augenhoehe` Δmittel 5,383, `c-krater` 9,106, `g-sputnik` 29,035 —
+obwohl die Änderung nur die Kugel eines 58 cm großen Gegenstands betraf. Zwei
+Durchläufe **desselben Standes** ergaben dieselben Zahlen. Ein dritter Durchlauf
+ergab exakt dieselben Zahlen noch einmal, auf drei Nachkommastellen — und das
+ist für Rauschen unmöglich.
+
+### Was ausgeschlossen wurde
+
+| geprüft mit | Ergebnis |
+| --- | --- |
+| vier Aufnahmen in **einem** Seitenaufruf (`tools/wiederholung.mjs`) | bitgleich |
+| Geometrie, Normalen, Vertexfarben, Texturen, Lichter, Sprites (`tools/pruefsumme.mjs`, 103 Zeilen) | in beiden Zuständen gleich |
+| Spielerlage, Kameraweltlage, Projektionsmatrix, Zeichenpuffer, Weltdrehung (`tools/spielerort.mjs`) | identisch |
+| alle vier `zeit`-Uniformen | auf 6,0000 eingefroren |
+| vier getrennte Prozesse, dasselbe Bild | **zwei** Prüfsummen, Muster A A B B |
+
+Die Szene war also in beiden Zuständen dieselbe. Der Unterschied entstand erst
+beim Rastern.
+
+### Was es war
+
+**Schattenakne, genau auf der Kippe.** `moonLight.shadow.normalBias` stand auf
+0,025. Damit lag der Tiefenvergleich der Schattenkarte über dem ganzen Boden so
+knapp an der Grenze, dass ein Hauch Präzisionsunterschied im Rasterisierer ein
+paar Prozent der Bodenpixel zwischen beschattet und beleuchtet umklappte. Im
+Diff-Bild sah man es sofort, sobald man wusste, wonach man sucht: feiner Grieß
+über der ganzen beleuchteten Fläche und ein heller Saum an jeder Brockenkante.
+Der Mittelwert eines flachen Bodenausschnitts (850|440 bis 950|500) sprang
+zwischen 90,1 und 88,1.
+
+Die Probe war einzeilig: `normalBias` auf 0,060, vier getrennte Prozesse —
+**viermal dieselbe Prüfsumme.** Danach die Grenze eingegrenzt:
+
+| normalBias | vier Prozesse | Saum | Akne |
+| --- | --- | --- | --- |
+| 0,025 | zwei Zustände | 23 | 4738 |
+| 0,035 | bitgleich | 23 | 4694 |
+| **0,045** | **bitgleich** | **23** | **4669** |
+| 0,060 | bitgleich | — | — |
+
+Gewählt ist **0,045**: knapp der doppelte Abstand zur Kippgrenze, der Saum an
+der Gratlinie unverändert bei 23 Pixeln, die Aknezahl leicht gefallen. Der
+ganze feste Bildersatz ist damit über zwei getrennte Durchläufe **bitgleich**
+(alle acht Bilder Δmittel 0,000).
+
+### Was das für die bisherigen Zahlen heißt
+
+Die „Δmittel 0,000" in den früheren Abschnitten sind **nicht falsch**, aber sie
+waren zum Teil Glück: Zwei Durchläufe, die zufällig im selben Zustand landeten,
+gaben 0,000; zwei, die es nicht taten, hätten 5,4 gegeben. Wo in diesem
+Protokoll eine Nachtmessung mit einem Unterschied unter etwa 6 Tonwerten
+argumentiert, ist sie ab hier nur so viel wert wie eine Wiederholung mit dem
+jetzigen Stand. Ab diesem Eintrag ist der Prüfstand reproduzierbar; davor war er
+es nicht, und das gehört hierher und nicht in eine Fußnote.
+
+### Und es ist kein reines Harness-Thema
+
+Ein Tiefenvergleich, der auf der Kippe steht, steht auf der Brille genauso auf
+der Kippe. Dort heißt das Ergebnis nicht „zwei Prüfsummen", sondern **Flimmern
+bei Kopfbewegung** — jede Kopfdrehung ändert die Tiefenwerte um denselben Hauch.
+Der Fund war ein Nebenprodukt einer ganz anderen Messung und hat damit einen
+echten Fehler in der Umgebung aufgedeckt.
+
+### Die Lehre dieser Runde
+
+**Wenn zwei Vergleiche dieselbe Zahl auf drei Nachkommastellen liefern, ist es
+kein Rauschen.** Genau diese Unmöglichkeit war der Hebel: Rauschen streut,
+zwei Zustände nicht. Und: Ein Prüfstand, dessen Wiederholbarkeit man nie
+gemessen hat, ist kein Prüfstand, sondern eine Meinung mit Nachkommastellen.
+Drei neue Werkzeuge stehen dafür jetzt bereit — `tools/wiederholung.mjs` (ist
+dasselbe Bild zweimal dasselbe?), `tools/pruefsumme.mjs` (ist die Szene
+dieselbe?) und `tools/spielerort.mjs` (steht die Kamera dort, wo sie stehen
+soll?).
