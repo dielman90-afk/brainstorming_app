@@ -4427,3 +4427,82 @@ Muster A A B B stand im Protokoll — und trotzdem aufeinanderfolgende Läufe al
 unabhängige Stichproben gezählt. Der Fund davor war richtig (der Prüfstand war
 nicht wiederholbar); die Ursache war falsch, und die falsche Ursache stand mit
 Tabelle und Zahlen da, was sie nicht besser macht, sondern überzeugender.
+
+---
+
+## Der Sputnik ist jetzt beschädigt, nicht nur eingedellt
+
+**Befund des Prüfers:** *„Der Sputnik-Körper hat keine Delle, keinen Riss, keine
+Brandspur — der Schaden liest kaum."*
+
+Nachgesehen mit einem neuen Werkzeug: `tools/umrundung.mjs` stellt die Kamera
+auf einen Kreis um einen Gegenstand und nimmt ihn aus sechs Richtungen auf. Der
+Grund für das Werkzeug steht im Befund selbst: Eine feste Kamera sagt, wie ein
+Gegenstand von **dieser** Seite aussieht, und der Sputnik ist ausdrücklich so
+gebaut, dass sein Schaden aus **jeder** Richtung liest.
+
+Das Ergebnis gab dem Prüfer recht. Aus allen sechs Richtungen stand da eine
+glatte, leicht eingedrückte Kugel — ein Luftballon, dem die Luft ausgeht, kein
+aufgeschlagenes Blech.
+
+### Was fehlte: Falten
+
+Blech gibt nicht als Gaußglocke nach, sondern **knickt**. Von einer
+Aufschlagstelle laufen scharfe Grate und Rinnen weg, und die sind es, die man
+als Schaden liest — die Delle allein ist nur eine Beule. Sechs Knickfalten sind
+dazugekommen: je drei um die erste und zwei um die zweite Aufschlagstelle, dazu
+ein ungedämpfter Knickgürtel um den ganzen Körper.
+
+**Zwei Anläufe, zwei Lehren.**
+
+*Erstens die Breite.* Das Netz hat 1,9 cm Kantenlänge, auf 29 cm Halbmesser
+also 0,065 Bogenmaß. Eine Falte unter rund 0,13 kann das Netz nicht tragen —
+sie stünde in den Normalen und nicht in der Fläche. Die Werte liegen bei 0,13
+bis 0,18, also zwei bis drei Kantenlängen. Feiner ginge nur mit mehr Dreiecken,
+und die sind nicht da (344 186 von 350 000).
+
+*Zweitens die Lage, und die war der eigentliche Fehler.* Der erste Anlauf hat
+fünf Großkreise mit gewürfelten Achsen hingeschrieben und sie mit dem Abstand
+von der Aufschlagstelle gedämpft. Das ist ein Widerspruch in sich: Wo die
+Dämpfung stark war, lag der Großkreis weit weg, und wo der Großkreis lag, war
+die Dämpfung schon aus. Gemessen zeigte der Umlauf die Falten in **einem** von
+sechs Bildern, dort auf 1,7 Prozent der Bildpunkte — und der Riss, die tiefste
+Falte, war nirgends zu sehen.
+
+Eine Falte, die von einem Einschlag wegläuft, ist ein Großkreis **durch** den
+Einschlagpunkt. Ihre Achse steht damit senkrecht auf dem Zentrum, und der
+einzige freie Parameter ist der Winkel, unter dem sie wegläuft.
+
+### Gemessen (Umlauf aus sechs Richtungen, Anteil geänderter Bildpunkte ≥2)
+
+| Richtung | erster Anlauf | jetzt |
+| --- | --- | --- |
+| 0° | 6,4 % | 5,8 % |
+| 60° | 1,8 % | 2,0 % |
+| 120° | 0,6 % | 0,6 % |
+| 180° | 4,1 % | 2,5 % |
+| 240° | 2,1 % | 3,4 % |
+| 300° | 5,8 % | 6,3 % |
+
+Die Zahlen des ersten Anlaufs sind die gegen die **ungefaltete** Kugel; die
+Spalte „jetzt" ebenso. Der Unterschied steht nicht in der Summe, sondern in der
+Verteilung: Vorher lagen die Falten am unteren Rand der Kugel und im Ruß, jetzt
+laufen sie über die beleuchtete Flanke. Im Bild ist der Unterschied deutlich —
+die Kugel hat eine geknickte Silhouette und ein gebrochenes Glanzlicht statt
+eines glatten.
+
+Der **Riss** ist die tiefste Falte, in der Einfärbung schwarz nachgezogen. Ein
+Spalt ließe sich in diese Geometrie nicht schneiden — die Kugel ist eine
+geschlossene Icosphere —, aber ein tiefer, rußschwarzer Knick liest aus zwei
+Metern genauso.
+
+Feste Bilder: `g-sputnik` Δmittel 0,108, `a-augenhoehe` 0,001, alles übrige
+bitgleich. Budget unverändert: 21 Draw-Calls, 344 186 Dreiecke, 8,00 MB.
+
+### Was offen bleibt
+
+Die feste Kamera `g-sputnik` sieht die Aufschlagseite **nicht** — sie steht
+gegenüber. Sie zu drehen wäre einfach und falsch: Die sechs festen Kameras sind
+der Vergleichsmaßstab über den ganzen Auftrag, und wer sie verschiebt, wirft
+jeden früheren Vergleich weg. Wer den Sputnik beurteilen will, nimmt ab jetzt
+`tools/umrundung.mjs`.

@@ -4933,6 +4933,13 @@ function makeSputnik(obenLokal) {
     .applyAxisAngle(new THREE.Vector3(0.31, 0.52, -0.79).normalize(), 1.38)
     .normalize();
 
+  // Die zweite Aufschlagstelle: Er ist nach dem ersten Treffer noch ein Stück
+  // gerollt. Sie trägt Ruß **und** Falten, damit der Schaden nicht nur aus
+  // einer Richtung liest.
+  const ZWEITSCHLAG = SCHLAG.clone()
+    .applyAxisAngle(new THREE.Vector3(0.7, -0.2, 0.68).normalize(), 2.35)
+    .normalize();
+
   // **Metall ohne Umgebungskarte ist schwarz.**
   //
   // Der erste Anlauf stand auf `metalness: 0.82` — physikalisch richtig für
@@ -4977,6 +4984,9 @@ function makeSputnik(obenLokal) {
   // füllt der Körper 400 Bildzeilen; 1,9 cm sind dort 13 Bildpunkte, und damit
   // trägt die geglättete Normale die Rundung, ohne dass die Facetten im
   // Glanzlicht aufbrechen.
+  // Wird im Kugelblock gesetzt und in der Einfärbung gebraucht: Wie stark
+  // liegt eine Richtung im Riss?
+  let rissAn = () => 0;
   const kugel = new THREE.IcosahedronGeometry(0.29, 15);
   {
     // **Der Halbmesser als Funktion der Richtung.** Erst als eigene Funktion
@@ -4987,6 +4997,77 @@ function makeSputnik(obenLokal) {
       [0.12, 0.93, 0.35, 0.028, 14],
       [-0.82, -0.31, -0.48, 0.037, 8],
     ];
+
+    // --- Knickfalten ---------------------------------------------------------
+    //
+    // **Der Prüfer: „Der Körper hat keine Delle, keinen Riss, keine Brandspur —
+    // der Schaden liest kaum."** Der Umlauf (`tools/umrundung.mjs`) hat ihm
+    // recht gegeben: Aus jeder der sechs Richtungen stand da eine glatte,
+    // leicht eingedrückte Kugel — ein Luftballon, dem die Luft ausgeht, kein
+    // aufgeschlagenes Blech.
+    //
+    // Was fehlte, sind **Falten**. Blech gibt nicht als Gaußglocke nach,
+    // sondern knickt: Von der Aufschlagstelle laufen scharfe Grate und Rinnen
+    // weg, und die sind es, die man als Schaden liest. Jede Falte ist hier ein
+    // Band um den Großkreis senkrecht zu `achse`, gedämpft mit dem Abstand vom
+    // Aufschlag.
+    //
+    // **Die Breite ist keine Geschmacksfrage.** Das Netz hat 1,9 cm
+    // Kantenlänge, auf 29 cm Halbmesser also 0,065 Bogenmaß. Eine Falte unter
+    // rund 0,13 kann das Netz nicht tragen — sie stünde in den Normalen und
+    // nicht in der Fläche. Die Werte hier liegen bei 0,13 bis 0,18, also zwei
+    // bis drei Kantenlängen. Feiner ginge nur mit mehr Dreiecken, und die sind
+    // nicht da: Die Umgebung steht bei 344 186 von 350 000.
+    //
+    // **Und jede Falte braucht ihr eigenes Zentrum.** Der erste Anlauf hat
+    // alle fünf an `SCHLAG` gehängt und mit Exponenten von 2,4 bis 4,2
+    // gedämpft. Die Aufschlagstelle liegt aber 11 Grad unter der Waagerechten
+    // des liegenden Körpers — die Falten steckten damit am unteren Rand der
+    // Kugel, und der Umlauf zeigte sie in **einem** von sechs Bildern, dort
+    // auf 1,7 Prozent der Bildpunkte. Zwei Falten sitzen jetzt am zweiten
+    // Aufschlag, eine läuft ungedämpft als Knickgürtel um den ganzen Körper,
+    // und die Exponenten sind halbiert.
+    // **Und die Falten müssen durch die Aufschlagstelle laufen.** Der erste
+    // Anlauf hat fünf Großkreise mit gewürfelten Achsen hingeschrieben und
+    // sie mit dem Abstand vom Aufschlag gedämpft. Das Ergebnis war ein
+    // Widerspruch in sich: Wo die Dämpfung stark war, lag der Großkreis weit
+    // weg, und wo der Großkreis lag, war die Dämpfung schon aus. Die tiefste
+    // Falte — der Riss — war deshalb nirgends zu sehen.
+    //
+    // Eine Falte, die von einem Einschlag wegläuft, ist ein Großkreis **durch**
+    // den Einschlagpunkt. Ihre Achse steht also senkrecht auf dem Zentrum, und
+    // der freie Parameter ist nur noch der Winkel, unter dem sie wegläuft.
+    const querZu = (mitte, winkel) => {
+      const t = new THREE.Vector3(0, 0, 0);
+      t[Math.abs(mitte.x) < 0.9 ? 'setX' : 'setZ'](1);
+      return t.cross(mitte).normalize().applyAxisAngle(mitte, winkel);
+    };
+    const FALTEN = [
+      // Zentrum, Winkel um das Zentrum, Breite, Tiefe (+ Rinne / − Grat), Reichweite
+      { zentrum: SCHLAG, winkel: 0.0, breite: 0.13, tiefe: 0.022, reichweite: 1.6 },
+      { zentrum: SCHLAG, winkel: 1.15, breite: 0.16, tiefe: -0.014, reichweite: 1.8 },
+      { zentrum: SCHLAG, winkel: 2.25, breite: 0.14, tiefe: 0.015, reichweite: 1.6 },
+      { zentrum: ZWEITSCHLAG, winkel: 0.6, breite: 0.13, tiefe: 0.016, reichweite: 1.4 },
+      { zentrum: ZWEITSCHLAG, winkel: 1.9, breite: 0.18, tiefe: -0.011, reichweite: 2.0 },
+      // Der Knickgürtel: ungedämpft, damit der Körper auch dort nicht makellos
+      // ist, wo ihn keiner der beiden Aufschläge erwischt hat.
+      { achse: new THREE.Vector3(-0.29, -0.88, 0.38).normalize(), breite: 0.15, tiefe: 0.012 },
+    ].map((k) => ({ ...k, achse: k.achse ?? querZu(k.zentrum, k.winkel) }));
+    const RISS = FALTEN[0];
+    const naehe = (k, d) => (k.zentrum ? Math.pow(Math.max(0, d.dot(k.zentrum)), k.reichweite) : 1);
+    const faltenTiefe = (d) => {
+      let f = 0;
+      for (const k of FALTEN) {
+        const b = d.dot(k.achse) / k.breite;
+        f += Math.exp(-b * b) * k.tiefe * naehe(k, d);
+      }
+      return f;
+    };
+    const rissWert = (d) => {
+      const b = d.dot(RISS.achse) / (RISS.breite * 0.8);
+      return Math.exp(-b * b) * naehe(RISS, d);
+    };
+    rissAn = rissWert;
     const hautRadius = (d) => {
       // **Die Delle.** Ein Aufschlag drückt eine Kalotte ein, und zwar mit
       // einem aufgeworfenen Wulst am Rand — Blech gibt nach, aber es
@@ -5024,7 +5105,7 @@ function makeSputnik(obenLokal) {
       // Normalenabweichung — Unruhe, die man als Blech liest und nicht als
       // Netz.
       const unruhe = fbm3(d.x * 11, d.y * 11, d.z * 11) * 0.003;
-      return 0.29 - kalotte + wulst - beulen + unruhe;
+      return 0.29 - kalotte + wulst - beulen - faltenTiefe(d) + unruhe;
     };
 
     // **Und warum die Normale gerechnet und nicht von three geholt wird.**
@@ -5207,9 +5288,6 @@ function makeSputnik(obenLokal) {
   // (0x7595b4 bei Stärke 2,0); eine fast weiße Albedo nimmt das an, und der
   // Körper las als Eiskuppel. Poliertes Aluminium-Magnesium ist ohnehin
   // leicht warm, und nach einem Aufschlag erst recht.
-  const ZWEITSCHLAG = SCHLAG.clone()
-    .applyAxisAngle(new THREE.Vector3(0.7, -0.2, 0.68).normalize(), 2.35)
-    .normalize();
   const POLIERT = new THREE.Color(0xbdb6ab);
   const RUSS = new THREE.Color(0x2a2320);
   const STAUB = new THREE.Color(0x8a5540);
@@ -5243,6 +5321,12 @@ function makeSputnik(obenLokal) {
       c.lerp(RUSS, Math.pow(zweit, 5.0) * nah * 0.55);
       // Staub auf dem, was nach dem Hinlegen nach oben zeigt.
       c.lerp(STAUB, Math.pow(Math.max(0, n.dot(obenLokal)), 2.0) * 0.42);
+      // **Der Riss, schwarz nachgezogen.** Die tiefste Knickfalte bekommt eine
+      // dunkle Linie: Ein aufgerissenes Blech zeigt an der Bruchstelle keinen
+      // Glanz, sondern den Schatten des Spalts und den Ruß, der beim Aufschlag
+      // hineingezogen wurde. Nur auf der Kugel — die Antennen haben keinen
+      // Riss, und ihre Punkte liegen weit außerhalb.
+      if (v.length() < 0.33) c.lerp(new THREE.Color(0x0d0b0a), Math.min(1, rissAn(v.clone().normalize()) * 1.35));
       // Streiflichtkanten: Wo das Blech gerade noch glänzt, ein Hauch heller.
       const kante = Math.pow(Math.max(0, 1 - Math.abs(n.dot(obenLokal))), 3) * 0.1;
       farben[i * 3] = Math.min(1, c.r + kante);
