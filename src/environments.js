@@ -4178,6 +4178,30 @@ function marsGroundMaterial() {
              normal = normalize(normal + tbn * vec3(kies.xy * 0.13, 0.0) * kiesAn);
              diffuseColor.rgb *= 1.0 + (kies.x - kies.y) * 0.085 * kiesAn;
 
+             // --- Korn fuer den allernaechsten Vordergrund -------------------
+             //
+             // **Der Vordergrund war glatter als die Ferne, und zwar um den
+             // Faktor 8.** Gemessen mit tools/hochpass-reihe.mjs in e-boden,
+             // von nah nach fern: 0,290 / 0,390 / 0,515 / 0,675 / 1,057 /
+             // 1,660 / 2,362 / 2,433. Je naeher, desto weicher — genau
+             // verkehrt herum.
+             //
+             // Die Ursache ist Vergroesserung, nicht fehlendes Detail: Die
+             // Normalenkarte deckt 1,6 m auf 512 Texeln ab, also 3,1 mm je
+             // Texel. Am unteren Bildrand liegt der Boden 40 cm entfernt, wo
+             // ein Bildpunkt 0,7 mm abdeckt. Die Karte wird dort vierfach
+             // vergroessert, und die bilineare Filterung macht daraus Brei.
+             //
+             // Dieselbe Karte ein zweites Mal, auf ein Achtel der Kachel
+             // gespannt: 20 cm statt 1,6 m, also 0,39 mm je Texel. Das ist die
+             // Aufloesung, die der Nahbereich braucht. Sie blendet zwischen
+             // 0,7 und 1,8 m aus, lange bevor sie unterabgetastet waere — dort
+             // uebernimmt das grobe Korn, das bis 6 m traegt.
+             vec3 kornNah = texture2D(normalMap, vNormalMapUv * 8.0).xyz * 2.0 - 1.0;
+             float nahAn = 1.0 - smoothstep(1.1, 3.4, tiefe);
+             normal = normalize(normal + tbn * vec3(kornNah.xy * 0.15, 0.0) * nahAn);
+             diffuseColor.rgb *= 1.0 + (kornNah.x - kornNah.y) * 0.06 * nahAn;
+
              // --- Kiesel in Armeslaenge -------------------------------------
              //
              // **Gemessen war der Boden direkt vor den Fuessen glatt.** Im
@@ -4366,7 +4390,7 @@ function marsGroundMaterial() {
     // Ohne eigenen Cache-Schlüssel hält three das Programm eines anderen
     // Materials mit derselben Signatur für austauschbar und der Einschub
     // landet nie im Shader.
-    _marsGround.customProgramCacheKey = () => 'nacht-regolith-v11';
+    _marsGround.customProgramCacheKey = () => 'nacht-regolith-v13';
   }
   return _marsGround;
 }

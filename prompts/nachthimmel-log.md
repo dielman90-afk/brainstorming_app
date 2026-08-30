@@ -4008,3 +4008,51 @@ acht stehen am Startpunkt; dass die Rückstrecke leer war und die Hinstrecke
 Hänge von 55 Grad hat, konnte keine von ihnen zeigen. Die Kennzahl je Station
 hat das in einem Durchgang sichtbar gemacht — und zugleich verhindert, dass ich
 ein Höhenfeld verstärke, das an neun von zwölf Stellen schon genug hatte.
+
+---
+
+## Der Vordergrund war glatter als die Ferne
+
+Prüferbefund 6: *„`e-boden`, Hochpass-Kontrast nach Tiefe: y=250 (fern) 2,25 % →
+y=700 (nächster Vordergrund) 0,39 %. Je näher, desto glatter — Faktor 5,8 in die
+falsche Richtung."*
+
+Nachgemessen mit `tools/hochpass-reihe.mjs`, acht Bänder von nah nach fern:
+
+| | nah | | | | | | | fern |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| vorher | **0,290** | 0,390 | 0,515 | 0,675 | 1,057 | 1,660 | 2,362 | 2,433 |
+| jetzt | **0,552** | 0,626 | 0,695 | 0,804 | 1,138 | 1,699 | 2,373 | 2,436 |
+
+Der Befund war sogar etwas schärfer als seine Zahlen: Faktor **8,4**, nicht 5,8.
+
+### Die Ursache ist Vergrößerung, nicht fehlendes Detail
+
+Die Normalenkarte deckt 1,6 m auf 512 Texeln ab, also 3,1 mm je Texel. Am
+unteren Bildrand von `e-boden` liegt der Boden **40 cm** entfernt, wo ein
+Bildpunkt 0,7 mm abdeckt. Die Karte wird dort **vierfach vergrößert**, und die
+bilineare Filterung macht daraus Brei. Alles, was der Boden an Struktur hat,
+verschwindet genau dort, wo man am genauesten hinsieht.
+
+Dieselbe Karte ein zweites Mal, auf ein Achtel der Kachel gespannt: 20 cm statt
+1,6 m, also 0,39 mm je Texel — die Auflösung, die der Nahbereich braucht. Ein
+Texturgriff mehr, kein Byte Speicher; dasselbe Verfahren wie beim Kies, nur in
+die andere Richtung.
+
+Ausgeblendet wird zwischen 1,1 und 3,4 m. **Weiter draußen braucht es keine
+Sperre:** Bei 3 m deckt ein Bildpunkt 5,1 mm ab, also dreizehn Texel, und die
+Mipmap liefert dort ohnehin den Mittelwert — eine flache Normale, die nichts
+mehr beiträgt.
+
+### Was bleibt
+
+Das Verhältnis nah zu fern steht jetzt bei 4,4 statt 8,4. **Es läuft weiter in
+die falsche Richtung**, und ein Teil davon ist nicht zu beheben: `e-boden` blickt
+fast waagerecht über den Boden, das Nahfeld ist dabei extrem verkürzt. Ein
+Merkmal von 1 cm auf 40 cm Entfernung unter 5 Grad Streifwinkel ist senkrecht auf
+wenige Zehntel Bildpunkte zusammengedrückt. Was dort noch fehlt, fehlt der
+Geometrie, nicht der Textur.
+
+Funkeln unverändert bei 98 — die zusätzliche Normalenstörung erzeugt keine neuen
+Ausreißer, weil der Spiegellappen weg ist. Budget 21 Draw-Calls / 344 186
+Dreiecke / 8,00 MB, Regression im bekannten Band, Konsole sauber.
