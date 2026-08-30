@@ -4116,3 +4116,92 @@ senkrechte Fläche und ein waagerechter Boden verhalten sich am Terminator genau
 entgegengesetzt; wer nur den Boden prüft, hält das Ergebnis für einen Fehler. Es
 hat vier Messungen gekostet, das auszuschließen — und die letzte, die es
 entschieden hat, war dieselbe Ein-Licht-Probe wie beim Saum.
+
+---
+
+## Der rote Halbmond liest jetzt als Kugel
+
+**Befund des Prüfers:** *„47 px, also gleich groß — richtig. Aber die Oberfläche
+ist ein einziger heller Ockerring um einen dunkelroten Fleck, sonst nichts; die
+Nachtseite fällt auf L = 2,1, dunkler als der Himmel (L ≈ 11) […] Er liest als
+abgebissener Keks, nicht als Kugel. Kein Hof."*
+
+Nachgemessen mit einem neuen Werkzeug (`tools/mondscheibe.mjs`: Lage,
+Durchmesser, Tonwertumfang der beleuchteten Hälfte, Nachtseite, Feinstruktur,
+Hofverlauf in Ringen). Der Befund war in allen drei Punkten richtig.
+
+### Was schuld war
+
+**Erstens die Meere.** Der zweite Mond hatte einen eigenen Stil — Farben, Phase,
+Kraterzahl —, aber die **Beckenliste des Erdmonds**. Sechs Becken bis 0,30 R,
+und zwar mit dem Kontrast des roten Grundtons: Hochland 201 gegen Maria 112 ist
+1,8 : 1, beim weißen Mond sind es 232 gegen 150, also 1,55 : 1. Bei 0,88 Deckung
+und überlappenden Rändern lief das zu **einer** Masse zusammen. Genau das war der
+„dunkelrote Fleck".
+
+**Zweitens die Kratergröße.** 170 Krater klingt nach viel. Ihr Radius war
+2,5 + x^2,4 · 30, im Mittel also **8 Kachelpunkte** — bei 512 Kachelpunkten auf
+37 Bildpunkte Scheibe sind das 0,58 Bildpunkte. Sie waren gezeichnet und
+unsichtbar.
+
+**Drittens der Erdschein.** 0,03 ergab eine Nachtseite bei L = 5,3 gegen einen
+Himmel bei L = 12,5. Eine unbeleuchtete Hälfte, die **dunkler** ist als der
+Hintergrund, ist kein Körper, sondern ein Loch im Sternhimmel.
+
+**Viertens der Hof.** Exponent 3,4 auf 5,6 Einheiten Größe, Stärke 0,26 — die
+Hoflage war nur 3,1 Scheibendurchmesser groß, und bei diesem Exponenten ist
+davon am Rand nichts mehr übrig. Gemessen: Ring 1,05–1,3 R lag 2,4 Tonwerte über
+dem Himmel, ab 1,3 R war er nicht mehr messbar.
+
+### Was jetzt dasteht
+
+| | vorher | nachher |
+| --- | --- | --- |
+| Meere | 6 Becken bis 0,30 R (vom Erdmond) | 3 Flecken bis 0,13 R, eigene Liste |
+| große Becken mit Wall | keine | 4, Radius 0,16–0,26 R, Wall 0,34 statt 0,20 |
+| Krater | 170 à 2,5 + x^2,4·30 (Mittel 8 px) | 120 à 7 + x^1,5·52 (Mittel 25 px) |
+| Erdschein | 0,03 | 0,105 |
+| Hof | Exp 3,4 / Größe 5,6 / Stärke 0,26 | Exp 2,6 / Größe 9,0 / Stärke 0,34 |
+
+Gemessen an `h-mond-rot` (Scheibe 37 × 39 px bei x 617…653, y 337…375):
+
+| | vorher | nachher |
+| --- | --- | --- |
+| beleuchtete Hälfte, Mittel | 86,9 | **102,1** |
+| beleuchtete Hälfte, Hochpass | 7,671 | **8,484** |
+| **Nachtseite, Mittel** | **5,32** | **12,05** |
+| Himmel (2,9–3,8 R) | 12,65 | 12,90 |
+| Hof 1,05–1,3 R | 14,96 | **20,15** |
+| Hof 1,3–1,7 R | 11,80 | **15,39** |
+| Hof 1,7–2,2 R | 12,75 | **15,14** |
+| Hof 2,2–2,9 R | 12,49 | **13,76** |
+
+Die Nachtseite liegt jetzt bei 12,05 gegen einen Himmel von 12,90 — sie schließt
+die Scheibe, ohne zu leuchten. Der Hof fällt über drei Halbmesser ab, statt an
+der Kante aufzuhören.
+
+**Die Zahl 0,105 ist eine Entscheidung der Komposition, keine der Physik.** Der
+Planet, der diesen Mond anleuchten würde, hat 25 m Halbmesser; rechnerisch käme
+dabei nichts heraus. Sie steht trotzdem, weil das Loch im Sternhimmel der
+gröbere Fehler ist. Das gehört in dieses Protokoll und nicht in eine Fußnote.
+
+### Der weiße Mond ist bitgleich
+
+Die Stilstruktur hat jetzt Felder für Beckenliste, Großbecken und
+Kraterverteilung. Für `weiss` sind exakt die bisherigen Werte eingetragen, die
+Großbeckenliste ist leer, und `krater()` verbraucht keine Zufallszahlen — die
+Reihenfolge der Ziehungen bleibt also unverändert. Gemessen: **alle sieben
+übrigen Nachtbilder Δmittel 0,000, Δmax 0.** Nur `h-mond-rot` ändert sich
+(Δmittel 0,080, Δmax 84 bei 627|357).
+
+Budget unverändert: 21 Draw-Calls von 120, 344 186 Dreiecke von 350 000, 8,00 MB
+Textur von 60. Konsole frei von Errors und Warnings.
+
+### Die Lehre dieser Runde
+
+**Ein zweiter Körper braucht eigene Daten, nicht nur eigene Farben.** Der Stil
+war als „ein Bauer, zwei Monde" angelegt und hat Farbe, Phase, Kraterzahl und
+Saat sauber getrennt — aber die **Formen** blieben geteilt, und in einer anderen
+Farbe verhalten sich dieselben Formen anders. Und: Ein Detail, das bei der
+Bildgröße unter einem Bildpunkt liegt, ist kein Detail. 170 Krater à 0,58 px
+waren Rechenzeit ohne Gegenwert; 120 à 1,85 px sind die Oberfläche.

@@ -6959,7 +6959,20 @@ const MOND_STIL = {
     wallDunkel: '108,112,126',
     strahlenFarbe: '232,234,240',
     phaseZ: 0.47,
+    // Sechs zusammenhaengende Becken - die Mondmeere der erdzugewandten Seite.
+    meere: [
+      { x: -0.30, y: -0.34, r: 0.30 },
+      { x: 0.04, y: -0.42, r: 0.22 },
+      { x: -0.44, y: 0.02, r: 0.20 },
+      { x: -0.10, y: 0.10, r: 0.26 },
+      { x: 0.30, y: -0.16, r: 0.15 },
+      { x: 0.18, y: 0.34, r: 0.13 },
+    ],
+    becken: [],
     krater: 90,
+    kraterMin: 2.5,
+    kraterSpanne: 30,
+    kraterExp: 2.4,
     strahlen: true,
     erdschein: 0.055,
   },
@@ -6979,9 +6992,57 @@ const MOND_STIL = {
     wallDunkel: '74,34,26',
     strahlenFarbe: '224,168,136',
     phaseZ: 0.0,
-    krater: 170,
+    // **Keine grossen Meere.** Der erste Anlauf hat die sechs Becken des
+    // Erdmonds uebernommen und nur umgefaerbt. Bei 201 zu 112 im Grundton -
+    // gegen 232 zu 150 beim weissen - liefen sie zu **einer** dunkelroten
+    // Masse zusammen, und die Scheibe las als heller Ockerring um einen
+    // dunklen Fleck: der abgebissene Keks, den der Pruefer gesehen hat.
+    //
+    // Ein alter, zerschlagener Koerper hat keine ausgelaufenen Lavaebenen
+    // mehr, sondern Einschlag auf Einschlag. Statt der Meere stehen hier
+    // deshalb drei kleine, weit auseinanderliegende Flecken - genug, dass die
+    // Flaeche nicht gleichfoermig wird, zu wenig, dass sie verschmelzen.
+    meere: [
+      { x: -0.36, y: -0.20, r: 0.13 },
+      { x: 0.22, y: 0.30, r: 0.11 },
+      { x: -0.06, y: 0.44, r: 0.09 },
+    ],
+    // **Vier grosse Becken mit Wall.** Sie sind das, was bei 37 px Scheibe
+    // ueberhaupt noch als Form liest: ein heller Bogen zur Sonne, ein dunkler
+    // gegenueber, dazwischen ein Boden. Ihre Radien liegen zwischen 0,15 und
+    // 0,26 R, also 5,5 bis 9,6 Kachelpunkte auf dem Zeichenblatt und knapp
+    // ein bis zwei Bildpunkte am Wall - die Untergrenze dessen, was das Bild
+    // noch traegt.
+    becken: [
+      { x: -0.30, y: -0.38, r: 0.26, tiefe: 0.95 },
+      { x: 0.30, y: -0.22, r: 0.19, tiefe: 0.85 },
+      { x: -0.44, y: 0.26, r: 0.16, tiefe: 0.80 },
+      { x: 0.06, y: 0.10, r: 0.22, tiefe: 0.70 },
+    ],
+    // **Groessere Krater als beim weissen Mond, und weniger davon.** Die
+    // Verteilung des Erdmonds hat hier nichts genuetzt: 2,5 + x^2,4 * 30
+    // ergibt im Mittel 8 Kachelpunkte Radius, und bei 512 Kachelpunkten auf
+    // 37 Bildpunkte ist das ein Viertel Bildpunkt. Was man nicht sieht, ist
+    // kein Detail, sondern Rechenzeit. 7 + x^1,5 * 52 liegt im Mittel bei 25
+    // und damit bei knapp zwei Bildpunkten.
+    krater: 120,
+    kraterMin: 7,
+    kraterSpanne: 52,
+    kraterExp: 1.5,
     strahlen: false,
-    erdschein: 0.03,
+    // **Aschgraues Licht, grosszuegiger als die Photometrie erlaubt.**
+    //
+    // Mit 0,03 stand die Nachtseite bei L = 5,3, der Himmel ringsum bei
+    // L = 12,5. Ein Koerper, dessen unbeleuchtete Haelfte **dunkler** ist als
+    // der Hintergrund, ist kein Koerper, sondern ein Loch im Sternhimmel -
+    // und genau so hat er gelesen. Der Wert steht jetzt so, dass die
+    // Nachtseite den Himmel knapp uebersteigt und die Scheibe sich schliesst.
+    //
+    // Das ist eine Entscheidung der Komposition, keine der Physik: Der
+    // Planet, der ihn anleuchten wuerde, hat 25 m Halbmesser. Wer die Zahl
+    // spaeter nachrechnet, findet sie zu hoch - sie steht trotzdem, weil das
+    // Loch der groebere Fehler ist.
+    erdschein: 0.105,
   },
 };
 
@@ -7034,14 +7095,6 @@ function mondScheibe(stilName = 'weiss') {
   // ausgefransten Rändern – die Mondmeere sind ausgelaufene Lavaebenen, keine
   // Tupfen. Jedes entsteht aus einem Kernblob plus einem Kranz kleinerer
   // Blobs, die den Rand unregelmäßig machen.
-  const maria = [
-    { x: -0.30, y: -0.34, r: 0.30 },
-    { x: 0.04, y: -0.42, r: 0.22 },
-    { x: -0.44, y: 0.02, r: 0.20 },
-    { x: -0.10, y: 0.10, r: 0.26 },
-    { x: 0.30, y: -0.16, r: 0.15 },
-    { x: 0.18, y: 0.34, r: 0.13 },
-  ];
   const blob = (x, y, r, farbe) => {
     const g = ctx.createRadialGradient(x, y, r * 0.25, x, y, r);
     g.addColorStop(0, farbe);
@@ -7052,7 +7105,7 @@ function mondScheibe(stilName = 'weiss') {
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
   };
-  for (const m of maria) {
+  for (const m of stil.meere) {
     const cx = M + m.x * R;
     const cy = M + m.y * R;
     const cr = m.r * R;
@@ -7073,7 +7126,7 @@ function mondScheibe(stilName = 'weiss') {
   // 37° gesehen. Genau diese Ellipsen sind es, die eine flache Scheibe als
   // Kugel lesbar machen.
   const SONNE = { x: -0.62, y: -0.55 }; // Richtung, aus der beleuchtet wird
-  const krater = (x, y, rad, tiefe) => {
+  const krater = (x, y, rad, tiefe, wall = 0.20) => {
     const dx = (x - M) / R;
     const dy = (y - M) / R;
     const d = Math.min(0.995, Math.hypot(dx, dy));
@@ -7094,7 +7147,7 @@ function mondScheibe(stilName = 'weiss') {
     ctx.arc(0, 0, rad, 0, Math.PI * 2);
     ctx.fill();
     // Wall: heller Bogen zur Sonne, dunkler gegenüber
-    ctx.lineWidth = Math.max(1, rad * 0.20);
+    ctx.lineWidth = Math.max(1, rad * wall);
     const a0 = Math.atan2(SONNE.y, SONNE.x);
     ctx.strokeStyle = `rgba(${stil.wallHell},${0.5 * tiefe})`;
     ctx.beginPath();
@@ -7106,10 +7159,20 @@ function mondScheibe(stilName = 'weiss') {
     ctx.stroke();
     ctx.restore();
   };
+  // Erst die grossen Becken - sie sind gesetzt, nicht gewuerfelt, weil bei
+  // dieser Bildgroesse jede einzelne Lage zaehlt -, dann das Kleinzeug
+  // darueber. Die Reihenfolge ist die der Geschichte: das Grosse ist alt, das
+  // Kleine hat es angeschlagen.
+  for (const b of stil.becken) krater(M + b.x * R, M + b.y * R, b.r * R, b.tiefe, 0.34);
   for (let i = 0; i < stil.krater; i++) {
     const a = mr() * Math.PI * 2;
     const r = Math.sqrt(mr()) * R * 0.985;
-    krater(M + Math.cos(a) * r, M + Math.sin(a) * r, 2.5 + Math.pow(mr(), 2.4) * 30, 0.5 + mr() * 0.5);
+    krater(
+      M + Math.cos(a) * r,
+      M + Math.sin(a) * r,
+      stil.kraterMin + Math.pow(mr(), stil.kraterExp) * stil.kraterSpanne,
+      0.5 + mr() * 0.5
+    );
   }
 
   // Strahlensysteme: zwei junge Krater mit hellem Auswurf. Sie sind der
@@ -7873,7 +7936,15 @@ function createNightEnvironment() {
   mond2.name = 'nacht-mond-rot';
   mond2.position.copy(MOND2_RICHTUNG).multiplyScalar(MOND_FERN);
   mond2.scale.set(17, 17, 1);
-  const hof2 = mondHof('nacht-mondhof-rot', 0x8a4632, 0x2a1008, 3.4, 5.6, 0.26);
+  // **Ein Hof, der auch einer ist.** Der erste Anlauf (Exponent 3,4 auf 5,6
+  // Einheiten, Staerke 0,26) hob den Ring bei 1,05 bis 1,3 Halbmessern um
+  // 2,4 Tonwerte ueber den Himmel und war zwei Halbmesser weiter nicht mehr
+  // messbar - der Pruefer hat schlicht "kein Hof" geschrieben, und er hatte
+  // recht. Ein Hof braucht **Reichweite**: Die Scheibe misst 17 Einheiten,
+  // die Hoflage jetzt 84, und der flache Exponent traegt sie ueber mehrere
+  // Durchmesser hinaus. Es bleibt bei **einer** Lage gegen drei beim weissen
+  // Mond - er soll ein anderer Koerper sein, kein zweiter Hauptdarsteller.
+  const hof2 = mondHof('nacht-mondhof-rot', 0x9c5638, 0x2e1206, 2.6, 9.0, 0.34);
   hof2.position.copy(mond2.position);
   hof2.scale.multiplyScalar(MOND_FERN / 32.06);
   hof2.renderOrder = 13;
