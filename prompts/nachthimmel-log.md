@@ -3800,3 +3800,79 @@ eigene, dreimal hintereinander.** Der Prüfer sagte „Sterne", ich sagte nachei
 „Fußabdruck", „Eigenschatten" und „Ausreißerbeule". Vier Erklärungen, vier Mal
 widerlegt, und jedes Mal war es dieselbe Messung, die es entschieden hat. Wer
 nach der ersten Vermutung baut, baut drei Mal umsonst.
+
+---
+
+## Der leuchtende Saum: das Vorzeichen des Schatten-Bias
+
+Befund 3 des Prüfers, „auffällig": *„Leuchtender Saum unter jedem Brocken […]
+Die Steine wirken dadurch aufgeklebt statt eingebettet."*
+
+Gemessen an Station 210 — dort steht der Mond **62,9 Grad unter dem Horizont**,
+es kann kein Strahl hinkommen, der Planet steht dazwischen:
+
+| | px | hellster Wert |
+| --- | --- | --- |
+| Saum am größten Brocken | 187 | (168,118,98), L = 127 |
+| drei weitere Brocken | 160 / 141 / 58 | L = 99…134 |
+| Boden ringsum | — | L = 13 |
+
+### Was es nicht war
+
+Der Reihe nach ausgeschlossen, jedes Mal durch Ausblenden oder Nullsetzen:
+
+| Verdacht | Ergebnis |
+| --- | --- |
+| Kontaktverdunklung | unverändert (der Saum wird sogar 3 px größer) |
+| Frost auf den Brocken | unverändert |
+| zweites Mondlicht (rot) | unverändert |
+| Hemisphären- / Umgebungslicht | 2 Stufen dunkler |
+| Fremdlichter der anderen vier Umgebungen | unsichtbar, three überspringt sie |
+| Auflösung der Schattenkarte 2048 → 4096 | 187 → **191** |
+| Normal-Bias 0,025 → 0,005 → 0 | 187 → 145 → **132** |
+
+Und was es sicher **war**: Mondlicht auf null lässt nichts übrig; Schattenwurf
+ganz aus macht aus 187 Punkten **643**. Die Schattenkarte arbeitete also, hielt
+aber diesen einen Streifen nicht.
+
+### Das Vorzeichen
+
+In three wird `shadow.bias` auf die Tiefe im Schattenraum **addiert**: negativ
+heißt näher am Licht, also **weniger** Schatten. Der Wert stand auf −0,0004,
+gewählt gegen Schattenakne am Terminator. An der Unterkante eines Brockens steht
+die Fläche fast tangential zum Licht; dort schob dieselbe kleine Verschiebung
+eine ganze Schicht aus dem Schatten heraus, und weil sie tangential liegt, war
+das Ergebnis ein **voll beleuchteter Streifen** statt einer Aufhellung.
+
+Gegenprobe in beide Richtungen: −0,002 macht aus 187 Punkten **610**, also fast
+so viel wie Schatten ganz aus. **+0,0005 lässt vom Saum nichts übrig.**
+
+| Station | helle Flecken im Gelände, vorher → jetzt |
+| --- | --- |
+| rund-210 | 643 px → **97 px** (nur noch Sterne) |
+| rund-180 | → 0 |
+| rund-270 | → 54 px |
+
+Die Schatten auf der Mondseite bleiben: `c-krater` zeigt die Schlagschatten der
+Brocken und die Kontaktverdunklung unverändert, kein Ablösen vom Fuß.
+
+Budget 21 Draw-Calls / 344 186 Dreiecke / 8,00 MB, Regression im bekannten Band,
+Konsole sauber.
+
+### Noch offen aus demselben Befundsatz
+
+Der „brennende Findling" in `rund-150` (7033 px, L = 172) bleibt unverändert —
+auch bei abgeschaltetem Schattenwurf. Er hat also eine andere Ursache. An
+Station 150 steht der Mond bei −3,3 Grad, also unmittelbar am Terminator; ein
+aufragender Block kann dort mit seiner Oberkante durchaus noch im Licht stehen,
+während der Boden schon dunkel ist. Ob das der Fall ist oder ein zweiter Fehler,
+ist **nicht** geklärt.
+
+### Die Lehre dieser Runde
+
+**Ein Parameter, dessen Vorzeichen man nicht geprüft hat, ist ein Parameter, den
+man nicht kennt.** Der Bias stand seit Paket 1 auf −0,0004, mit einer Begründung
+im Kommentar, die nur von Akne sprach. Dass derselbe Wert an tangentialen
+Flächen einen leuchtenden Streifen erzeugt, stand nirgends — und der Weg dorthin
+führte über sieben ausgeschlossene Verdächtige. Die Gegenprobe in **beide**
+Richtungen (−0,002 und +0,0005) hätte am Anfang stehen können statt am Ende.

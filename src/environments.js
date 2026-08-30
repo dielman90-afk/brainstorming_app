@@ -8035,7 +8035,33 @@ function createNightEnvironment() {
     // 0,025 ist der gemessene Grund der Wanne oben, also 0,76 Texel. Der
     // vorherige Wert 0,06 war allein gegen die Akne gewählt, bevor der Saum am
     // Grat bekannt war — er hat dessen Pixelzahl von 165 auf 296 fast verdoppelt.
-    moonLight.shadow.bias = -0.0004;
+    // **Das Vorzeichen war falsch herum, und das hat den Saum gemacht.**
+    //
+    // Der Prüfer: „Leuchtender Saum unter jedem Brocken — die Steine wirken
+    // aufgeklebt statt eingebettet." Gemessen an Station 210, wo der Mond
+    // 62,9 Grad **unter** dem Horizont steht: ein cremefarbener Strich von
+    // 187 Bildpunkten entlang der Unterkante jedes Brockens, hellster Wert
+    // L = 127 gegen einen Boden bei L = 13. Dort darf kein Sonnenstrahl
+    // hinkommen; der Planet steht dazwischen.
+    //
+    // Ausgeschlossen wurden der Reihe nach: die Kontaktverdunklung (ausblenden
+    // ändert nichts), der Frost auf den Brocken (Stärke null ändert nichts),
+    // das zweite Mondlicht (Stärke null ändert nichts), Hemisphären- und
+    // Umgebungslicht (je 2 Stufen), die Fremdlichter der anderen Umgebungen
+    // (unsichtbar, three überspringt sie), die Auflösung der Schattenkarte
+    // (4096 statt 2048: 191 statt 187 Punkte) und der Normal-Bias (bei null
+    // bleiben 132 von 187).
+    //
+    // Übrig blieb der Tiefen-Bias — mit umgekehrter Wirkung, als der alte Wert
+    // unterstellte. In three wird er auf die Tiefe im Schattenraum addiert:
+    // **negativ heißt näher am Licht, also weniger Schatten.** −0,0004 hat die
+    // Unterkante der Brocken damit aus dem Schatten herausgeschoben, und weil
+    // dort die Fläche fast tangential zum Licht steht, war die herausgeschobene
+    // Schicht ein voll beleuchteter Streifen. Zur Gegenprobe: −0,002 macht aus
+    // 187 Punkten 610, also fast so viel wie Schatten ganz aus (643).
+    //
+    // +0,0005 dreht es um und lässt vom Saum **nichts** übrig.
+    moonLight.shadow.bias = 0.0005;
     moonLight.shadow.normalBias = 0.025;
   }
   himmelGruppe.add(moonLight);
