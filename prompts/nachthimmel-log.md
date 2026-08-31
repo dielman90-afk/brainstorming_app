@@ -4506,3 +4506,92 @@ gegenüber. Sie zu drehen wäre einfach und falsch: Die sechs festen Kameras sin
 der Vergleichsmaßstab über den ganzen Auftrag, und wer sie verschiebt, wirft
 jeden früheren Vergleich weg. Wer den Sputnik beurteilen will, nimmt ab jetzt
 `tools/umrundung.mjs`.
+
+---
+
+## Die Sterndichte fällt nicht zum Bildrand — sie tut, was eine Linse tut
+
+Der Prüfer hatte vermutet, zum Bildrand hin stünden weniger Sterne, und die
+Vermutung selbst als unbestätigt gekennzeichnet. Das war die richtige
+Zurückhaltung: Sie stimmt nicht.
+
+### Der erste Anlauf hat sie fast bestätigt — und war falsch gerechnet
+
+Gemessen wurde zunächst am Bild: lokale Helligkeitsmaxima je senkrechtem Band,
+geteilt durch die Bandfläche, verglichen mit der Erwartung aus der
+**geradlinigen Projektion**. Eine solche Projektion streckt den Rand: Ein
+Raumwinkel deckt dort um 1/cos³θ mehr Bildpunkte ab, bei 102 Grad waagerechtem
+Blickfeld am Rand also viermal so viele. Ein gleichmäßiger Himmel **muss** dort
+ein Viertel der Sterne je Bildpunkt zeigen.
+
+Gemessen kam heraus: rund die **Hälfte** des so Erwarteten, in drei
+verschiedenen Kameras, an beiden Rändern. Das sah nach einem echten Fund aus.
+
+Es war ein Rechenfehler in meiner eigenen Erwartung. Der Korrekturfaktor
+1/cos³θ wurde je Band mit **einem** mittleren θ angesetzt — aber innerhalb
+eines waagerechten Messstreifens ändert sich θ mit der Bildhöhe genauso stark
+wie mit der Breite. Im mittleren Band lief θ von 11 bis 35 Grad, und die
+Streckung damit von 1,06 bis 1,82. Die Bandkorrektur war für die mittleren
+Bänder um bis zu 70 Prozent zu klein, und genau das ergab den scheinbaren
+Randabfall.
+
+### Die Gegenprobe: dieselbe Zählung an der Geometrie
+
+`tools/sternprojektion.mjs` projiziert **alle** Scheitelpunkte des Sternfelds
+durch dieselbe Kamera und zählt sie je Band. Wenn das Rendern Sterne verlöre,
+müsste die Zählung an der Geometrie höher liegen als die im Bild.
+
+| Band | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| im Bild gezählt | 15 | 27 | 66 | 89 | 57 | 37 | 25 | 10 |
+| aus der Geometrie | 14 | 23 | 55 | 79 | 52 | 30 | 24 | 11 |
+
+Praktisch deckungsgleich. **Das Rendern verliert nichts.** (Dass im Bild
+durchweg ein paar mehr gezählt werden, ist der Detektor: Ein Stern über vier
+Bildpunkten hat gelegentlich zwei lokale Maxima.)
+
+### Die saubere Antwort kommt ohne Kamera
+
+`tools/sternhimmel.mjs` sortiert die Richtungen aller 5200 Sterne in 128
+**flächengleiche** Himmelsfelder. Keine Projektion, keine Korrektur, keine
+Näherung.
+
+```
+Mittel 40,63 je Feld   Streuung 18,10   Wurzelstreuung bei Zufall 6,37
+Ringsummen von Süd nach Nord: 679 668 603 604 609 617 744 676
+```
+
+Die Ringsummen liegen innerhalb von ±10 Prozent — der Himmel ist über die
+Breite gleichmäßig. Die große Feldstreuung (18,1 gegen 6,4) steckt vollständig
+**innerhalb** der Ringe: Je Ring halten ein bis zwei Felder 72 bis 89 Sterne,
+der Rest 20 bis 40. Das ist die Milchstraße, und sie ist gebaut, nicht
+gefunden.
+
+Als Zahl, über dem Winkelabstand zur Milchstraßenebene (flächengleiche Bänder,
+Ebene aus den Sternen selbst geschätzt):
+
+| Abstand zur Ebene | 0–10° | 10–19° | 19–30° | 30–42° | 42–56° | 56–90° |
+| --- | --- | --- | --- | --- | --- | --- |
+| Sterne | **1716** | 989 | 695 | 598 | 613 | 589 |
+
+Ab 30 Grad von der Ebene ist die Dichte flach (598 / 613 / 589). Das Band selbst
+steht mit Faktor 2,9 darüber.
+
+### Warum es trotzdem so **aussieht**
+
+In `a-augenhoehe` und `f-kante` läuft die Milchstraße durch die obere
+Bildmitte. Die Bildmitte ist damit tatsächlich dichter besetzt als der Rand —
+nur nicht, weil der Rand ausdünnt, sondern weil in der Mitte das Band steht.
+Dazu kommt die Randstreckung der Projektion, die ein Objektiv und eine Brille
+mit derselben Optik genauso zeigen.
+
+**Kein Mangel. Nichts geändert.**
+
+### Die Lehre dieser Runde
+
+**Eine Messung gegen eine gerechnete Erwartung ist nur so gut wie die
+Erwartung.** Der Detektor war in Ordnung, die Bilder waren in Ordnung, die
+Formel war die richtige — und die Anwendung der Formel auf ein ausgedehntes
+Band mit einem einzigen Mittelwert hat einen Fund erzeugt, den es nicht gibt.
+Wo eine Korrektur über den Messbereich stark variiert, muss die Messung ohne
+sie auskommen; hier hieß das: die Kamera weglassen.
