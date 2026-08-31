@@ -5453,7 +5453,39 @@ function makeMarsPlanet(rand) {
     // blickt weiter in dieselbe Richtung. Dieser Grat quert den Weg bei 22 bis
     // 30 m Bogen — aus 9 bis 17 m Entfernung, und mit 3,5 m Kammhöhe reicht die
     // Sichtweite (8,9 + sqrt(2·25·3,5) = 22,1 m) genau bis dorthin.
-    { vonBogen: 22, vonAz: 158, bisBogen: 30, bisAz: 202, breite: 5.8, h: 3.5 },
+    // **Für die leere Station — zweiter Anlauf, und der erste hat es
+    // verschlimmert.**
+    //
+    // Der Prüfer über `rund-030`: „eine Kuppe auf etwa 85 % der Fläche, kein
+    // Fels, kein Maßstab, kein Horizontereignis — eine von zwölf Stationen, an
+    // der es nichts zu sehen gibt."
+    //
+    // Der erste Grat stand als `{22 | 158} → {30 | 202}` und **querte damit die
+    // Laufspur**: Der Rundgang läuft nach Azimut 180, und 158…202 liegt
+    // symmetrisch darum. Zwanzig Zeilen tiefer steht die Regel, die er verletzt
+    // — „Ein Grat, der den Weg quert, wäre ein Anstieg; einer daneben ist eine
+    // Silhouette." Geschrieben war sie, angewandt nicht.
+    //
+    // Gemessen mit `tools/himmelsanteil.mjs` an Station 30 (Himmelsanteil und
+    // Gesamtvariation der Kammlinie — beides Zahlen für „gibt es hier eine
+    // Silhouette oder nur Hang"):
+    //
+    //     erster Anlauf, quer über den Weg  {22|158}→{30|202}   14,1 %   1587 px
+    //     ganz ohne Grat                                        23,0 %   3786 px
+    //     daneben                           {22|194}→{30|220}   17,3 %   2246 px
+    //     weit daneben                      {22|206}→{31|232}   22,5 %   3407 px
+    //     **jetzt**                         {20|150}→{28|176}   18,5 %   2807 px
+    //
+    // Die übrigen elf Stationen liegen bei 46 bis 61 % Himmel und 12 800 bis
+    // 28 500 px Kammvariation; Station 30 war mit 14,1 % und 1587 px der
+    // Ausreißer um Faktor drei bis achtzehn.
+    //
+    // **Warum nicht einfach weg?** Weil derselbe Grat `c-krater` trägt: Dort
+    // liegt seine linke Flanke mit einer Reihe Findlinge darauf im Bild, und
+    // ohne ihn rutscht die Kante flach weg (Δmittel 8,01 auf 11,4 % der
+    // Bildpunkte). Die jetzige Lage hält beides: Sie beginnt bei Azimut 150,
+    // wo `c-krater` hinsieht, und **endet bei 176**, also vor der Laufspur.
+    { vonBogen: 20, vonAz: 150, bisBogen: 28, bisAz: 176, breite: 5.8, h: 3.5 },
     // **Drei Grate für die flachen Abschnitte, gemessen ausgewählt.**
     //
     // `tools/gelaende.mjs` tastet das Höhenfeld an 4000 Richtungen ab und dazu

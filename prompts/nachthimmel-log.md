@@ -4595,3 +4595,105 @@ Formel war die richtige — und die Anwendung der Formel auf ein ausgedehntes
 Band mit einem einzigen Mittelwert hat einen Fund erzeugt, den es nicht gibt.
 Wo eine Korrektur über den Messbereich stark variiert, muss die Messung ohne
 sie auskommen; hier hieß das: die Kamera weglassen.
+
+---
+
+## Die leere Station: Der erste Grat hat sie leerer gemacht
+
+**Befund des Prüfers zu `rund-030`:** *„eine Kuppe auf etwa 85 % der Fläche,
+kein Fels, kein Maßstab, kein Horizontereignis — eine von zwölf Stationen, an
+der es nichts zu sehen gibt."*
+
+Dafür stand seit einem früheren Durchlauf ein Grat im Quelltext, mit genau
+diesem Zitat als Begründung. Er hat den Befund **verschlimmert**.
+
+### Erst messen, was „leer" heißt
+
+`tools/himmelsanteil.mjs` (neu) trennt Himmel und Boden über den Farbton — der
+Boden ist warm, der Himmel kühl, dieselbe Trennung wie in `horizont.mjs`, und
+sie hält auch dort, wo der Himmel selbst einen Verlauf trägt. Ausgegeben werden
+der Himmelsanteil und die **Gesamtvariation der Kammlinie**, also die Summe der
+Höhensprünge von Spalte zu Spalte: ein gezogener Strich hat sie nahe null, eine
+zerklüftete Kante viel.
+
+Über den ganzen Rundgang, mit dem Grat quer über dem Weg:
+
+| Station | 000 | **030** | 060 | 090 | 120 | 150 | 180 | 210 | 240 | 270 | 300 | 330 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Himmel % | 54,4 | **14,1** | 61,3 | 56,9 | 53,3 | 49,8 | 46,5 | 58,4 | 48,0 | 57,8 | 47,3 | 59,4 |
+| Kamm px | 20 078 | **1 587** | 26 238 | 26 031 | 24 705 | 15 925 | 12 832 | 21 703 | 13 715 | 19 825 | 17 527 | 28 471 |
+
+Station 30 ist der Ausreißer um Faktor **drei** im Himmel und **acht bis
+achtzehn** in der Kammlinie. Der Befund stimmt, und er stimmt messbar.
+
+### Der Grat war die Ursache, nicht die Abhilfe
+
+Er stand als `{22 | 158} → {30 | 202}`. Der Rundgang läuft nach **Azimut 180** —
+158 bis 202 liegt symmetrisch darum, der Grat quert also die Laufspur und steht
+bei Station 30 als Wall neun bis siebzehn Meter voraus. Zwanzig Zeilen tiefer im
+selben Quelltext steht die Regel, die er verletzt:
+
+> „Ein Grat, der den Weg quert, wäre ein Anstieg; einer daneben ist eine
+> Silhouette."
+
+Geschrieben war sie, angewandt nicht.
+
+| Lage | Himmel | Kammvariation |
+| --- | --- | --- |
+| `{22\|158} → {30\|202}` quer über den Weg | 14,1 % | 1587 px |
+| ganz ohne Grat | **23,0 %** | **3786 px** |
+| `{22\|194} → {30\|220}` daneben | 17,3 % | 2246 px |
+| `{22\|206} → {31\|232}` weit daneben | 22,5 % | 3407 px |
+| **`{20\|150} → {28\|176}`** | **18,5 %** | **2807 px** |
+
+Zwischen „im Weg" und „hinter der Kante" liegt wenig Platz: Bei 25 m Halbmesser
+ist der Horizont 8,9 m entfernt, und ein 3,5-m-Grat ist bis 22,1 m Bogen zu
+sehen. Weit genug daneben (206…232) ist er praktisch unsichtbar — 22,5 gegen
+23,0 % ohne ihn.
+
+### Warum er trotzdem bleibt
+
+Weil derselbe Grat ein **anderes** Bild trägt. In `c-krater` liegt seine linke
+Flanke mit einer Reihe Findlinge darauf im Bild und gibt der Ansicht ihre Tiefe;
+ohne ihn rutscht die Kante flach weg (Δmittel 8,01 auf 11,4 % der Bildpunkte).
+
+Die jetzige Lage hält beides: Sie **beginnt** bei Azimut 150, wo `c-krater`
+hinsieht, und **endet bei 176**, also vor der Laufspur. Station 30 kommt damit
+von 14,1 auf 18,5 % Himmel und von 1587 auf 2807 px Kammvariation, und
+`c-krater` behält seine Flanke.
+
+Im Bild steht jetzt: Himmel auf der linken Seite, ein Findling gegen den Himmel
+auf dem Kamm, drei Blöcke mit Schlagschatten auf der linken Flanke, die großen
+Brocken rechts. „Kein Fels, kein Maßstab, kein Horizontereignis" trifft nicht
+mehr zu.
+
+**Ein Rest bleibt und wird nicht wegargumentiert:** Mit 18,5 % ist Station 30
+weiterhin die geschlossenste der zwölf. Sie steht am Fuß einer Düne, und die
+Düne ist Gelände, kein Fehler — einer von zwölf Blicken auf einen Hang ist der
+Weg und nicht ein Mangel.
+
+### Und die „Fumarole" gibt es nicht
+
+Auf meiner Liste offener Prüferpunkte stand „das Glimmen der Fumarole wirft kein
+Licht auf das Gelände". In der ganzen Umgebung kommt das Wort nicht vor, und in
+der Szene steht kein solcher Gegenstand — die Objektliste kennt Planet, Brocken,
+Landmarken, Findlinge, Sputnik samt Fetzen, Staub, Staubteufel, Sterne, beide
+Monde mit Höfen, Meteor und Kuppel.
+
+Gemeint war offenbar der **Staubteufel**: eine Säule aus aufgewirbeltem Staub,
+die in `a-augenhoehe` über dem Rücken steht. Der wirft zu Recht kein Licht — er
+ist Staub, der Mondlicht *streut*, keine Glut. Ein Fülllicht daran wäre eine
+zweite gerichtete Quelle in einer Szene, die aus gutem Grund eine hat.
+
+Der Punkt ist damit nicht behoben, sondern **hinfällig**, und der Unterschied
+gehört ins Protokoll: Ich hatte den Befund in meiner eigenen Zusammenfassung
+umbenannt, und ein umbenannter Befund ist ein neuer Befund.
+
+### Die Lehre dieser Runde
+
+**Eine Regel, die im selben Quelltext zwanzig Zeilen tiefer steht, hilft nur,
+wenn man sie vor dem Schreiben liest.** Der Grat war als Abhilfe für genau diese
+Station gedacht, mit dem Prüferzitat darüber — und wurde quer über den Weg
+gelegt, den die Regel darunter ausschließt. Und: **Ein Fund gehört mit den
+Worten notiert, in denen er gemeldet wurde.** Aus „Staubteufel" wurde in meiner
+Liste eine „Fumarole", und danach habe ich nach etwas gesucht, das es nicht gibt.
