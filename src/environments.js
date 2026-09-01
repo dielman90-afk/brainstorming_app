@@ -1269,6 +1269,127 @@ const ZONE_GRASS = 0;
 const ZONE_EARTH = 1;
 const ZONE_ROCK = 2;
 
+// --- Die Grasnarbe aus der Naehe -------------------------------------------
+//
+// **Der groesste Hebel der Insel, und er kostet kein Byte Textur.**
+//
+// Gemessen im Ausgangsstand, `6-groundcover`, Bereich (100,420) bis
+// (1180,700) — 304 000 Bildpunkte, ueber die halbe Bildflaeche:
+//
+//     Hochpass 0,040   Mittel 181,1   p05 bis p95 = 176 bis 188
+//
+// Zwoelf Tonwertstufen von 255. Zum Vergleich traegt der Regolith des
+// Nachthimmels an derselben Stelle 0,867, also das Einundzwanzigfache — und
+// das ist eine bewusst dunkle Flaeche.
+//
+// **Warum die Scheitelfarben das nicht loesen.** Die Wiese hat eine sorgfaeltig
+// gebaute Einfaerbung: Feuchte aus Mulden und Bachnaehe, Moos, duerres Gras auf
+// dem Ruecken, drei Ortsfrequenzen. Sie haengt aber an den **Scheitelpunkten**,
+// und die begehbare Flaeche ist absichtlich eben und damit grob unterteilt. Aus
+// 1,5 m Abstand deckt eine Gitterzelle einen guten Teil des Bildes ab, und was
+// dazwischen liegt, ist eine lineare Interpolation — ein weicher Verlauf, dessen
+// Hochpass definitionsgemaess bei null liegt. Es ist derselbe Befund wie beim
+// Nachthimmel-Vordergrund: nicht fehlendes Detail, sondern Vergroesserung.
+//
+// **Warum keine Karte.** Ein frueherer Anlauf hat die Mooskarten des
+// Dojo-Satzes darauf gelegt: dreifacher Texturspeicher (9,17 auf 27,83 MB) bei
+// unveraendertem Bild. Die Begruendung steht unten am Materialsatz und gilt
+// weiter. Was hier fehlt, ist Struktur im **Massstab der Halme**, und die
+// entsteht rechnend im Shader — kein Texturspeicher, kein Draw-Call, keine
+// Kachelgrenze.
+//
+// **Der Massstab ist gerechnet.** Die Kamera loest 60 Grad auf 720 Zeilen auf,
+// also 1,45 mrad je Bildpunkt; auf 1,5 m sind das 2,2 mm, auf 6 m 8,7 mm. Ein
+// Bueschel von 18 cm ist damit auf 1,5 m 82 Bildpunkte breit und auf 20 m noch
+// sechs. Ausgeblendet wird trotzdem ab 14 m — nicht weil es dann zu klein
+// waere, sondern weil eine Normalenstoerung, die unter wenige Bildpunkte faellt,
+// zu flimmerndem Korn wird statt zu Form.
+let _inselGras = null;
+function grasMaterial() {
+  if (_inselGras) return _inselGras;
+  _inselGras = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.97,
+    metalness: 0,
+  });
+  _inselGras.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGrasOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvGrasOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vGrasOrt;
+         float grasHash(vec2 p) {
+           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+         }
+         float grasNoise(vec2 p) {
+           vec2 i = floor(p);
+           vec2 f = fract(p);
+           vec2 u = f * f * (3.0 - 2.0 * f);
+           return mix(
+             mix(grasHash(i), grasHash(i + vec2(1.0, 0.0)), u.x),
+             mix(grasHash(i + vec2(0.0, 1.0)), grasHash(i + vec2(1.0, 1.0)), u.x),
+             u.y
+           );
+         }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           // Zwei Ortsfrequenzen in der Albedo: Flecken von rund 90 cm, die
+           // dem Rasen Gebiete geben, und ein Korn von 16 cm, das die Halme
+           // andeutet. Das Korn blendet mit der Entfernung aus, die Flecken
+           // bleiben — sie tragen die Wiese auch in der Ferne.
+           vec2 w = vGrasOrt.xz;
+           float tiefe = length(vViewPosition);
+           float nah = 1.0 - smoothstep(6.0, 14.0, tiefe);
+           float fleck = grasNoise(w * 1.11) - 0.5;
+           float korn = grasNoise(w * 6.25) - 0.5;
+           float buendel = grasNoise(w * 2.4 + 17.0) - 0.5;
+           diffuseColor.rgb *= 1.0 + fleck * 0.17 + buendel * 0.10 + korn * 0.20 * nah;
+           // Halmspitzen sind gelber als der Grund. Der Ausschlag sitzt auf
+           // dem Korn, nicht auf den Flecken: Die Farbe wandert mit dem
+           // einzelnen Bueschel, nicht mit dem Gebiet.
+           diffuseColor.g += korn * 0.045 * nah;
+           diffuseColor.b -= korn * 0.030 * nah;
+         }`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+         {
+           // Bueschel von 18 cm als Normalenstoerung. Der Gradient kommt aus
+           // drei Abtastungen; die Stoerung wird im **Weltraum** gebildet und
+           // erst dann in den Blickraum gedreht, weil ohne Normalenkarte kein
+           // Tangentensystem im Shader steht.
+           vec2 w = vGrasOrt.xz;
+           float tiefe = length(vViewPosition);
+           float nahN = 1.0 - smoothstep(5.0, 14.0, tiefe);
+           if (nahN > 0.002) {
+             float e = 0.055;
+             vec2 q = w * 5.55;
+             float h0 = grasNoise(q) * 0.62 + grasNoise(q * 2.7 + 11.0) * 0.38;
+             float hx = grasNoise(q + vec2(e, 0.0)) * 0.62 + grasNoise((q + vec2(e, 0.0)) * 2.7 + 11.0) * 0.38;
+             float hz = grasNoise(q + vec2(0.0, e)) * 0.62 + grasNoise((q + vec2(0.0, e)) * 2.7 + 11.0) * 0.38;
+             vec3 stoerung = vec3(-(hx - h0), 0.0, -(hz - h0)) * (5.6 * nahN);
+             normal = normalize(normal + (viewMatrix * vec4(stoerung, 0.0)).xyz);
+           }
+         }`
+      );
+  };
+  // Ohne eigenen Schluessel teilt three das uebersetzte Programm mit jedem
+  // anderen MeshStandardMaterial derselben Merkmale — und die Insel bekaeme
+  // ihre Einspritzung nicht.
+  _inselGras.customProgramCacheKey = () => 'insel-gras-v1';
+  return _inselGras;
+}
+
 function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detail = 1 } = {}) {
   const S = Math.max(24, Math.round(seg * detail));
   const TR = Math.max(6, Math.round(topRings * detail));
@@ -1474,11 +1595,7 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   // Auf einer mobilen Brille ist das ein schlechter Tausch. Die Variation der
   // Wiese kommt aus den Scheitelfarben - sie haengt an der Geometrie, ist damit
   // im richtigen Massstab und kostet nichts.
-  const gras = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.97,
-    metalness: 0,
-  });
+  const gras = grasMaterial();
 
   const mesh = new THREE.Mesh(geo, [
     gras,
