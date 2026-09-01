@@ -399,3 +399,101 @@ Pakets.
 die Rauheit hat daran nichts geändert. Ob das Aliasing ist oder eine Folge davon,
 dass ein kleiner Messkasten um ein fernes Objekt überwiegend dessen Rand enthält,
 ist **nicht geklärt**; die Frage gehört vor die nächste Änderung, nicht danach.
+
+---
+
+## Paket „Der Sturz": Was gemessen wurde, war nicht das, was ich gesucht habe
+
+**Prüfer-Mangel 3:** *„Der Wasserfall hat keinen Körper und hängt neben der
+Insel."* In `4-aerial` reißt der Sturz über je 60 px vollständig ab, größter
+Abstand zum Himmel 16,2 Stufen; in `2-waterfall` — dem Bild, das nach ihm heißt
+— kommt er gar nicht vor.
+
+### Zwei falsche Fährten, beide gemessen widerlegt
+
+*Erstens:* Ich hielt die Bahn für **kantensichtig** — ein flaches Band, das man
+von der Schmalseite sieht, ist ein Strich. `tools/wasserfall.mjs` (neu) rechnet
+Breite, Winkel zur Blickrichtung und Bildbreite je Querschnitt aus: In
+`4-aerial` steht die Bahn **11 bis 37 Bildpunkte** breit im Bild, in
+`6-groundcover` bis 806. An der Breite lag es nicht.
+
+*Zweitens:* Ich habe einen Kasten um den Sturz gelegt und gegen den Himmel
+gemessen — Ergebnis „Ausschlag Mittel 74,1". Im selben Kasten steht die
+**Felswand**, und ihre 140 Stufen überdecken alles. Gemessen war der Fels.
+
+### Die Messung, die trägt
+
+`tools/sturzprobe.mjs` (neu) schaltet jeden Teil einzeln unsichtbar und nimmt
+die Differenz — dieselbe Methode wie beim Schattenanteil, schwellenfrei. Dafür
+haben die vier Teile jetzt Namen.
+
+| Teil | in wie vielen Bildern | Fläche | Ausschlag |
+| --- | --- | --- | --- |
+| `waterfall-sheet` | **1 von 6** | 1175 px | 9,1 |
+| `waterfall-drops` | **1 von 6** | 297 px | 11,6 |
+| `waterfall-mist` | **1 von 6** | 2917 px | **1,8** |
+| `waterfall-foam` | 4 von 6 | 669–2588 px | 4,3–14,6 |
+
+Das ist deutlich schärfer als der Befund des Prüfers und verschiebt ihn: Der
+Sturz **reißt nicht ab, er ist nicht da.** Wer auf der Insel steht, sieht ihn
+nicht — er fällt hinter der Kante, auf der man steht. Das ist Geometrie und
+lässt sich nicht polieren. Sichtbar ist von der Wiese aus allein die **Lippe**.
+
+### Was gebaut wurde
+
+**Eine Sprühfahne über der Lippe.** Neunzig Tropfen, die im Sinusbogen
+aufsteigen, über die Kante driften und beschleunigt darunter verschwinden. Der
+Umlauf setzt im hellen Schaum wieder ein, wo der Wechsel nicht zu sehen ist.
+
+| | vorher | nachher |
+| --- | --- | --- |
+| in wie vielen Bildern sichtbar | — | **5 von 6** |
+| `1-eyelevel` | — | 173 px, Ausschlag **42,4** |
+| `2-waterfall` | — | 108 px, 8,6 |
+| `4-aerial` | — | 132 px, 6,0 |
+| `5-backlight` | — | 75 px, 7,4 |
+
+**Eigenleuchten auf der Bahn.** Die Wassertextur läuft von 0x8fd2f0 nach
+0x5fb6e6 — genau das Blau, vor dem sie steht. Mit `emissive` 0xcdeaf8 bei
+Stärke 0,5: Ausschlag in `4-aerial` **9,1 → 11,3**. Das ist wenig, und es steht
+hier als wenig.
+
+### Zwei eigene Fehler in diesem Durchlauf
+
+**Der Schaum.** Ich habe das Sprite von 1,3 × 0,5 auf 1,7 × 0,62 vergrößert. Die
+Messzahl wurde besser (`1-eyelevel` 2588 → 4588 Bildpunkte, Ausschlag 14,6 →
+19,1) und das Bild schlechter: Das Sprite ist ein **Billboard** und liegt damit
+als blasser Fleck von knapp sieben Metern quer über der Wiese, nicht als Schaum
+an einer Kante. Nachgesehen hat es der Ausschnitt, nicht die Messung.
+**Zurückgenommen.**
+
+**Der Zufallsstrom.** Die 540 Werte der Fahne kamen zuerst aus `rand`, dem
+gesäten Inselstrom — und verschoben damit alles, was danach gebaut wird:
+Mini-Inseln, ihre Bäume, ihre Findlinge. Gemessen schlug das mit Δmittel **1,6
+bis 7,7** auf allen sechs Inselbildern durch und mit **2952 Dreiecken** im
+Budget, für eine Punktwolke ohne ein einziges Dreieck. Die Lehre steht wortgleich
+im Auftrag („Ein zusätzlicher `rand()`-Aufruf verschiebt **alles** danach"); ich
+bin trotzdem hineingelaufen. Mit eigenem Strom: Δmittel **0,000 bis 0,048**,
+Dreiecke wieder 186 257.
+
+### Kosten und Regression
+
+74 Draw-Calls von 120 (+1 für die Punktwolke), 186 257 Dreiecke, 11,83 MB
+Textur. Nacht und Zen bitgleich, Konstrukt Δmittel 0,002, Dojo 0,000. Konsole
+frei von Errors und Warnings.
+
+### Was offen bleibt und was als Nächstes dran ist
+
+Der Sturz selbst bleibt in fünf von sechs Bildern unsichtbar. Das ist keine
+Materialfrage; wer ihn sehen will, muss über die Kante blicken, und genau dafür
+gibt es `3-edge-down` — nur zeigt diese Kamera eine andere Stelle des Randes.
+**Eine feste Kamera zu verschieben ist ausgeschlossen** (sie sind der
+Vergleichsmaßstab über den ganzen Auftrag); ob der Sturz an eine sichtbarere
+Stelle des Randes gehört, ist eine Frage an den Auftraggeber, keine, die ich
+still entscheide.
+
+Beim Nachsehen am Ausschnitt ist der eigentlich lautere Nachbar aufgefallen: Das
+breite blasse Gebilde neben der Lippe in `1-eyelevel` ist das **Bachband**, das
+zur Kante hin auf sieben Meter aufgeht und als durchscheinende Folie über der
+Wiese liegt. Das ist Prüfer-Mangel 6, und es ist im Bild deutlicher als alles,
+was dieses Paket betroffen hat.
