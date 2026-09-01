@@ -2327,6 +2327,29 @@ function makeWaterfall(rand, shape) {
         color: 0xffffff,
         roughness: 0.2,
         metalness: 0.05,
+        // **Eigenleuchten, weil der Sturz sonst im Himmel verschwindet.**
+        //
+        // Gemessen (`tools/sturzprobe.mjs`, den Knoten aus- und wieder
+        // einschalten und die Differenz nehmen): Der Strahl war in **einem**
+        // von sechs Bildern ueberhaupt vorhanden, dort auf 1175 Bildpunkten
+        // mit einem mittleren Ausschlag von **9,1** Stufen gegen den Himmel.
+        // Neun Stufen sind bei einem Himmel um L 190 nichts.
+        //
+        // Die Ursache steht in seiner Farbe: Die Wassertextur laeuft von
+        // 0x8fd2f0 nach 0x5fb6e6 — genau das Blau, vor dem er steht. Ein
+        // durchscheinendes Blau vor blauem Himmel hat keinen Kontrast, egal wie
+        // breit es ist (an der Breite lag es nachweislich nicht: 11 bis 37
+        // Bildpunkte in der Totale, gemessen mit `tools/wasserfall.mjs`).
+        //
+        // Fallendes Wasser ist vor hellem Himmel **heller** als er, weil es
+        // aufgebrochen ist und in alle Richtungen streut. Das ist kein Licht,
+        // das die Szene beleuchtet, sondern die Erscheinung des Koerpers
+        // selbst — genau der Fall fuer `emissive`. Der Betrag ist bewusst
+        // klein: Die bezahlte Lehre der Sonnenscheibe des Zen-Gartens sagt,
+        // dass ein voller Kern plus additive Mischung reines Weiss ergibt und
+        // damit jede Form verliert.
+        emissive: 0xcdeaf8,
+        emissiveIntensity: 0.5,
         transparent: true,
         opacity: 0.95,
         side: THREE.DoubleSide,
@@ -2367,6 +2390,11 @@ function makeWaterfall(rand, shape) {
     })
   );
   drops.frustumCulled = false;
+  // Namen, damit `tools/sturzprobe.mjs` die vier Teile des Wasserfalls einzeln
+  // aus- und wieder einschalten kann. Ohne Namen ist die Frage „welcher Teil
+  // ist ueberhaupt im Bild" nicht zu beantworten, und genau daran haette ich
+  // mich fast verrechnet.
+  drops.name = 'waterfall-drops';
   group.add(drops);
 
   // Punkt auf der Mittellinie des Strahls, 0 = Lippe, 1 = Fuß.
@@ -2391,6 +2419,7 @@ function makeWaterfall(rand, shape) {
   );
   mist.position.copy(fuss);
   mist.scale.set(2.4, 2.4, 1);
+  mist.name = 'waterfall-mist';
   group.add(mist);
 
   // Schaum an der Lippe (pulsierendes weiches Glühen)
@@ -2403,14 +2432,102 @@ function makeWaterfall(rand, shape) {
       fog: false,
     })
   );
+  // **Nicht vergroessern.** Ein Versuch mit 1,7 x 0,62 hat die Messzahl
+  // verbessert (Ausschlag in `1-eyelevel` von 14,6 auf 19,1, Flaeche von 2588
+  // auf 4588 Bildpunkten) und das Bild verschlechtert: Das Sprite ist ein
+  // Billboard und liegt damit als blasser Fleck von knapp sieben Metern quer
+  // ueber der Wiese, nicht als Schaum an einer Kante. Groesser heisst hier nur
+  // groesserer Fleck. Die Zahl war echt und die Deutung falsch — nachgesehen
+  // hat es der Ausschnitt, nicht die Messung.
   foam.position.set(lippeX, lippeY + 0.02, lippeZ);
   foam.scale.set(1.3, 0.5, 1);
+  foam.name = 'waterfall-foam';
   group.add(foam);
+
+  // --- Die Spruehfahne ueber der Lippe --------------------------------------
+  //
+  // **Der Wasserfall ist von der Wiese aus nicht zu sehen, und das ist keine
+  // Materialfrage.** Gemessen mit `tools/sturzprobe.mjs` — jeden Teil einzeln
+  // aus- und wieder einschalten und die Differenz nehmen:
+  //
+  //     waterfall-sheet   in 1 von 6 Bildern    1175 px, Ausschlag  9,1
+  //     waterfall-drops   in 1 von 6 Bildern     297 px, Ausschlag 11,6
+  //     waterfall-mist    in 1 von 6 Bildern    2917 px, Ausschlag  1,8
+  //     waterfall-foam    in 4 von 6 Bildern   669 bis 2588 px,  4,3 bis 14,6
+  //
+  // Wer auf der Insel steht, sieht den Sturz nicht — er faellt hinter der
+  // Kante, auf der man steht. Das ist Geometrie und laesst sich nicht
+  // wegpolieren. Sichtbar ist nur die **Lippe**, und die trug bisher ein
+  // einziges pulsierendes Sprite mit vier bis fuenfzehn Stufen Ausschlag.
+  //
+  // Was ein Betrachter am Ufer eines Wasserfalls tatsaechlich sieht, ist die
+  // Fahne: aufsteigende Tropfen ueber der Kante, die im Bogen zurueckfallen.
+  // Sie steht **ueber** der Grasnarbe und ist damit das einzige Stueck des
+  // Wasserfalls, das von der Wiese aus ins Bild ragt.
+  //
+  // Der Umlauf ist so gelegt, dass kein Sprung sichtbar wird: Der Tropfen
+  // steigt im Sinusbogen, driftet ueber die Kante hinaus und faellt
+  // quadratisch beschleunigt unter die Lippe — dort verschwindet er hinter dem
+  // Rand und setzt am Anfang wieder ein, mitten im hellen Schaum, wo der Wechsel
+  // nicht zu sehen ist.
+  const fliess = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+  const FAHNE = 90;
+  const fahnePos = new Float32Array(FAHNE * 3);
+  const fahneMeta = [];
+  // **Ein eigener Strom, nicht `rand`.** Der erste Anlauf hat die 540 Werte aus
+  // dem Inselstrom gezogen — und damit alles verschoben, was danach kommt:
+  // Mini-Inseln, ihre Baeume, ihre Findlinge. Gemessen schlug das mit Δmittel
+  // 1,6 bis 7,7 auf allen sechs Inselbildern durch und mit 2952 Dreiecken im
+  // Budget, fuer eine Punktwolke ohne ein einziges Dreieck. Die Lehre steht
+  // wortgleich im Auftrag; ich bin trotzdem hineingelaufen.
+  const fr = mulberry32(884411);
+  for (let i = 0; i < FAHNE; i++) {
+    fahneMeta.push({
+      tempo: 0.30 + fr() * 0.40,
+      phase: fr(),
+      quer: (fr() - 0.5) * 0.95,
+      hoch: 0.14 + fr() * 0.30,
+      trift: 0.06 + fr() * 0.26,
+      zittern: (fr() - 0.5) * 0.05,
+    });
+  }
+  const fahneGeo = new THREE.BufferGeometry();
+  fahneGeo.setAttribute('position', new THREE.BufferAttribute(fahnePos, 3));
+  const fahne = new THREE.Points(
+    fahneGeo,
+    new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 0.075,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false,
+      fog: false,
+    })
+  );
+  fahne.name = 'waterfall-fahne';
+  fahne.frustumCulled = false;
+  group.add(fahne);
+
   return {
     group,
     update(time) {
       waterTex.offset.y = -time * 0.35;
       foam.material.opacity = 0.65 + Math.sin(time * 4) * 0.2;
+      {
+        const fp = fahneGeo.attributes.position;
+        for (let i = 0; i < FAHNE; i++) {
+          const m = fahneMeta[i];
+          const t = (m.phase + time * m.tempo) % 1;
+          const steig = Math.sin(Math.PI * Math.min(1, t * 1.35));
+          fp.setXYZ(
+            i,
+            lippeX + tangent.x * m.quer + fliess.x * m.trift * t + m.zittern * Math.sin(time * 2.7 + i),
+            lippeY + m.hoch * steig - 0.9 * t * t,
+            lippeZ + tangent.z * m.quer + fliess.z * m.trift * t + m.zittern * Math.cos(time * 2.7 + i)
+          );
+        }
+        fp.needsUpdate = true;
+      }
       const pos = geometry.attributes.position;
       for (let i = 0; i < count; i++) {
         const m = meta[i];
