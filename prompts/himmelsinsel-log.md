@@ -89,7 +89,7 @@ Regolith des Nachthimmels — eine bewusst dunkle Fläche — hat an derselben S
 0,867, also das **Einundzwanzigfache**. In `1-eyelevel` ist es mit 1,203 besser,
 aber dort stehen Büsche und Blumen im Ausschnitt; die reine Wiese trägt nichts.
 
-### Befund 2 — 95 Zeichenknoten, 7 Werfer, 4 Empfänger
+### Befund 2 — ~~95 Zeichenknoten, 7 Werfer, 4 Empfänger~~ **berichtigt, siehe unten**
 
 `tools/lichtzensus.mjs` (neu):
 
@@ -122,3 +122,62 @@ Abtastung passen" — noch nicht gemessen, kommt im Paket Vegetation.
 `5-backlight` heißt so, weil die Kamera in die Sonne blickt. Das Laub davor ist
 flach dunkelgrün: kein Randlicht, keine Durchleuchtung, kein Streiflicht auf den
 Kanten. Die Sonne selbst ist ein weißer Fleck mit weichem Hof.
+
+---
+
+## Berichtigung zu Befund 2: Die Schatten sind verdrahtet, es steht nur nichts drin
+
+Oben steht: „Ohne Schattenrolle sind unter anderem `island-body` (der Boden
+selbst), `island-krone` und `island-laub` (die Baumkronen), `island-stones`,
+`bushes`." **Das ist falsch, und der Fehler war mein Werkzeug.**
+
+`tools/lichtzensus.mjs` hat in seiner ersten Fassung nur die Knoten **ohne**
+Schattenrolle aufgelistet. Die Namen `island-body`, `island-krone`,
+`island-laub` und `island-stones` kommen aber **mehrfach** vor: einmal für die
+Hauptinsel und je einmal für die fünf Mini-Inseln, die absichtlich keine
+Schatten haben (die Begründung steht im Quelltext: dieselbe Kartenauflösung über
+die sechsfache Fläche würde aus scharfen Baumschatten Flecken machen). Ich habe
+die Kopien der Mini-Inseln gesehen und auf die Hauptinsel geschlossen.
+
+Mit der Namensliste statt der Zahl:
+
+```
+wirft:     island-body, island-holz, island-krone, island-laub,
+           island-krone, island-laub, island-stones
+empfaengt: island-body, island-stones, flowers, bush-leaves
+```
+
+Die Hauptinsel wirft also vollständig: Körper, Stämme, beide Kronentypen,
+Findlinge.
+
+### Was stattdessen der Befund ist
+
+`tools/schattenanteil.mjs` (neu) nimmt jedes feste Bild zweimal auf — einmal mit
+Schattenwurf, einmal ohne — und misst die Differenz. Was dazwischen liegt,
+**ist** der Schatten, schwellenfrei.
+
+| Bild | Fläche mit Schatten | Abfall Mittel | Abfall größter |
+| --- | ---: | ---: | ---: |
+| 1-eyelevel | **0,57 %** | 39,2 | 120 |
+| 2-waterfall | **0,93 %** | 44,7 | 156 |
+| 3-edge-down | 22,73 % | 29,9 | 121 |
+| 4-aerial | 5,51 % | 30,9 | 67 |
+| 5-backlight | **1,78 %** | 42,1 | 169 |
+| 6-groundcover | **0,99 %** | 36,8 | 135 |
+
+Wo Schatten liegt, ist er **kräftig** — 30 bis 45 Luminanzstufen Abfall, in der
+Spitze 169. Das ist kein zu schwaches Licht und keine falsche Karte.
+
+Der Mangel ist, dass er in den vier Augenhöhen-Bildern **unter zwei Prozent der
+Fläche** einnimmt. Die Sonne steht auf 38,7 Grad; ein vier Meter hoher Baum wirft
+dort fünf Meter Schatten. Dass davon nichts im Bild ist, heißt nicht „die
+Schatten fehlen", sondern **auf der Wiese steht nichts, das welche wirft**. Das
+ist derselbe Befund wie Befund 1, aus einer anderen Richtung gemessen.
+
+Ein echter Nebenbefund bleibt: `bushes`, `undergrowth-shade` und `mushrooms`
+**empfangen** keine Schatten. Ein Busch im Schatten eines Baumes steht damit voll
+beleuchtet in einem dunklen Feld.
+
+**Die Lehre:** Ein Werkzeug, das nur die Ausreißer ausgibt, lädt zum Fehlschluss
+ein. Die Namensliste der Werfer stand nach drei Zeilen Änderung da und hätte den
+falschen Befund nie entstehen lassen.
