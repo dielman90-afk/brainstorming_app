@@ -1829,7 +1829,23 @@ function addGrassDecoration(group, rand, shape) {
 
 // Sanft animiertes Wasser: hellblaue Fläche mit fließenden Strähnen (Canvas-Textur,
 // deren V-Offset über die Zeit scrollt).
+// **Der Grund, warum die Insel nie reproduzierbar war.**
+//
+// Diese acht Strähnen kamen aus `Math.random()`. Damit sah das Wasser bei
+// jedem Seitenaufruf anders aus, und der Prüfstand konnte für die Insel nie
+// mehr sagen als „0,6 bis 0,9 Prozent der Bildpunkte weichen ab, das ist das
+// Rauschband" — eine Zahl, die im Protokoll seit drei Aufträgen steht und
+// jeden Vergleich unter dieser Schwelle wertlos machte.
+//
+// Gemessen war es genau hier: `2-waterfall` wich zwischen zwei Läufen in
+// 1,535 Prozent der Bildpunkte ab, `1-eyelevel` in 0,556 — beides Bilder mit
+// Wasser —, während `3-edge-down` und `5-backlight` bei 0,07 und 0,06 lagen.
+// Innerhalb **eines** Seitenaufrufs waren vier Aufnahmen dagegen bitgleich.
+//
+// Ein gesäter Strom liefert dieselben acht Strähnen und sieht keinen Deut
+// anders aus. Die Saat ist willkürlich und darf sich nie wieder ändern.
 function makeWaterTexture() {
+  const wr = mulberry32(90210);
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 256;
@@ -1842,8 +1858,8 @@ function makeWaterTexture() {
   ctx.strokeStyle = 'rgba(255,255,255,0.5)';
   ctx.lineWidth = 3;
   for (let i = 0; i < 8; i++) {
-    const x = 6 + Math.random() * 52;
-    ctx.globalAlpha = 0.3 + Math.random() * 0.4;
+    const x = 6 + wr() * 52;
+    ctx.globalAlpha = 0.3 + wr() * 0.4;
     ctx.beginPath();
     ctx.moveTo(x, -10);
     for (let y = -10; y < 270; y += 20) {
