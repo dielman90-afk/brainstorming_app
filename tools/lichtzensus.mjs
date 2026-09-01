@@ -25,11 +25,19 @@ try {
     let werfer = 0;
     let empfaenger = 0;
     const ohne = [];
+    const wirft = [];
+    const empfaengt = [];
     wurzel.traverse((o) => {
       if (!o.isMesh && !o.isInstancedMesh) return;
       meshes++;
-      if (o.castShadow) werfer++;
-      if (o.receiveShadow) empfaenger++;
+      if (o.castShadow) {
+        werfer++;
+        wirft.push(o.name || o.type);
+      }
+      if (o.receiveShadow) {
+        empfaenger++;
+        empfaengt.push(o.name || o.type);
+      }
       if (!o.castShadow && !o.receiveShadow) ohne.push(o.name || o.type);
     });
     const lichter = [];
@@ -46,6 +54,8 @@ try {
       werfer,
       empfaenger,
       ohne: ohne.slice(0, 24),
+      wirft,
+      empfaengt,
       lichter,
       sceneAmbient: env?.sceneAmbient ?? null,
       schattenkarte: `${app.renderer.shadowMap.enabled ? 'an' : 'aus'}, Typ ${app.renderer.shadowMap.type}`,
@@ -56,6 +66,8 @@ try {
   console.log(`  sceneAmbient: ${d.sceneAmbient === null ? '— (nicht gesetzt)' : d.sceneAmbient}`);
   console.log('  Lichter der ganzen Szene:');
   for (const l of d.lichter) console.log(`    ${l}`);
+  console.log(`  wirft: ${d.wirft.join(', ') || '—'}`);
+  console.log(`  empfaengt: ${d.empfaengt.join(', ') || '—'}`);
   if (d.ohne.length) console.log(`  ohne Schattenrolle (erste ${d.ohne.length}): ${d.ohne.join(', ')}`);
 } finally {
   await browser.close();
