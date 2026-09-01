@@ -722,7 +722,33 @@ function inselBaumMaterialien() {
       translucency: 0.85,
       transColor: 0xc8e89a,
       windStrength: 0.03,
-      roughness: 0.7,
+      // **0,92 statt 0,7 — und die Zahl kommt aus einer Einzelprobe.**
+      //
+      // 0,7 stand fuer „wachsig", und wachsig sind Nadeln auch. Nur ist eine
+      // Nadel in diesem Bild **einen Bildpunkt** breit, und auf einem
+      // Bildpunkt ist eine enge Glanzkeule kein Material, sondern ein
+      // Schalter: Der Nachbar trifft sie nicht mehr und faellt ab.
+      //
+      // `tools/laubprobe.mjs` schaltet die vier moeglichen Ursachen einzeln ab
+      // und misst den Hochpass im Kronenkasten (950,150) bis (1250,450) von
+      // `5-backlight`:
+      //
+      //     Stand                     26,908   unter L40 37,6 %   ueber L190 2,1 %
+      //     Rauheit 0,92              21,347             37,5 %              0,1 %
+      //     Rauheit 0,92, Normale 3/4 18,868             45,5 %              0,1 %
+      //     Rauheit 0,92, Normale 3/5 16,642             51,6 %              0,1 %
+      //     ohne Normalenkarte         5,135             75,1 %              2,5 %
+      //
+      // Die Normalenkarte ist mit Abstand der groesste Beitrag zum Flimmern —
+      // und zugleich das, was die Krone ueberhaupt ins Licht hebt: ohne sie
+      // liegen drei Viertel der Kronenpixel unter L 40. Jeder Schritt, der sie
+      // zurueckdreht, kauft Ruhe mit Dunkelheit.
+      //
+      // Die Rauheit nicht: Sie nimmt ein Fuenftel des Flimmerns und **alle**
+      // ausgebrannten Bildpunkte (2,1 auf 0,1 Prozent), ohne die Krone auch nur
+      // eine Zehntelstufe dunkler zu machen (37,5 gegen 37,6 Prozent). Das ist
+      // der ganze freie Anteil, und mehr wird hier nicht genommen.
+      roughness: 0.92,
       color: 0xbfe3a8,
       // Der Himmelssaum sitzt eng und schwach.
       //
@@ -748,7 +774,43 @@ function inselBaumMaterialien() {
       translucency: 0.95,
       transColor: 0xdcf7b0,
       windStrength: 0.06,
+      // Dieselbe Begruendung wie bei den Nadeln, nur milder: Ein Blatt deckt
+      // mehr Bildpunkte als eine Nadel, die Glanzkeule schaltet also nicht so
+      // hart. 0,88 statt der Vorgabe 0,78.
+      roughness: 0.88,
     }), { strength: 0.24, power: 4.2 });
+
+    // --- Alpha-Abdeckung statt Alpha-Schwelle --------------------------------
+    //
+    // **Der lauteste Fehler der Insel, und er hat zwei Gesichter.**
+    //
+    // Der Pruefer hat sie getrennt gemeldet: die Konifere in `5-backlight`
+    // (950,150) bis (1250,450) als „pixelweise abwechselndes Schwarz-Weiss-
+    // Gitter", Hochpass 27,4 bei p95 = 81,0, gleichzeitig 39,0 Prozent der
+    // Kronenpixel unter L 40 und 2,2 Prozent ueber L 190 — und getrennt davon,
+    // dass ein **ferner** Busch mehr Mikrokontrast traegt als ein naher
+    // (Hochpass 23,1 gegen 12,6). Das ist ein und dieselbe Ursache.
+    //
+    // `foliageMaterial` benutzt `alphaTest` statt `transparent`, aus gutem
+    // Grund: Nur so bleibt das Laub im Tiefenpuffer und wirft Schatten. Der
+    // Preis steht in jeder Mipmap-Stufe. Wird die Karte kleiner, mittelt die
+    // Mipmap **Alpha und Farbe gemeinsam** herunter; das Alpha faellt unter die
+    // Schwelle von 0,42 und der Bildpunkt verschwindet ganz, waehrend seine
+    // Nachbarn mit voller Farbe stehen bleiben. Aus einer Krone wird Salz und
+    // Pfeffer — und weil das mit der Entfernung zunimmt, ist die ferne Krone
+    // kontrastreicher als die nahe.
+    //
+    // `alphaToCoverage` loest genau das: Die Schwellenentscheidung wird auf die
+    // vier MSAA-Abtastpunkte verteilt, die dieser Renderer ohnehin haelt
+    // (gemessen: SAMPLES = 4). Aus einem Ja/Nein werden fuenf Stufen, und der
+    // Rand einer Blattkarte wird ein Rand statt eines Flimmerkamms. Es kostet
+    // keinen Draw-Call, kein Byte Textur und kein Dreieck.
+    //
+    // **Nur die Insel.** `foliageMaterial` bedient auch Dojo und Zen-Garten;
+    // dort dieselbe Zeile zu setzen waere vermutlich ebenso richtig, ist aber
+    // nicht Gegenstand dieses Auftrags und braucht eine eigene Messung.
+    _inselNadeln.alphaToCoverage = true;
+    _inselKarten.alphaToCoverage = true;
   }
   return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten, nadeln: _inselNadeln };
 }

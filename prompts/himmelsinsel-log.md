@@ -281,3 +281,121 @@ Im Nahbereich liest das Korn als **waagerechte Schlieren**. Bei streifendem
 Blick projiziert ein isotropes Rauschen so — echtes Gras tut es auch —, aber es
 ist an der Grenze. Wenn der Prüfer es meldet, ist die Antwort nicht weniger
 Stärke, sondern eine Störung, die die Halmrichtung kennt.
+
+---
+
+## Der Prüfer über den Ausgangsstand
+
+Er hat den Stand **vor** dem Wiesen-Paket beurteilt. Sein Urteil: sieben der acht
+Kriterien nicht bestanden, allein **Farbharmonie** bestanden (gesättigte Pixel in
+genau zwei Fächern, 0,0 % im Bereich 240–360°, selbst Vögel und Pilzkappen
+innerhalb der Tonart).
+
+Elf Mängel, nach visueller Wirkung. Was er ausdrücklich als gut bezeichnet und
+was ich nicht anfassen darf: die Farbtonart, der Fels (Hochpass 2,30 gegen Erde
+1,73 und Rinde 4,91), die Kiel-Silhouette (Unterseite 63,5 gegen Himmel 192,2 —
+128 Stufen), `5-backlight` als einziges Bild mit Achse (Masse L:R 1,43,
+Kantenanteil unteres Drittel 14,09 %), der Nebel auf den Mini-Inseln und die
+Vogelbahnen.
+
+**Er widerlegt außerdem meinen Auftrag an ihn.** Ich hatte ihm mitgegeben, die
+Blob-Schatten lägen immer senkrecht, während die Sonne schräg steht. Er findet
+sie im Bildsatz nicht: Die Schlagschatten stimmen in Richtung und Länge zu
+`SUN_DIR = (18,24,−24)`, in `6-groundcover` nach links unten, in `5-backlight`
+auf die Kamera zu. Das deckt sich mit meiner eigenen Berichtigung weiter oben.
+
+### Sein Mangel 1 ist bereits erledigt
+
+*„Das Nahfeld ist leer, im Bild, das es zeigen soll"* — `6-groundcover`, Zeilen
+420–719, Hochpass 0,017 bis 0,038, kein Pixel unterscheidet sich von seinem
+Nachbarn um mehr als 3 von 255.
+
+Nachgemessen im selben Bereich: **0,038 → 0,545.** Vierzehnfach.
+
+Ein Teil seines Befundes steht aber weiter: **Kantenanteil im unteren Bilddrittel
+0,00 %**, unverändert. Der nächste Grasbewohner überhaupt steht bei 4,2 m. Die
+Wiese hat jetzt Oberfläche, aber immer noch keinen Vordergrundanker.
+
+---
+
+## Paket „Laub": Das Flimmern der Krone, gemessen statt geraten
+
+**Sein Mangel 2** (`5-backlight`, Kasten (950,150)–(1250,450)): Hochpass 27,4 bei
+p95 = 81,0, gleichzeitig 39,0 % der Kronenpixel unter L 40 und 2,2 % über L 190
+— ein pixelweise abwechselndes Schwarz-Weiß-Gitter.
+
+**Sein Mangel 5** (ferner Busch Hochpass 23,1 gegen nahen 12,6) hat dieselbe
+Wurzel: Entfernung verdoppelt die Mikrokontraste, statt sie zu dämpfen.
+
+### Erster Anlauf: `alphaToCoverage` — und er hat fast nichts gebracht
+
+Die naheliegende Erklärung war die Alphaschwelle: `foliageMaterial` benutzt
+`alphaTest` statt `transparent`, damit das Laub im Tiefenpuffer bleibt und
+Schatten wirft. Wird die Karte kleiner, mittelt die Mipmap Alpha und Farbe
+gemeinsam herunter, das Alpha fällt unter 0,42, der Bildpunkt verschwindet ganz
+— während der Nachbar mit voller Farbe stehen bleibt.
+
+`alphaToCoverage` verteilt die Schwellenentscheidung auf die vier
+MSAA-Abtastpunkte, die dieser Renderer ohnehin hält. Gemessen:
+**27,355 → 26,908**, dunkle Pixel 39,0 → 37,5 %. Also 1,6 Prozent. Die Zeile
+bleibt drin — sie ist die richtige Darstellung für alphageprüftes Laub und
+kostet nichts —, aber sie war nicht die Ursache, und das steht hier, damit
+niemand sie später für die Lösung hält.
+
+### Dann gemessen statt weitergeraten
+
+`tools/laubprobe.mjs` (neu) schaltet die vier möglichen Ursachen im laufenden
+Bild einzeln ab:
+
+| | Hochpass | unter L 40 | über L 190 |
+| --- | ---: | ---: | ---: |
+| Stand | 26,908 | 37,6 % | 2,1 % |
+| Rauheit 0,92 | **21,347** | **37,5 %** | **0,1 %** |
+| Rauheit 0,92 + Normale ×0,75 | 18,868 | 45,5 % | 0,1 % |
+| Rauheit 0,92 + Normale ×0,6 | 16,642 | 51,6 % | 0,1 % |
+| ohne Normalenkarte | 5,135 | 75,1 % | 2,5 % |
+
+Die **Normalenkarte** ist mit Abstand der größte Beitrag zum Flimmern — und
+zugleich das, was die Krone überhaupt ins Licht hebt: Ohne sie liegen drei
+Viertel der Kronenpixel unter L 40. Jeder Schritt, der sie zurückdreht, kauft
+Ruhe mit Dunkelheit.
+
+Die **Rauheit** nicht. Sie nimmt ein Fünftel des Flimmerns und **alle**
+ausgebrannten Bildpunkte, ohne die Krone eine Zehntelstufe dunkler zu machen.
+Das ist der freie Anteil, und mehr wird nicht genommen: Nadeln 0,7 → 0,92,
+Blattkarten 0,78 → 0,88.
+
+**Warum 0,7 dort stand und trotzdem falsch war:** „wachsig" ist richtig für eine
+Nadel. Nur ist eine Nadel in diesem Bild **einen Bildpunkt** breit, und auf einem
+Bildpunkt ist eine enge Glanzkeule kein Material, sondern ein Schalter.
+
+### Gemessen am Bild
+
+Konifere in `5-backlight`, (950,150)–(1250,450):
+
+| | vorher | nachher |
+| --- | ---: | ---: |
+| Hochpass | 27,355 | **21,347** |
+| p95 des Hochpasses | 81,01 | **54,78** |
+| Kante senkrecht | 34,529 | **27,295** |
+| über L 190 | 2,2 % | **0,1 %** |
+| unter L 40 | 39,0 % | 37,3 % |
+
+Budget unverändert: 73 Draw-Calls, 186 257 Dreiecke, 11,83 MB. Regression:
+Nacht und Zen bitgleich, Konstrukt Δmittel 0,001, Dojo 0,001. Konsole sauber.
+
+### Bestanden ist das nicht
+
+Das Weiß ist weg und das Flimmern um ein Fünftel kleiner, aber die Krone liest
+weiterhin als feines Rauschen und nicht als Nadelbüschel. Die verbleibende
+Ursache ist benannt und **nicht behoben**: Der Nadelatlas zeichnet einzelne
+Nadeln in Texelbreite, und die Karte steht im Bild etwa 1:1 — eine Struktur an
+der Abtastgrenze. Was hilft, ist eine gröber gezeichnete Nadel**gruppe** statt
+einzelner Nadeln, und die sitzt in `src/dojo/foliage.js`, wo auch das Dojo sie
+holt. Das ist ein eigener Auftrag mit eigener Messung und nicht der Rest dieses
+Pakets.
+
+**Sein Mangel 5 bleibt ebenfalls offen:** ferner Busch 23,6 gegen nahen 11,6 —
+die Rauheit hat daran nichts geändert. Ob das Aliasing ist oder eine Folge davon,
+dass ein kleiner Messkasten um ein fernes Objekt überwiegend dessen Rand enthält,
+ist **nicht geklärt**; die Frage gehört vor die nächste Änderung, nicht danach.
