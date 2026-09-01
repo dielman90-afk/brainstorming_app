@@ -181,3 +181,103 @@ beleuchtet in einem dunklen Feld.
 **Die Lehre:** Ein Werkzeug, das nur die Ausreißer ausgibt, lädt zum Fehlschluss
 ein. Die Namensliste der Werfer stand nach drei Zeilen Änderung da und hätte den
 falschen Befund nie entstehen lassen.
+
+---
+
+## Paket „Wiese": Die Narbe trägt jetzt Struktur — für null Byte Textur
+
+Der größte Hebel der Insel: Die Grasnarbe füllt in vier der sechs festen Bilder
+die halbe bis dreiviertel Fläche, und sie war ein Farbfeld.
+
+### Warum die vorhandene Einfärbung nicht ausreicht
+
+Die Wiese hat eine sorgfältig gebaute Vertex-Einfärbung — Feuchte aus Mulden und
+Bachnähe, Moos im Nassen, dürres Gras auf dem Rücken, drei Ortsfrequenzen. Die
+hängt aber an den **Scheitelpunkten**, und die begehbare Fläche ist absichtlich
+eben und damit grob unterteilt. Aus anderthalb Metern deckt eine Gitterzelle
+einen guten Teil des Bildes ab, und was dazwischen liegt, ist eine lineare
+Interpolation — ein weicher Verlauf, dessen Hochpass definitionsgemäß bei null
+liegt.
+
+Es ist derselbe Befund wie beim Nachthimmel-Vordergrund und dieselbe Antwort:
+**nicht fehlendes Detail, sondern Vergrößerung.** Was fehlt, ist Struktur im
+Maßstab der Halme.
+
+### Warum keine Textur
+
+Ein früherer Anlauf hat die Mooskarten des Dojo-Satzes auf die Narbe gelegt:
+dreifacher Texturspeicher (9,17 → 27,83 MB) bei unverändertem Bild
+(Bildmittel 144,9 gegen 145,0). Diese Lehre steht im Quelltext und gilt weiter.
+
+Die Struktur entsteht deshalb **rechnend im Shader** — kein Texturspeicher, kein
+Draw-Call, keine Kachelgrenze:
+
+* **Albedo**, zwei Ortsfrequenzen: Flecken von rund 90 cm, die dem Rasen Gebiete
+  geben, plus ein Korn von 16 cm für die Halme. Dazu eine Farbwanderung ins
+  Gelbe auf dem Korn — die Spitze ist heller als der Grund, und sie wandert mit
+  dem einzelnen Büschel, nicht mit dem Gebiet.
+* **Normale**, Büschel von 18 cm: Der Gradient kommt aus drei Abtastungen, die
+  Störung wird im Weltraum gebildet und erst dann in den Blickraum gedreht —
+  ohne Normalenkarte steht im Shader kein Tangentensystem.
+
+**Der Maßstab ist gerechnet, nicht geschätzt.** Die Kamera löst 60 Grad auf 720
+Zeilen auf, also 1,45 mrad je Bildpunkt; auf 1,5 m sind das 2,2 mm, auf 6 m
+8,7 mm. Ein Büschel von 18 cm ist auf 1,5 m 82 Bildpunkte breit. Die
+Normalenstörung blendet trotzdem zwischen 5 und 14 m aus — nicht weil sie dort zu
+klein wäre, sondern weil eine Normalenstörung unterhalb weniger Bildpunkte zu
+flimmerndem Korn wird statt zu Form. Die 90-cm-Flecken bleiben ungedämpft; sie
+tragen die Wiese auch in der Ferne.
+
+### Gemessen
+
+Wiese in `6-groundcover`, (100,420)–(1180,700), 304 000 Bildpunkte:
+
+| | vorher | nachher |
+| --- | --- | --- |
+| Hochpass | 0,040 | **0,532** |
+| p95 des Hochpasses | 0,23 | **1,94** |
+| Kante senkrecht | 0,034 | **0,894** |
+| p05…p95 | 176…188 (12 Stufen) | **166…192 (26 Stufen)** |
+
+Wiese in `1-eyelevel`, (100,470)–(1180,700): Hochpass **1,203 → 2,554**.
+
+Bandweise von nah nach fern (`tools/hochpass-reihe.mjs`, reine Wiesenbänder):
+
+```
+6-groundcover  vorher   0,016  0,019  0,022  0,026  0,034  0,061
+               nachher  0,181  0,194  0,215  0,284  0,453  0,754
+1-eyelevel     vorher   0,045  0,055  0,086
+               nachher  0,597  0,804  1,209
+```
+
+Elf- bis zwölffach über den ganzen Nahbereich, und ohne Sprung an der
+Ausblendgrenze.
+
+### Kein Flimmern in der Ferne
+
+Die Gegenprobe ist der Punkt, an dem so etwas üblicherweise scheitert:
+
+| Bild | vorher | nachher |
+| --- | --- | --- |
+| 4-aerial (Totale, 24 m Höhe) | 3,596 | 3,646 |
+| 5-backlight | 7,397 | 7,428 |
+| 3-edge-down | 2,157 | 2,163 |
+| 2-waterfall | 2,344 | 3,071 |
+
+Die drei Bilder, in denen die Wiese weit weg ist, bleiben praktisch unverändert
+— die Ausblendung greift. `2-waterfall` gewinnt, weil dort Wiese im Nahbereich
+steht.
+
+### Kosten
+
+**Keine.** 73 Draw-Calls von 120, 186 257 Dreiecke von 350 000, 11,83 MB von 60
+— jede Zahl unverändert. Regression: Zen bitgleich, Konstrukt Δmittel 0,001,
+Dojo 0,000, alle acht Nachtbilder bitgleich. Konsole frei von Errors und
+Warnings.
+
+### Was offen bleibt
+
+Im Nahbereich liest das Korn als **waagerechte Schlieren**. Bei streifendem
+Blick projiziert ein isotropes Rauschen so — echtes Gras tut es auch —, aber es
+ist an der Grenze. Wenn der Prüfer es meldet, ist die Antwort nicht weniger
+Stärke, sondern eine Störung, die die Halmrichtung kennt.
