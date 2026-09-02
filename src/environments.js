@@ -1398,28 +1398,55 @@ function grasMaterial() {
              mix(grasHash(i + vec2(0.0, 1.0)), grasHash(i + vec2(1.0, 1.0)), u.x),
              u.y
            );
+         }
+         // **Und warum eine Lage davon nicht reicht.**
+         //
+         // Wertrauschen sitzt auf einem **achsenparallelen Gitter**. Eine
+         // einzelne Lage zeigt dieses Gitter als Rauten, sobald ihre Zellen im
+         // Bild groesser als ein paar Bildpunkte werden — im Nahfeld der Wiese
+         // war genau das zu sehen, und zwar von mir gebaut. Mehrere Oktaven
+         // helfen nicht, solange sie **dieselbe** Ausrichtung haben: Ihre
+         // Gitter fallen aufeinander und verstaerken sich.
+         //
+         // Jede Oktave wird deshalb um 36,7 Grad gedreht und mit dem krummen
+         // Faktor 2,17 statt 2,0 skaliert. Damit liegt keine Zellgrenze auf
+         // einer anderen, und das Gitter ist als Richtung nicht mehr zu finden.
+         float grasFbm(vec2 p) {
+           mat2 dreh = mat2(0.8018, -0.5976, 0.5976, 0.8018);
+           vec2 q = dreh * p;
+           float summe = 0.0;
+           float amp = 0.5;
+           for (int i = 0; i < 4; i++) {
+             summe += grasNoise(q) * amp;
+             q = dreh * q * 2.17 + 13.7;
+             amp *= 0.5;
+           }
+           return summe / 0.9375;
          }`
       )
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
          {
-           // Zwei Ortsfrequenzen in der Albedo: Flecken von rund 90 cm, die
-           // dem Rasen Gebiete geben, und ein Korn von 16 cm, das die Halme
-           // andeutet. Das Korn blendet mit der Entfernung aus, die Flecken
-           // bleiben — sie tragen die Wiese auch in der Ferne.
+           // **Gleichmaessig gruen, und die Struktur sitzt in der
+           // Helligkeit.**
+           //
+           // Der erste Anlauf hatte zwei kraeftige Ortsfrequenzen in der
+           // Albedo (Flecken von 90 cm mit 17 Prozent Ausschlag, Bueschel mit
+           // 10) und dazu eine Farbwanderung ins Gelbe auf dem Korn. Im Bild
+           // ergab das eine Wiese in Gebieten — hier blass und gelblich, dort
+           // satt gruen — und der Auftraggeber hat sie genau so gemeldet.
+           //
+           // Was eine Wiese aus der Naehe unruhig macht, ist nicht Farbe,
+           // sondern **Helligkeit**: Halme, die verschieden zum Licht stehen.
+           // Die Flecken sind deshalb auf ein Drittel zurueck, die
+           // Farbwanderung ist ganz heraus, und das feine Korn traegt den Rest.
            vec2 w = vGrasOrt.xz;
            float tiefe = length(vViewPosition);
            float nah = 1.0 - smoothstep(6.0, 14.0, tiefe);
-           float fleck = grasNoise(w * 1.11) - 0.5;
-           float korn = grasNoise(w * 6.25) - 0.5;
-           float buendel = grasNoise(w * 2.4 + 17.0) - 0.5;
-           diffuseColor.rgb *= 1.0 + fleck * 0.17 + buendel * 0.10 + korn * 0.20 * nah;
-           // Halmspitzen sind gelber als der Grund. Der Ausschlag sitzt auf
-           // dem Korn, nicht auf den Flecken: Die Farbe wandert mit dem
-           // einzelnen Bueschel, nicht mit dem Gebiet.
-           diffuseColor.g += korn * 0.045 * nah;
-           diffuseColor.b -= korn * 0.030 * nah;
+           float fleck = grasFbm(w * 0.55) - 0.5;
+           float korn = grasFbm(w * 3.1) - 0.5;
+           diffuseColor.rgb *= 1.0 + fleck * 0.055 + korn * 0.26 * nah;
          }`
       )
       .replace(
@@ -1436,9 +1463,9 @@ function grasMaterial() {
            if (nahN > 0.002) {
              float e = 0.055;
              vec2 q = w * 5.55;
-             float h0 = grasNoise(q) * 0.62 + grasNoise(q * 2.7 + 11.0) * 0.38;
-             float hx = grasNoise(q + vec2(e, 0.0)) * 0.62 + grasNoise((q + vec2(e, 0.0)) * 2.7 + 11.0) * 0.38;
-             float hz = grasNoise(q + vec2(0.0, e)) * 0.62 + grasNoise((q + vec2(0.0, e)) * 2.7 + 11.0) * 0.38;
+             float h0 = grasFbm(q);
+             float hx = grasFbm(q + vec2(e, 0.0));
+             float hz = grasFbm(q + vec2(0.0, e));
              vec3 stoerung = vec3(-(hx - h0), 0.0, -(hz - h0)) * (5.6 * nahN);
              normal = normalize(normal + (viewMatrix * vec4(stoerung, 0.0)).xyz);
            }
@@ -1448,7 +1475,7 @@ function grasMaterial() {
   // Ohne eigenen Schluessel teilt three das uebersetzte Programm mit jedem
   // anderen MeshStandardMaterial derselben Merkmale — und die Insel bekaeme
   // ihre Einspritzung nicht.
-  _inselGras.customProgramCacheKey = () => 'insel-gras-v1';
+  _inselGras.customProgramCacheKey = () => 'insel-gras-v2';
   return _inselGras;
 }
 
@@ -1835,13 +1862,23 @@ function bodyColor(out, zone, shape, p, t, a) {
     const fein = valueNoise2(x * 4.3 + 29, z * 4.3 + 5) - 0.5;
     const variation = gross * 1.15 + mittel * 0.45 + fein * 0.22;
 
+    // **Eine Tonart Grün, und die Feuchte steht in der Helligkeit.**
+    //
+    // Hier stand vorher: „Die Ausschläge sind bewusst groß." Sie waren zu groß.
+    // Mit ±0,098 im Farbton und ±0,24 in der Sättigung zerfiel die Wiese in
+    // Gebiete — hier blass und gelblich, dort blaugrün und satt —, und der
+    // Auftraggeber hat sie genau so gemeldet: „Das Gras soll gleichmäßig grün
+    // sein."
+    //
+    // Der Grund für die Variation war richtig (Wasser sammelt sich in Mulden
+    // und läuft vom Rücken ab), die Sprache falsch. Feuchtes Gras ist nicht
+    // **anders** grün, es ist **dunkler** grün. Der Farbton bewegt sich
+    // deshalb nur noch um ein Viertel des alten Betrags, die Sättigung um ein
+    // Fünftel; die Helligkeit trägt den Rest.
     out.setHSL(
-      // Moos zieht ins Blaugrüne, dürres Gras ins Gelbe. Die Ausschläge sind
-      // bewusst groß: Bei der halben Stärke blieb der Rot-Blau-Abstand über
-      // die ganze Wiese konstant, und die Feuchte war nur als Helligkeit da.
-      0.268 + 0.072 * feucht - 0.098 * trocken + 0.024 * variation,
-      0.40 + 0.24 * feucht - 0.20 * trocken + 0.10 * variation,
-      0.34 - 0.13 * feucht + 0.12 * trocken + 0.115 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
+      0.268 + 0.018 * feucht - 0.024 * trocken + 0.007 * variation,
+      0.40 + 0.05 * feucht - 0.045 * trocken + 0.022 * variation,
+      0.34 - 0.10 * feucht + 0.095 * trocken + 0.075 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
     );
     // Zur Kante hin reißt die Narbe auf: Erde und Fels kommen durch. Ohne das
     // liegt das Gras als geschlossene, gleichmäßig dicke Zuckergussschicht auf

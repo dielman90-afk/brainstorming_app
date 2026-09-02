@@ -675,3 +675,83 @@ unverändert 11,83 MB. Nacht und Zen bitgleich, Konstrukt Δmittel 0,003, Dojo
 Versuch, sie zu beheben — nur hat der Versuch die Ursache nicht getroffen, und
 der Kommentar blieb stehen, als wäre er es. Wer so etwas liest, prüft es nicht
 nach; der Prüfer schon.
+
+---
+
+## Berichtigung: Die Wiese bestand aus Kacheln, und die habe ich gebaut
+
+**Befund des Auftraggebers:** *„Die Wiese sieht noch ganz komisch aus, als würde
+sie aus Kacheln bestehen. Außerdem soll das Gras gleichmäßig grün sein."*
+
+Beides trifft zu, und das erste ist **mein eigener Fehler aus dem
+Wiesen-Paket**.
+
+### Die Kacheln
+
+Wertrauschen sitzt auf einem **achsenparallelen Gitter**. Eine einzelne Lage
+zeigt dieses Gitter als Rauten, sobald ihre Zellen im Bild größer als ein paar
+Bildpunkte werden — und genau das habe ich im Nahfeld eingebaut: Flecken bei
+0,9 m und ein Korn bei 0,16 m, beide als **eine** Lage Wertrauschen, beide auf
+demselben Gitter. Im Ausschnitt bei fünffacher Vergrößerung sind die Rauten
+nicht zu übersehen.
+
+Mehrere Oktaven allein hätten nichts geholfen, solange sie dieselbe Ausrichtung
+haben: Ihre Gitter fallen aufeinander und **verstärken** sich. Jede Oktave wird
+deshalb jetzt um 36,7 Grad gedreht und mit dem krummen Faktor 2,17 statt 2,0
+skaliert; damit liegt keine Zellgrenze auf einer anderen. Dasselbe Rauschen
+trägt Albedo und Normalenstörung.
+
+### Das Grün
+
+Zwei Quellen, beide zu kräftig:
+
+*In meinem Shader* standen Flecken von 90 cm mit 17 Prozent Ausschlag, Büschel
+mit 10 Prozent und eine Farbwanderung ins Gelbe auf dem Korn. Die Flecken sind
+auf ein Drittel zurück, die Farbwanderung ist ganz heraus.
+
+*In den Scheitelfarben* stand über der Stelle: „Die Ausschläge sind bewusst
+groß." Sie waren zu groß — ±0,098 im Farbton und ±0,24 in der Sättigung, und
+damit zerfiel die Wiese in Gebiete. Der Grund für die Variation war richtig
+(Wasser sammelt sich in Mulden und läuft vom Rücken ab), die **Sprache** falsch:
+Feuchtes Gras ist nicht anders grün, es ist dunkler grün. Der Farbton bewegt
+sich jetzt um ein Viertel des alten Betrags, die Sättigung um ein Fünftel, und
+die Helligkeit trägt den Rest.
+
+### Gemessen
+
+`tools/grasfarbe.mjs` (neu) misst beides zusammen, weil es sich widersprechen
+kann: Farbstreuung **und** Feinstruktur. Wer nur eines misst, macht aus dem
+Farbfeld ein Fleckenmuster oder umgekehrt.
+
+Wiese in `6-groundcover`, (100,420)–(1180,700):
+
+| | Farbton ± | Rot-Blau ± | Hochpass |
+| --- | ---: | ---: | ---: |
+| Ausgangsstand | ± 3,71 | ± 0,57 | 0,040 |
+| nach dem Wiesen-Paket | ± 4,95 | ± 3,31 | 0,539 |
+| **jetzt** | **± 3,05** | **± 2,56** | **1,052** |
+
+Die Farbstreuung liegt jetzt **unter** dem Ausgangsstand — die Wiese ist
+gleichmäßiger grün als vor allen Änderungen —, und die Feinstruktur ist
+gleichzeitig das **Sechsundzwanzigfache** des Ausgangs und das Doppelte des
+letzten Standes.
+
+In `1-eyelevel`: Farbton ± 13,48 → ± 13,19, Hochpass 2,447 → **2,945** (die
+größere Streuung dort enthält Büsche und Blumen im Messfeld).
+
+Budget unverändert: 76 Draw-Calls, 199 505 Dreiecke, 11,83 MB. Nacht, Zen,
+Konstrukt und Dojo alle Δmittel 0,000. Konsole sauber.
+
+### Die Lehre dieser Runde
+
+**Wertrauschen ist ein Gitter, und ein Gitter sieht man.** Die Hausregel sagt
+bisher nur, dass `hashNoise` als Umriss einen Zackenstern ergibt. Der zweite
+Teil fehlte: Auch die geglättete Fassung verrät ihre Achsen, sobald eine Zelle
+mehr als ein paar Bildpunkte deckt. Gegenmittel ist nicht mehr Amplitude,
+sondern **Drehung zwischen den Oktaven**.
+
+Und: **Mehr Variation ist nicht mehr Qualität.** Ich habe im Wiesen-Paket die
+Farbstreuung von ±3,71 auf ±4,95 gehoben und das für einen Gewinn gehalten,
+weil der Hochpass mitstieg. Der Auftraggeber hat die Wiese daraufhin als
+fleckig gemeldet. Die richtige Zielgröße war von Anfang an: Struktur in der
+Helligkeit, Ruhe in der Farbe.
