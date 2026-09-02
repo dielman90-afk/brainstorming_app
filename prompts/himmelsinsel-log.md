@@ -593,3 +593,85 @@ schmale — dort ist das Band bis zu sieben Meter breit, und ein Ufersaum trägt
 Mal hintereinander habe ich damit den falschen Gegenstand gemessen und zweimal
 fast die falsche Schlussfolgerung gezogen. Die Maske des Gegenstands steht als
 Nebenprodukt jeder differentiellen Messung schon da — man muss sie nur benutzen.
+
+---
+
+## Paket „Licht": Die Sonne hat wieder eine Farbe
+
+**Prüfer-Mangel 7:** `5-backlight`, Kasten x 529–608, y 141–220 — **5036
+Bildpunkte reines (255,255,255)**, Sättigung entlang y = 175 durchgehend null.
+
+Über der betreffenden Zeile im Quelltext stand: *„Warmer Kern. Gemessen war die
+Scheibe über neunzig Pixel hinweg reines (255,255,255) bei Sättigung null."* Der
+Kommentar beschrieb den Befund als behoben. Der Prüfer hat ihn unverändert
+wiedergefunden.
+
+### Warum ein warmer Kern nicht reicht
+
+Der Kern war **additiv** gemischt, über einem ebenfalls additiven Hof, über einem
+Himmel von L ≈ 190. Eine Summe, die in jedem Kanal an die Obergrenze läuft, hat
+keine Farbe mehr — ganz gleich, welche Farbe man hineingibt. Die Lehre steht
+wortgleich im Auftrag („additiv plus voller Kern ergibt reines Weiß") und ist
+beim **Mond des Nachthimmels** schon einmal bezahlt worden: Dort wurde der Kern
+normal gemischt und nur der Hof blieb additiv. Dieselbe Lösung, dieselbe Datei,
+hundert Zeilen entfernt.
+
+Jetzt: Kern mit `NormalBlending` und `toneMapped: false`, Hof weiter additiv.
+Normal gemischt **ersetzt** der Kern den Himmel, statt sich zu ihm zu addieren.
+
+| `5-backlight`, (500,120)–(640,250) | vorher | nachher |
+| --- | ---: | ---: |
+| reines Weiß | 4994 px (**27,0 %**) | **0 px (0,0 %)** |
+| Sättigung, Mittel | 56,9 | **70,2** |
+
+Im Bild steht statt eines weißen Lochs eine goldene Scheibe mit hellem Hof.
+
+### Und die Büsche werfen jetzt selbst
+
+**Prüfer-Mangel 4:** *„Büsche liegen auf, Felsen stehen."* Der Findling in
+`6-groundcover` nimmt dem Gras unter sich **67 Luminanzstufen**, der Busch 200
+Bildpunkte daneben **vier** — „ein Aufkleber mit haarscharfer Unterkante neben
+einem Stein mit Schatten".
+
+Getragen hat ihn allein die gemalte Kontaktverdunklung `undergrowth-shade`. Die
+liegt aber immer senkrecht unter dem Gegenstand, während die Sonne auf 38,7 Grad
+steht, und gemessen (`tools/sturzprobe.mjs`) deckt sie nur **377 bis 2335
+Bildpunkte bei 4,8 bis 7,8 Stufen** Abfall. Ein Busch von anderthalb Metern
+wirft bei diesem Sonnenstand knapp zwei Meter Schatten — das ist keine
+Verdunklung unter ihm, sondern eine Form neben ihm.
+
+Büsche und ihre Blattkarten werfen jetzt, Büsche und Pilze empfangen. Pilze
+werfen **nicht**: Ein Hut von sechs Zentimetern ergäbe bei 5,2 cm je
+Schattenkartentexel zwei Texel, und das ist Rauschen, kein Schatten.
+
+Gemessen mit `tools/schattenanteil.mjs` — jedes Bild zweimal, mit und ohne
+Schattenwurf, die Differenz **ist** der Schatten:
+
+| Bild | Fläche vorher | nachher | Abfall vorher → nachher |
+| --- | ---: | ---: | --- |
+| 1-eyelevel | 0,57 % | **2,14 %** | 39,2 → 27,5 |
+| 2-waterfall | 0,93 % | **2,66 %** | 44,7 → 32,7 |
+| 3-edge-down | 22,73 % | 22,93 % | 29,9 → 29,8 |
+| 4-aerial | 5,51 % | 5,66 % | 30,9 → 30,6 |
+| 5-backlight | 1,78 % | **3,16 %** | 42,1 → 36,9 |
+| 6-groundcover | 0,99 % | **2,30 %** | 36,8 → 26,8 |
+
+In den vier Augenhöhen-Bildern **verdoppelt bis verdreifacht** sich die
+beschattete Fläche. Dass der mittlere Abfall dabei sinkt, ist kein Verlust: Ein
+Buschschatten auf Gras ist weicher und teildurchlässig, ein Felsschatten hart.
+Mehr Fläche bei sanfterem Abfall ist genau die Richtung.
+
+### Kosten und Regression
+
+74 → **76 Draw-Calls** von 120, 186 257 → **199 505 Dreiecke** von 350 000
+(+13 248 für Büsche und Blattkarten im Schattendurchgang), Texturspeicher
+unverändert 11,83 MB. Nacht und Zen bitgleich, Konstrukt Δmittel 0,003, Dojo
+0,000. Konsole frei von Errors und Warnings.
+
+### Die Lehre dieser Runde
+
+**Ein Kommentar, der einen Befund als behoben ausweist, ist kein Beleg dafür.**
+Über der Sonnenzeile stand die Messung des alten Zustands und darunter der
+Versuch, sie zu beheben — nur hat der Versuch die Ursache nicht getroffen, und
+der Kommentar blieb stehen, als wäre er es. Wer so etwas liest, prüft es nicht
+nach; der Prüfer schon.
