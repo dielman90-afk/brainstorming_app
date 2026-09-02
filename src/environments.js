@@ -3605,6 +3605,22 @@ function addUndergrowth(group, rand, shape) {
   busch.blobs.name = 'bushes';
   busch.karten.name = 'bush-leaves';
   busch.karten.receiveShadow = true;
+  // **Buesche werfen jetzt selbst.**
+  //
+  // Der Pruefer: „Buesche liegen auf, Felsen stehen." Der Findling in
+  // `6-groundcover` nimmt dem Gras unter sich 67 Luminanzstufen, der Busch
+  // 200 Bildpunkte daneben **vier** — „ein Aufkleber mit haarscharfer
+  // Unterkante neben einem Stein mit Schatten".
+  //
+  // Bisher trug ihn allein die gemalte Kontaktverdunklung `undergrowth-shade`.
+  // Die liegt aber immer senkrecht unter dem Gegenstand, waehrend die Sonne auf
+  // 38,7 Grad steht — und gemessen deckt sie nur 377 bis 2335 Bildpunkte bei
+  // 4,8 bis 7,8 Stufen Abfall. Ein Busch von anderthalb Metern wirft bei diesem
+  // Sonnenstand knapp zwei Meter Schatten; das ist kein Fleck unter ihm,
+  // sondern eine Form neben ihm.
+  busch.blobs.castShadow = true;
+  busch.blobs.receiveShadow = true;
+  busch.karten.castShadow = true;
   group.add(busch.blobs, busch.karten);
 
   // Kontaktverdunklung unter Büschen und Pilzen. Ohne sie sitzen sie mit einer
@@ -3640,6 +3656,11 @@ function addUndergrowth(group, rand, shape) {
     6
   );
   mushrooms.name = 'mushrooms';
+  // Pilze empfangen, werfen aber nicht: Ein Hut von sechs Zentimetern wirft
+  // einen Schatten, der bei 5,2 cm je Schattenkartentexel aus zwei Texeln
+  // besteht — das ist kein Schatten, sondern Rauschen. Empfangen sollen sie
+  // dagegen sehr wohl, sonst stehen sie im Baumschatten hell da.
+  mushrooms.receiveShadow = true;
   mushrooms.userData.fullCount = mushrooms.count;
   for (let i = 0; i < mushrooms.count; i++) {
     const platz = spot(0.2, 0.9, 0.07);
@@ -3721,13 +3742,35 @@ function createIslandEnvironment() {
 
   const sun = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      // Warmer Kern. Gemessen war die Scheibe über neunzig Pixel hinweg reines
-      // (255,255,255) bei Sättigung null – die einzige Lichtquelle des Bildes
-      // hatte keine Farbtemperatur.
-      map: makeGlowTexture('rgba(255,247,222,1)', 'rgba(255,232,168,0.7)'),
+      // **Der Kern wird normal gemischt, nicht additiv — und der Grund steht
+      // seit zwei Auftraegen im Haus.**
+      //
+      // Ueber dieser Zeile stand bisher: „Warmer Kern. Gemessen war die
+      // Scheibe ueber neunzig Pixel hinweg reines (255,255,255) bei Saettigung
+      // null." Der Kommentar beschrieb den Befund als behoben. Der Pruefer hat
+      // ihn unveraendert wiedergefunden: `5-backlight`, Kasten x 529 bis 608,
+      // y 141 bis 220 — **5036 Bildpunkte reines Weiss**, Saettigung entlang
+      // y = 175 durchgehend null.
+      //
+      // Ein warmer Kern hilft nicht, solange er **additiv** ueber einen
+      // ebenfalls additiven Hof und einen Himmel von L 190 gelegt wird: Die
+      // Summe laeuft in jedem Kanal an die Obergrenze, und was oben anschlaegt,
+      // hat keine Farbe mehr. Genau diese Lehre steht im Auftrag („additiv plus
+      // voller Kern ergibt reines Weiss") und ist beim Mond des Nachthimmels
+      // schon einmal bezahlt worden — dort wurde der Kern normal gemischt und
+      // nur der Hof blieb additiv. Dieselbe Loesung, dieselbe Datei, hundert
+      // Zeilen entfernt.
+      //
+      // Normal gemischt **ersetzt** der Kern den Himmel, statt sich zu ihm zu
+      // addieren; seine Farbe ueberlebt. Der Hof (`corona`) bleibt additiv — er
+      // soll den Himmel aufhellen, das ist seine Aufgabe.
+      map: makeGlowTexture('rgba(255,244,206,1)', 'rgba(255,226,150,0.85)'),
       transparent: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
+      // Die Werte in der Karte sind Anzeigewerte; ACES wuerde die
+      // Farbtemperatur, um die es hier geht, wieder zusammendruecken.
+      toneMapped: false,
       fog: false,
     })
   );
