@@ -497,3 +497,99 @@ breite blasse Gebilde neben der Lippe in `1-eyelevel` ist das **Bachband**, das
 zur Kante hin auf sieben Meter aufgeht und als durchscheinende Folie über der
 Wiese liegt. Das ist Prüfer-Mangel 6, und es ist im Bild deutlicher als alles,
 was dieses Paket betroffen hat.
+
+---
+
+## Entscheidung des Auftraggebers: Der Sturz muss nicht sichtbar sein
+
+Auf die offene Frage aus dem vorigen Paket — ob der Wasserfall an eine
+sichtbarere Stelle des Randes gehört — lautet die Antwort: **nein.** Er bleibt,
+wo er ist. Damit ist der Befund „in fünf von sechs Bildern unsichtbar" kein
+offener Mangel mehr, sondern eine bewusste Eigenschaft der Umgebung, und die
+Sprühfahne über der Lippe ist das, was von ihm im Bild ankommt.
+
+---
+
+## Paket „Der Bach": Aus der Folie wird ein Lauf mit Ufer
+
+**Prüfer-Mangel 6:** *„Der Bach ist eine geradkantige Folie über dem Gras."*
+Querschnitt in `2-waterfall` bei y = 520: ein monotoner Verlauf über vierzehn
+Stufen, Hochpass 1,66; kein Ufer, kein nasser Saum, keine Kräuselung, kein
+Glanzpunkt, keine Schaumkrause.
+
+Die Ursache ist dieselbe wie bei der Wiese: Das Band hat **zwei
+Scheitelpunkte je Querschnitt** und eine Farbtextur darauf. Zwischen den beiden
+Rändern kann nichts stehen als eine lineare Interpolation.
+
+### Was gebaut wurde
+
+Das Bachband bekommt ein eigenes Material (`bachMaterial`) mit drei Eingriffen
+im Shader — kein Texturspeicher, kein Draw-Call, kein Dreieck:
+
+* **Kräuselung.** Zwei Lagen Rauschen, quer zur Fließrichtung gestreckt und mit
+  ihr wandernd. Sie stören die Normale, und erst dadurch bekommt die niedrige
+  Rauheit etwas zu spiegeln — vorher war der Glanzpunkt einer ebenen
+  waagerechten Fläche entweder ganz da oder gar nicht.
+* **Weiches Ufer.** Die Deckkraft läuft zu beiden Rändern hin aus, und zwar
+  **mit derselben Welle**, die auch die Oberfläche trägt: Eine glatt
+  auslaufende Kante wäre wieder eine gerade Linie, nur unschärfer.
+* **Schaumsaum.** Ein heller, unruhiger Streifen dort, wo das Wasser an die
+  Grasnarbe stößt.
+
+Die Fließrichtung kommt als Uniform herein — ohne sie weiß die Kräuselung
+nicht, wo längs und wo quer ist, und quer gestreckte Wellen, die mit dem Strom
+wandern, sind der halbe Unterschied zwischen Wasser und Marmor.
+
+### Gemessen — und zuerst dreimal danebengemessen
+
+**Drei Anläufe habe ich einen Kasten von Hand um das Wasser gelegt und Gras
+gemessen.** Beim Sturz war es sogar die Felswand. Die Zahlen bewegten sich
+jedesmal um weniger als ein Prozent, während der Bildausschnitt einen deutlichen
+Unterschied zeigte — ich hätte daraus fast geschlossen, die Änderung greife
+nicht.
+
+`tools/sturzprobe.mjs` misst deshalb jetzt den Hochpass **auf der Maske des
+Gegenstands selbst**: Der Knoten wird unsichtbar geschaltet, die geänderten
+Bildpunkte sind seine Fläche, und nur über sie wird gemittelt. Damit kann der
+Messbereich nicht mehr danebenliegen.
+
+| Bild | Hochpass vorher | nachher | Fläche vorher → nachher |
+| --- | ---: | ---: | --- |
+| 1-eyelevel | 5,57 | **6,25** | 6764 → 6267 px |
+| 2-waterfall | 3,26 | **3,53** | 12379 → 11541 px |
+| 3-edge-down | 8,73 | **10,86** | 956 → 788 px |
+| 4-aerial | 4,09 | **4,98** | 2106 → 1849 px |
+| 5-backlight | 10,07 | **10,35** | 1296 → 1110 px |
+| 6-groundcover | 6,88 | **8,23** | 2734 → 2450 px |
+
+Drei bis vierundzwanzig Prozent mehr Feinstruktur, in **jedem** Bild. Die Fläche
+schrumpft um sechs bis achtzehn Prozent, und das ist kein Verlust, sondern die
+Wirkung des weichen Ufers: Was vorher als volle Deckkraft bis zur Polygonkante
+stand, läuft jetzt unter die Messschwelle aus.
+
+**Die Zahl untertreibt den Unterschied.** Der Hauptgewinn sitzt an der *Kante*,
+und ein Hochpass über die Fläche misst die Kante kaum mit. Der Beleg ist der
+Ausschnitt: Wo vorher eine durchscheinende Platte mit geraden Rändern über den
+Findlingen lag, steht jetzt ein Lauf mit ausgefranstem, schaumigem Ufer.
+
+### Kosten und Regression
+
+74 Draw-Calls von 120, 186 257 Dreiecke, 11,83 MB Textur — jede Zahl
+unverändert. Nacht und Zen bitgleich, Konstrukt Δmittel 0,002, Dojo 0,000.
+Konsole frei von Errors und Warnings.
+
+### Was offen bleibt
+
+Das Band läuft weiterhin **über** die Findlinge im Bachbett, statt an ihnen zu
+brechen. Ein Schaumkranz am Stein braucht die Steinorte im Shader; das ist
+machbar (die Kranzsteine der Quelle stehen als Liste da), aber ein eigenes
+Paket. Und der breite Abschnitt kurz vor der Lippe bleibt flächiger als der
+schmale — dort ist das Band bis zu sieben Meter breit, und ein Ufersaum trägt
+über diese Breite nicht.
+
+### Die Lehre dieser Runde
+
+**Ein von Hand gesetzter Messkasten ist eine Vermutung, kein Messbereich.** Drei
+Mal hintereinander habe ich damit den falschen Gegenstand gemessen und zweimal
+fast die falsche Schlussfolgerung gezogen. Die Maske des Gegenstands steht als
+Nebenprodukt jeder differentiellen Messung schon da — man muss sie nur benutzen.

@@ -2054,6 +2054,126 @@ function makeWaterTexture() {
   return texture;
 }
 
+// --- Das Bachband ----------------------------------------------------------
+//
+// **Der Prüfer:** „Der Bach ist eine geradkantige Folie über dem Gras."
+// `2-waterfall`, Querschnitt y = 520 von x = 380 bis 450: 179, 180, 181, 183,
+// 184, 186, 189, 193 — ein monotoner Verlauf über vierzehn Stufen quer über den
+// ganzen Lauf, Hochpass 1,66. Kein Ufer, kein nasser Saum, keine Kräuselung,
+// kein Glanzpunkt, keine Schaumkrause an den Steinen.
+//
+// Er hat recht, und die Ursache ist dieselbe wie bei der Wiese: Das Band ist
+// eine ebene Fläche mit zwei Scheitelpunkten je Querschnitt und einer
+// Farbtextur darauf. Zwischen den beiden Rändern kann nichts stehen als eine
+// lineare Interpolation.
+//
+// Was fehlt, entsteht rechnend im Shader — kein Texturspeicher, kein
+// Draw-Call, kein Dreieck:
+//
+//   * **Kräuselung.** Zwei Lagen Rauschen, quer zur Fließrichtung gestreckt und
+//     mit ihr wandernd. Sie stören die Normale, und erst dadurch bekommt die
+//     niedrige Rauheit etwas zu spiegeln — vorher war der Glanzpunkt einer
+//     ebenen waagerechten Fläche entweder ganz da oder gar nicht.
+//   * **Weiches Ufer.** Die Deckkraft läuft zu beiden Rändern hin aus. Eine
+//     Bandkante mit voller Deckkraft ist die gerade Polygonkante, die der
+//     Prüfer sieht; eine auslaufende liest als flach werdendes Wasser.
+//   * **Schaumsaum.** Am Rand, wo das Wasser an die Grasnarbe stößt, ein
+//     heller, unruhiger Streifen. Er sitzt auf demselben wandernden Rauschen,
+//     zerfranst also und steht nicht als zweite gerade Linie da.
+//
+// Die Fließrichtung kommt als Uniform herein, weil die Kräuselung sonst nicht
+// weiß, wo längs und wo quer ist — und quer gestreckte Wellen, die mit dem
+// Strom wandern, sind der halbe Unterschied zwischen Wasser und Marmor.
+function bachMaterial(karte, fliess, uhr) {
+  const m = new THREE.MeshStandardMaterial({
+    map: karte,
+    color: 0xffffff,
+    roughness: 0.18,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+  });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uBachZeit = uhr;
+    shader.uniforms.uFliess = { value: fliess };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBachOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvBachOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vBachOrt;
+         uniform float uBachZeit;
+         uniform vec2 uFliess;
+         float bachHash(vec2 p) {
+           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+         }
+         float bachNoise(vec2 p) {
+           vec2 i = floor(p);
+           vec2 f = fract(p);
+           vec2 u = f * f * (3.0 - 2.0 * f);
+           return mix(
+             mix(bachHash(i), bachHash(i + vec2(1.0, 0.0)), u.x),
+             mix(bachHash(i + vec2(0.0, 1.0)), bachHash(i + vec2(1.0, 1.0)), u.x),
+             u.y
+           );
+         }
+         // Laengs und quer zur Stroemung, in Metern.
+         vec2 bachLQ(vec3 ort) {
+           vec2 w = ort.xz;
+           return vec2(dot(w, uFliess), dot(w, vec2(-uFliess.y, uFliess.x)));
+         }
+         float bachWelle(vec2 lq) {
+           float s = lq.x - uBachZeit * 0.9;
+           return bachNoise(vec2(lq.y * 3.1, s * 1.3)) * 0.62
+                + bachNoise(vec2(lq.y * 6.7 + 3.0, s * 2.7)) * 0.38;
+         }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           // vMapUv.x laeuft von 0 am linken Rand bis 1 am rechten; die
+           // Kachelung des Bandes sitzt in y, x bleibt unangetastet.
+           float mitte = min(vMapUv.x, 1.0 - vMapUv.x) * 2.0;
+           vec2 lq = bachLQ(vBachOrt);
+           float unruhe = bachWelle(lq * 1.6) - 0.5;
+           // Weiches Ufer: Die Kante franst mit derselben Welle aus, die auch
+           // die Oberflaeche traegt — eine glatt auslaufende Kante waere wieder
+           // eine gerade Linie, nur unschaerfer.
+           float rand = clamp(mitte + unruhe * 0.22, 0.0, 1.0);
+           diffuseColor.a *= smoothstep(0.0, 0.30, rand);
+           // Schaumsaum am Ufer.
+           float schaum = (1.0 - smoothstep(0.06, 0.40, rand)) * (0.5 + 0.5 * bachWelle(lq * 3.4));
+           diffuseColor.rgb += schaum * 0.26;
+           // Tiefe: in der Mitte satter, am Rand duenner und heller.
+           diffuseColor.rgb *= 0.92 + 0.16 * rand + unruhe * 0.12;
+         }`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+         {
+           vec2 lq = bachLQ(vBachOrt);
+           float e = 0.035;
+           float h0 = bachWelle(lq);
+           float hs = bachWelle(lq + vec2(e, 0.0));
+           float hq = bachWelle(lq + vec2(0.0, e));
+           vec3 stoerung = (uFliess.x * vec3(1.0, 0.0, 0.0) + uFliess.y * vec3(0.0, 0.0, 1.0)) * (-(hs - h0) / e)
+                         + (vec3(-uFliess.y, 0.0, uFliess.x)) * (-(hq - h0) / e);
+           normal = normalize(normal + (viewMatrix * vec4(stoerung * 0.06, 0.0)).xyz);
+         }`
+      );
+  };
+  m.customProgramCacheKey = () => 'insel-bach-v1';
+  return m;
+}
+
 // Kleiner Fluss von der Inselmitte zur Kante + Wasserfall über den Rand.
 // Ursprung: eine Quelle in der Mitte, aus der ein schmaler Bach zur Klippe läuft
 // und dort als Partikelstrom in die Tiefe stürzt.
@@ -2066,6 +2186,11 @@ function makeWaterfall(rand, shape) {
   // Bandes und des Strahls wird darauf abgetragen.
   const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
 
+  // Fliessrichtung in der XZ-Ebene. Sie wird zweimal gebraucht — vom Bachband
+  // fuer die Richtung seiner Kraeuselung und von der Spruehfahne fuer die Drift
+  // ueber die Kante —, deshalb steht sie hier oben und nicht an einer der
+  // beiden Stellen.
+  const fliessRichtung = new THREE.Vector2(Math.sin(angle), Math.cos(angle)).normalize();
   const waterTex = makeWaterTexture();
   const waterMat = new THREE.MeshStandardMaterial({
     map: waterTex,
@@ -2184,7 +2309,8 @@ function makeWaterfall(rand, shape) {
   riverGeo.setAttribute('uv', new THREE.Float32BufferAttribute(riverUv, 2));
   riverGeo.setIndex(riverIdx);
   riverGeo.computeVertexNormals();
-  const river = new THREE.Mesh(riverGeo, waterMat);
+  const bachUhr = { value: 0 };
+  const river = new THREE.Mesh(riverGeo, bachMaterial(waterTex, fliessRichtung, bachUhr));
   river.name = 'island-bach';
   group.add(river);
 
@@ -2512,6 +2638,7 @@ function makeWaterfall(rand, shape) {
     group,
     update(time) {
       waterTex.offset.y = -time * 0.35;
+      bachUhr.value = time;
       foam.material.opacity = 0.65 + Math.sin(time * 4) * 0.2;
       {
         const fp = fahneGeo.attributes.position;
