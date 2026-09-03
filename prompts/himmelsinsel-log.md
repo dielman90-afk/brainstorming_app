@@ -873,3 +873,91 @@ der Szene; jetzt sind es die Findlinge, und zwar ohne dass sich an ihnen etwas
 geändert hätte. Und: **Ein Detail, das nicht an die Bildschirmauflösung
 gekoppelt ist, verschwindet nah und aliasiert fern.** Beides habe ich beim
 Nachthimmel schon einmal gelernt und hier nicht angewandt.
+
+---
+
+## Paket „Nahfeld": Die Wiesenstruktur stand falsch herum
+
+**Der schwerste Befund des zweiten Prüferdurchgangs**, und einer, den ich nicht
+auf dem Zettel hatte: Die Struktur der Wiese war in der **Ferne** am stärksten
+und brach zur Kamera hin zusammen.
+
+```
+6-groundcover, bandweise x 152–1148, fern -> nah
+Ausgangsstand   2,822  0,110  0,064  0,034  0,026  0,021  0,018  0,016
+nach Paket 2    4,594  2,061  1,695  1,237  0,917  0,651  0,477  0,348
+```
+
+Faktor **13,2** in die falsche Richtung. Das nächste Stück Boden — rund zwei
+Meter vor dem Auge — modulierte um weniger als eine Luminanzstufe.
+
+### Warum, und warum es dieselbe Falle wie beim Nachthimmel ist
+
+Es ist kein fehlendes Detail, sondern **Vergrößerung**. Das Korn hat 32 cm
+Kantenlänge; aus zwei Metern deckt eine solche Zelle einen guten Teil des Bildes
+ab, und ein Hochpass über ein 5×5-Fenster sieht darin nichts. Die Struktur ist
+da — nur mit einer Ortsfrequenz, die auf diese Entfernung nicht mehr als
+Oberfläche liest.
+
+Genau das steht seit dem Nachthimmel im Protokoll („Texturvergrößerung, nicht
+fehlendes Detail"), und die Antwort ist dieselbe: **ein zweiter, viel feinerer
+Maßstab, der nur nah eingeblendet wird.** 4,5 cm sind auf zwei Metern 15
+Bildpunkte, auf sechs noch fünf; darüber wird er ausgeblendet, bevor er zu
+Flimmern wird. Dieselbe Staffelung noch einmal in der Normalenstörung: Büschel
+von 18 cm für den mittleren Bereich, Halme von 3,6 cm für das Allernächste.
+
+### Gemessen
+
+```
+6-groundcover, bandweise, fern -> nah
+Ausgangsstand   2,822  0,110  0,064  0,034  0,026  0,021  0,018  0,016
+vorher          4,594  2,061  1,695  1,237  0,917  0,651  0,477  0,348
+jetzt           5,234  3,290  2,776  2,126  1,750  1,439  1,151  0,938
+```
+
+Das **vorderste** Band steigt von 0,348 auf **0,938**, die ganze nahe Hälfte
+etwa auf das Doppelte. Das Verhältnis fern zu nah fällt von **13,2 auf 5,6**.
+
+`1-eyelevel`, dieselbe Messung über den Nahbereich: 1,515 / 1,774 / 2,074 →
+**2,524 / 2,665 / 2,809**.
+
+Gesamtbild in `6-groundcover` (100,420)–(1180,700):
+
+| | Farbton ± | Rot-Blau | Hochpass |
+| --- | ---: | ---: | ---: |
+| Ausgangsstand | ± 3,71 | 26,0 ± 0,57 | 0,040 |
+| vor diesem Paket | ± 3,05 | 25,4 ± 2,56 | 1,052 |
+| **jetzt** | ± 3,49 | **28,5** ± 3,24 | **1,917** |
+
+Kantenanteil im unteren Bilddrittel **0,00 % → 0,14 %** — die Kantenerkennung
+findet dort zum ersten Mal etwas.
+
+### Dazu die Sättigung zurückgeholt
+
+Der Prüfer hatte an meiner Farbberuhigung zu Recht bemängelt, dass die Wiese
+dabei auch **blasser** geworden ist (`2-waterfall` y = 440: Abstand max − min von
+76 auf 56). Der Grundwert der Sättigung geht deshalb von 0,40 auf 0,44 — der
+Rot-Blau-Abstand steht wieder bei 28,5 gegen 25,4, und die Farbtonstreuung
+bleibt mit ± 3,49 unter dem Ausgangsstand von ± 3,71. Gleichmäßig grün heißt
+nicht blass.
+
+### Kosten und Regression
+
+76 Draw-Calls von 120, 199 505 Dreiecke, 11,83 MB — **alles unverändert**, der
+zweite Maßstab kostet nur Rechenzeit im Fragment. Nacht, Zen und Konstrukt
+Δmittel 0,000, Dojo 0,000. Konsole sauber.
+
+### Was offen bleibt
+
+Das Verhältnis fern zu nah steht bei 5,6 und nicht bei 1. Ein Teil davon ist
+unvermeidlich: Der Boden liegt im Nahbereich fast in der Blickachse, und eine
+Fläche unter streifendem Blick trägt weniger Kontrast als dieselbe Fläche von
+oben. Wie viel davon Rest und wie viel noch Fehler ist, ist **nicht geklärt**.
+
+### Die Lehre dieser Runde
+
+**Eine Lehre gilt nicht nur für die Umgebung, in der sie bezahlt wurde.** Die
+Vergrößerungsfalle steht seit dem Nachthimmel im Protokoll, mit derselben
+Ursache und derselben Antwort. Ich habe hier ein Korn gesetzt, das Maß an der
+mittleren Entfernung genommen und den Nahbereich nicht nachgemessen — obwohl das
+Bild, um das es ging, „Nahaufnahme Bodenvegetation" heißt.
