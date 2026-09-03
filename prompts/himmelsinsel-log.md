@@ -1038,3 +1038,99 @@ verschiedene Meshes mit zwei verschiedenen Materialien, und der eine Name im
 Befund führte nur zu einem davon. Dass die zweite Messung sich auf drei
 Nachkommastellen **nicht** bewegt hat, war der Hinweis — eine Änderung, die
 nichts ändert, hat nicht die Sache getroffen, um die es ging.
+
+---
+
+## Paket „Luftperspektive": Der Szenennebel kann es nicht, und das ist gemessen
+
+**Prüfer-Mangel 2 des zweiten Durchgangs:** *„Gras `1-eyelevel` ferner Kamm
+L 180,0 / Sättigung 50,7 gegen nächsten Vordergrund L 179,3 / 50,7 — 0,7 Stufen
+und 0,0 Sättigungspunkte über rund 30 m"*, während der Fels im selben Bild um
+35 Stufen staffelt.
+
+### Warum der Fels staffelt und der Boden nicht
+
+Der Szenennebel setzt bei **6 · WORLD_SCALE = 24 m** an. Die Insel ist 40 m
+breit; wer in ihrer Mitte steht, sieht ihre ferne Kante in **20 m** — sie liegt
+vollständig **vor** dem Nebel. Der Fels staffelt, weil der Prüfer einen nahen
+Findling mit der Klippe einer Mini-Insel in 80 m vergleicht, also quer durch den
+Nebelbereich.
+
+### Erst das Feld abfahren, dann entscheiden
+
+`tools/nebelfeld.mjs` (neu) verstellt Nebelanfang und -ende zur Laufzeit und
+misst je Einstellung die beiden Kästen des Prüfers plus einen dritten in
+Kartenreichweite:
+
+| Nebel | Δ Luminanz | Δ Sättigung | Kartenband |
+| --- | ---: | ---: | ---: |
+| 24 / 128 (Stand) | 1,2 | −0,4 | 115,0 |
+| 12 / 128 | 1,3 | −0,8 | 115,0 |
+| 8 / 90 | 2,1 | −2,8 | 115,0 |
+| 5 / 70 | 3,6 | −6,9 | 115,1 |
+| 2 / 70 | 4,5 | −9,5 | **116,1** |
+
+Selbst die äußerste Einstellung bringt 4,5 Stufen und beginnt dabei, das
+Kartenband zu heben. **Ein Nebel, der zugleich Mini-Inseln auf 100 m trägt, kann
+auf 20 m nichts Feines tun.** Der Wert bleibt deshalb, wo er ist.
+
+### Also dort, wo die Entfernung schon bekannt ist
+
+Ein eigener Dunst in der Grasnarbe, auf das Band 4 bis 26 m gelegt. Er berührt
+nichts anderes — keine Karten, keine Findlinge, keinen Himmel — und kostet kein
+Byte.
+
+**Zwei Anläufe, zwei Korrekturen:**
+
+*Erstens der Ton.* Der erste Versuch mischte gegen die Himmelsfarbe
+(0,44 | 0,66 | 0,83) und erzeugte 6,3 Luminanzstufen — aber auch **21,4
+Sättigungspunkte** weniger. Im Bild stand daraufhin ein blassblauer Hintergrund,
+auf dem Büsche und Findlinge in voller Sättigung saßen: Die Wiese staffelte,
+alles darauf nicht. Jetzt gegen einen hellen, nur leicht kühlen Ton in der Nähe
+der Grasfarbe.
+
+*Zweitens die Reichweite.* Eine reine `smoothstep(4, 26)` lässt jenseits von
+26 m überall denselben vollen Dunst stehen. In der Totale — Kamera 57 m entfernt
+— lag damit die **ganze** Insel gleichmäßig im Schleier: Wiesenmittel 159,5 →
+162,7, Anteil über L 190 von 16,4 auf **29,2 %**. Das ist keine Tiefe, das ist
+Aufhellung. Der Term wird deshalb zwischen 30 und 55 m wieder zurückgenommen,
+dort wo der Szenennebel greift. Physikalisch nimmt Dunst mit der Entfernung
+nicht ab; hier tut er es, weil sonst zwei Quellen dieselbe Strecke doppelt
+rechnen. Das ist eine Entscheidung der Technik, keine der Optik.
+
+### Gemessen
+
+| | Δ Luminanz | Δ Sättigung |
+| --- | ---: | ---: |
+| vorher | 1,2 | −0,4 |
+| erster Anlauf (Himmelston) | 6,3 | −21,4 |
+| **jetzt** | **4,8** | **−14,1** |
+
+Und die Gegenprobe in der Totale: Wiesenmittel **159,5 → 159,5**, Anteil über
+L 190 16,4 → 16,6 % — praktisch unverändert, während der erste Anlauf dort 29,2 %
+stand.
+
+Wirkung je Bild: `1-eyelevel` Δmittel 1,410 · `2-waterfall` 1,145 ·
+`3-edge-down` 1,688 · **`4-aerial` 0,232** · `5-backlight` 1,191 ·
+`6-groundcover` 0,895.
+
+### Kosten und Regression
+
+76 Draw-Calls, 199 505 Dreiecke, 11,83 MB — unverändert. Nacht und Zen
+bitgleich, Konstrukt Δmittel 0,001, Dojo 0,000. Konsole sauber.
+
+### Was offen bleibt
+
+Der Dunst liegt **nur** auf der Grasnarbe. Büsche, Findlinge und Bäume, die
+darauf stehen, staffeln innerhalb der Insel weiterhin nicht. Der zweite Anlauf
+hat die Fehlpaarung deutlich gemildert, aber nicht beseitigt; sie ganz
+aufzulösen hieße, denselben Term auf jedes Material der Insel zu legen — machbar
+und ein eigenes Paket.
+
+### Die Lehre dieser Runde
+
+**Eine Einstellung, die zwei Aufgaben gleichzeitig erfüllen soll, erfüllt beide
+schlecht.** Der Szenennebel muss Mini-Inseln auf 100 m ausblenden und sollte
+zugleich 20 m Boden staffeln; das Feld zeigt, dass zwischen beiden kein Wert
+liegt, der beides kann. Erst als die zweite Aufgabe einen eigenen Term bekam,
+ging beides.

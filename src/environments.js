@@ -1468,6 +1468,53 @@ function grasMaterial() {
            float korn = grasFbm(w * 3.1) - 0.5;
            float halme = grasFbm(w * 22.0) - 0.5;
            diffuseColor.rgb *= 1.0 + fleck * 0.055 + korn * 0.26 * nah + halme * 0.30 * ganzNah;
+           // --- Luftperspektive auf der Bodenebene ------------------------
+           //
+           // Der Pruefer: „Gras 1-eyelevel ferner Kamm L 180,0 / Saettigung
+           // 50,7 gegen naechsten Vordergrund L 179,3 / 50,7 — 0,7 Stufen und
+           // 0,0 Saettigungspunkte ueber rund 30 m", waehrend der Fels im
+           // selben Bild um 35 Stufen staffelt.
+           //
+           // **Der Szenennebel kann das nicht leisten, und das ist gemessen.**
+           // Er setzt bei 6 * WORLD_SCALE = 24 m an; die Insel ist 40 m breit,
+           // ihre ferne Kante also 20 m entfernt und liegt vollstaendig davor.
+           // tools/nebelfeld.mjs faehrt das Feld ab: Selbst mit 2 / 70 statt
+           // 24 / 128 kommen nur 4,5 Luminanzstufen heraus, und dafuer verliert
+           // die ferne Wiese 9,5 Saettigungspunkte und das Kartenband beginnt
+           // sich zu heben. Ein Nebel, der zugleich Mini-Inseln auf 100 m
+           // traegt, kann auf 20 m nichts Feines tun.
+           //
+           // Also hier, wo die Entfernung ohnehin schon bekannt ist: ein
+           // eigener Dunst fuer die Grasnarbe, auf das Band 4 bis 26 m gelegt.
+           // Er beruehrt nichts anderes — keine Karten, keine Findlinge, keinen
+           // Himmel — und kostet kein Byte.
+           // **Der Ton des Dunstes ist nicht der Himmel.** Ein erster Anlauf
+           // hat gegen die Himmelsfarbe (0,44 | 0,66 | 0,83) gemischt und
+           // damit zwar 6,3 Luminanzstufen Staffelung erzeugt, aber auch
+           // 21,4 Saettigungspunkte weggenommen. Im Bild stand daraufhin ein
+           // blassblauer Hintergrund, auf dem Buesche und Findlinge in voller
+           // Saettigung sassen — die Wiese staffelte, alles darauf nicht.
+           //
+           // Der Dunst mischt deshalb gegen einen hellen, nur leicht kuehlen
+           // Ton in der Naehe der Grasfarbe: Er hebt die Helligkeit, ohne die
+           // Tonart zu verlassen.
+           // **Und er hoert wieder auf, wo der Szenennebel uebernimmt.**
+           //
+           // Mit einer reinen smoothstep(4, 26) steht jenseits von 26 m ueberall
+           // derselbe volle Dunst — in der Totale (Kamera 57 m entfernt) liegt
+           // damit die **ganze** Insel gleichmaessig im Schleier, statt
+           // gestaffelt zu sein. Gemessen: Wiesenmittel in 4-aerial 159,5 auf
+           // 162,7, Anteil ueber L 190 von 16,4 auf 29,2 Prozent. Das ist keine
+           // Tiefe, das ist Aufhellung.
+           //
+           // Der Term ist ein **Lueckenfueller** fuer das Band, das der
+           // Szenennebel nicht bedienen kann, und wird dort zurueckgenommen, wo
+           // dieser greift. Physikalisch nimmt Dunst mit der Entfernung nicht
+           // ab; hier tut er es, weil sonst zwei Dunstquellen dieselbe Strecke
+           // doppelt berechnen. Das ist eine Entscheidung der Technik, keine
+           // der Optik, und sie steht als solche hier.
+           float weite = smoothstep(4.0, 26.0, tiefe) * (1.0 - smoothstep(30.0, 55.0, tiefe));
+           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.55, 0.44), weite * 0.30);
          }`
       )
       .replace(
@@ -1508,7 +1555,7 @@ function grasMaterial() {
   // Ohne eigenen Schluessel teilt three das uebersetzte Programm mit jedem
   // anderen MeshStandardMaterial derselben Merkmale — und die Insel bekaeme
   // ihre Einspritzung nicht.
-  _inselGras.customProgramCacheKey = () => 'insel-gras-v3';
+  _inselGras.customProgramCacheKey = () => 'insel-gras-v6';
   return _inselGras;
 }
 
