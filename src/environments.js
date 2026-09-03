@@ -2295,8 +2295,16 @@ function makeWaterfall(rand, shape) {
       new THREE.Color().setHSL(0.094, 0.05, 0.125 + 0.07 * valueNoise2(vx * 6, vz * 6))
     );
   }
+  // **Die Brocken im Bachbett hatten ueberhaupt keine Oberflaeche.** Der erste
+  // Anlauf dieses Pakets hat nur `island-stones` behandelt und in `1-eyelevel`
+  // 58,9 auf 40,4 Prozent konstanter Laeufe gedrueckt — in `2-waterfall` aber
+  // **exakt nichts** geaendert (61,9 vorher wie nachher, Hochpass auf drei
+  // Nachkommastellen gleich). Die Steine dort sind ein anderes Mesh mit einem
+  // blanken Standardmaterial ohne jede Karte. Dasselbe Korn, dieselbe Antwort.
   const stones = springStones.mesh(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, flatShading: true }),
+    findlingsKorn(
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, flatShading: true })
+    ),
     'spring-stones'
   );
   if (stones) group.add(stones);
@@ -3391,6 +3399,108 @@ function addContactShadow(bucket, shape, x, z, radius, tight = false) {
 
 // Schwebende Insel: durchgehender Körper (Gras → Erde → geschichteter Fels),
 // darauf Bäume, Findlinge und Kontaktschatten – alles in wenigen Meshes.
+// --- Korn auf den Findlingen ------------------------------------------------
+//
+// **Der Pruefer, zweiter Durchgang:** „Die Findlinge sind jetzt die glattesten
+// Flaechen der Szene." 35,4 bzw. 37,7 Prozent ihrer Bildpunkte liegen in
+// konstanten Laeufen ab sechs, laengster Lauf 91 px — gegen 16,1 Prozent am
+// Kiel und 6,7 auf der Wiese. Mit meinem eigenen Massstab (Schwelle unter einer
+// Luminanzstufe) sind es 58,9 und 61,9 gegen 25,5 und 16,7. Die Reihenfolge ist
+// dieselbe: Sie sind das Zweieinhalbfache des Kiels.
+//
+// **Und zwar, ohne dass sich an ihnen etwas geaendert haette.** Ich habe die
+// Wiese an ihnen vorbeigezogen; sie stehen noch da, wo sie immer standen.
+//
+// Die Ursache ist die Kachelgroesse. `boulderGeometry` legt die UV mit
+// `faceBoxUV(g, 0,17 * WORLD_SCALE)` an, also 0,68 lokale Einheiten je Kachel.
+// Ein Findling misst 0,1 bis 0,5 lokale Einheiten — **er ist kleiner als eine
+// Kachel**, und die Granitkarte liefert ihm damit einen fast konstanten Wert.
+// Die Kachel zu verkleinern ist keine Loesung: Der Kommentar am Material sagt,
+// warum sie gross ist — die runden Einschluesse der Karte kehren sonst
+// sichtbar wieder und lesen sich als Muster.
+//
+// Also dieselbe Antwort wie bei Wiese und Bach: **rechnend im Shader**, kein
+// Texturspeicher, keine Kachelgrenze. Die Projektion nimmt die dominante
+// Weltachse der Flaechennormale; weil das Material flach schattiert ist, ist
+// diese Normale je Facette konstant, und innerhalb einer Facette entsteht keine
+// Naht. An den Facettenkanten bricht sie ohnehin.
+function findlingsKorn(material) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSteinOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvSteinOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vSteinOrt;
+         float steinHash(vec2 p) {
+           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+         }
+         float steinNoise(vec2 p) {
+           vec2 i = floor(p);
+           vec2 f = fract(p);
+           vec2 u = f * f * (3.0 - 2.0 * f);
+           return mix(
+             mix(steinHash(i), steinHash(i + vec2(1.0, 0.0)), u.x),
+             mix(steinHash(i + vec2(0.0, 1.0)), steinHash(i + vec2(1.0, 1.0)), u.x),
+             u.y
+           );
+         }
+         // Gedreht und mit krummem Faktor gestapelt, aus demselben Grund wie
+         // beim Gras: Gleich ausgerichtete Oktaven verstaerken ihr Gitter.
+         float steinFbm(vec2 p) {
+           mat2 dreh = mat2(0.8018, -0.5976, 0.5976, 0.8018);
+           vec2 q = dreh * p;
+           float summe = 0.0;
+           float amp = 0.5;
+           for (int i = 0; i < 3; i++) {
+             summe += steinNoise(q) * amp;
+             q = dreh * q * 2.17 + 7.3;
+             amp *= 0.5;
+           }
+           return summe / 0.875;
+         }`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+         {
+           float tiefeS = length(vViewPosition);
+           float nahS = 1.0 - smoothstep(14.0, 34.0, tiefeS);
+           if (nahS > 0.002) {
+             // Die Weltnormale aus der Blickraumnormale: viewMatrix ist
+             // orthonormal, die Zeilenmultiplikation ist ihre Transponierte.
+             vec3 wn = (vec4(normal, 0.0) * viewMatrix).xyz;
+             vec3 an = abs(wn);
+             vec2 uvS = an.y > max(an.x, an.z)
+               ? vSteinOrt.xz
+               : (an.x > an.z ? vSteinOrt.yz : vSteinOrt.xy);
+             // 4,5 cm Korn: auf zwei Metern fuenfzehn Bildpunkte, auf zehn
+             // noch drei. Darueber ausgeblendet.
+             vec2 qS = uvS * 22.0;
+             float eS = 0.16;
+             float s0 = steinFbm(qS);
+             float sx = steinFbm(qS + vec2(eS, 0.0));
+             float sy = steinFbm(qS + vec2(0.0, eS));
+             vec3 tanA = normalize(cross(wn, abs(wn.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+             vec3 tanB = normalize(cross(wn, tanA));
+             vec3 stoerS = (tanA * -(sx - s0) + tanB * -(sy - s0)) * (0.9 * nahS);
+             normal = normalize(normal + (viewMatrix * vec4(stoerS, 0.0)).xyz);
+             diffuseColor.rgb *= 1.0 + (s0 - 0.5) * 0.18 * nahS;
+           }
+         }`
+      );
+  };
+  material.customProgramCacheKey = () => 'insel-findling-v1';
+  return material;
+}
+
 function buildIsland(
   rand,
   {
@@ -3559,6 +3669,7 @@ function buildIsland(
     power: 3.8,
   });
   steinMat.flatShading = true;
+  findlingsKorn(steinMat);
   // Die Granitkarte traegt runde Einschluesse. Bei kleiner Kachel kehren sie
   // sichtbar wieder und lesen sich als Muster statt als Gestein; die Kachel ist
   // deshalb groesser und das Relief flacher.
