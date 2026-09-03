@@ -1444,9 +1444,30 @@ function grasMaterial() {
            vec2 w = vGrasOrt.xz;
            float tiefe = length(vViewPosition);
            float nah = 1.0 - smoothstep(6.0, 14.0, tiefe);
+           // **Ein zweiter, viel feinerer Massstab fuer das Allernaechste.**
+           //
+           // Der Pruefer hat die Wiese bandweise gemessen und die Struktur
+           // **falsch herum** gefunden: in 6-groundcover von 4,594 im
+           // hinteren Band auf **0,348** im vordersten — Faktor 13 zur Kamera
+           // hin, und dort moduliert der Boden um weniger als eine
+           // Luminanzstufe.
+           //
+           // Das ist kein fehlendes Detail, sondern **Vergroesserung**: Das
+           // Korn hat 32 cm Kantenlaenge, und aus zwei Metern deckt eine
+           // solche Zelle einen guten Teil des Bildes ab. Ein Hochpass ueber
+           // ein 5x5-Fenster sieht darin nichts — die Struktur ist da, nur mit
+           // einer Ortsfrequenz, die das Auge auf diese Entfernung nicht mehr
+           // als Oberflaeche liest.
+           //
+           // Dieselbe Falle und dieselbe Antwort wie beim Nachthimmel: ein
+           // **zweiter Massstab**, der nur nah eingeblendet wird. 4,5 cm sind
+           // auf zwei Metern 15 Bildpunkte, auf sechs noch fuenf; darueber
+           // wird er ausgeblendet, bevor er zu Flimmern wird.
+           float ganzNah = 1.0 - smoothstep(3.0, 9.0, tiefe);
            float fleck = grasFbm(w * 0.55) - 0.5;
            float korn = grasFbm(w * 3.1) - 0.5;
-           diffuseColor.rgb *= 1.0 + fleck * 0.055 + korn * 0.26 * nah;
+           float halme = grasFbm(w * 22.0) - 0.5;
+           diffuseColor.rgb *= 1.0 + fleck * 0.055 + korn * 0.26 * nah + halme * 0.30 * ganzNah;
          }`
       )
       .replace(
@@ -1461,12 +1482,24 @@ function grasMaterial() {
            float tiefe = length(vViewPosition);
            float nahN = 1.0 - smoothstep(5.0, 14.0, tiefe);
            if (nahN > 0.002) {
+             // Zwei Massstaebe, wie in der Albedo: Bueschel von 18 cm fuer
+             // den mittleren Bereich, Halme von 3,6 cm fuer das Allernaechste.
+             // Der feine Anteil traegt eine eigene, kuerzere Ausblendung.
+             float ganzNahN = 1.0 - smoothstep(2.5, 7.0, tiefe);
              float e = 0.055;
              vec2 q = w * 5.55;
              float h0 = grasFbm(q);
              float hx = grasFbm(q + vec2(e, 0.0));
              float hz = grasFbm(q + vec2(0.0, e));
              vec3 stoerung = vec3(-(hx - h0), 0.0, -(hz - h0)) * (5.6 * nahN);
+             if (ganzNahN > 0.002) {
+               float ef = 0.22;
+               vec2 qf = w * 28.0;
+               float f0 = grasFbm(qf);
+               float fx = grasFbm(qf + vec2(ef, 0.0));
+               float fz = grasFbm(qf + vec2(0.0, ef));
+               stoerung += vec3(-(fx - f0), 0.0, -(fz - f0)) * (1.5 * ganzNahN);
+             }
              normal = normalize(normal + (viewMatrix * vec4(stoerung, 0.0)).xyz);
            }
          }`
@@ -1475,7 +1508,7 @@ function grasMaterial() {
   // Ohne eigenen Schluessel teilt three das uebersetzte Programm mit jedem
   // anderen MeshStandardMaterial derselben Merkmale — und die Insel bekaeme
   // ihre Einspritzung nicht.
-  _inselGras.customProgramCacheKey = () => 'insel-gras-v2';
+  _inselGras.customProgramCacheKey = () => 'insel-gras-v3';
   return _inselGras;
 }
 
@@ -1877,7 +1910,12 @@ function bodyColor(out, zone, shape, p, t, a) {
     // Fünftel; die Helligkeit trägt den Rest.
     out.setHSL(
       0.268 + 0.018 * feucht - 0.024 * trocken + 0.007 * variation,
-      0.40 + 0.05 * feucht - 0.045 * trocken + 0.022 * variation,
+      // 0,44 statt 0,40: Beim Beruhigen der Ausschlaege ist der Wiese auch
+      // Saettigung verloren gegangen — der Pruefer misst in `2-waterfall`
+      // y = 440 einen Abstand max minus min von 76 auf 56. Gleichmaessig gruen
+      // heisst nicht blass; der Grundwert holt das zurueck, ohne die Streuung
+      // wieder aufzumachen.
+      0.44 + 0.05 * feucht - 0.045 * trocken + 0.022 * variation,
       0.34 - 0.10 * feucht + 0.095 * trocken + 0.075 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
     );
     // Zur Kante hin reißt die Narbe auf: Erde und Fels kommen durch. Ohne das
