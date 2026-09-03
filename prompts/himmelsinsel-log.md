@@ -961,3 +961,80 @@ Vergrößerungsfalle steht seit dem Nachthimmel im Protokoll, mit derselben
 Ursache und derselben Antwort. Ich habe hier ein Korn gesetzt, das Maß an der
 mittleren Entfernung genommen und den Nahbereich nicht nachgemessen — obwohl das
 Bild, um das es ging, „Nahaufnahme Bodenvegetation" heißt.
+
+---
+
+## Paket „Findlinge": Sie waren an der Wiese vorbeigezogen worden
+
+**Prüfer-Mangel 3 des zweiten Durchgangs:** *„Die Findlinge sind jetzt die
+glattesten Flächen der Szene."* 35,4 bzw. 37,7 % ihrer Bildpunkte in konstanten
+Läufen ab sechs, längster Lauf 91 px — gegen 16,1 % am Kiel und 6,7 % auf der
+Wiese.
+
+**Und zwar, ohne dass sich an ihnen etwas geändert hätte.** Sie stehen noch da,
+wo sie immer standen; die Wiese ist an ihnen vorbeigezogen worden.
+
+`tools/laeufe.mjs` (neu) macht seine Kennzahl nachvollziehbar. Meine Schwelle
+ist mit „unter einer Luminanzstufe" lockerer als seine, die absoluten Zahlen
+liegen deshalb höher — die Reihenfolge ist dieselbe: Findlinge 58,9 und 61,9 %
+gegen Kiel 25,5 und Wiese 16,7.
+
+### Die Ursache: Der Findling ist kleiner als seine Kachel
+
+`boulderGeometry` legt die UV mit `faceBoxUV(g, 0,17 · WORLD_SCALE)` an, also
+**0,68 lokale Einheiten je Kachel**. Ein Findling misst 0,1 bis 0,5 lokale
+Einheiten — er ist kleiner als eine Kachel, und die Granitkarte liefert ihm damit
+einen fast konstanten Wert. Die Kachel zu verkleinern ist keine Lösung: Am
+Material steht, warum sie groß ist — die runden Einschlüsse der Karte kehren
+sonst sichtbar wieder und lesen sich als Muster.
+
+Also dieselbe Antwort wie bei Wiese und Bach: **rechnend im Shader**, kein
+Texturspeicher, keine Kachelgrenze. Die Projektion nimmt die dominante Weltachse
+der Flächennormale; weil das Material flach schattiert ist, ist diese Normale je
+Facette konstant, und innerhalb einer Facette entsteht keine Naht. An den
+Facettenkanten bricht sie ohnehin. Das Flat-Shading bleibt — der Prüfer hat es
+im ersten Durchgang ausdrücklich gelobt.
+
+### Der erste Anlauf hat die Hälfte der Steine nicht erwischt
+
+Ich habe zunächst nur `island-stones` behandelt. Ergebnis: `1-eyelevel` von 58,9
+auf 40,4 %, `2-waterfall` **exakt unverändert** — 61,9 % vorher wie nachher, der
+Hochpass auf drei Nachkommastellen gleich.
+
+Die Brocken im Bachbett sind ein **anderes Mesh** (`spring-stones`) mit einem
+blanken Standardmaterial ohne jede Karte. Wer nur nach dem Namen sucht, den der
+Prüfer nennt, findet sie nicht.
+
+### Gemessen
+
+| Fläche | vorher | nachher |
+| --- | ---: | ---: |
+| Findling `1-eyelevel` (820,350)–(910,400) | 58,9 % | **40,4 %** |
+| Bachbett `2-waterfall` (100,440)–(320,590) | 61,9 % | **9,4 %** |
+| Findling `6-groundcover` (620,300)–(780,380) | 49,6 % | **19,4 %** |
+| **Kiel** (Maßstab) | 25,5 % | 25,5 % |
+| **Wiese** | 16,7 % | 16,7 % |
+
+Zwei der drei Steinflächen liegen jetzt **unter** dem Kiel, eine davon unter der
+Wiese. Kiel und Wiese sind bitgleich — kein Kollateralschaden.
+
+### Kosten und Regression
+
+76 Draw-Calls von 120, 199 505 Dreiecke, 11,83 MB — **alles unverändert**. Nacht
+und Zen bitgleich, Konstrukt Δmittel 0,002, Dojo 0,000. Konsole sauber.
+
+### Was offen bleibt
+
+`1-eyelevel` liegt mit 40,4 % weiterhin über dem Kiel. Der dortige Findling
+steht so weit hinten, dass die Ausblendung (14 bis 34 m) schon greift. Sie weiter
+zu ziehen ist die naheliegende, aber **nicht geprüfte** Idee — ein Korn von
+4,5 cm fällt in dieser Entfernung unter zwei Bildpunkte, und dort beginnt genau
+das Flimmern, das dieses Projekt beim Laub schon einmal bezahlt hat.
+
+### Die Lehre dieser Runde
+
+**Ein Befund nennt ein Bild, keine Menge.** „Die Findlinge" waren zwei
+verschiedene Meshes mit zwei verschiedenen Materialien, und der eine Name im
+Befund führte nur zu einem davon. Dass die zweite Messung sich auf drei
+Nachkommastellen **nicht** bewegt hat, war der Hinweis — eine Änderung, die
+nichts ändert, hat nicht die Sache getroffen, um die es ging.
