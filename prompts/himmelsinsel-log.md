@@ -755,3 +755,121 @@ Farbstreuung von ±3,71 auf ±4,95 gehoben und das für einen Gewinn gehalten,
 weil der Hochpass mitstieg. Der Auftraggeber hat die Wiese daraufhin als
 fleckig gemeldet. Die richtige Zielgröße war von Anfang an: Struktur in der
 Helligkeit, Ruhe in der Farbe.
+
+---
+
+## Der Prüfer, zweiter Durchgang
+
+Gegenstand war `tools/shots/insel-jetzt/` nach acht Paketen, mit `insel-01/` zum
+Vergleich. Er hatte den ausdrücklichen Auftrag, meine sieben Behauptungen
+nachzumessen statt zu übernehmen.
+
+### Urteil je Kriterium
+
+| # | Kriterium | Urteil | gegenüber dem ersten Durchgang |
+| --- | --- | --- | --- |
+| 1 | Silhouette | nicht bestanden | unverändert |
+| 2 | Komposition | nicht bestanden | unverändert, Zahlen bis auf 0,1 % gleich |
+| 3 | **Licht** | **bestanden** | **geändert: nicht bestanden → bestanden** |
+| 4 | Farbharmonie | bestanden | unverändert |
+| 5 | Materialtrennung | nicht bestanden | deutlich besser, Urteil steht |
+| 6 | Tiefenstaffelung | nicht bestanden | unverändert |
+| 7 | Bewegung | nicht bestanden (nur Quellenlage) | unverändert |
+| 8 | Programmierer-Tell | nicht bestanden | Wiesenkachelung ist weg, Rest steht |
+
+Von acht Kriterien ist eines dazugekommen: **Licht**. Begründet mit einer Quelle
+samt Hof, Kern (254,241,199) statt Weiß, Schlagschatten mit 30-px-Halbschatten
+und 62 Stufen Tiefe, Kontaktverdunklung am Findlingsfuß und dem Himmel als
+kühlem Gegenpol über 89 Stufen.
+
+### Meine sieben Behauptungen, nachgemessen
+
+| # | Behauptung | sein Urteil |
+| --- | --- | --- |
+| 1 | Wiese 0,040 → 1,052 | **bestätigt**, dazu konstante Läufe 97,6 % → 6,7 % |
+| 2 | gleichmäßig grün, ±3,05 | **teilweise** — Farbton ja, aber Rot-Blau-Streuung ±0,57 → ±2,56 und die Grasfarbe verliert Sättigung (max−min 76 → 56) |
+| 3 | Konifere 27,4 → 21,3 | **bestätigt**, bleibt aber der höchste Hochpass im Satz |
+| 4 | Sonnenkern | **bestätigt**, 4994 → 0 |
+| 5 | Buschschatten, Fläche ×2 bis ×3 | **erster Teil bestätigt, zweiter widerlegt** |
+| 6 | weiches Bachufer | **teilweise** — nah ja (2 px → 9 px Rampe), auf mittlerer Entfernung unverändert 1 px |
+| 7 | Sprühfahne | **bestätigt, aber klein** — 4,55 % → 8,65 % Nicht-Himmel, nur aus der Vogelkamera |
+
+### Zu Behauptung 5 — und was daran wirklich zutrifft
+
+Er misst den **dunklen Anteil der hellen Wiese** in einem Kasten und findet ihn
+gefallen: `1-eyelevel` 18,86 → 17,04 %, `4-aerial` 38,98 → 33,61 %.
+
+Das widerspricht meiner Zahl nicht, denn es ist eine andere Größe. Ich habe
+**differentiell** gemessen — jedes Bild einmal mit und einmal ohne Schattenwurf,
+und die Differenz ist per Definition der Schatten: 0,57 → 2,14 % in
+`1-eyelevel`. Sein Wert enthält dagegen alles Dunkle im Kasten, auch Büsche,
+Steine und dunkleres Gras, und er fällt schon deshalb, weil die Wiese nach der
+Farbberuhigung insgesamt heller und gleichmäßiger geworden ist.
+
+**Meine Formulierung war trotzdem zu weit.** Ich habe „verdoppelt bis
+verdreifacht" geschrieben und mich dabei auf die vier Augenhöhen-Bilder bezogen;
+in `4-aerial` steht in derselben Tabelle 5,51 → 5,66 %, also unverändert. Wer
+den Satz ohne die Tabelle liest, nimmt mehr mit, als dasteht.
+
+Und sein **Mangel 12** trifft unabhängig davon zu und ist neu: In `4-aerial`
+misst die größte dunkle Zusammenhangskomponente 400 × 191 px bei **17 %
+Deckung** — sechs zehn Meter hohe Koniferen, und kein einziger Baum ist als
+Schatten wiederzuerkennen.
+
+### Was ich nicht auf dem Zettel hatte
+
+**1 — Die Wiesenstruktur sitzt in der Ferne, nicht vor den Füßen.** Bandweise in
+`6-groundcover`, x 150–1150:
+
+```
+y 380–418  4,594      y 500–538  1,237      y 620–658  0,477
+y 420–458  2,061      y 540–578  0,917      y 660–698  0,348
+y 460–498  1,695      y 580–618  0,651
+```
+
+Faktor **13 in die falsche Richtung**. Das nächste Stück Boden moduliert um
+unter eine Luminanzstufe. Damit ist auch mein eigener offener Punkt erklärt: Der
+Vordergrund ist nicht leer, weil dort nichts *steht*, sondern weil die
+Modulation dort zusammenbricht — es ist dieselbe Vergrößerungsfalle wie beim
+Nachthimmel, nur habe ich sie hier selbst wieder eingebaut.
+
+**2 — Dieselbe Ursache erklärt den ungeklärten Buschbefund.** Nah verschwindet
+das Detail, fern aliasiert es. In `6-groundcover` ist das Verhältnis sogar
+**schlechter** geworden: 1,38 → 1,64.
+
+**3 — Die Findlinge sind jetzt die glattesten Flächen der Szene.** 35,4 % bzw.
+37,7 % der Pixel in konstanten Läufen ≥ 6, längster Lauf 91 px — gegen 6,7 % auf
+der Wiese und 16,1 % am Kiel. Ich habe die Wiese an ihnen vorbeigezogen.
+
+**4 — Null Luftperspektive auf der Bodenebene.** Ferner Kamm L 180,0 /
+Sättigung 50,7 gegen nächsten Vordergrund L 179,3 / Sättigung 50,7: **0,7
+Stufen und 0,0 Sättigungspunkte über rund 30 m**, während der Fels im selben
+Bild um 35 Stufen staffelt. Die Staffelung ist eingebaut und greift auf einem
+von zwei Materialien.
+
+**5 — Der Himmelssaum landet im Blattinnern.** `5-backlight` (630,555)–(790,670):
+3,05 % der Laubpixel mit B > R+30, davon **2,48 Prozentpunkte vollständig von
+Laub umschlossen**. Beispiel: (32,62,22) direkt neben (55,109,97).
+
+**6 — `addWind` wird genau einmal aufgerufen** (Blumen). Kronen- und
+Buschhüllkörper stehen still, während die Blattkarten darauf schwingen. Alle
+fünf Vögel teilen `flap: 5.0`, alle sieben Falter `flap: 13`, alle Mini-Inseln
+`time * 0.4`, alle Wolken driften in +x und springen bei ±26 per Modulo. Er
+führt das ausdrücklich als **unbestätigt** — ein Standbild kann es nicht zeigen.
+
+### Was er als gut bezeichnet und was nicht angefasst wird
+
+Himmel (89 Stufen Verlauf), Sonne (0 ausgebrannte Punkte, Sättigung 70,2),
+Farbtonart (98,4–99,4 % in zwei Familien), Busch- und Findlingsschatten (30-px-
+Halbschatten, 62 Stufen — „der klarste Gewinn dieser Runde"), Felsstaffelung
+(35 Stufen, der alte Befund „1,8 Stufen" ist erledigt), das **nahe** Bachufer
+(9-px-Rampe mit Schaum) und die Kiel-Felsoberfläche (16,1 % konstante Läufe —
+„der Maßstab, an dem die Findlinge gemessen gehören").
+
+### Die Lehre dieser Runde
+
+**Eine Verbesserung verschiebt den Maßstab.** Die Wiese war die glatteste Fläche
+der Szene; jetzt sind es die Findlinge, und zwar ohne dass sich an ihnen etwas
+geändert hätte. Und: **Ein Detail, das nicht an die Bildschirmauflösung
+gekoppelt ist, verschwindet nah und aliasiert fern.** Beides habe ich beim
+Nachthimmel schon einmal gelernt und hier nicht angewandt.
