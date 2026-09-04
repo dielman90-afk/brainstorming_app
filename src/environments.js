@@ -12808,6 +12808,45 @@ function konstruktSesselWerkstoffe() {
   return _konstruktLeder;
 }
 
+// --- Keder ------------------------------------------------------------------
+//
+// **Warum das Sitzkissen Form braucht und keine Textur.**
+//
+// Gemessen ist es die glatteste Flaeche des Sessels: Hochpass 0,96 gegen 1,39
+// an der Lehne und 5,44 an der Wange. Die Ledernarbung liegt darauf — sie
+// zeigt sich nur nicht. Eine Normalenkarte wirkt ueber den Winkel zwischen
+// gestoerter Normale und Licht; auf einer nach OBEN gerichteten Flaeche unter
+// einem steilen Fuehrungslicht ist dieser Winkel klein, und die Stoerung
+// bleibt unsichtbar. An der senkrechten Wange trifft dasselbe Licht streifend,
+// und dieselbe Karte traegt dort das Fuenffache.
+//
+// Dagegen hilft keine staerkere Textur, sondern Geometrie. Ein Polster hat
+// ohnehin einen Keder — die eingenaehte Schnur entlang der Naht —, und der ist
+// genau das, was einem Kissen aus jeder Richtung eine Kante gibt.
+//
+// Der Pfad ist ein abgerundetes Rechteck in der x-z-Ebene. Acht Segmente je
+// Ecke reichen: Bei 8 mm Schnurstaerke ist eine Ecke im Bild wenige Pixel
+// gross.
+function kederRing(breite, tiefe, ecke, schnur = 0.008) {
+  const hw = breite / 2 - ecke;
+  const ht = tiefe / 2 - ecke;
+  const punkte = [];
+  const ECKEN = [
+    [hw, ht, 0],
+    [-hw, ht, Math.PI / 2],
+    [-hw, -ht, Math.PI],
+    [hw, -ht, -Math.PI / 2],
+  ];
+  for (const [cx, cz, a0] of ECKEN) {
+    for (let i = 0; i <= 8; i++) {
+      const a = a0 + (i / 8) * (Math.PI / 2);
+      punkte.push(new THREE.Vector3(cx + Math.cos(a) * ecke, 0, cz + Math.sin(a) * ecke));
+    }
+  }
+  const kurve = new THREE.CatmullRomCurve3(punkte, true, 'centripetal');
+  return new THREE.TubeGeometry(kurve, 64, schnur, 6, true);
+}
+
 function makeConstructArmchair() {
   const group = new THREE.Group();
   group.name = 'construct-armchair';
@@ -12875,9 +12914,30 @@ function makeConstructArmchair() {
 
   // Sitzkissen
   const seatW = W - CHEEK * 2 + 0.02;
-  const seat = new THREE.Mesh(roundedBox(seatW, 0.15, frontDepth - 0.05, 0.05), leather);
+  const seatD = frontDepth - 0.05;
+  const seat = new THREE.Mesh(roundedBox(seatW, 0.15, seatD, 0.05), leather);
   seat.position.set(0, 0.38, frontZ + 0.015);
   group.add(seat);
+
+  // Keder rund um das Kissen, auf halber Polsterhoehe — dort, wo die Naht
+  // zwischen Ober- und Seitenteil laeuft. Er gibt dem Kissen die Kante, die
+  // ihm die Narbung auf der Oberseite nicht geben kann.
+  const seatKeder = new THREE.Mesh(kederRing(seatW - 0.004, seatD - 0.004, 0.05), leatherDark);
+  seatKeder.position.set(0, 0.38, frontZ + 0.015);
+  group.add(seatKeder);
+
+  // Und einer auf der Oberkante des Unterbaus: Dort stiess vorher ein dunkler
+  // Block mit harter waagerechter Kante an das Polster, was als zweites Moebel
+  // las statt als Sockel desselben.
+  //
+  // **Auf 0,380 und nicht 0,375.** Der erste Versuch legte ihn drei Millimeter
+  // unter die Oberkante des Unterbaus — die Schnur steckte damit fast
+  // vollstaendig im Korpus, und was herausschaute, war ein duenner dunkler
+  // Strich quer ueber die Vorderseite. Er las als vergessener Draht, nicht als
+  // Naht. Ein Keder muss AUF der Kante sitzen, nicht darin.
+  const baseKeder = new THREE.Mesh(kederRing(W - 0.02, D - 0.02, 0.05), leatherDark);
+  baseKeder.position.set(0, 0.381, 0);
+  group.add(baseKeder);
 
   // Dichte Rautenknopfheftung über die ganze Lehne. Die erste Fassung hatte drei
   // Reihen à zwei bis drei Knöpfen – auf einer Lehne dieser Höhe wirkt das leer.
@@ -12890,11 +12950,57 @@ function makeConstructArmchair() {
     const count = wide ? 4 : 3;
     for (let i = 0; i < count; i++) {
       const g = buttonGeo.clone();
-      g.translate((i - (count - 1) / 2) * 0.165, 0.46 + row * 0.115, frontZ0 + 0.002);
+      // Der Knopf sitzt IM Polster, nicht darauf: 3 mm hinter der Flaeche.
+      g.translate((i - (count - 1) / 2) * 0.165, 0.46 + row * 0.115, frontZ0 - 0.003);
       buttons.push(g);
     }
   }
   group.add(new THREE.Mesh(mergeGeometries(buttons), leatherDark));
+
+  // **Mulden um die Knoepfe.**
+  //
+  // Vorher waren es flache dunkle Punkte auf glattem Leder — Aufkleber. Eine
+  // Kapitonierung zieht das Polster am Knopf ein; was man sieht, ist nicht der
+  // Knopf, sondern der Trichter um ihn herum. Ohne den fehlt der Lehne die
+  // einzige Modellierung, die sie ueberhaupt hat.
+  //
+  // Ein flachgedruecktes Torus-Segment leistet das mit acht Dreiecksringen: Die
+  // Innenkante faengt Licht, die Aussenkante liegt im Schatten des Wulstes.
+  // Sie teilen sich das Ledermaterial und werden mit den Knoepfen zusammen
+  // verschmolzen — kein zusaetzlicher Draw-Call.
+  // **Flach und eingelassen, nicht aufgesetzt.**
+  //
+  // Der erste Versuch nahm Schnurstaerke 0,012 und setzte den Ring vier
+  // Millimeter vor die Flaeche. Im Bild standen daraufhin Ringe wie Oesen auf
+  // dem Leder — ein Beschlag, kein Polster. Eine Kapitonierung ist das
+  // Gegenteil: Der Knopf zieht das Leder EIN, der Wulst ringsum ist nur die
+  // Falte, die dabei entsteht, und die ist weich und niedrig.
+  const muldeGeo = new THREE.TorusGeometry(0.03, 0.0075, 6, 14);
+  muldeGeo.scale(1, 1, 0.3);
+  const mulden = [];
+  for (const b of buttons) {
+    const g = muldeGeo.clone();
+    // Dieselbe Stelle wie der Knopf, nur eine Spur tiefer im Polster: Der
+    // Wulst soll ihn umschliessen, nicht vor ihm stehen.
+    const p = b.attributes.position;
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    for (let i = 0; i < p.count; i++) {
+      sx += p.getX(i);
+      sy += p.getY(i);
+      sz += p.getZ(i);
+    }
+    // **0,005 und nicht 0,009.** Die Rueckenlehne ist `roundedBox(W, backH,
+    // 0.19, 0.16)`: Bei einer Tiefe von 19 cm und einer Fase von 9,6 cm ist
+    // ihre Vorderseite fast vollstaendig gerundet — die Flaeche weicht nach
+    // oben hin zurueck. Mit 9 mm Einlass verschwanden die oberen zwei Reihen
+    // vollstaendig im Koerper, waehrend die unteren richtig sassen. 5 mm
+    // tragen auf allen sechs.
+    g.translate(sx / p.count, sy / p.count, sz / p.count - 0.005);
+    mulden.push(g);
+  }
+  group.add(new THREE.Mesh(mergeGeometries(mulden), leather));
 
   // Gedrechselte Vorderbeine (Lathe-Profil), hinten schlichte Stollen
   const profile = [
