@@ -1227,6 +1227,10 @@ Zen und Nachthimmel bitgleich (Δmax 0), Konstrukt Δmax 1, Dojo Δmax 4 bei
 0,010 % der Pixel ≥ 2 — die Fallunterscheidung greift. Konsole frei von Errors
 und Warnings, `npm run build` grün.
 
+Kosten unverändert: 76 Draw-Calls, 199 505 Dreiecke (`4-aerial`, die teuerste
+der sechs Ansichten) — der Eingriff nimmt Shader-Zeilen weg und fügt weder Mesh
+noch Werkstoff hinzu. Grenzen sind 120 und 350 000.
+
 ### Die Lehre dieser Runde
 
 **Ein Rundumschlag misst die Summe, nicht die Ursache.** Die erste Probe schaltete
