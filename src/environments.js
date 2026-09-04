@@ -4375,6 +4375,20 @@ function createIslandEnvironment() {
         if (cloud.visible) cloud.scale.copy(cloud.userData.baseScale).multiplyScalar(w);
       }
       _windClock.value = time;
+      // **Ohne diesen Aufruf steht das gesamte Laub der Insel still.**
+      //
+      // `foliageMaterial()` legt seine Zeit in einem gemeinsamen Uniform-Satz
+      // ab, und `updateFoliage()` ist das Einzige, was ihn hochzaehlt. Der
+      // Zen-Garten ruft es auf, das Dojo ruft es auf — die Insel hat es nie
+      // getan. Gemessen mit `tools/laubuhr.mjs`: `uTime` stand bei
+      // Umgebungszeit 10, 25 und 40 Sekunden auf **0,00**, und zwar auf allen
+      // achtzehn Laubwerkstoffen. Jede Blattkarte auf jedem Baum und jedem
+      // Busch war reglos aufgeklebt, seit es die Insel gibt.
+      //
+      // `_windClock` daneben treibt `addWind`, und das sitzt genau auf einem
+      // Werkstoff: den Blumen. Die Blumen waren das Einzige, was sich auf
+      // dieser Insel je bewegt hat, ausser Voegeln, Faltern und Wolken.
+      updateFoliage(time);
       waterfall.update(time);
       birds.update(time);
       butterflies.update(time);
