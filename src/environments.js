@@ -3177,7 +3177,7 @@ const CLOUD_MATERIAL = new THREE.MeshBasicMaterial({
   vertexColors: true,
 });
 
-function makeCloud(rand, size = 1, sunDir = null) {
+function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
   // Form: wenige große Ballen, viele kleine Knospen.
   //
   // Vorher waren es fünf bis acht gleich große Kugeln – die Konstruktion war
@@ -3186,6 +3186,15 @@ function makeCloud(rand, size = 1, sunDir = null) {
   // tragen die Masse, ein Dutzend Knospen brechen die Silhouette auf. Derselbe
   // Gedanke wie bei den Baumkronen.
   const geos = [];
+  // Je Ballen ein eigener Helligkeitsversatz. Ohne ihn backt die Farbe aus der
+  // Position der VERSCHMOLZENEN Geometrie, alle Lappen bekommen denselben
+  // glatten Verlauf, und die Wolke liest als ein einziger Fleck — gemessen
+  // Hochpass 0,36 bei 99,8 % der Punkte ueber L 190.
+  //
+  // Der Versatz kommt aus einem EIGENEN Zufallsstrom. Ein zusaetzlicher
+  // `rand()` hier verschoebe jede Ziehung danach, und das hat die
+  // Wasserfallfahne schon einmal 2952 Dreiecke gekostet.
+  const versaetze = [];
   const ballen = 3 + Math.floor(rand() * 2);
   const knospen = 7 + Math.floor(rand() * 6);
   // Wolken sind breit und flach, nicht kugelig.
@@ -3196,7 +3205,12 @@ function makeCloud(rand, size = 1, sunDir = null) {
     const s = (gross ? 0.85 + rand() * 0.55 : 0.30 + rand() * 0.32) * size;
     // Kleine Knospen brauchen keine 12x10 Segmente – sie sind auf dem Schirm
     // ein paar Pixel groß, kosten aber dieselben Dreiecke.
-    const g = new THREE.SphereGeometry(s, gross ? 12 : 7, gross ? 10 : 6);
+    // **16x12 statt 12x10, Knospen 9x7 statt 7x6.** Eine Kugel mit zwoelf
+    // Segmenten hat einen Zwoelfeck-Umriss; auf einer nahen Wolke von ueber
+    // zweihundert Bildpunkten liest das als gerade Strecken mit Ecken, und
+    // genau so hat es der Pruefer gemeldet. Der Aufschlag betraegt rund
+    // 23 000 Dreiecke ueber alle fuenfundzwanzig Wolken.
+    const g = new THREE.SphereGeometry(s, gross ? 16 : 9, gross ? 12 : 7);
     // Knospen sitzen bevorzugt oben und außen auf den Ballen.
     const f = gross ? 0.55 : 1.0;
     g.translate(
@@ -3205,8 +3219,22 @@ function makeCloud(rand, size = 1, sunDir = null) {
       (rand() - 0.5) * spanZ * f
     );
     geos.push(g);
+    // Grosse Ballen tragen die Masse und bleiben dicht beieinander; die kleinen
+    // Knospen duerfen staerker streuen, weil sie die Silhouette aufbrechen.
+    versaetze.push({
+      n: g.attributes.position.count,
+      v: tonR ? (tonR() - 0.5) * (gross ? 0.10 : 0.20) : 0,
+    });
   }
   const merged = mergeGeometries(geos);
+  // Versatz je Scheitelpunkt, in derselben Reihenfolge, in der verschmolzen
+  // wurde. `mergeGeometries` haengt die Geometrien hintereinander, die Zuordnung
+  // ist damit ein einfacher Durchlauf.
+  const proVertex = new Float32Array(merged.attributes.position.count);
+  {
+    let k = 0;
+    for (const { n, v } of versaetze) for (let i = 0; i < n; i++) proVertex[k++] = v;
+  }
 
   // Flache Unterkante. Eine Haufenwolke schwimmt auf einer Höhe, an der der
   // Wasserdampf kondensiert – ihr Boden ist deshalb eine waagerechte Ebene,
@@ -3259,7 +3287,17 @@ function makeCloud(rand, size = 1, sunDir = null) {
     // dreizehn Luminanzstufen Gesamtspanne – ein weißes Blatt Papier. Der Gipfel
     // ohne Silberrand liegt jetzt bei 1,14, der Schatten bei 0,34, und dazwischen
     // bleibt die Kurve steil genug, dass die Form sichtbar wird.
-    let f = 0.62 + 0.34 * Math.max(0, facing) + 0.18 * up - 0.28 * Math.max(0, -facing);
+    // **Die Schattenseite muss tiefer, nicht die Sonnenseite hoeher.**
+    //
+    // Gemessen lag die nahe Wolke in `3-edge-down` bei p05 194 / p95 240 —
+    // die GANZE Wolke im flachen Ast der ACES-Kurve, wo 3,4-facher
+    // Helligkeitsunterschied auf 46 sRGB-Stufen zusammenschnurrt. Oben mehr
+    // draufzugeben bringt dort nichts; Kontrast entsteht nur nach unten.
+    let f = 0.58 + 0.34 * Math.max(0, facing) + 0.24 * up - 0.42 * Math.max(0, -facing);
+    // Der Lappenversatz. Er sitzt VOR dem Silberrand, damit der Rand seine
+    // volle Wirkung behaelt, und ist bewusst klein: Eine Haufenwolke ist in
+    // sich hell, ihre Lappen unterscheiden sich um Nuancen, nicht um Stufen.
+    f += proVertex[i];
     // SILBERRAND. Der schmale, sehr helle Saum genau dort, wo die Sonne die
     // Wolke streift, ist das Erkennungszeichen einer Haufenwolke im Gegenlicht –
     // und er fehlte vollständig. Er sitzt eng (hoher Exponent), damit er ein
@@ -4341,10 +4379,12 @@ function createIslandEnvironment() {
   // Steine wandern, und die Messung misst dann etwas anderes. Diese Lehre steht
   // seit der Wasserfallfahne im Protokoll und hat dort 2952 Dreiecke gekostet.
   const wr = mulberry32(771403);
+  // Zweiter eigener Strom, fuer den Helligkeitsversatz der Wolkenlappen.
+  const wt = mulberry32(553091);
 
   for (const layer of cloudLayers) {
     for (let i = 0; i < layer.count; i++) {
-      const cloud = makeCloud(rand, layer.size, SUN_DIR);
+      const cloud = makeCloud(rand, layer.size, SUN_DIR, wt);
       let a = 0;
       let r = 0;
       let y = 0;
