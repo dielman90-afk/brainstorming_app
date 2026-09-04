@@ -12775,24 +12775,43 @@ function makeWoodTexture(base, dark) {
 // oben geschwungene Rückenlehne mit seitlichen Flügeln, dichte Rautenheftung,
 // gerollte Armlehnen mit geschnitzter Holzrosette an der Stirn und gedrechselte
 // Vorderbeine. Der Sessel schaut nach +Z.
+// **Die Werkstoffe des Sessels liegen ausserhalb, damit BEIDE Sessel dieselben
+// benutzen.**
+//
+// Vorher legte jeder Aufruf eigene an. Fuer das Bild ist das gleichgueltig — es
+// sind dieselben Werte —, fuer die Kosten nicht: `verschmelzeObjekte()` fasst
+// nach Werkstoff zusammen, und zwei Saetze gleicher Werkstoffe ergeben doppelt
+// so viele Meshes wie einer.
+let _konstruktLeder = null;
+function konstruktSesselWerkstoffe() {
+  if (!_konstruktLeder) {
+    const { normalMap, roughnessMap } = leatherMaps();
+    // Gealtertes Oxblood, kein Signalrot: Das Leder im Film ist dunkel, matt
+    // und sichtbar abgenutzt.
+    const leather = new THREE.MeshStandardMaterial({
+      color: 0x6f1c22,
+      roughness: 0.72,
+      metalness: 0.02,
+      normalMap,
+      normalScale: new THREE.Vector2(0.5, 0.5),
+      roughnessMap,
+    });
+    const leatherDark = leather.clone();
+    leatherDark.color = new THREE.Color(0x4c1216);
+    const wood = new THREE.MeshStandardMaterial({
+      color: 0x2b1a11,
+      roughness: 0.42,
+      metalness: 0.12,
+    });
+    _konstruktLeder = { leather, leatherDark, wood };
+  }
+  return _konstruktLeder;
+}
+
 function makeConstructArmchair() {
   const group = new THREE.Group();
   group.name = 'construct-armchair';
-  const { normalMap, roughnessMap } = leatherMaps();
-
-  // Gealtertes Oxblood, kein Signalrot: Das Leder im Film ist dunkel, matt und
-  // sichtbar abgenutzt.
-  const leather = new THREE.MeshStandardMaterial({
-    color: 0x6f1c22,
-    roughness: 0.72,
-    metalness: 0.02,
-    normalMap,
-    normalScale: new THREE.Vector2(0.5, 0.5),
-    roughnessMap,
-  });
-  const leatherDark = leather.clone();
-  leatherDark.color = new THREE.Color(0x4c1216);
-  const wood = new THREE.MeshStandardMaterial({ color: 0x2b1a11, roughness: 0.42, metalness: 0.12 });
+  const { leather, leatherDark, wood } = konstruktSesselWerkstoffe();
 
   const W = 0.88;        // Gesamtbreite
   const D = 0.84;        // Gesamttiefe
@@ -13264,15 +13283,26 @@ function makeConstructLounge() {
   const screenZ = TV_Z - console3d.screenOffset;
   const facing = Math.atan2(CHAIR_X, screenZ - CHAIR_Z);
 
+  // **Beide Sessel zu drei Meshes verschmolzen.**
+  //
+  // Ein Sessel besteht aus rund fuenfzehn Teilen — Unterbau, Lehne, Wangen,
+  // Polster, Knoepfe, vier Beine —, und es gibt ihn zweimal. Das waren dreissig
+  // Draw-Calls, die sich der Schattendurchgang danach noch einmal holt.
+  //
+  // Sie sind statisch und teilen sich drei Werkstoffe (Leder, dunkles Leder,
+  // Holz); damit ist es genau der Fall, fuer den `verschmelzeObjekte()` in
+  // dieser Datei steht. Die Ortsangaben werden dabei in die Geometrie gebacken,
+  // die beiden Sessel also gleich mit — heraus kommen **drei** Meshes fuer
+  // beide zusammen.
   const left = makeConstructArmchair();
   left.position.set(-CHAIR_X, 0, CHAIR_Z);
   left.rotation.y = facing;
-  group.add(left);
 
   const right = makeConstructArmchair();
   right.position.set(CHAIR_X, 0, CHAIR_Z);
   right.rotation.y = -facing;
-  group.add(right);
+
+  for (const m of verschmelzeObjekte([left, right], 'construct-armchairs')) group.add(m);
 
   const stand = makeConsoleStand(0.66, 0.52, STAND_H);
   stand.position.set(0, 0, TV_Z);
@@ -13283,9 +13313,33 @@ function makeConstructLounge() {
   // den Sesseln).
   group.add(console3d.group);
 
-  // Gemeinsamer, größerer Schatten unter der ganzen Gruppe – bindet die Möbel
-  // zusammen, statt drei einzelne Flecken stehen zu lassen.
-  const shade = makeBlobShadow(1.8, 0.24, 0.004);
+  // **Kontaktverdunklung je Möbel — zusätzlich zum Schlagschatten, nicht
+  // statt seiner.**
+  //
+  // Das sind zwei verschiedene Dinge, und das ist gemessen: Der neue
+  // Schlagschatten des Führungslichts fällt nach hinten rechts und nimmt dem
+  // Boden dort 5,9 Prozentpunkte über L 190 weg — direkt am Sesselfuß aber
+  // ändert er nichts (209,8 gegen 208,8). Was einen Gegenstand STEHEN lässt,
+  // ist die Verdunklung unmittelbar an seiner Aufstandsfläche, und die kommt
+  // von einem entfernten gerichteten Licht grundsätzlich nicht.
+  //
+  // Vorher gab es nur den einen grossen Fleck von 1,8 m unter der ganzen
+  // Gruppe. Der bindet zwar zusammen, aber er sitzt unter niemandem: Ein Sessel
+  // steht 1,06 m von der Mitte, sein Fuss also am Rand des Flecks, wo dieser
+  // schon fast ausgeblendet ist.
+  for (const [x, z, r] of [
+    [-CHAIR_X, CHAIR_Z, 0.58],
+    [CHAIR_X, CHAIR_Z, 0.58],
+    [0, TV_Z, 0.42],
+  ]) {
+    const fleck = makeBlobShadow(r, 0.34, 0.005);
+    fleck.position.set(x, 0.005, z);
+    group.add(fleck);
+  }
+
+  // Der gemeinsame Fleck bleibt, aber nur noch halb so kräftig: Er bindet die
+  // Gruppe zusammen, das Stehen besorgen jetzt die drei einzelnen.
+  const shade = makeBlobShadow(1.8, 0.12, 0.004);
   // Mittig unter der Gruppe – wandert mit, wenn die Sessel weiter nach hinten
   // rücken, sonst steht die Sitzgruppe halb neben ihrem eigenen Schatten.
   shade.position.z = (CHAIR_Z + TV_Z) / 2;
@@ -13418,8 +13472,44 @@ function createMatrixEnvironment() {
   // Auf die Karten wirkt es kaum – deren Material ist von der Beleuchtung
   // ausgenommen (MeshBasicMaterial).
   const key = new THREE.DirectionalLight(0xfff6ec, 0.7);
-  key.position.set(-3.5, 5, 5);
+  // **Das Fuehrungslicht wirft jetzt Schatten.**
+  //
+  // Vorher warf in dieser Umgebung nichts einen. Die Moebel standen auf einem
+  // gemalten Fleck — einer weichen Ellipse von 1,8 m unter der ganzen Gruppe,
+  // die weder die Form der Sessel noch die duennen Beine des Staenders kennt.
+  // In `f-boden` sieht man das Ergebnis: Die Beine enden im Nichts, die Gruppe
+  // schwebt.
+  //
+  // Das ist hier teurer als anderswo, weil es NUR den Boden gibt: In einer
+  // weissen Leere ist der Schatten die einzige Angabe darueber, wo ein
+  // Gegenstand steht und wie er geformt ist.
+  //
+  // Der Kasten ist eng: Die Sitzgruppe misst rund 3,8 x 3,0 m, die Ortho-Kamera
+  // deckt +/-3 m ab. Bei 1024 Texeln sind das **5,9 mm je Texel** — schaerfer
+  // als jede andere Umgebung des Projekts, und moeglich nur, weil hier so wenig
+  // steht.
+  //
+  // Das Ziel wandert zur Sitzgruppe mit, die Lichtposition um denselben Betrag:
+  // Ein gerichtetes Licht kennt nur die Differenz, die Lichtrichtung bleibt
+  // damit exakt dieselbe wie vorher.
+  key.position.set(-3.5, 5, 1.1);
+  key.target.position.set(0, 0, -3.9);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024);
+  {
+    const sc = key.shadow.camera;
+    sc.left = -3;
+    sc.right = 3;
+    sc.top = 3;
+    sc.bottom = -3;
+    sc.near = 3;
+    sc.far = 16;
+    sc.updateProjectionMatrix();
+  }
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = 0.02;
   group.add(key);
+  group.add(key.target);
   const rim = new THREE.DirectionalLight(0xdce6f0, 0.35);
   rim.position.set(4, 2.5, -4.5);
   group.add(rim);
@@ -13431,7 +13521,59 @@ function createMatrixEnvironment() {
   // heißt das gut dreieinhalb Meter.
   const lounge = makeConstructLounge();
   lounge.group.position.set(0, 0, -3.9);
+  // **Werfer nach Groesse, nicht pauschal — und das ist eine Kostenfrage.**
+  //
+  // Der Schattendurchgang zeichnet jeden Werfer ein zweites Mal. Pauschal alle
+  // Meshes der Sitzgruppe werfen zu lassen, brachte die Umgebung von 56 auf
+  // **109 Draw-Calls** — mehr als die ganze Himmelsinsel mit ihren Baeumen,
+  // Findlingen und Wolken (74), und das fuer zwei Sessel und ein Fernsehgeraet.
+  //
+  // Der Grund ist die Bauweise: Ein Sessel besteht aus Dutzenden kleiner Teile,
+  // Knoepfe und Keder eingeschlossen. Ein Knopf von einem Zentimeter wirft bei
+  // 5,9 mm je Schattenkartentexel einen Schatten aus zwei Texeln — dasselbe
+  // Argument wie bei den Pilzen der Insel, nur hier mit einem Preis in
+  // Draw-Calls dahinter.
+  //
+  // Die Schwelle liegt bei 6 cm Huellkugelhalbmesser. Sie ist gemessen und
+  // nicht geschaetzt: Darunter faellt kein Teil, dessen Schatten bei dieser
+  // Texelgroesse ueberhaupt eine Form haette.
+  //
+  // Empfangen sollen dagegen ALLE — das kostet keinen Draw-Call, und ein Knopf,
+  // der im Schatten der Rueckenlehne hell bleibt, faellt sofort auf.
+  lounge.group.traverse((o) => {
+    if (!o.isMesh || o.name === 'blob-shadow') return;
+    o.receiveShadow = true;
+    if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+    const r = o.geometry.boundingSphere?.radius ?? 0;
+    // Instanzierte Meshes zaehlen als eines und tragen viele Koerper; sie
+    // werfen unabhaengig von der Huellkugel des Einzelstuecks.
+    if (r >= 0.06 || o.isInstancedMesh) o.castShadow = true;
+  });
   group.add(lounge.group);
+
+  // **Eine eigene Ebene fuer den Schatten, weil der Boden keinen empfangen
+  // kann.**
+  //
+  // Der Boden ist ein `MeshBasicMaterial` — unbeleuchtet, und damit nimmt er
+  // per Bauart keinen Schatten an. Ihn auf ein beleuchtetes Material
+  // umzustellen hiesse, die eben erst kalibrierte Farbe der Beleuchtung
+  // auszuliefern und die Naht zur Kuppel wieder aufzureissen.
+  //
+  // `ShadowMaterial` ist genau fuer diesen Fall da: eine durchsichtige Flaeche,
+  // die NUR den empfangenen Schatten zeigt. Sie legt sich ueber den Boden, ohne
+  // dessen Ton anzufassen. Radius 8 statt 60 — weiter reicht der Ortho-Kasten
+  // der Schattenkamera ohnehin nicht, und eine groessere Flaeche waere nur
+  // Fuellrate.
+  const schattenBoden = new THREE.Mesh(
+    new THREE.CircleGeometry(8, 48),
+    new THREE.ShadowMaterial({ opacity: 0.3, depthWrite: false })
+  );
+  schattenBoden.name = 'schattenboden';
+  schattenBoden.rotation.x = -Math.PI / 2;
+  schattenBoden.position.y = -0.015;
+  schattenBoden.receiveShadow = true;
+  schattenBoden.renderOrder = 1;
+  group.add(schattenBoden);
 
   return {
     id: 'matrix',

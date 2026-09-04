@@ -157,3 +157,103 @@ nichts geändert wurde. Im Konstrukt: `e-schraeg` Δmittel 0,870 ·
 Weißton" und ein Radius, der keiner war — und beide waren falsch, seit sie
 geschrieben wurden. Gefunden hat sie nicht das Lesen, sondern eine Spalte
 Pixelwerte.
+
+---
+
+## Paket 2: Die Möbel standen nicht, sie lagen auf
+
+In dieser Umgebung warf **nichts** einen Schatten. Es gab genau einen gemalten
+Fleck — eine weiche Ellipse von 1,8 m unter der ganzen Gruppe —, der weder die
+Form der Sessel noch die dünnen Beine des Ständers kennt. In `f-boden` enden die
+Beine im Nichts.
+
+Das wiegt hier schwerer als in jeder anderen Umgebung: In einer weißen Leere ist
+der Schatten die **einzige** Angabe darüber, wo ein Gegenstand steht und wie er
+geformt ist. Es gibt sonst nichts, woran man ihn messen könnte.
+
+### Zwei verschiedene Dinge, und beide fehlten
+
+**Der Schlagschatten.** Das Führungslicht wirft jetzt. Der Ortho-Kasten ist eng —
+die Sitzgruppe misst rund 3,8 × 3,0 m, die Schattenkamera deckt ±3 m ab; bei 1024
+Texeln sind das **5,9 mm je Texel**, schärfer als in jeder anderen Umgebung des
+Projekts, und möglich nur, weil hier so wenig steht. Das Ziel wandert zur
+Sitzgruppe, die Lichtposition um denselben Betrag: Ein gerichtetes Licht kennt
+nur die Differenz, die Lichtrichtung bleibt exakt dieselbe wie vorher.
+
+**Der Boden kann keinen Schatten empfangen.** Er ist ein `MeshBasicMaterial`,
+also unbeleuchtet — per Bauart nimmt er keinen an. Ihn auf ein beleuchtetes
+Material umzustellen hieße, die in Paket 1 kalibrierte Farbe der Beleuchtung
+auszuliefern und die Naht zur Kuppel wieder aufzureißen. `ShadowMaterial` ist
+für genau diesen Fall da: eine durchsichtige Fläche, die nur den empfangenen
+Schatten zeigt und über dem Boden liegt, ohne dessen Ton anzufassen. Radius 8
+statt 60 — weiter reicht der Ortho-Kasten ohnehin nicht.
+
+**Die Kontaktverdunklung.** Der Schlagschatten fällt nach hinten rechts. Am
+Sesselfuß ändert er nichts (209,8 gegen 208,8), und das ist kein Mangel der
+Einstellung, sondern der Natur der Sache: Was einen Gegenstand *stehen* lässt,
+ist die Verdunklung unmittelbar an seiner Aufstandsfläche, und die kommt von
+einem entfernten gerichteten Licht grundsätzlich nicht. Der eine große Fleck
+half dabei nicht, weil er unter niemandem saß: Ein Sessel steht 1,06 m von der
+Mitte, sein Fuß also am Rand des Flecks, wo dieser fast ausgeblendet ist. Jetzt
+hat jedes Möbel seinen eigenen (Sessel 0,58 m, Gerät 0,42 m), und der gemeinsame
+Fleck ist auf die halbe Deckkraft zurück — er bindet, er trägt nicht mehr.
+
+### Gemessen in `f-boden`
+
+| Stelle | vorher | + Schlagschatten | + Kontaktflecken |
+| --- | ---: | ---: | ---: |
+| Boden am linken Sesselfuß (470,255) | 191,8 | **134,0** | 132,0 |
+| Boden unter dem Gerät (640,430) | 172,8 | 172,8 | **163,0** |
+| Bodenkasten, Anteil über L 190 | 72,8 % | 66,9 % | **66,5 %** |
+
+Die beiden Zeilen zeigen die Arbeitsteilung genau: Der Schlagschatten bringt dem
+Sesselfuß 58 Stufen und dem Gerät null, die Kontaktflecken bringen dem Gerät
+zehn. Keiner der beiden hätte den anderen ersetzt.
+
+### Kosten — und warum daraus ein eigenes Stück Arbeit wurde
+
+Der Schattendurchgang zeichnet jeden Werfer ein zweites Mal. Pauschal alle
+Meshes der Sitzgruppe werfen zu lassen, brachte die Umgebung von **56 auf 109
+Draw-Calls** — mehr als die ganze Himmelsinsel mit ihren Bäumen, Findlingen und
+Wolken (74), und das für zwei Sessel und ein Fernsehgerät. Im Budget (120), aber
+nur knapp, und als Verhältnis absurd.
+
+**Erster Schritt: Werfer nach Größe.** Ein Sessel besteht aus Dutzenden kleiner
+Teile, Knöpfe und Keder eingeschlossen. Ein Knopf von einem Zentimeter wirft bei
+5,9 mm je Texel einen Schatten aus zwei Texeln — dasselbe Argument wie bei den
+Pilzen der Insel, nur hier mit einem Preis in Draw-Calls dahinter. Schwelle bei
+6 cm Hüllkugelhalbmesser: **109 → 99**. Empfangen sollen dagegen alle, das
+kostet nichts.
+
+**Zweiter Schritt, und der eigentliche: verschmelzen.** Die beiden Sessel sind
+statisch und teilen sich drei Werkstoffe. Genau dafür steht `verschmelzeObjekte()`
+in dieser Datei. Damit es greift, mussten die Werkstoffe zuerst aus der
+Sesselfunktion heraus — vorher legte jeder Aufruf eigene an, und zwei Sätze
+gleicher Werkstoffe ergeben doppelt so viele Meshes wie einer. Danach:
+
+| Stand | Knoten | Draw-Calls | Dreiecke |
+| --- | ---: | ---: | ---: |
+| Ausgangsstand, **ohne** Schatten | 56 | 56 | 20 750 |
+| mit Schatten, alle werfen | 60 | **109** | 39 594 |
+| Werfer ab 6 cm | 60 | 99 | 38 282 |
+| **Sessel verschmolzen** | **27** | **43** | 39 470 |
+
+Die Umgebung kostet jetzt **mit** Schlagschatten weniger als vorher **ohne**:
+43 gegen 56. Die Dreiecke steigen leicht (verschmolzene Meshes werden immer ganz
+gezeichnet), das ist bei 350 000 Grenze belanglos.
+
+Belegt, dass das Verschmelzen optisch nichts tut: `c-roehre` bitgleich, die
+übrigen fünf Ansichten Δmittel zwischen 0,002 und 0,015 bei höchstens 0,011 %
+der Bildpunkte ≥ 2.
+
+### Regression
+
+Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 6 bei 0,009 %. Build grün,
+Konsole frei von Errors und Warnings.
+
+### Die Lehre dieser Runde
+
+**Ein Schatten kostet so viele Draw-Calls, wie der Gegenstand Teile hat.** Das
+ist der Preis, den man beim Einschalten nicht sieht und beim Messen sofort. Und
+die Antwort darauf war nicht, den Schatten wieder wegzunehmen, sondern das
+Möbel so zu bauen, wie es hätte gebaut sein sollen.
