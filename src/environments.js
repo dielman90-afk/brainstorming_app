@@ -13303,13 +13303,91 @@ function createMatrixEnvironment() {
   group.name = 'env-matrix';
 
   // Umgebende Kuppel: reines Weiß oben, minimal kühleres Weiß am unteren Rand.
-  group.add(makeDome(0xffffff, 0xeef1f4, 60));
+  //
+  // **Der Aufruf war falsch, und zwar zweifach.** Die Signatur lautet
+  // `makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44,
+  // …)`. Übergeben wurde `(0xffffff, 0xeef1f4, 60)` — die 60 war als Radius
+  // gemeint und landete als **bottomColor**: `new THREE.Color(60)` ist
+  // 0x00003C, ein fast schwarzes Blau. Der Radius blieb auf der Vorgabe 44,
+  // während der Boden mit 60 gebaut wird, der Boden also 16 m über die Kuppel
+  // hinausragte.
+  //
+  // Sichtbar wurde davon wenig, weil der Boden die untere Kuppelhälfte deckt —
+  // aber genau darum ist es einen Kommentar wert: Ein Fehler, den man nicht
+  // sieht, wird nicht gefunden, und beim nächsten Umbau steht er dann als
+  // Falle bereit. Die beiden anderen Aufrufer übergeben fünf Argumente
+  // richtig; nur dieser hier nicht.
+  group.add(makeDome(0xffffff, 0xeef1f4, 0xeef1f4, 60));
 
-  // Nahtloser Boden im selben Weißton wie der Kuppelgrund → unsichtbarer Horizont.
-  const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(60, 64),
-    new THREE.MeshBasicMaterial({ color: 0xf3f5f8 })
-  );
+  // **Der Boden verläuft in den Kuppelgrund hinein — vorher stieß er dagegen.**
+  //
+  // Der Kommentar an dieser Stelle behauptete „derselbe Weißton wie der
+  // Kuppelgrund". Er war es nicht: Kuppelgrund 0xeef1f4 (238 | 241 | 244),
+  // Boden 0xf3f5f8 (243 | 245 | 248). Gemessen in `a-augenhoehe`, Spalte 200,
+  // sprang die Helligkeit zwischen y = 262 und 263 in **einer** Bildzeile von
+  // 224,2 auf 226,6 — und der Ton von bläulich (219 | 225 | 231) auf neutral
+  // (226 | 227 | 227). Eine gerade Kante über die ganze Bildbreite, in einer
+  // Umgebung, deren einzige Gestaltungsidee „kein sichtbarer Horizont" ist.
+  //
+  // Zwei Stufen sind als Fläche nichts; als **Kante** sind sie alles. Das Auge
+  // findet eine gerade Linie weit unterhalb der Schwelle, ab der es einen
+  // Flächenunterschied bemerkt.
+  //
+  // Jetzt trägt der Boden einen radialen Verlauf: nah der etwas hellere,
+  // kühlere Ton, der ihn als Boden lesbar hält, und am Rand **genau** die
+  // Farbe des Kuppelgrunds. Damit gibt es an der Nahtstelle keine Differenz
+  // mehr, die eine Kante bilden könnte. Der Verlauf sitzt im Shader statt in
+  // Scheitelfarben, weil `CircleGeometry` nur einen Ring hat — eine
+  // Scheitelfarbe könnte nur linear von der Mitte zum Rand laufen, und der
+  // Übergang muss dort schnell sein, wo der Horizont steht, nicht in der Mitte.
+  // Ebenfalls neu gewählt: Ohne Tonemapping ergäbe der alte Wert 0xf3f5f8 ein
+  // deutlich helleres Bild. 0xe2e3e3 ist der Wert, den der Boden vorher
+  // TATSÄCHLICH zeigte — der Nahbereich bleibt damit, wie er war.
+  const BODEN_NAH = new THREE.Color(0xe2e3e3);
+  // **Der Boden läuft ohne Tonemapping, weil die Kuppel es auch nicht tut.**
+  //
+  // `makeDome` schreibt seine Farbe roh in den Puffer (die Lehre steht
+  // ausführlich an der Nachthimmelkuppel). Der Boden war ein gewöhnliches
+  // Material und lief durch ACES. Derselbe Hexwert kam deshalb an beiden
+  // Stellen verschieden heraus: 0xeef1f4 ergab in der Kuppel (218 | 224 | 231),
+  // im Boden (224 | 225 | 228).
+  //
+  // Ein erster Anlauf hat den Bodenwert gegen die ACES-Kurve kalibriert und kam
+  // auf 1,0 Stufen Restsprung — der Blaukanal lief dabei an die 255 und konnte
+  // nicht weiter. Der Umweg ist unnötig: Ein Boden, der als flache Rückwand
+  // dient und nicht als beleuchtete Fläche, hat im Tonemapping nichts zu
+  // suchen. Ohne es kommt der Hexwert unverändert heraus, und beide Flächen
+  // lassen sich exakt aufeinander setzen.
+  const BODEN_FERN = new THREE.Color(0xdae0e7); // = was die Kuppel am Horizont zeigt
+  const floorMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  floorMat.onBeforeCompile = (shader) => {
+    shader.uniforms.bodenNah = { value: BODEN_NAH };
+    shader.uniforms.bodenFern = { value: BODEN_FERN };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBodenOrt;')
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvBodenOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vBodenOrt;\nuniform vec3 bodenNah;\nuniform vec3 bodenFern;'
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           // Der Übergang liegt zwischen 6 und 34 m. Näher als 6 m steht man
+           // selbst; weiter als 34 m ist der Boden ohnehin nur noch ein
+           // schmales Band unter dem Horizont.
+           float r = length(vBodenOrt.xz);
+           diffuseColor.rgb *= mix(bodenNah, bodenFern, smoothstep(6.0, 34.0, r));
+         }`
+      );
+  };
+  floorMat.customProgramCacheKey = () => 'konstrukt-boden-v1';
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(60, 64), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.02;
   group.add(floor);
