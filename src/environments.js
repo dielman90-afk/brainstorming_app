@@ -4196,6 +4196,12 @@ function createIslandEnvironment() {
           5.5 + 6 * cfg.scale
     );
 
+  // **Eigener Zufallsstrom für die Umbruchweite.** Ein zusätzlicher `rand()`
+  // im Wolkenbau verschiebt jede Ziehung danach — Mini-Inseln, ihre Bäume und
+  // Steine wandern, und die Messung misst dann etwas anderes. Diese Lehre steht
+  // seit der Wasserfallfahne im Protokoll und hat dort 2952 Dreiecke gekostet.
+  const wr = mulberry32(771403);
+
   for (const layer of cloudLayers) {
     for (let i = 0; i < layer.count; i++) {
       const cloud = makeCloud(rand, layer.size, SUN_DIR);
@@ -4231,7 +4237,17 @@ function createIslandEnvironment() {
       cloud.userData.baseX = cloud.position.x;
       cloud.userData.baseZ = cloud.position.z;
       cloud.userData.speed = 0.1 + rand() * 0.22;
-      cloud.userData.range = 26;
+      // **Jede Wolke hat ihre eigene Umbruchweite.** Mit einem gemeinsamen Wert
+      // von 26 lösen sich alle fünfundzwanzig an derselben Ebene im Raum auf —
+      // eine unsichtbare Wand, an der Wolken sterben. Das ist genau die Art
+      // Regelmäßigkeit, die als Mechanik liest, sobald man ihr eine Minute
+      // zusieht. Mit 22 bis 34 liegen die Umbruchstellen verstreut, und die
+      // Umlaufzeiten (140 bis 680 s) haben keinen gemeinsamen Takt mehr.
+      cloud.userData.range = 22 + wr() * 12;
+      // Der Grundmaßstab muss aufgehoben werden, weil `update()` ihn jedes Bild
+      // mit dem Auflösungsfaktor multipliziert. Ohne Kopie schrumpft die Wolke
+      // kumulativ und ist nach wenigen Sekunden fort.
+      cloud.userData.baseScale = cloud.scale.clone();
       clouds.push(cloud);
       group.add(cloud);
     }
@@ -4317,10 +4333,46 @@ function createIslandEnvironment() {
       for (const mini of minis) {
         mini.position.y = mini.userData.baseY + Math.sin(time * 0.4 + mini.userData.phase) * 0.5;
       }
+      // **Wolken lösen sich auf, statt zu springen.**
+      //
+      // Die Drift lief im Modulo um: Bei |x| = 26 sprang eine Wolke auf die
+      // andere Seite des Himmels. Gemessen mit `tools/inselbewegung.mjs` über
+      // 200 s waren das **51,97 Meter in einem Zeitschritt von 0,25 s**, bei
+      // einer mittleren Schrittweite von 0,10 m — das 385- bis 575-fache. Und
+      // es passiert mitten im Bild: Die Wolken liegen auf Radien von 8 bis 36,
+      // die Umbruchkante bei 26 liegt also nicht am Rand der Welt, sondern
+      // quer durch den sichtbaren Himmel. Fünfzehn der 25 Wolken sprangen
+      // allein in diesen 200 Sekunden.
+      //
+      // Statt den Sprung zu verstecken, bekommt er einen Vorgang: Über die
+      // letzten drei Einheiten vor der Kante schrumpft die Wolke auf null und
+      // wächst auf der anderen Seite wieder heraus. Eine Haufenwolke, die sich
+      // auflöst und anderswo neu bildet, ist genau das, was Haufenwolken tun —
+      // und bei Geschwindigkeiten von 0,1 bis 0,32 Einheiten je Sekunde dauert
+      // der Vorgang 9 bis 30 Sekunden, ist also kein Blinken.
+      //
+      // **Drei und nicht sechs, und das ist gemessen.** Mit sechs Einheiten ist
+      // jede Wolke 23 % ihres Umlaufs verkleinert; im eingefrorenen Zeitpunkt
+      // von `2-waterfall` hat das die Wolke oben rechts vollständig gekostet —
+      // 0,266 % der Bildpunkte, und kompositorisch das Gegengewicht zur
+      // Konifere. Drei Einheiten halbieren den Anteil auf 12 %, ohne den
+      // Vorgang schnell genug zu machen, dass er als Blinken liest.
+      //
+      // Kosten: keine. Kein zweiter Werkstoff, keine Transparenz (die kostete
+      // Sortierung und den Tiefenschreib), und solange die Wolke unsichtbar
+      // ist, spart sie sogar ihren Draw-Call.
+      const SAUM = 3;
       for (const cloud of clouds) {
         const range = cloud.userData.range;
         const x = cloud.userData.baseX + time * cloud.userData.speed;
-        cloud.position.x = ((x + range) % (range * 2) + range * 2) % (range * 2) - range;
+        const xx = ((x + range) % (range * 2) + range * 2) % (range * 2) - range;
+        cloud.position.x = xx;
+        const k = Math.min(1, (range - Math.abs(xx)) / SAUM);
+        // Weiche Ein- und Ausblendung: linear schrumpfen setzt an beiden Enden
+        // eine Kante in die Änderungsrate, und die sieht man als Ruck.
+        const w = k * k * (3 - 2 * k);
+        cloud.visible = w > 0.02;
+        if (cloud.visible) cloud.scale.copy(cloud.userData.baseScale).multiplyScalar(w);
       }
       _windClock.value = time;
       waterfall.update(time);

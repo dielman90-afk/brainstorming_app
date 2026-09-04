@@ -1238,3 +1238,98 @@ alle Säume gemeinsam ab, das Ergebnis war eindeutig und die daraus gezogene
 Folgerung falsch — ich habe zwei Werkstoffe geändert, die nichts beitrugen, und
 den einen, der alles beitrug, stehen lassen. Gerendert kam 1,53 → 1,52 heraus.
 Eine Differenzmessung ist nur so scharf wie das, was sie einzeln abschaltet.
+
+---
+
+## Paket „Bewegung", erster Teil: Die Wolken sind gesprungen
+
+Der Prüfer hat unter #41 den Gleichtakt der Szene gemeldet und selbst dazu
+geschrieben, das sei **unbestätigt** — ein Standbild kann über Bewegung nichts
+aussagen. Also erst ein Werkzeug: `tools/inselbewegung.mjs` hängt die Uhr der
+Umgebung um und liest über hunderte Zeitschritte **Ortspositionen aus der
+Szene**, nicht Bildpunkte. Ein Sprung ist eine Ortsdifferenz; dafür braucht es
+weder Schwelle noch Rendern.
+
+Zwei Anläufe brauchte auch dieses Werkzeug:
+
+* Der erste las **Weltpositionen**. Die Liste bestand daraufhin aus sechzig
+  Zeilen mit demselben Wert — jede Mini-Insel schleppt ihre Kinder mit, und
+  gefragt war, wer sich *selbst* bewegt. Jetzt liest es Ortspositionen.
+* Instanzierte Meshes bewegen sich über `instanceMatrix`, nicht über die
+  Ortsposition. Vögel, Falter und Blumen standen mit 0 in der Liste, obwohl sie
+  das Beweglichste der Szene sind. Jetzt wird die Verschiebung der ersten
+  Instanz mitgelesen.
+
+### Der Befund
+
+| Knoten | Mittlerer Schritt | Größter Schritt | Verhältnis |
+| --- | ---: | ---: | ---: |
+| Wolke (15 von 25) | 0,09–0,14 m | **51,97 m** | **385 bis 575** |
+| Vögel | 0,38 m | 0,63 m | 1,7 |
+| Falter | 0,29 m | 0,49 m | 1,7 |
+| Hauptinsel | 0,03 m | 0,05 m | 1,6 |
+
+Die Drift lief im Modulo um: Bei |x| = 26 sprang eine Wolke auf die andere Seite
+des Himmels — **51,97 Meter in einem Zeitschritt von 0,25 s**. Und nicht am Rand
+der Welt: Die Wolken liegen auf Radien von 8 bis 36, die Umbruchkante bei 26
+läuft quer durch den sichtbaren Himmel. Fünfzehn der fünfundzwanzig Wolken sind
+allein in den ersten zweihundert Sekunden gesprungen; die übrigen zehn hatten
+ihre Kante nur noch nicht erreicht. Alle springen irgendwann.
+
+### Was geändert wurde
+
+Über die letzten drei Einheiten vor der Kante schrumpft die Wolke auf null und
+wächst auf der anderen Seite wieder heraus (`smoothstep`, damit auch die
+Änderungsrate keine Kante hat). Eine Haufenwolke, die sich auflöst und anderswo
+neu bildet, ist das, was Haufenwolken tun. Bei 0,1 bis 0,32 Einheiten je Sekunde
+dauert der Vorgang 9 bis 30 Sekunden. Kosten: keine — kein zweiter Werkstoff,
+keine Transparenz, und solange die Wolke unsichtbar ist, spart sie ihren
+Draw-Call.
+
+**Drei Einheiten und nicht sechs, und das ist gemessen.** Mit sechs war jede
+Wolke 23 % ihres Umlaufs verkleinert, und im eingefrorenen Zeitpunkt von
+`2-waterfall` hat das die Wolke oben rechts vollständig gekostet — 0,266 % der
+Bildpunkte, kompositorisch das Gegengewicht zur Konifere.
+
+Drei Einheiten allein haben sie **nicht** zurückgebracht: Sie stand zufällig
+direkt an der Kante, also einen Augenblick vor ihrem Sprung. Zurückgebracht hat
+sie erst die zweite Änderung — **jede Wolke bekommt ihre eigene Umbruchweite**,
+22 bis 34 statt einheitlich 26. Vorher lösten sich alle fünfundzwanzig an
+derselben Ebene im Raum auf: eine unsichtbare Wand, an der Wolken sterben, und
+genau die Art Regelmäßigkeit, die als Mechanik liest, sobald man ihr eine Minute
+zusieht. Jetzt liegen die Umbruchstellen verstreut und die Umlaufzeiten (140 bis
+680 s) haben keinen gemeinsamen Takt mehr.
+
+Der zusätzliche Zufallswert kommt aus einem **eigenen Strom** (`mulberry32(771403)`).
+Ein weiterer `rand()` im Wolkenbau hätte jede Ziehung danach verschoben — dieselbe
+Lehre wie bei der Wasserfallfahne, die 2952 Dreiecke gekostet hat.
+
+### Gemessen danach
+
+Über 300 s und 1200 Zeitschritte ist das größte Verhältnis der ganzen Szene
+**1,7** (Vögel und Falter). Kein Knoten springt mehr. Die Wolken laufen mit
+Verhältnis genau 1,0 — gleichförmige Drift — und sind je Umlauf 10 bis 21
+Zeitschritte unsichtbar, also rund 1,5 % der Zeit.
+
+Wirkung auf die Prüfbilder: `2-waterfall` Δmittel 0,331 · `5-backlight` 0,047 ·
+`4-aerial` 0,001 · `6-groundcover` 0,001 · `1-eyelevel` und `3-edge-down`
+bitgleich. Zen und Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo Δmax 7 bei
+0,010 %. Konsole sauber, Build grün.
+
+### Was an #41 offen bleibt
+
+Der Befund hatte drei Teile, und nur einer war ein Fehler:
+
+* **Vögel und Falter mit gleicher Schlagfrequenz** ist keiner. Die Phase ist
+  längst je Tier verschieden (`d.phase * 2.3`, mit Begründung im Quelltext), und
+  fünf Bussarde schlagen nun einmal ähnlich schnell — das ist eine Artkonstante,
+  kein Gleichtakt.
+* **Wolken driften alle in +x** ist ebenfalls keiner: Wind hat eine Richtung.
+  Ihre Geschwindigkeiten waren schon verschieden.
+* **Der Sprung** war einer, und zwar ein großer.
+
+Offen ist der vierte Punkt, den der Prüfer daneben genannt hat: `addWind` wird
+genau einmal aufgerufen, nämlich für die Blumen. Ob die Hüllkörper der Kronen
+und Büsche stillstehend überhaupt sichtbar sind, ist noch nicht gemessen — sie
+sitzen als Verdecker **innerhalb** der Kartenschale, und was man nicht sieht,
+braucht keinen Shader. Das ist die nächste Messung, nicht die nächste Änderung.
