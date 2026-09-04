@@ -1549,3 +1549,62 @@ zum Anschlag gedreht hat.** Mein erster `bias`-Durchlauf lief von −0,0006 bis
 +0,0002 — eine Spanne, in der sich nichts rühren *kann* — und ich hätte daraus
 beinahe geschlossen, die Tiefenverzerrung sei unschuldig. Sie ist es, aber das
 wusste ich erst bei −0,05.
+
+---
+
+## Zwei Prüferbefunde, die die Messung nicht bestätigt
+
+### „Der Kiel wird nach unten dunkler" (y 240 L 99,0 → y 360 L 60,2)
+
+Er wird dunkler, und das ist richtig so. Bänderweise über den Fels gemessen
+(x 380–900):
+
+| Band | Mittel | p05 | p95 | Spanne |
+| --- | ---: | ---: | ---: | ---: |
+| y 250–310 | 82,4 | 48 | 133 | 85 |
+| y 320–380 | 70,1 | 46 | 125 | 79 |
+| y 390–450 | 64,1 | 44 | 98 | 54 |
+
+Der Fußpunkt (p05) bleibt bei 44–48, die Spitzlichter fallen von 133 auf 98. Die
+Fläche verliert also Helligkeit, aber nicht ihre Modellierung — 54 Luminanzstufen
+Spanne im untersten Band sind keine tote Fläche. Und weniger Licht mit der Tiefe
+ist an der Unterseite einer schwebenden Insel das physikalisch Richtige: weniger
+Himmel, kein Bodenlicht. Der gebackene Tiefenschatten tut genau das, wofür er da
+ist. **Kein Eingriff.**
+
+### „`4-aerial`: Schatten ohne Form"
+
+Der Prüfer nennt eine größte dunkle Komponente von 400 × 191 Bildpunkten bei
+17 % Deckung und liest sie als formlosen Fleck. Das ist der **Selbstschatten des
+Inselkörpers auf dem Kiel** — eine große zusammenhängende Fläche zu sein ist bei
+dem genau richtig.
+
+Ich selbst habe beim Hinsehen behauptet, auf der Wiese lägen überhaupt keine
+Baumschatten. Auch das ist falsch. `tools/wurfprobe.mjs` schaltet je Werfer nur
+`castShadow` ab — der Knoten bleibt im Bild, die Differenz ist sein
+Schlagschatten — und misst auf der reinen Wiese (420,250)–(800,400):
+
+| Werfer | Fläche | Tiefe |
+| --- | ---: | ---: |
+| `island-laub` (Kronen) | 3,98 % | 35,3 |
+| `bush-leaves` | 1,22 % | 18,8 |
+| `island-stones` | 0,96 % | 28,0 |
+| `island-holz` (Stämme) | 0,68 % | 29,8 |
+| **alle zusammen** | **10,76 %** | **38,0** |
+
+Ein Zehntel der Wiese liegt im Schatten, und zwar 38 Luminanzstufen tief. Der
+Grund, warum es *schwächer liest* als es misst: Die Schatten sind gesprenkelt
+(Blattkartenschatten, kein geschlossener Kronenumriss), und die
+Hemisphärenaufhellung hebt sie auf einem hellen Grün an. Das ist ein Befund über
+die Lichtbalance und nicht über fehlende Schatten — und es ist ein anderer
+Befund als der gemeldete. **Kein Eingriff auf dieser Grundlage.**
+
+### Warum das hier steht
+
+Drei der letzten vier Befunde haben sich unter der Messung aufgelöst oder als
+etwas anderes entpuppt. Das ist kein Vorwurf an den Prüfer — er sieht Standbilder
+und benennt, was auffällt, und genau das soll er. Es ist ein Vermerk für mich:
+**Ein Befund ist eine Frage, keine Aufgabe.** Wer ihn ungeprüft abarbeitet,
+ändert Code gegen ein Problem, das es nicht gibt — und die Insel hat davon schon
+zwei Male genug gehabt (der Himmelssaum an den falschen Werkstoffen, die
+Wasserfallfahne aus dem falschen Zufallsstrom).
