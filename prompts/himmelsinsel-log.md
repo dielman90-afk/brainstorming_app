@@ -1964,3 +1964,61 @@ von drei gemeldeten Umkehrungen waren keine; sie sahen nur so aus, weil im
 Standbild „weiter oben" mit „nach oben gewandt" verwechselt wird. Die dritte war
 echt und hätte in derselben Zeile stehen können — der Unterschied ist eine
 Messung, die es vorher nicht gab.
+
+---
+
+## Wolken: ein Fleck, ein Zwölfeck, keine Lappen
+
+Befund #15: „Wolken als flache Papierblobs, teils polygonale Kanten, ein
+rechteckiger Zapfen." Gemessen in `3-edge-down` (80,460)–(280,660): Hochpass
+**0,36**, p05 194 / p95 240, **99,8 %** der Bildpunkte über L 190.
+
+Bei vierfacher Vergrößerung ist die nahe Wolke ein einziger weicher weißer
+Verlauf mit zwei geraden Umrissstrecken. Drei Ursachen, alle in `makeCloud`:
+
+**Erstens der Umriss.** Die großen Ballen waren `SphereGeometry(s, 12, 10)` —
+zwölf Segmente ergeben einen Zwölfeck-Umriss, und auf einer nahen Wolke von über
+zweihundert Bildpunkten liest das als Strecken mit Ecken. Jetzt 16×12, die
+Knospen 9×7 statt 7×6.
+
+**Zweitens die Lappen.** Die Farbe wird aus der Position der **verschmolzenen**
+Geometrie gebacken. Alle drei bis vier Ballen und ein Dutzend Knospen bekommen
+damit denselben glatten Verlauf, und die Wolke liest als ein Fleck statt als
+Haufen. Jeder Ballen bekommt jetzt einen eigenen kleinen Helligkeitsversatz
+(±0,05 groß, ±0,10 klein), der vor dem Silberrand aufgeschlagen wird.
+
+Der Versatz kommt aus einem **eigenen Zufallsstrom** (`mulberry32(553091)`).
+Zum wievielten Mal diese Lehre hier steht, habe ich aufgehört zu zählen.
+
+**Drittens der Tonwert.** Die ganze Wolke lag im flachen Ast der ACES-Kurve:
+p05 194 bis p95 240, also 3,4-facher Helligkeitsunterschied auf 46 sRGB-Stufen.
+Oben mehr draufzugeben bringt dort nichts — Kontrast entsteht nur nach unten.
+Grundwert 0,62 → **0,58**, Schattenseite −0,28 → **−0,42**, Höhenanteil
+0,18 → **0,24**.
+
+### Gemessen
+
+Hochpass über die Wolkenfläche in `3-edge-down`, von nah nach fern:
+
+    vorher   0,144  0,173  0,215  0,419  0,575  1,837
+    nachher  0,489  0,468  0,409  0,517  0,552  1,823
+
+Im vordersten Band das **3,4-fache**, im zweiten das 2,7-fache. Der Anteil über
+L 190 geht von 99,8 auf 96,0 Prozent zurück — ein Teil der Wolke ist jetzt
+überhaupt außerhalb der Kompression.
+
+Im Bild: Der Umriss ist rund, die Lappen trennen sich, und die Unterseite ist
+beschattet. In `1-eyelevel` lesen die beiden Wolken oben rechts erstmals als
+Haufenwolken statt als Papierschnipsel.
+
+Wirkung: `3-edge-down` Δmittel 0,413 · `4-aerial` 0,353 · `1-eyelevel` 0,198 ·
+`2-waterfall` 0,167 · `5-backlight` 0,043 · `6-groundcover` 0,010. Zen und
+Nachthimmel bitgleich, Konstrukt Δmax 2, Dojo Δmax 5 bei 0,010 %.
+
+### Kosten
+
+74 Draw-Calls unverändert, 196 919 → **205 409** Dreiecke, also **+8 490** für
+die feineren Kugeln über alle fünfundzwanzig Wolken. Das ist der einzige Posten
+dieser Runde, der überhaupt etwas kostet, und er liegt weit unter der Grenze von
+350 000. Der Lappenversatz und die Tonwertänderung kosten nichts: Sie stehen in
+den Scheitelfarben, die es ohnehin gibt.
