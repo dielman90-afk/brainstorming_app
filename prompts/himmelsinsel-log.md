@@ -1787,6 +1787,13 @@ ist die Grenze, an der Struktur zu Flimmern wird.
 Bildpunkte bei Δmax 22. Zen und Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo
 Δmax 4 bei 0,010 %. Build grün, Konsole sauber.
 
+### Kosten
+
+74 Draw-Calls, 196 739 Dreiecke — auf die Einerstelle unverändert. Eine dritte
+Rauschlage im Fragmentshader fügt weder Mesh noch Werkstoff noch Textur hinzu;
+sie kostet Rechenzeit je Bildpunkt, und die ist auf diesem Prüfstand ohnehin
+nicht messbar (SwiftShader, kein Grafikprozessor). Grenzen sind 120 und 350 000.
+
 ### Die Lehre dieser Runde
 
 **Der `shaderlint` hat zum fünften Mal Backticks in einem GLSL-Kommentar
