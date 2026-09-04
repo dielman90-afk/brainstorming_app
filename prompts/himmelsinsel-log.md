@@ -1428,6 +1428,19 @@ den `foliageMaterial()` sein eigenes Tiefenmaterial mitbringt. Für 0,5 Prozent
 der Fläche ist das der schlechtere Tausch. **Es bleibt also stehen, und hier
 steht warum.** Wer es anders will, hat die Zahlen.
 
+### Kosten
+
+74 Draw-Calls und 196 739 Dreiecke in der teuersten der sechs Ansichten, gegen
+76 und 199 505 vorher — also eine Spur **weniger**, weil eine Wolke an ihrer
+Umbruchkante unsichtbar wird und dabei ihren Draw-Call spart. Grenzen sind 120
+und 350 000. Der Wind kostet nichts weiter als ein paar Zeilen im vorhandenen
+Vertexshader; das Tiefenmaterial der Karten gab es schon, nur seine Uhr stand.
+
+Der „Software-Boden" desselben Laufs meldet 32,08 ms gegen 14,92 ms beim Lauf
+davor. Das ist **kein** Befund: Es ist der leere Konstrukt-Raum auf einem
+CPU-Rasterizer, und beim zweiten Lauf lief eine zweite Messung auf derselben
+Maschine. Bildzeiten sind hier ohnehin keine Belege — das steht so im Auftrag.
+
 ### Die Lehre dieser Runde
 
 **Ein Befund kann zu freundlich sein.** „Die Hülle steht still, während die
