@@ -1874,3 +1874,93 @@ Kosten: 74 Draw-Calls unverändert, 196 739 → **196 919** Dreiecke. Das sind
 genau **180**, also die neunzig Blütenquads zu je zwei Dreiecken — sie liegen im
 vorhandenen verschmolzenen Mesh und kosten deshalb keinen zweiten Draw-Call.
 Grenzen sind 120 und 350 000.
+
+---
+
+## Findlings-Facetten: Ein Drittel des Befunds war echt, und es lag am Licht von unten
+
+Befund #5: „Bei drei von vier Findlingen ist die nach OBEN weisende Facette
+dunkler als eine seitliche oder nach unten weisende — um 31, 39 und 39
+Luminanzstufen. Zwei Facettentöne wechseln sich ab, offenbar unabhängig von der
+Normalen. Deshalb wirken die Findlinge wie Papierfaltungen."
+
+Die Pixelwerte reproduzieren auf die Zehntelstufe. Was sie bedeuten, entscheidet
+aber die Flächennormale, und die steht in keinem Standbild. `tools/facetten.mjs`
+liest sie zusammen mit dem N·L zur Sonne und mit dem, was zwischen Stelle und
+Sonne steht.
+
+### Zwei der drei Fälle sind Fehldeutungen
+
+| Bild | Stelle | Normale | N·L | L |
+| --- | --- | --- | ---: | ---: |
+| `2-waterfall` | 190,470 | (−0,59 \| **0,48** \| 0,64) | **−0,378** | 85,2 |
+| `2-waterfall` | 175,530 | (0,22 \| **0,87** \| 0,44) | **+0,372** | 126,3 |
+| `5-backlight` | 1000,560 | (−0,46 \| **0,68** \| 0,57) | **−0,144** | 106,7 |
+| `5-backlight` | 930,620 | (−0,61 \| **0,67** \| −0,43) | **+0,402** | 140,0 |
+
+In beiden Fällen ist die **hellere** Facette die, die zur Sonne zeigt, und die
+dunklere die abgewandte. Bei `2-waterfall` ist die hellere sogar die **stärker
+nach oben** weisende (y 0,87 gegen 0,48). Der Prüfer hat die Position im Bild
+für die Ausrichtung der Fläche genommen — weiter oben im Bild heißt nicht nach
+oben gewandt. Hier ist nichts zu reparieren.
+
+### Der dritte Fall war echt
+
+| Bild | Stelle | Normale | N·L | L |
+| --- | --- | --- | ---: | ---: |
+| `1-eyelevel` | 856,366 | (0,05 \| 0,56 \| 0,83) | −0,150 | 101,9 |
+| `1-eyelevel` | 837,391 | (−0,75 \| −0,07 \| 0,65) | **−0,806** | **132,5** |
+
+Beide sind von der Sonne abgewandt, die untere **deutlich stärker** — und
+trotzdem 31 Stufen heller. Das kann kein Sonnenlicht sein.
+
+Es sind die beiden gerichteten **Aufhellungen von unten**, 1,9 und 0,85. Für den
+Kiel gebaut, unter dem heller Himmel steht, treffen sie in three jeden Körper der
+Szene — auch einen Stein, der auf der Wiese liegt. Die untere Facette bekommt von
+ihnen N·L = +0,47, die obere −0,32, also nichts. Zusammen standen sie bei **2,75
+gegen 2,5 der Sonne**: Die Insel wurde von unten stärker beleuchtet als von oben.
+
+### Die Korrektur ist kein Tausch
+
+`tools/aufhellung.mjs` fährt beide Seiten zugleich ab — den Abstand
+Oberseite-minus-Unterseite am Findling und Mittel/Spanne des Kiels in drei
+Bändern:
+
+| Einstellung | oben − unten | Kiel (Mittel/Spanne) |
+| --- | ---: | --- |
+| Bounce ×1,00 (Stand) | **−30,7** | 82/85  70/79  64/55 |
+| Bounce ×0,35 | −13,1 | 75/63  67/67  61/51 |
+| **Bounce ×0,35, Hemisphäre ×1,15** | **−12,8** | **81/63  72/66  66/49** |
+
+Die Hemisphäre kann den Fehlbetrag übernehmen, ohne Schaden anzurichten: Ihre
+beiden Töne sind fast gleich (0xc6e2f4 gegen 0xbcd6ea), sie ist also praktisch
+richtungslos und kann keine Oberseite unter ihre Unterseite drücken. Der Kiel
+behält damit seine Helligkeit (81/72/66 gegen 82/70/64). Bezahlt wird mit
+Spannweite (85 → 63 im obersten Band) — der Preis dafür, gerichtetes Licht durch
+ungerichtetes zu ersetzen. 63 Stufen sind reichlich Modellierung.
+
+Gesetzt: Aufhellungen 1,9 → **0,66** und 0,85 → **0,30**, Hemisphäre 1,35 →
+**1,55**.
+
+### Gemessen im Bild
+
+Findling `1-eyelevel`: oben 101,9 → **108,6**, unten 132,5 → **122,5**, Umkehrung
+−30,6 → **−13,9**. Die sonnenzugewandte Facette steigt 131,4 → 137,2.
+
+Die Wiese hebt sich leicht (171,9 → 175,5), der Anteil über L 190 bleibt bei
+0,9 % — kein Auswaschen.
+
+Wirkung je Bild: `3-edge-down` Δmittel 4,496 · `6-groundcover` 3,639 ·
+`2-waterfall` 3,120 · `5-backlight` 2,962 · `1-eyelevel` 2,920 · `4-aerial`
+1,150. Zen und Nachthimmel bitgleich, Konstrukt Δmax 2, Dojo Δmax 5 bei 0,009 %.
+
+Kosten: 74 Draw-Calls, 196 919 Dreiecke — auf die Einerstelle unverändert. Es
+wurden nur drei Lichtstärken geändert, kein Knoten hinzugefügt.
+
+### Die Lehre dieser Runde
+
+**Eine Facette hat keine Oberseite im Bild, sondern eine Normale im Raum.** Zwei
+von drei gemeldeten Umkehrungen waren keine; sie sahen nur so aus, weil im
+Standbild „weiter oben" mit „nach oben gewandt" verwechselt wird. Die dritte war
+echt und hätte in derselben Zeile stehen können — der Unterschied ist eine
+Messung, die es vorher nicht gab.
