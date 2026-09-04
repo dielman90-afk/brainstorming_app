@@ -420,3 +420,102 @@ sind trotzdem in einer Fläche gelandet, die zu drei Vierteln unter L 40 lag. Di
 Reihenfolge war falsch: Wer Modellierung in einen schwarzen Umriss baut, baut
 sie für niemanden. Dass es hier trotzdem gut ausgeht, liegt daran, dass beide
 Änderungen bleiben — die Mulden sieht man jetzt erst.
+
+---
+
+## Der Prüfer, erster Durchgang am Konstrukt
+
+Angesetzt auf `konstrukt-12`, also nach den vier Paketen. Sein Gesamturteil:
+Die Leere ist geglückt — nahtlos, ohne Kante, ohne Fleck. Was die Umgebung
+zurückhält, ist **Schatten 152 zu Boden 227, also 0,674**: Das gerichtete Licht
+liefert nur ein Drittel der Beleuchtung, zwei Drittel sind flaches Ambiente.
+Zwanzig belegte Mängel, vier ausdrücklich als unbestätigt markiert.
+
+Was er ausdrücklich **nicht** gefunden hat: Z-Fighting, Durchdringungen,
+freischwebende Bauteile, eine sichtbare Kuppelnaht, einen Tonwertsprung am
+Horizont. Paket 1 hält.
+
+Zwei seiner Befunde betrafen meine eigene letzte Änderung, und einer davon war
+falsch: „Es gibt keinen einzigen Keder am ganzen Sessel." Doch — zwei, seit
+Paket 3, und im vergrößerten Ausschnitt liegt der Sockelkeder als sauberer
+dunkler Strang unter der Sitzvorderkante. Was er sah und zu Recht bemängelt hat,
+ist der **Sägezahn-Kamm darüber**: die Ledernarbung, über die Fase des Kissens
+anisotrop gestreckt. Ein UV-Problem, kein fehlendes Bauteil — aber ein Fehler,
+und er steht auf der Liste.
+
+---
+
+## Paket 5: Zwei Flächen, die keine Information trugen
+
+### Der Boden war nicht unter dem Nutzer, sondern um ihn
+
+Befund #1 des Prüfers, und der mit der größten Fläche: In `f-boden` ist die
+Spalte x = 200 von y = 100 bis 719 — **620 Zeilen — durchgehend exakt
+(226 | 227 | 227)**, ohne eine einzige Änderung. In `a-augenhoehe` über die
+untere Bildhälfte p05 225 / p95 227 bei 193 596 Bildpunkten.
+
+Seine Formulierung trifft es genau: Die Leere war dann nicht mehr *unter* dem
+Nutzer, sondern nur noch *um* ihn. Ein Grund ohne jeden Verlauf ist keine
+Fläche, auf der man steht, sondern eine zweite Wand.
+
+Zwei Ursachen:
+
+* Der radiale Verlauf aus Paket 1 lief von **6 bis 34 m**. Die Bodenkamera sieht
+  Boden von anderthalb bis sechs Metern — der Verlauf hatte dort noch gar nicht
+  begonnen. Jetzt 1 bis 14 m.
+* Die Kontaktscheibe unter dem Nutzer war da und trug nichts: Radius 3,2 bei
+  Deckkraft 0,5, im Bild nicht messbar. Jetzt Radius 6 bei 0,8.
+
+Gemessen in `f-boden`, Spalte x = 200:
+
+    vorher   226,8  226,8  226,8  226,8  226,8  226,8  226,8  226,8
+    nachher  226,5  229,5  230,7  230,6  229,9  229,6  229,4  228,6
+
+Aus einer Konstanten wird ein Verlauf mit einem Rücken im Mittelgrund und
+Abfall nach beiden Seiten. Untere Bildhälfte in `a-augenhoehe`: p05/p95 von
+225/227 auf **226/230**, also von zwei auf vier Stufen.
+
+**Und die Naht bleibt unangetastet**: (218 | 224 | 231) auf beiden Seiten,
+vorher wie nachher. Der Verlauf endet am fernen Ende genau auf der Kuppelfarbe;
+das war der Grund, ihn dort zu verankern.
+
+### Das Gehäuse war ein Farbeimer
+
+Befund #2: Seitenfläche in `e-schraeg` (545,320)–(600,430), 6216 Bildpunkte,
+**p05 = p95 = 101**. Deckel (470,275)–(550,295): **p05 = p95 = 126**. Nicht eine
+Stufe Variation — und direkt daneben die Schautafel mit neunzig Stufen Textur.
+
+Der Kommentar am Werkstoff sagte „Gealtertes Messing/Olivbronze mit Patina".
+Eine Patina war nie da; es standen nur Farbe, Rauheit und Metallanteil.
+
+`patinaKorn()` legt sie in den Shader: grobe Flecken von rund 9 cm für die
+Alterung, ein feines Korn von 1,5 cm für die Oberfläche, beides auf Albedo
+**und Rauheit**. Bei einem halb metallischen Werkstoff trägt die Rauheit mehr
+als die Farbe, weil sie den Glanz aufbricht — Patina ist stumpfer als das blanke
+Metall darunter, nicht glänzender.
+
+Der Ort kommt aus der Welt und nicht aus der UV: Der Kasten besteht aus Korpus
+und Schulter, deren UV-Maßstäbe nichts voneinander wissen.
+
+| Fläche | vorher | nachher |
+| --- | --- | --- |
+| Seite `e-schraeg` | p05 101 / p95 101 · Mittel 101,2 | p05 **95** / p95 **107** · Mittel 101,1 |
+| Deckel `e-schraeg` | p05 126 / p95 126 · Mittel 126,3 | p05 **121** / p95 **133** · Mittel 127,0 |
+
+Aus null Stufen werden zwölf, bei praktisch unverändertem Mittel — es ist reine
+Modulation und keine Aufhellung.
+
+### Kosten und Regression
+
+43 Draw-Calls und 59 726 Dreiecke, beides unverändert: Beide Änderungen stehen
+in Shadern und in zwei Zahlen. Zen, Nachthimmel und Insel bitgleich, Dojo Δmax 5
+bei 0,011 %. Konsole frei von Errors und Warnings.
+
+### Die Lehre dieser Runde
+
+**Der `shaderlint` hat zum sechsten Mal Backticks gefunden — und diesmal hätte
+ich es fast nicht gemerkt.** Ich hatte die Bauausgabe auf `error|✓ built`
+gefiltert; die Lint-Meldung sagt aber „Fund(e)". Der Bau brach ab, der
+Entwicklungsserver lieferte weiter die kaputte Quelle, und der Prüfstand lief in
+einen 60-Sekunden-Timeout, dessen Ursache erst der ungefilterte Bau zeigte. Ein
+Filter, der Fehlermeldungen verschluckt, ist schlimmer als kein Filter.

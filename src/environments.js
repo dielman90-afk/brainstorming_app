@@ -13034,6 +13034,105 @@ function makeConstructArmchair() {
 // stehendes Dreieck mit „DEEP IMAGE" und den Schriftzug „RADIOLA TELEVISION" –
 // gemalt als Canvas-Textur, denn Schrift und Emblem als Geometrie nachzubauen
 // kostet tausende Dreiecke für ein Detail, das ohnehin flach ist.
+// --- Patina auf dem Konsolengehaeuse ------------------------------------------
+//
+// **Der Pruefer:** Seitenflaeche (545,320) bis (600,430), 6216 Bildpunkte,
+// **p05 = p95 = 101**. Nicht eine Stufe Variation. Deckel: p05 = p95 = 126.
+// Und direkt daneben die Schautafel mit neunzig Stufen Textur — zwei Flaechen
+// desselben Kastens, eine fotografisch, die andere ein Farbeimer.
+//
+// Der Kommentar am Werkstoff sagte „Gealtertes Messing/Olivbronze mit Patina".
+// Eine Patina war nie da; es standen nur Farbe, Rauheit und Metallanteil.
+//
+// Zwei Massstaebe, wie ueberall in diesem Projekt: grobe Flecken von rund 9 cm
+// fuer die Alterung, ein feines Korn von 1,5 cm fuer die Oberflaeche. Beides
+// wirkt auf Albedo UND Rauheit — bei einem halb metallischen Werkstoff traegt
+// die Rauheit mehr als die Farbe, weil sie den Glanz aufbricht.
+//
+// Der Ort kommt aus der Welt und nicht aus der UV: Der Kasten besteht aus
+// mehreren Teilen (Korpus, Schulter), deren UV-Massstaebe nichts voneinander
+// wissen. Eine weltbezogene Projektion haelt die Fleckengroesse ueber die
+// Bauteilgrenze hinweg gleich.
+function patinaKorn(material) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vPatinaOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvPatinaOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    const gemeinsam = `
+      varying vec3 vPatinaOrt;
+      float patHash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+      float patNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(patHash(i), patHash(i + vec2(1.0, 0.0)), u.x),
+          mix(patHash(i + vec2(0.0, 1.0)), patHash(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+      // Gedreht und mit krummem Faktor gestapelt, damit sich die Gitter der
+      // Oktaven nicht aufeinanderlegen — dieselbe Lehre wie beim Gras.
+      float patFbm(vec2 p) {
+        mat2 dreh = mat2(0.8018, -0.5976, 0.5976, 0.8018);
+        vec2 q = dreh * p;
+        float summe = 0.0;
+        float amp = 0.5;
+        for (int i = 0; i < 3; i++) {
+          summe += patNoise(q) * amp;
+          q = dreh * q * 2.17 + 5.1;
+          amp *= 0.5;
+        }
+        return summe / 0.875;
+      }
+      // Achsendominante Projektion: Auf einem Kasten ist die staerkste
+      // Komponente der Weltnormale die Flaeche, auf der man steht.
+      vec2 patUV(vec3 wn, vec3 ort) {
+        vec3 an = abs(wn);
+        return an.y > max(an.x, an.z) ? ort.xz : (an.x > an.z ? ort.yz : ort.xy);
+      }`;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>' + gemeinsam)
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+         {
+           vec3 wnP = (vec4(normalize(vNormal), 0.0) * viewMatrix).xyz;
+           vec2 uvP = patUV(wnP, vPatinaOrt);
+           float grob = patFbm(uvP * 11.0) - 0.5;
+           float fein = patFbm(uvP * 66.0) - 0.5;
+           // Patina ist STUMPFER als das blanke Metall darunter, nicht
+           // glaenzender: Der Fleck nimmt Glanz weg.
+           roughnessFactor = clamp(roughnessFactor + grob * 0.30 + fein * 0.14, 0.05, 1.0);
+         }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           vec3 wnC = (vec4(normalize(vNormal), 0.0) * viewMatrix).xyz;
+           vec2 uvC = patUV(wnC, vPatinaOrt);
+           float grobC = patFbm(uvC * 11.0) - 0.5;
+           float feinC = patFbm(uvC * 66.0) - 0.5;
+           // Kanten und Vorspruenge blank gewetzt, Flaechen stumpf: der Fleck
+           // zieht leicht ins Gruenliche, wie Bronze es tut.
+           diffuseColor.rgb *= 1.0 + grobC * 0.26 + feinC * 0.11;
+           diffuseColor.g *= 1.0 + grobC * 0.06;
+         }`
+      );
+  };
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () => (vorherKey ? vorherKey() : '') + '|konstrukt-patina-v1';
+  return material;
+}
+
 function makeRadiolaConsole() {
   const group = new THREE.Group();
   group.name = 'radiola-console';
@@ -13043,11 +13142,13 @@ function makeRadiolaConsole() {
   const D = 0.56;
 
   // Gealtertes Messing/Olivbronze mit Patina
-  const shellMat = new THREE.MeshStandardMaterial({
-    color: 0x6a6851,
-    roughness: 0.62,
-    metalness: 0.45,
-  });
+  const shellMat = patinaKorn(
+    new THREE.MeshStandardMaterial({
+      color: 0x6a6851,
+      roughness: 0.62,
+      metalness: 0.45,
+    })
+  );
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x2b2a22, roughness: 0.5, metalness: 0.3 });
   // Der Rahmen um die Röhre bleibt bewusst stumpf: Mit Metallglanz spiegelt er
   // das Licht und wirkt wie eine überstrahlte Scheibe vor dem Bild.
@@ -13503,7 +13604,7 @@ function createMatrixEnvironment() {
   // Ebenfalls neu gewählt: Ohne Tonemapping ergäbe der alte Wert 0xf3f5f8 ein
   // deutlich helleres Bild. 0xe2e3e3 ist der Wert, den der Boden vorher
   // TATSÄCHLICH zeigte — der Nahbereich bleibt damit, wie er war.
-  const BODEN_NAH = new THREE.Color(0xe2e3e3);
+  const BODEN_NAH = new THREE.Color(0xe8e9e9);
   // **Der Boden läuft ohne Tonemapping, weil die Kuppel es auch nicht tut.**
   //
   // `makeDome` schreibt seine Farbe roh in den Puffer (die Lehre steht
@@ -13538,11 +13639,32 @@ function createMatrixEnvironment() {
         '#include <color_fragment>',
         `#include <color_fragment>
          {
-           // Der Übergang liegt zwischen 6 und 34 m. Näher als 6 m steht man
-           // selbst; weiter als 34 m ist der Boden ohnehin nur noch ein
-           // schmales Band unter dem Horizont.
+           // **Der Verlauf beginnt bei 1 m, nicht bei 6.**
+           //
+           // Mit 6 bis 34 m lag der ganze SICHTBARE Boden im Nahwert: Der
+           // Pruefer hat in f-boden die Spalte x = 200 von y = 100 bis 719
+           // abgetastet — **620 Zeilen durchgehend exakt (226 | 227 | 227)**,
+           // ohne eine einzige Aenderung. Und in a-augenhoehe ueber die
+           // gesamte untere Bildhaelfte p05 225 / p95 227 bei 193 596
+           // Bildpunkten.
+           //
+           // Sein Schluss trifft es genau: Die Leere war dann nicht mehr UNTER
+           // dem Nutzer, sondern nur noch UM ihn. Ein Grund ohne jeden Verlauf
+           // ist keine Flaeche, auf der man steht, sondern eine zweite Wand.
+           //
+           // Jetzt laeuft der Verlauf ueber den Bereich, den man tatsaechlich
+           // sieht: 1 bis 26 m. Nah heller, fern genau die Kuppelfarbe — die
+           // Naht aus Paket 1 bleibt damit unangetastet, sie sitzt am fernen
+           // Ende.
+           //
+           // **1 bis 14 m und nicht 1 bis 26.** Mit 26 m stand in der
+           // Bodenkamera immer noch fast nichts: Sie sieht Boden von etwa
+           // anderthalb bis sechs Metern, und dort war der Verlauf erst zu
+           // einem Fuenftel durch — gemessen 230,7 bis 232,8 ueber 560
+           // Bildzeilen. Ein Verlauf muss dort stattfinden, wo die Kamera
+           // hinsieht, nicht dort, wo er rechnerisch am schoensten waere.
            float r = length(vBodenOrt.xz);
-           diffuseColor.rgb *= mix(bodenNah, bodenFern, smoothstep(6.0, 34.0, r));
+           diffuseColor.rgb *= mix(bodenNah, bodenFern, smoothstep(1.0, 14.0, r));
          }`
       );
   };
@@ -13554,12 +13676,22 @@ function createMatrixEnvironment() {
 
   // Sehr zarter Kontaktschatten unter dem Nutzer, damit „unten" spürbar bleibt,
   // ohne den weißen Gesamteindruck zu brechen.
+  // **Radius 6 statt 3,2 und Deckkraft 0,8 statt 0,5.**
+  //
+  // Die Scheibe war da und trug nichts: In `f-boden` mass der Pruefer die
+  // Spalte x = 200 ueber 620 Zeilen als durchgehend konstant. Eine Verdunklung,
+  // die man nicht messen kann, ist keine.
+  //
+  // Sie ist das Gegenstueck zum radialen Verlauf: Der Verlauf sagt „der Boden
+  // reicht weit", die Scheibe sagt „und hier stehst du". Zusammen geben sie dem
+  // Grund eine Lage unter dem Nutzer, ohne dass eine Struktur entsteht, die es
+  // in einer weissen Leere nicht geben darf.
   const contact = new THREE.Mesh(
-    new THREE.CircleGeometry(3.2, 48),
+    new THREE.CircleGeometry(6, 48),
     new THREE.MeshBasicMaterial({
       map: makeGlowTexture('rgba(120,130,145,0.18)', 'rgba(120,130,145,0.06)'),
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.8,
       depthWrite: false,
     })
   );
