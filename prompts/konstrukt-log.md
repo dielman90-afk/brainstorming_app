@@ -257,3 +257,89 @@ Konsole frei von Errors und Warnings.
 ist der Preis, den man beim Einschalten nicht sieht und beim Messen sofort. Und
 die Antwort darauf war nicht, den Schatten wieder wegzunehmen, sondern das
 Möbel so zu bauen, wie es hätte gebaut sein sollen.
+
+---
+
+## Paket 3: Der Sessel war ein Klotz mit aufgeklebten Punkten
+
+### Das Sitzkissen, und warum keine Textur es rettet
+
+Gemessen ist es die glatteste Fläche des ganzen Sessels:
+
+| Fläche | Hochpass |
+| --- | ---: |
+| Sitzkissen (560,380)–(760,440) | **0,96 / 0,76** |
+| Rückenlehne (560,180)–(760,240) | 1,39 / 1,79 |
+| Armwange (420,300)–(480,460) | 1,90 / **5,44** |
+
+Bei achtfacher Vergrößerung ist die Kissenoberseite praktisch eine Volltonfläche.
+Die Ledernarbung **liegt** darauf — sie zeigt sich nur nicht: Eine Normalenkarte
+wirkt über den Winkel zwischen gestörter Normale und Licht, und auf einer nach
+oben gerichteten Fläche unter einem steilen Führungslicht ist dieser Winkel
+klein. Dieselbe Karte trägt an der senkrechten Wange, die dasselbe Licht
+streifend bekommt, das Fünffache.
+
+Dagegen hilft keine stärkere Textur, sondern **Form**. Ein Polster hat ohnehin
+einen Keder — die eingenähte Schnur entlang der Naht —, und der gibt einem
+Kissen aus jeder Richtung eine Kante. Neu: `kederRing()`, ein Schlauch entlang
+eines abgerundeten Rechtecks, einmal um das Kissen auf halber Polsterhöhe und
+einmal auf der Oberkante des Unterbaus.
+
+**Der Sockelkeder brauchte zwei Anläufe.** Der erste lag bei y = 0,375, drei
+Millimeter unter der Oberkante — die Schnur steckte damit fast vollständig im
+Korpus, und was herausschaute, war ein dünner dunkler Strich quer über die
+Vorderseite. Er las als vergessener Draht. Ein Keder muss **auf** der Kante
+sitzen, nicht darin; jetzt liegt er bei 0,381.
+
+### Die Knöpfe, und warum ein Ring noch keine Mulde ist
+
+Vorher: flache dunkle Punkte auf glattem Leder, also Aufkleber. Eine
+Kapitonierung zieht das Polster am Knopf **ein**; was man sieht, ist nicht der
+Knopf, sondern der Trichter um ihn herum.
+
+Auch hier zwei Anläufe, und der erste ist lehrreich: Mit Schnurstärke 0,012 und
+vier Millimeter vor der Fläche standen Ringe wie Ösen auf dem Leder — ein
+Beschlag, kein Polster. Eine Falte ist weich und niedrig: jetzt 0,0075 stark, in
+z auf 30 % gestaucht, fünf Millimeter eingelassen. Die Knöpfe selbst sitzen drei
+Millimeter **hinter** der Fläche statt zwei davor.
+
+Kosten dafür: keine. Keder und Mulden teilen sich die Werkstoffe des Sessels und
+werden mit ihm verschmolzen — 43 Draw-Calls wie vorher, Dreiecke 39 470 →
+59 726 bei einer Grenze von 350 000.
+
+### Was die Messung dazu sagt — und was sie nicht sagt
+
+Nichts. Hochpass der Knopftafel 1,318 → 1,399, lokale Spanne um einen einzelnen
+Knopf p05/p95 von 18/33 auf 17/33. Im vergrößerten Ausschnitt ist der
+Unterschied dagegen unübersehbar: aus Punkten sind Knöpfe in weichen Mulden
+geworden.
+
+Beides stimmt, und der Widerspruch hat zwei Gründe:
+
+**Der Maßstab.** Ein Muldenring ist im Bild rund dreißig Bildpunkte groß. Ein
+Hochpass über ein 5×5-Fenster sieht davon nichts — dieselbe Vergrößerungsfalle
+wie bei der Wiese der Insel, nur andersherum.
+
+**Der Tonwert, und das ist der ernstere Punkt.** Die Knopftafel liegt bei einem
+Mittel von **24** und zu **99,7 % unter L 40**, vor einem Hintergrund von L 226.
+Jede Modellierung dort bewegt ein bis vier Luminanzstufen, weil die Fläche
+schlicht fast schwarz ist. Der Sessel liest von weitem als schwarzer Ausschnitt
+vor Weiß.
+
+**Das ist der nächste Befund, und er wiegt schwerer als die Knöpfe.** Er steht
+hier und wird als eigenes Paket gemessen, nicht nebenbei mitgedreht.
+
+### Offen geblieben
+
+Die **oberste Knopfreihe** hat keine Mulde. Die Rückenlehne ist
+`roundedBox(W, backH, 0.19, 0.16)`: Bei 19 cm Tiefe und 9,6 cm Fase ist ihre
+Vorderseite fast vollständig gerundet, die Fläche weicht nach oben zurück, und
+der eingelassene Ring verschwindet dort im Körper. Mit neun Millimetern Einlass
+fehlten zwei Reihen, mit fünf nur noch eine. Ganz ohne Einlass säßen die Ringe
+auf allen Reihen — dann aber wieder als Ösen. Ich habe die fünf Millimeter
+behalten und schreibe die eine Reihe hierher.
+
+### Regression
+
+Zen, Nachthimmel und Insel bitgleich, Dojo Δmax 6 bei 0,009 %. Build grün,
+Konsole sauber.
