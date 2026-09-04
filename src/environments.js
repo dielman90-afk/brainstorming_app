@@ -746,7 +746,7 @@ let _inselKarten = null;
 let _inselNadeln = null;
 function inselBaumMaterialien() {
   if (!_inselHolz) {
-    _inselHolz = weatheredWoodMaterial({ tone: 0x8f6a48, vertexColors: false });
+    _inselHolz = rindenKorn(weatheredWoodMaterial({ tone: 0x8f6a48, vertexColors: false }));
     _inselLaub = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       roughness: 0.9,
@@ -3635,6 +3635,75 @@ function addContactShadow(bucket, shape, x, z, radius, tight = false) {
 // Weltachse der Flaechennormale; weil das Material flach schattiert ist, ist
 // diese Normale je Facette konstant, und innerhalb einer Facette entsteht keine
 // Naht. An den Facettenkanten bricht sie ohnehin.
+// --- Rinde auf den Staemmen ---------------------------------------------------
+//
+// **Der Pruefer:** „Staemme ohne Rinde, mit waagerechten Segmentnaehten." Bei
+// fuenffacher Vergroesserung ist der Stamm ein glatter brauner Kegel mit
+// weichem Verlauf, und dort, wo zwei Zylinderabschnitte aneinanderstossen,
+// laeuft eine waagerechte Kante quer durch — der Stamm zerfaellt in Ringe.
+//
+// Beides hat dieselbe Wurzel: Es gibt auf der Flaeche nichts ausser dem
+// Verlauf. Eine Naht faellt nur auf, weil daneben nichts los ist; eine Rinde
+// mit senkrechter Faserung nimmt ihr die Aufmerksamkeit und gibt dem Stamm
+// zugleich die Lesart, die ihm fehlt.
+//
+// Die Faserung ist BEWUSST anisotrop: In der Waagerechten fein (die Furchen
+// stehen dicht), in der Senkrechten grob (sie laufen weit). Isotropes Rauschen
+// waere Putz, keine Rinde.
+function rindenKorn(material) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRindeOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvRindeOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vRindeOrt;
+         float rindeHash(vec2 p) {
+           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+         }
+         float rindeNoise(vec2 p) {
+           vec2 i = floor(p);
+           vec2 f = fract(p);
+           vec2 u = f * f * (3.0 - 2.0 * f);
+           return mix(
+             mix(rindeHash(i), rindeHash(i + vec2(1.0, 0.0)), u.x),
+             mix(rindeHash(i + vec2(0.0, 1.0)), rindeHash(i + vec2(1.0, 1.0)), u.x),
+             u.y
+           );
+         }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           float tiefeR = length(vViewPosition);
+           float nahR = 1.0 - smoothstep(9.0, 26.0, tiefeR);
+           if (nahR > 0.002) {
+             // Winkel um die Stammachse mal Radius waere sauberer, kostet aber
+             // einen Atan je Bildpunkt. Die Waagerechte des Weltorts tut es
+             // genauso: Auf einem Zylinder von 20 cm Halbmesser laeuft sie
+             // ueber die sichtbare Haelfte monoton.
+             float u = (vRindeOrt.x + vRindeOrt.z) * 26.0;
+             float v = vRindeOrt.y * 3.4;
+             float furche = rindeNoise(vec2(u, v)) - 0.5;
+             float grob = rindeNoise(vec2(u * 0.31, v * 0.55)) - 0.5;
+             diffuseColor.rgb *= 1.0 + (furche * 0.30 + grob * 0.20) * nahR;
+           }
+         }`
+      );
+  };
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () => `${vorherKey ? vorherKey() : ''}|insel-rinde-v1`;
+  return material;
+}
+
 function findlingsKorn(material) {
   const vorher = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
