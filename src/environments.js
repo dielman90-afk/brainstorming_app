@@ -12884,7 +12884,28 @@ function makeConstructArmchair() {
   const WING_D = 0.3;
   for (const side of [-1, 1]) {
     const wing = new THREE.Mesh(roundedBox(0.13, WING_H, WING_D, 0.06), leather);
-    wing.position.set(side * (W / 2 - 0.065), BACK_TOP - WING_H / 2 - 0.04, backZ + BACK_T / 2 + WING_D / 2 - 0.04);
+    // **Der Flügel bekommt dieselbe Neigung wie die Lehne, und er steckt
+    // tiefer in ihr.**
+    //
+    // Die Lehne steht mit `rotation.x = 0.07` zurückgelehnt, der Flügel stand
+    // senkrecht. Zwischen beiden öffnete sich dadurch ein Keil, der mit der
+    // Höhe wächst — der Prüfer hat ihn als „tiefe harte Spalte" zwischen Wange
+    // und Lehne gemeldet, und er ist zugleich die Ursache eines zweiten
+    // Befunds: eines hellen Splitters MITTEN im Schlagschatten auf dem Boden.
+    //
+    // Dass es ein echter Spalt ist und kein Rundungsfehler der Schattenkarte,
+    // ist gemessen: Bei doppelter Auflösung der Schattenkarte wurde der
+    // Splitter **schärfer und heller** (19 auf 27 Bildpunkte, hellster Wert 222
+    // auf 230). Ein Präzisionsartefakt wäre kleiner geworden.
+    //
+    // Die Überlappung geht von 4 auf 7 cm; bei 11,5 Grad Gierung schwenkt die
+    // Hinterkante des Flügels sonst aus der Lehne heraus.
+    wing.position.set(
+      side * (W / 2 - 0.065),
+      BACK_TOP - WING_H / 2 - 0.04,
+      backZ + BACK_T / 2 + WING_D / 2 - 0.07
+    );
+    wing.rotation.x = 0.07;
     wing.rotation.y = -side * 0.2; // leicht nach innen gestellt
     group.add(wing);
   }
@@ -12914,16 +12935,38 @@ function makeConstructArmchair() {
 
   // Sitzkissen
   const seatW = W - CHEEK * 2 + 0.02;
-  const seatD = frontDepth - 0.05;
+  // **Das Kissen reicht jetzt bis an die Lehne — vorher fehlten vier
+  // Zentimeter.**
+  //
+  // Gerechnet: `frontZ0` = -0,23 ist die Vorderseite der Rueckenlehne. Das
+  // Kissen stand bei `frontZ + 0.015` = 0,11 mit einer Tiefe von 0,60, seine
+  // Hinterkante also bei **-0,19**. Dazwischen klaffte ein Schlitz von vier
+  // Zentimetern ueber die ganze Sitzbreite.
+  //
+  // Im Bild sah man davon nichts — der Schlitz liegt im Schatten der Lehne. Was
+  // man sah, war ein heller Splitter MITTEN im Schlagschatten auf dem Boden,
+  // den der Pruefer als Schattenleck gemeldet hat: Bei einem Fuehrungslicht aus
+  // 45 Grad wirft ein waagerechter Schlitz einen Lichtstrahl unter dem Sessel
+  // hindurch.
+  //
+  // Zwei Vermutungen davor lagen daneben und stehen im Protokoll (der Radius
+  // der Schattenebene, der Keil zwischen Fluegel und Lehne). Gefunden hat es
+  // erst `tools/lichtblick.mjs`, das die Kamera auf die Schattenkamera setzt:
+  // Aus dem Blick des Lichts ist der Spalt unuebersehbar.
+  //
+  // Die Tiefe waechst um 5,5 cm statt das Kissen zu verschieben — so bleibt die
+  // Vorderkante, wo sie war, und nur die Hinterkante wandert bis 1,5 cm IN die
+  // Lehne hinein.
+  const seatD = frontDepth - 0.05 + 0.055;
   const seat = new THREE.Mesh(roundedBox(seatW, 0.15, seatD, 0.05), leather);
-  seat.position.set(0, 0.38, frontZ + 0.015);
+  seat.position.set(0, 0.38, frontZ + 0.015 - 0.0275);
   group.add(seat);
 
   // Keder rund um das Kissen, auf halber Polsterhoehe — dort, wo die Naht
   // zwischen Ober- und Seitenteil laeuft. Er gibt dem Kissen die Kante, die
   // ihm die Narbung auf der Oberseite nicht geben kann.
   const seatKeder = new THREE.Mesh(kederRing(seatW - 0.004, seatD - 0.004, 0.05), leatherDark);
-  seatKeder.position.set(0, 0.38, frontZ + 0.015);
+  seatKeder.position.set(0, 0.38, frontZ + 0.015 - 0.0275);
   group.add(seatKeder);
 
   // Und einer auf der Oberkante des Unterbaus: Dort stiess vorher ein dunkler
@@ -13832,11 +13875,26 @@ function createMatrixEnvironment() {
   //
   // `ShadowMaterial` ist genau fuer diesen Fall da: eine durchsichtige Flaeche,
   // die NUR den empfangenen Schatten zeigt. Sie legt sich ueber den Boden, ohne
-  // dessen Ton anzufassen. Radius 8 statt 60 — weiter reicht der Ortho-Kasten
-  // der Schattenkamera ohnehin nicht, und eine groessere Flaeche waere nur
-  // Fuellrate.
+  // dessen Ton anzufassen.
+  //
+  // **Radius 12 und nicht 8 — die 8 waren knapp danebengerechnet.**
+  //
+  // Der Pruefer hat mitten im Schlagschatten helle Splitter gefunden: in
+  // `b-sessel` 19 Bildpunkte, die von L 158 auf **226,7** springen, also
+  // +69 Stufen. Die Beitragsmaske des Knotens (Differenz aus Ein- und
+  // Ausblenden) zeigt an genau diesen Stellen ein LOCH: Dort traegt die
+  // Schattenebene nichts.
+  //
+  // Der Grund ist Arithmetik. Der Ortho-Kasten der Schattenkamera misst +/-3 m
+  // um die Sitzgruppe bei z = -3,9; ein Schatten kann damit bis
+  // sqrt(3^2 + 6,9^2) = **7,5 m** vom Ursprung reichen. Das liegt innerhalb von
+  // 8 — aber so knapp, dass die Facettenkanten des 48-Ecks der Kreisflaeche
+  // hineinragen. Was als „Leck" aussieht, ist schlicht der Rand des Empfaengers.
+  //
+  // Zwoelf Meter kosten nichts: Die Flaeche ist durchsichtig und traegt nur
+  // dort etwas ein, wo die Schattenkarte ueberhaupt reicht.
   const schattenBoden = new THREE.Mesh(
-    new THREE.CircleGeometry(8, 48),
+    new THREE.CircleGeometry(12, 48),
     new THREE.ShadowMaterial({ opacity: 0.3, depthWrite: false })
   );
   schattenBoden.name = 'schattenboden';

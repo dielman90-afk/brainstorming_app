@@ -519,3 +519,76 @@ gefiltert; die Lint-Meldung sagt aber „Fund(e)". Der Bau brach ab, der
 Entwicklungsserver lieferte weiter die kaputte Quelle, und der Prüfstand lief in
 einen 60-Sekunden-Timeout, dessen Ursache erst der ungefilterte Bau zeigte. Ein
 Filter, der Fehlermeldungen verschluckt, ist schlimmer als kein Filter.
+
+---
+
+## Der Splitter im Schatten: vier Anläufe, vier Widerlegungen, Ursache offen
+
+Befund #6 des Prüfers: In `b-sessel` liegen mitten im Schlagschatten
+**19 Bildpunkte, die von L 158 auf 226,7 springen** — 69 Stufen, ein weißer
+Splitter auf grauem Grund. Dasselbe in `e-schraeg` mit 7 Punkten. Auf dem
+Standbild sind das Fusseln; bei Kopfbewegung wären es flackernde Funken auf
+einer sonst absolut ruhigen Fläche.
+
+Der Befund ist bestätigt und die **Art** des Fehlers ist geklärt. Die Ursache
+nicht.
+
+### Was gesichert ist
+
+**Es ist ein echter Spalt in der Geometrie, kein Rundungsfehler der
+Schattenkarte.** Der Test dafür ist eindeutig: Bei doppelter Auflösung der
+Schattenkarte (1024 → 2048) wurde der Splitter **schärfer und heller** — von 19
+auf 27 Bildpunkte, hellster Wert 222 auf 230. Ein Präzisionsartefakt wäre
+kleiner geworden.
+
+**Die Schattenebene ist an dieser Stelle vorhanden.** Die Beitragsmaske des
+Knotens (`tools/knotenwerte.mjs --maske`) zeigt dort keinen Beitrag — was
+zunächst nach einem Loch in der Fläche aussah. Es heißt aber das Gegenteil: Die
+Ebene ist da, sie empfängt nur keinen Schatten. Die Schattenkarte meldet an
+dieser Stelle „beleuchtet".
+
+**Aus dem Blick des Lichts ist er zu sehen.** `tools/lichtblick.mjs` (neu) setzt
+die Prüfkamera auf die Schattenkamera. Dort liegt ein heller Schlitz genau da,
+wo Rückenlehne, Flügel und Sitz zusammenstoßen — der Boden scheint durch den
+Sessel hindurch.
+
+### Vier Anläufe, und warum jeder danebenlag
+
+| # | Vermutung | Ergebnis |
+| --- | --- | --- |
+| 1 | Die Schattenebene (Radius 8) endet vor dem Schattenrand — die Schattenkamera reicht bis 7,5 m vom Ursprung | Radius 12: **42 → 43** Splitter. Widerlegt. |
+| 2 | Texelpräzision | Doppelte Auflösung macht ihn **schärfer**. Widerlegt — und damit als echter Spalt bewiesen. |
+| 3 | Keil zwischen Flügel und Lehne: die Lehne steht mit `rotation.x = 0.07` zurück, der Flügel stand senkrecht | Flügel gekippt, Überlappung 4 → 7 cm: **23 → 20**. Widerlegt. |
+| 4 | Schlitz zwischen Kissenrückkante (z = −0,19) und Lehnenvorderseite (z = −0,23) | Kissentiefe +5,5 cm, Hinterkante 1,5 cm in die Lehne: **23 → 20**. Widerlegt. |
+
+Vier Durchläufe sind die im Auftrag zugestandene Höchstzahl. Ich breche hier ab,
+statt weiter zu raten.
+
+### Was trotzdem bleibt
+
+Anlauf 3 und 4 waren **für sich richtig**, auch wenn sie den Splitter nicht
+erklärt haben:
+
+* Der Flügel hat jetzt dieselbe Neigung wie die Lehne. Der Prüfer hat den Keil
+  unabhängig davon als „tiefe harte Spalte zwischen Wange und Lehne" gemeldet
+  (sein Befund #11) — der ist damit geschlossen.
+* Das Kissen reicht jetzt an die Lehne. Ein Sitzkissen, das vier Zentimeter vor
+  der Rückenlehne endet, ist unabhängig vom Licht falsch gebaut.
+
+Beides bleibt drin. Der Splitter bleibt offen, und die Spur ist aufgeschrieben:
+**der Blick des Lichts, Bereich um die Naht Lehne / Flügel / Sitz.** Wer ihn
+aufnimmt, fängt dort an und nicht bei null.
+
+### Regression und Kosten
+
+Zen, Nachthimmel und Insel bitgleich, Dojo Δmax 6 bei 0,009 %. 43 Draw-Calls
+und 59 726 Dreiecke — unverändert. Build grün, Konsole sauber.
+
+### Die Lehre dieser Runde
+
+**„Kein Beitrag" heißt nicht „nicht vorhanden".** Ich habe die Beitragsmaske
+zuerst als Loch in der Schattenebene gelesen und daraufhin ihren Radius
+vergrößert — eine ganze Runde in die falsche Richtung. Die Maske misst die
+Differenz aus Ein- und Ausblenden; eine Fläche, die da ist und nichts tut, sieht
+darin genauso aus wie eine, die fehlt. Zwei sehr verschiedene Zustände mit
+demselben Messwert, und das stand nirgends dran.
