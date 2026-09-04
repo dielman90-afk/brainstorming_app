@@ -2138,7 +2138,11 @@ function bodyColor(out, zone, shape, p, t, a) {
 // Zeichnung ohnehin über die Bodenfarbe und die Kontaktverdunklung.
 //
 // Die Nester bleiben auch ohne sie richtig: Blumen wachsen in Gruppen.
+// Gibt die Fusspunkte der gesetzten Blumen zurueck. `addUndergrowth` legt
+// daraus Kontaktverdunklungen an — in SEINEN Bucket, damit alles zusammen ein
+// einziger Draw-Call bleibt.
 function addGrassDecoration(group, rand, shape) {
+  const bluetenFuesse = [];
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   // Nester statt Gleichverteilung: erst ein Zentrum würfeln, dann darum streuen.
@@ -2208,14 +2212,27 @@ function addGrassDecoration(group, rand, shape) {
     const [x, y, z] = platz;
     dummy.position.set(x, y, z);
     dummy.rotation.set((rand() - 0.5) * 0.3, rand() * TAU, (rand() - 0.5) * 0.3);
-    dummy.scale.setScalar(0.75 + rand() * 0.6);
+    const groesse = 0.75 + rand() * 0.6;
+    dummy.scale.setScalar(groesse);
     dummy.updateMatrix();
     flowers.setMatrixAt(i, dummy.matrix);
     flowers.setColorAt(i, color.setHex(pick(rand, bluetenTon)));
+    // **Der Radius ist so gross wie die Blume hoch ist, und das ist gemessen.**
+    //
+    // Der erste Anlauf nahm 0,022 (rund 11 cm im Weltmassstab). Gemessen war
+    // die Verdunklung damit real — 137,5 auf 127,2 an einer Stelle —, aber im
+    // Bild bei vierfacher Vergroesserung nicht zu finden: Ein 11-cm-Fleck ist
+    // auf diese Entfernung zwei Bildpunkte, und die weiche Radialtextur bei
+    // Deckkraft 0,30 verteilt sie auf nichts.
+    //
+    // Eine Bluete ist rund 25 cm hoch; ein Schattenfleck derselben Groesse
+    // unter ihr ist physikalisch das Naheliegende und im Bild fuenf Bildpunkte.
+    bluetenFuesse.push({ x, z, r: 0.05 * groesse });
   }
   flowers.instanceMatrix.needsUpdate = true;
   if (flowers.instanceColor) flowers.instanceColor.needsUpdate = true;
   group.add(flowers);
+  return bluetenFuesse;
 }
 
 // Sanft animiertes Wasser: hellblaue Fläche mit fließenden Strähnen (Canvas-Textur,
@@ -3879,7 +3896,7 @@ function buildIsland(
 }
 
 // Unterwuchs: instanzierte Büsche + Pilze (wenige Draw-Calls) auf der Hauptinsel.
-function addUndergrowth(group, rand, shape) {
+function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   const shadowBucket = new GeoBucket();
@@ -3965,6 +3982,24 @@ function addUndergrowth(group, rand, shape) {
   busch.blobs.receiveShadow = true;
   busch.karten.castShadow = true;
   group.add(busch.blobs, busch.karten);
+
+  // **Und unter den Blüten.**
+  //
+  // Der Prüfer meldet in `2-waterfall` „neun isolierte weiße Blobs, mittlere
+  // Größe 2,4 px, frei vor dem Stein hängend" und nennt sie Partikel ohne
+  // Quelle. Sie haben eine Quelle: Es sind die Blütenköpfe. Der Stiel ist auf
+  // diese Entfernung unter einem Bildpunkt breit und verschwindet, der helle
+  // Kopf bleibt — und steht dann in der Luft.
+  //
+  // Ein SCHLAGSCHATTEN wäre hier das Falsche, und zwar aus demselben Grund,
+  // der zwei Bildschirmseiten weiter unten bei den Pilzen steht: Eine Blüte von
+  // 6,4 cm ergibt bei 5,2 cm je Schattenkartentexel einen Schatten aus zwei
+  // Texeln, also Rauschen. Eine **gemalte** Kontaktverdunklung hat dieses
+  // Problem nicht — sie ist Geometrie, keine Abtastung.
+  //
+  // Sie kommen in DIESEN Bucket, obwohl sie in `addGrassDecoration` entstehen:
+  // So bleibt alles zusammen ein Draw-Call statt zweier.
+  for (const f of fremdeFuesse) addContactShadow(shadowBucket, shape, f.x, f.z, f.r, true);
 
   // Kontaktverdunklung unter Büschen und Pilzen. Ohne sie sitzen sie mit einer
   // haarscharfen Kante auf vollwertig hellem Gras – gemessen lag die Abweichung
@@ -4196,8 +4231,8 @@ function createIslandEnvironment() {
   });
   group.add(main);
   const shape = main.userData.shape;
-  addGrassDecoration(group, rand, shape);
-  addUndergrowth(group, rand, shape);
+  const bluetenFuesse = addGrassDecoration(group, rand, shape);
+  addUndergrowth(group, rand, shape, bluetenFuesse);
   const waterfall = makeWaterfall(rand, shape);
   group.add(waterfall.group);
   const birds = makeBirds(rand);
