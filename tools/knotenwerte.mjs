@@ -12,6 +12,7 @@
 // und die geaenderten Bildpunkte SIND seine Flaeche. Innerhalb dieser Maske
 // wird dann die Verteilung gemessen — ohne Schwelle, ohne Rechteck, ohne
 // Himmel.
+import fs from 'node:fs';
 import { PNG } from 'pngjs';
 import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
 
@@ -20,7 +21,8 @@ const argv = process.argv.slice(2);
 // trennen, ob eine Flaeche dunkel ist, weil sie im Schatten liegt, oder weil
 // ihr Werkstoff so dunkel ist.
 const OHNE_WERFER = argv.includes('--ohne-werfer');
-const rest = argv.filter((a) => a !== '--ohne-werfer');
+const MASKE = argv.includes('--maske');
+const rest = argv.filter((a) => a !== '--ohne-werfer' && a !== '--maske');
 const shotName = rest[0] ?? '1-eyelevel';
 const KNOTEN = rest.slice(1);
 if (!KNOTEN.length) {
@@ -80,6 +82,25 @@ try {
         Math.abs(voll.data[j + 2] - ohne.data[j + 2])
       );
       if (d >= 3) werte.push(L(voll, j));
+    }
+    // **Die Maske als Bild.** Zahlen sagen, WIE VIEL ein Knoten beitraegt,
+    // nicht WO. Bei einer Kontaktverdunklung ist genau das die Frage: Sitzt
+    // der Fleck unter dem Gegenstand oder irgendwo daneben?
+    if (MASKE) {
+      const aus = new PNG({ width: voll.width, height: voll.height });
+      for (let i = 0; i < voll.width * voll.height; i++) {
+        const j = i * 4;
+        const d = Math.max(
+          Math.abs(voll.data[j] - ohne.data[j]),
+          Math.abs(voll.data[j + 1] - ohne.data[j + 1]),
+          Math.abs(voll.data[j + 2] - ohne.data[j + 2])
+        );
+        const hell = Math.min(255, d * 12);
+        aus.data[j] = aus.data[j + 1] = aus.data[j + 2] = 255 - hell;
+        aus.data[j + 3] = 255;
+      }
+      fs.writeFileSync(`/tmp/maske-${name}.png`, PNG.sync.write(aus));
+      process.stdout.write(`  -> /tmp/maske-${name}.png\n`);
     }
     if (!werte.length) {
       process.stdout.write(`${name.padEnd(16)}  (nicht im Bild, ${n} Knoten)\n`);

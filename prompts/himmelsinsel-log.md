@@ -1800,3 +1800,72 @@ nicht messbar (SwiftShader, kein Grafikprozessor). Grenzen sind 120 und 350 000.
 gefunden.** Drei Stück, in Text, den ich gerade erst über eine frühere Lehre
 geschrieben hatte. Der Prüfschritt vor dem Bauen ist das Einzige, was diesen
 Fehler zuverlässig fängt — ich fange ihn selbst offenbar nicht.
+
+---
+
+## „Weiße Punkte ohne Quelle": Es sind die Blüten, und sie standen ohne Bodenkontakt
+
+Befund #10 des dritten Prüfdurchgangs: in `2-waterfall`, Kasten
+(600,340)–(760,430), „**neun isolierte weiße Blobs, mittlere Größe 2,4 px**,
+frei vor dem Stein hängend. Über den Punkten befindet sich nichts, was sie
+erzeugen könnte."
+
+Derselbe Kasten, sechsfach vergrößert, zeigt **keine Felswand**: Es ist Wiese
+mit Blumen und einem Pilz. Die neun Punkte sind Blütenköpfe. Der Prüfer hat den
+Untergrund verwechselt und daraus „ohne Quelle" geschlossen — die Beobachtung
+darunter ist trotzdem richtig: Der Stiel ist auf diese Entfernung schmaler als
+ein Bildpunkt, verschwindet, und der helle Kopf steht in der Luft.
+
+Dazu passt ein Befund aus dem **zweiten** Durchgang, den ich nie abgearbeitet
+hatte: „Blütenstiele, kein Schatten, kein Bodenkontakt."
+
+### Warum kein Schlagschatten
+
+Aus demselben Grund, der seit dem Unterwuchs-Paket bei den Pilzen im Quelltext
+steht: Eine Blüte von 6,4 cm ergibt bei **5,2 cm je Schattenkartentexel** einen
+Schatten aus zwei Texeln. Das ist kein Schatten, sondern Rauschen.
+
+Eine **gemalte** Kontaktverdunklung hat dieses Problem nicht — sie ist
+Geometrie, keine Abtastung. Und es gibt sie schon: `addUndergrowth` sammelt die
+Flecken unter Büschen und Pilzen in einem Bucket und verschmilzt sie zu einem
+einzigen Draw-Call. Die Blüten entstehen zwar in `addGrassDecoration`, ihre
+Fußpunkte wandern jetzt aber in **denselben** Bucket — ein Draw-Call bleibt ein
+Draw-Call.
+
+Zusätzliche Zufallswerte werden dabei **keine** gezogen: Die Fußpunkte sind die
+ohnehin schon gewürfelten Standorte. Der Strom bleibt, wo er war.
+
+### Zwei Anläufe beim Radius
+
+Der erste nahm 0,022 lokale Einheiten, rund 11 cm. Gemessen war die Verdunklung
+real (137,5 → 127,2 an einer Probe), im Bild bei vierfacher Vergrößerung aber
+**nicht zu finden**: 11 cm sind auf diese Entfernung zwei Bildpunkte, und eine
+weiche Radialtextur bei Deckkraft 0,30 verteilt das auf nichts.
+
+Jetzt 0,05, also rund 25 cm — so groß, wie die Blüte hoch ist. Probe
+137,5 → **122,5**, und in der Beitragsmaske (`tools/knotenwerte.mjs --maske`,
+Differenz aus Ein- und Ausblenden des Knotens) sind die beiden nächsten
+Blütenflecken die **dunkelsten Kontaktflecken des ganzen Bildes** — dunkler als
+der des Busches daneben.
+
+### Ehrlich zum Ergebnis
+
+**Der Fleck sitzt richtig und ist zu dezent, um den gemeldeten Eindruck zu
+drehen.** Im Bild-zu-Bild-Vergleich bei vierfacher Vergrößerung ist der
+Unterschied nicht zu sehen; sichtbar wird er erst in der zwölffach vergrößerten
+Maske. Was den „weißen Punkt bei 1×" erzeugt, ist nicht der fehlende Fleck,
+sondern der **unterpixelbreite Stiel** — und den behebt eine Verdunklung am
+Boden nicht.
+
+Was die Änderung leistet: Die Blumen haben Bodenkontakt, wo vorher keiner war,
+und der offene Befund aus dem zweiten Durchgang ist geschlossen. Was sie nicht
+leistet, steht oben. Der nächste Anlauf müsste am Stiel ansetzen (breiter oder
+kontrastreicher) und wäre eine eigene Messung.
+
+### Regression
+
+`3-edge-down` und `4-aerial` Δmax 6; `1-eyelevel` Δmittel 0,021 auf 0,286 % der
+Bildpunkte; `2-waterfall` 0,020 auf 0,257 %; `6-groundcover` 0,009 auf 0,171 %.
+Wiesenmittel in `2-waterfall` unverändert (148,5 gegen 148,4) — die Flecken
+verschmutzen die Fläche also nicht. Zen und Nachthimmel bitgleich, Konstrukt
+Δmax 1, Dojo Δmax 4 bei 0,008 %.
