@@ -4159,7 +4159,14 @@ function createIslandEnvironment() {
   // Himmelslicht. Der „Boden" ist hier kein Boden: Unter der Insel liegt heller
   // Himmel, und genau daher kommt das Bounce-Fill, das der Unterseite gefehlt
   // hat. Deshalb ist der untere Ton kühl und keineswegs dunkel.
-  const sky = new THREE.HemisphereLight(0xc6e2f4, 0xbcd6ea, 1.35);
+  // **1,55 statt 1,35, und die Anhebung bezahlt eine Senkung an anderer
+  // Stelle.** Siehe die Begruendung bei den beiden Aufhellungen unten: Die
+  // gerichtete Aufhellung von unten geht auf ein Drittel zurueck, und damit der
+  // Kiel dabei nicht wegsackt, uebernimmt die Hemisphaere den Fehlbetrag. Sie
+  // kann das, ohne Schaden anzurichten, weil ihre beiden Toene fast gleich sind
+  // — sie ist praktisch richtungslos und kann deshalb keine Oberseite unter
+  // ihre Unterseite druecken.
+  const sky = new THREE.HemisphereLight(0xc6e2f4, 0xbcd6ea, 1.55);
   group.add(sky);
 
   // Sonne: die klar dominierende Quelle. Sie wirft als einzige Schatten.
@@ -4178,13 +4185,46 @@ function createIslandEnvironment() {
   // Aufhellung von unten: Das Licht des Himmels unter der Insel. Ohne sie wird
   // der Kiel nach unten dunkler, obwohl dort nichts ist, was ihn beschatten
   // könnte.
-  const bounce = new THREE.DirectionalLight(0xb6d4ee, 1.9);
+  //
+  // **0,66 und 0,30 statt 1,9 und 0,85 — sie waren zusammen staerker als die
+  // Sonne.**
+  //
+  // Der Pruefer: Bei drei von vier Findlingen ist die nach OBEN weisende
+  // Facette 31 bis 39 Luminanzstufen DUNKLER als eine seitliche oder untere.
+  // Das ist kein Farbfehler; mit `tools/facetten.mjs` gemessen liegt es an
+  // genau diesen beiden Lichtern. Am Findling in `1-eyelevel`:
+  //
+  //     Facette oben   Normale ( 0,05 |  0,56 | 0,83)   N·L zur Sonne -0,150   L 102,6
+  //     Facette unten  Normale (-0,75 | -0,07 | 0,65)   N·L zur Sonne -0,806   L 133,3
+  //
+  // Beide sind von der Sonne abgewandt, die untere sogar deutlich staerker —
+  // und trotzdem ist sie 31 Stufen heller. Der Grund steht in der Richtung
+  // dieser Aufhellung: Die untere Facette bekommt von ihr N·L = +0,47, die
+  // obere -0,32, also nichts. Zusammen brachten die beiden Lichter 2,75 gegen
+  // 2,5 der Sonne. Fuer den KIEL ist das richtig — unter ihm steht heller
+  // Himmel. Fuer einen Stein, der auf der Wiese liegt, ist es Unsinn, und weil
+  // ein gerichtetes Licht in three jeden Koerper der Szene trifft, bekamen es
+  // alle.
+  //
+  // `tools/aufhellung.mjs` faehrt beide Seiten zugleich ab — den Abstand
+  // Oberseite-minus-Unterseite am Findling und Mittel/Spanne des Kiels:
+  //
+  //     Bounce x1,00                      oben-unten -30,7   Kiel 82/85  70/79  64/55
+  //     Bounce x0,35                      oben-unten -13,1   Kiel 75/63  67/67  61/51
+  //     Bounce x0,35, Hemisphaere x1,15   oben-unten -12,8   Kiel 81/63  72/66  66/49
+  //
+  // Die letzte Zeile ist kein Tausch, sondern ein Gewinn: Die Umkehrung am
+  // Stein geht auf weniger als die Haelfte zurueck, und der Kiel behaelt seine
+  // Helligkeit (81/72/66 gegen 82/70/64). Bezahlt wird mit Spannweite am Kiel
+  // (85 auf 63 im obersten Band) — das ist der Preis dafuer, gerichtetes Licht
+  // durch ungerichtetes zu ersetzen, und 63 Stufen sind reichlich Modellierung.
+  const bounce = new THREE.DirectionalLight(0xb6d4ee, 0.66);
   bounce.position.set(-8, -22, 6);
   group.add(bounce);
   // Zweite Aufhellung von unten aus einem anderen Winkel. Mit nur einer Quelle
   // fielen benachbarte Felsfacetten auf denselben Wert - die Unterseite hatte
   // zuletzt nur noch 10 Luminanzstufen Spannweite und war als Form unlesbar.
-  const bounce2 = new THREE.DirectionalLight(0x9fc2e0, 0.85);
+  const bounce2 = new THREE.DirectionalLight(0x9fc2e0, 0.3);
   bounce2.position.set(16, -18, -12);
   group.add(bounce2);
 
