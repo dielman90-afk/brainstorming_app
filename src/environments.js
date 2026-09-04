@@ -1508,10 +1508,41 @@ function grasMaterial() {
            // auf zwei Metern 15 Bildpunkte, auf sechs noch fuenf; darueber
            // wird er ausgeblendet, bevor er zu Flimmern wird.
            float ganzNah = 1.0 - smoothstep(3.0, 9.0, tiefe);
+           // **Und noch eine dritte Skala, weil zwei nicht bis vor die Fuesse
+           // reichen.**
+           //
+           // Der zweite Massstab (4,5 cm) war die Antwort auf denselben Befund
+           // eine Runde frueher, und er hat gewirkt — in 1-eyelevel steht das
+           // vorderste Band jetzt bei 2,53 statt 0,35. In 6-groundcover nicht:
+           // dort faellt der Hochpass ueber elf Baender von 8,675 auf **0,887**,
+           // monoton zur Kamera hin.
+           //
+           // Der Grund ist wieder Vergroesserung, nur eine Stufe tiefer.
+           // Gemessen mit einem Strahl durch den unteren Bildrand liegt der
+           // Boden dort **1,13 m** vor der Kamera; eine Zelle von 4,5 cm deckt
+           // aus dieser Entfernung rund **23 Bildpunkte**, und ein Hochpass
+           // ueber ein 5x5-Fenster sieht davon nichts. Die Struktur ist da, ihre
+           // Ortsfrequenz ist nur zu niedrig, um als Oberflaeche zu lesen.
+           //
+           // Also 1,2 cm fuer das letzte Stueck: aus 1,13 m sind das rund fuenf
+           // Bildpunkte — genau die Groesse, die als Halmwerk liest.
+           //
+           // **Eine Oktave, nicht vier.** grasFbm legt vier Lagen mit Faktor
+           // 2,17 uebereinander; bei einer Grundfrequenz von 85 waere die
+           // oberste bei 0,1 cm und damit weit unterhalb eines Bildpunkts —
+           // das ist kein Detail mehr, sondern Rauschen, das auf der Quest bei
+           // jeder Kopfbewegung kriecht. Gedreht wird sie trotzdem, sonst zeigt
+           // eine einzelne Lage Wertrauschen ihr achsenparalleles Gitter als
+           // Rauten. Dieselbe Lehre wie beim Kachelbefund.
+           float superNah = 1.0 - smoothstep(1.2, 3.0, tiefe);
+           mat2 drehF = mat2(0.8018, -0.5976, 0.5976, 0.8018);
            float fleck = grasFbm(w * 0.55) - 0.5;
            float korn = grasFbm(w * 3.1) - 0.5;
            float halme = grasFbm(w * 22.0) - 0.5;
-           diffuseColor.rgb *= 1.0 + fleck * 0.055 + korn * 0.26 * nah + halme * 0.30 * ganzNah;
+           float feinst = grasNoise(drehF * w * 85.0) - 0.5;
+           diffuseColor.rgb *=
+             1.0 + fleck * 0.055 + korn * 0.26 * nah + halme * 0.30 * ganzNah +
+             feinst * 0.26 * superNah;
            // --- Luftperspektive auf der Bodenebene ------------------------
            //
            // Der Pruefer: „Gras 1-eyelevel ferner Kamm L 180,0 / Saettigung
@@ -1591,6 +1622,21 @@ function grasMaterial() {
                float fz = grasFbm(qf + vec2(0.0, ef));
                stoerung += vec3(-(fx - f0), 0.0, -(fz - f0)) * (1.5 * ganzNahN);
              }
+             // Dritte Lage, passend zur dritten Skala in der Albedo: 1,2 cm,
+             // nur auf den letzten drei Metern. Sie traegt den Glanzwechsel
+             // zwischen Halmen, den die Helligkeit allein nicht macht — und
+             // sie ist der Grund, warum die Wiese aus einem Meter Entfernung
+             // ueberhaupt eine Richtung bekommt.
+             float superNahN = 1.0 - smoothstep(1.2, 3.0, tiefe);
+             if (superNahN > 0.002) {
+               mat2 drehN = mat2(0.8018, -0.5976, 0.5976, 0.8018);
+               float es = 0.30;
+               vec2 qs = drehN * w * 85.0;
+               float s0 = grasNoise(qs);
+               float sx = grasNoise(qs + vec2(es, 0.0));
+               float sz = grasNoise(qs + vec2(0.0, es));
+               stoerung += vec3(-(sx - s0), 0.0, -(sz - s0)) * (0.9 * superNahN);
+             }
              normal = normalize(normal + (viewMatrix * vec4(stoerung, 0.0)).xyz);
            }
          }`
@@ -1599,7 +1645,7 @@ function grasMaterial() {
   // Ohne eigenen Schluessel teilt three das uebersetzte Programm mit jedem
   // anderen MeshStandardMaterial derselben Merkmale — und die Insel bekaeme
   // ihre Einspritzung nicht.
-  _inselGras.customProgramCacheKey = () => 'insel-gras-v6';
+  _inselGras.customProgramCacheKey = () => 'insel-gras-v7';
   return _inselGras;
 }
 

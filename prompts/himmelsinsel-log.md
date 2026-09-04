@@ -1711,3 +1711,85 @@ drei Hebel dagegen etwas kosten, das teurer ist — und zwei davon wurden in
 diesem Auftrag schon einmal gegeneinander abgewogen, mit Zahlen, die noch
 gelten. Der Fehler wäre, den Befund abzuarbeiten, ohne die frühere Messung zu
 kennen.
+
+---
+
+## Paket „Nahfeld", zweiter Anlauf: Eine dritte Skala für den letzten Meter
+
+Befund #1 des dritten Prüfdurchgangs, und der mit der größten Fläche: Die Wiese
+wird **zur Kamera hin glatter**. Nachgefahren über elf Bänder in
+`6-groundcover`, von hinten nach vorn:
+
+    vorher   8,675  5,926  5,461  3,106  2,421  1,857  1,464  1,123  0,887
+
+Monoton fallend zur Kamera. Genau das, worauf ein Nutzer in der Brille schaut,
+wenn er den Kopf senkt, ist die strukturärmste Fläche des Bildes.
+
+### Warum die Korrektur der letzten Runde nicht gereicht hat
+
+Sie hat gewirkt, nur nicht weit genug. In `1-eyelevel` steht das vorderste Band
+jetzt bei 2,53 statt 0,35 — dort liegt der Boden rund vier Meter vor der Kamera,
+und die 4,5-cm-Lage greift. In `6-groundcover` nicht.
+
+Der Grund ist wieder **Vergrößerung**, eine Stufe tiefer. Ein Strahl durch den
+unteren Bildrand (`tools/kielfleck.mjs` auf `6-groundcover`) trifft den Boden
+nach **1,13 m**. Aus dieser Entfernung deckt eine Zelle von 4,5 cm rund
+**23 Bildpunkte** — ein Hochpass über ein 5×5-Fenster sieht davon nichts, und
+das Auge liest es als Fleck, nicht als Oberfläche. Alle drei vorhandenen
+Nah-Blenden standen dort bereits auf voll; es fehlte keine Blende, sondern eine
+Skala.
+
+### Was geändert wurde
+
+Eine dritte Lage von **1,2 cm**, in Albedo und Normale, eingeblendet erst unter
+drei Metern (`1 - smoothstep(1.2, 3.0, tiefe)`). Aus 1,13 m sind das rund fünf
+Bildpunkte — die Größe, die als Halmwerk liest.
+
+**Eine Oktave, nicht vier.** `grasFbm` legt vier Lagen mit Faktor 2,17
+übereinander; bei Grundfrequenz 85 läge die oberste bei 0,1 cm und damit weit
+unter einem Bildpunkt. Das ist kein Detail mehr, sondern Rauschen, das auf der
+Quest bei jeder Kopfbewegung kriecht. Gedreht wird die eine Lage trotzdem —
+eine einzelne Lage Wertrauschen zeigt sonst ihr achsenparalleles Gitter als
+Rauten, und diese Lehre hat die Wiese schon einmal gekostet.
+
+### Gemessen
+
+    nachher  8,675  5,926  5,461  3,137  2,817  2,703  2,353  1,871  1,412
+
+Das vorderste Band **0,887 → 1,412** (+59 %), das zweite 1,123 → 1,871, das
+dritte 1,464 → 2,353. Die hinteren vier Bänder stehen auf die dritte
+Nachkommastelle unverändert — die Ausblendung sitzt.
+
+Nahfeld (300,600)–(900,715): p05 172 → **169**, p95 191 → **192**, Spanne also
+19 → 23 Stufen. Der Mittelwert bleibt bei 182 (181,6 gegen 182,3), die Wiese
+wird also nicht heller, nur unruhiger.
+
+Im vergrößerten Ausschnitt ist es der deutlichste Unterschied: vorher ein weicher
+Wolkenwisch, jetzt eine körnige Fläche mit Richtungswechseln.
+
+### Was das Maß NICHT sagt
+
+Die Bänder steigen weiterhin nach hinten (1,41 → 2,35 → 2,82 → 3,14 → 5,46).
+Das ist kein Restfehler: Die hinteren Bänder enthalten Blumen, Büsche und
+Findlinge, die vorderen reines Gras. Ein Vergleich zwischen ihnen wiegt
+Gegenstände gegen Oberfläche. Was zählt, ist der Vergleich derselben Stelle
+vorher/nachher, und der steht oben.
+
+`1-eyelevel` bleibt an der Nahwiese **unverändert** (p05 169, p95 189). Dort
+liegt der Boden jenseits der drei Meter, die neue Lage greift also nicht — und
+das ist Absicht: Bei 3,5 m wäre eine 1,2-cm-Zelle 1,6 Bildpunkte groß, und das
+ist die Grenze, an der Struktur zu Flimmern wird.
+
+### Regression
+
+`1-eyelevel`, `3-edge-down`, `4-aerial`, `5-backlight` bitgleich oder Δmax 1;
+`2-waterfall` Δmittel 0,003; `6-groundcover` Δmittel 1,239 auf 25,6 % der
+Bildpunkte bei Δmax 22. Zen und Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo
+Δmax 4 bei 0,010 %. Build grün, Konsole sauber.
+
+### Die Lehre dieser Runde
+
+**Der `shaderlint` hat zum fünften Mal Backticks in einem GLSL-Kommentar
+gefunden.** Drei Stück, in Text, den ich gerade erst über eine frühere Lehre
+geschrieben hatte. Der Prüfschritt vor dem Bauen ist das Einzige, was diesen
+Fehler zuverlässig fängt — ich fange ihn selbst offenbar nicht.
