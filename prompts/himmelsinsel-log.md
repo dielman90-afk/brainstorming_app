@@ -2022,3 +2022,51 @@ die feineren Kugeln über alle fünfundzwanzig Wolken. Das ist der einzige Poste
 dieser Runde, der überhaupt etwas kostet, und er liegt weit unter der Grenze von
 350 000. Der Lappenversatz und die Tonwertänderung kosten nichts: Sie stehen in
 den Scheitelfarben, die es ohnehin gibt.
+
+---
+
+## Stämme: Rinde ja, Segmentnähte nein
+
+Befund #19: „Stämme ohne Rinde, mit waagerechten Segmentnähten." Bei fünffacher
+Vergrößerung ist der Stamm ein glatter brauner Kegel mit weichem Verlauf, und wo
+zwei Zylinderabschnitte aneinanderstoßen, läuft eine waagerechte Kante quer
+durch.
+
+### Rinde: erledigt
+
+`rindenKorn()` legt eine **anisotrope** Faserung in den Fragmentshader: in der
+Waagerechten fein (Faktor 26, die Furchen stehen dicht), in der Senkrechten grob
+(Faktor 3,4, sie laufen weit). Isotropes Rauschen wäre Putz, keine Rinde. Dazu
+eine zweite, viel gröbere Lage für die Flecken. Ausgeblendet zwischen 9 und 26 m.
+
+Gemessen im Stammkasten (1014,500)–(1036,640) von `5-backlight`, Hochpass über
+drei Bänder:
+
+    vorher   2,333  1,820  19,309
+    nachher  2,333  2,451  19,354
+
+Im mittleren Band, das ganz im Stamm liegt, **+35 %**. Das erste und dritte Band
+enthalten Laub und ändern sich nicht. Im vergrößerten Ausschnitt ist der
+Unterschied deutlich: senkrechte Fasern statt einer flachen braunen Fläche.
+
+Kosten: keine. Kein Mesh, kein Werkstoff, keine Textur — Zeilen im vorhandenen
+Shader.
+
+### Segmentnähte: bleiben, und hier steht warum
+
+Sie sind **nicht** verschwunden; das Korn hat sie nicht überdeckt. Sie sind
+geometrisch: `branchInto()` baut den Stamm als Kette von Zylindern, und an jedem
+Stoß springt die Normale.
+
+`branchInto` liegt in `src/dojo/foliage.js` und wird vom **Dojo** genauso
+benutzt. Eine Glättung dort änderte eine Umgebung, die nicht Gegenstand dieses
+Auftrags ist und für die niemand gemessen hat — dieselbe Entscheidung wie beim
+Himmelssaum an den Dojo-Kronen. Wer die Nähte angeht, misst vorher beide
+Umgebungen.
+
+### Regression
+
+`4-aerial` bitgleich; `6-groundcover` Δmittel 0,009 auf 0,192 % der Bildpunkte;
+`5-backlight` 0,005; `1-eyelevel` 0,004. Der kleine Zahlenwert ist kein Zeichen
+von Wirkungslosigkeit, sondern von Fläche: Stämme belegen wenig Bild. Zen und
+Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo Δmax 5 bei 0,009 %.
