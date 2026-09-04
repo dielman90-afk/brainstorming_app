@@ -1134,3 +1134,103 @@ schlecht.** Der Szenennebel muss Mini-Inseln auf 100 m ausblenden und sollte
 zugleich 20 m Boden staffeln; das Feld zeigt, dass zwischen beiden kein Wert
 liegt, der beides kann. Erst als die zweite Aufgabe einen eigenen Term bekam,
 ging beides.
+
+---
+
+## Paket „Himmelssaum": Er saß im Blattinnern, weil er dort hingehörte
+
+Befund des Prüfers (#40): In `5-backlight`, Kasten (630,555)–(790,670), tragen
+3,05 % der Laubpixel Himmelsfarbe (B über R+30), und **2,48 Prozentpunkte davon
+sind vollständig von Laub umschlossen**. Ein Saum am Rand hat immer Himmel neben
+sich; einer im Innern nie. Meine eigene Nachmessung mit `tools/saumlage.mjs`:
+1,55 % Saum, davon 1,53 Prozentpunkte innen liegend — es ist also praktisch
+*jeder* Saumpixel ein Innenpixel.
+
+### Zwei Fehler von mir, bevor die Messung stimmte
+
+**Erstens** habe ich beim Sortieren des Befunds behauptet, den Saum trügen die
+beiden Kartenwerkstoffe, und der Hüllkörper `_inselLaub` habe nie einen gehabt.
+Das stimmt für die Baumkronen. Nur bauen Büsche und Kronen ihre Hülle in
+`baueKrone()`, und **dort** sitzt der stärkste Saum der Insel:
+`strength 0.5, power 2.0`, direkt am Werkstoff, nicht an `_inselLaub`.
+
+**Zweitens** hat der erste Durchlauf von `tools/saumprobe.mjs` alle Säume auf
+einmal auf null gesetzt und die Summe gemessen. Das Ergebnis sah eindeutig aus
+(1,53 → 0,36 Prozentpunkte) und hat mich dazu gebracht, den Saum von den beiden
+Kartenwerkstoffen zu nehmen. Gerendert änderte das **nichts**: 1,53 → 1,52. Der
+Rundumschlag hatte den Hüllkörper mitgenommen, und der war es die ganze Zeit.
+
+Erst die nach Gruppen getrennte Probe — Schlüssel ist das Wertepaar
+(Stärke, Exponent) beim ersten Antreffen — trennt die Wirkungen sauber:
+
+| abgeschaltet | Körper | Saum innen | Konifere | Laubkrone |
+| --- | --- | ---: | ---: | ---: |
+| — (Stand) | | 1,53 Pp | 53,0 (78) | 66,1 (646) |
+| 0,50 / 2,0 | **Hüllkörper der Schöpfe** | **0,36 Pp** | 53,0 (78) | 67,7 (624) |
+| 0,26 / 4,2 | Nadelkarten | 1,53 Pp | **67,3 (46)** | 66,1 (646) |
+| 0,24 / 4,2 | Blattkarten | 1,52 Pp | 53,0 (78) | **67,9 (652)** |
+| 0,18 / 4,0 | Fels | 1,53 Pp | 53,0 (78) | 66,1 (646) |
+| 0,16 / 3,8 | Findling | 1,53 Pp | 53,0 (78) | 66,1 (646) |
+
+### Warum es nicht anders sein konnte
+
+Der Hüllkörper ist eine Detailstufe-0-Blase: **zwanzig Dreiecke, nicht
+indiziert**. Seine Normalen sind Facettennormalen, der Fresnel-Term ist also je
+Facette konstant. Er malt keinen Saum an eine Kontur, er hellt ganze Facetten
+mitten im Busch himmelblau auf. Im vergrößerten Ausschnitt sieht man genau das:
+helle blaugraue Flecken im Buschinnern, die als Löcher zum Himmel lesen. Gemessen
+an drei Punkten: (41 | 94 | 73) → (21 | 67 | 39), (35 | 76 | 62) → (20 | 55 | 36).
+
+Bei den Karten ist es dieselbe Mechanik in schwächer, und sie war hier schon
+einmal aufgeschrieben: Eine Karte ist eine ebene Fläche mit konstanter Normale,
+der Fresnel-Term wird darauf zur Flächenhelligkeit. Der Betrag war von
+`0.55, 1.9` auf `0.26, 4.2` heruntergedreht worden — das hat den Fehler leise
+gemacht, nicht behoben.
+
+### Der Saum hat die Silhouette gekostet, für die er da war
+
+Das ist der Teil, mit dem ich nicht gerechnet hatte. Alle drei Laubsäume
+verbessern beim Abschalten **auch** den Konturkontrast:
+
+| Kasten | Saum innen | Silhouettensprung |
+| --- | ---: | ---: |
+| Busch (630,555)–(790,670) | 1,53 → **0,36** Pp | — |
+| Konifere (950,150)–(1250,450) | 0,80 → **0,17** Pp | 53,0 (78 Kanten) → **67,3 (46)** |
+| Laubkrone (340,350)–(490,440) | 8,00 → **2,73** Pp | 66,1 (646) → **69,4 (634)** |
+
+Die Zahl der Grenzstücke ist dabei die eigentliche Auskunft: Mit Saum zerfiel die
+Kontur der Konifere in 78 Stücke, ohne ihn sind es 46. Aufgehellte Karten sind
+vom Himmel nicht mehr zu unterscheiden — der Saum hat die Silhouette aufgelöst,
+statt sie zu ziehen, und jedes verbliebene Stück sprang schwächer.
+
+### Was geändert wurde
+
+`baueKrone()` bekommt `himmelssaum` (Vorgabe `true`), die drei Aufrufe der Insel
+setzen es auf `false`. `_inselNadeln` und `_inselKarten` sind nicht mehr in
+`addSkyRim` gewickelt. An den beiden Felswerkstoffen bleibt der Saum: Ein
+geschlossener Körper mit glatten Normalen ist der Fall, für den der Term gedacht
+ist, und in diesen Kästen tut er messbar nichts Schädliches.
+
+**Die Dojo-Kronen laufen durch dieselbe Funktion und behalten ihren Saum.** Die
+Mechanik ist dort dieselbe, der Befund ist deshalb nicht automatisch derselbe —
+gemessen habe ich auf der Insel. Ein Auftrag über die Insel ist kein Freibrief,
+eine andere Umgebung nebenbei zu verändern. Wer den Dojo anfasst, misst ihn
+vorher.
+
+### Wirkung und Regression
+
+Δmittel je Inselbild: `1-eyelevel` 0,431 · `2-waterfall` 0,299 ·
+`3-edge-down` 0,045 · `4-aerial` 0,194 · **`5-backlight` 2,106** ·
+`6-groundcover` 0,559.
+
+Zen und Nachthimmel bitgleich (Δmax 0), Konstrukt Δmax 1, Dojo Δmax 4 bei
+0,010 % der Pixel ≥ 2 — die Fallunterscheidung greift. Konsole frei von Errors
+und Warnings, `npm run build` grün.
+
+### Die Lehre dieser Runde
+
+**Ein Rundumschlag misst die Summe, nicht die Ursache.** Die erste Probe schaltete
+alle Säume gemeinsam ab, das Ergebnis war eindeutig und die daraus gezogene
+Folgerung falsch — ich habe zwei Werkstoffe geändert, die nichts beitrugen, und
+den einen, der alles beitrug, stehen lassen. Gerendert kam 1,53 → 1,52 heraus.
+Eine Differenzmessung ist nur so scharf wie das, was sie einzeln abschaltet.

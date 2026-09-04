@@ -605,6 +605,11 @@ function baueKrone({
   // Verdecker, nicht Silhouette: Wer ihn auf 1,0 lässt, sieht ihn.
   kern = 0.88,
   dichte = 70,
+  // Himmelssaum auf dem Hüllkörper. Auf der Insel gemessen abgeschaltet, siehe
+  // die Begründung am Werkstoff unten. Die anderen Umgebungen behalten ihn,
+  // solange niemand dieselbe Messung für sie gemacht hat — die Mechanik ist
+  // dort dieselbe, der Befund ist es nicht automatisch.
+  himmelssaum = true,
 }) {
   const r = mulberry32(seed);
   const schoepfe = [];
@@ -671,12 +676,46 @@ function baueKrone({
     blobGeometry(0, seed ^ 0x51, 0.72),
     // Lambert statt Standard: Der Hüllkörper soll dunkle Masse sein, kein
     // Material mit Glanzlicht. Er spart damit auch den PBR-Pfad im Shader.
-    // Der Himmelssaum kommt dazu, weil dieser Körper an vielen Stellen die
-    // äußere Kontur gegen den Himmel bildet.
-    addSkyRim(new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }), {
-      strength: 0.5,
-      power: 2.0,
-    }),
+    //
+    // **Auf der Insel kein Himmelssaum** (`himmelssaum: false`). Er steht hier
+    // auf `strength 0.5, power 2.0` — der stärkste der Insel — mit der
+    // Begründung, dieser Körper bilde vielerorts die äußere Kontur gegen den
+    // Himmel. Das ist der Denkfehler: Der Körper
+    // ist eine Detailstufe-0-Blase, **zwanzig Dreiecke**, nicht indiziert.
+    // Seine Normalen sind Facettennormalen, der Fresnel-Term ist damit je
+    // Facette konstant — er malt keinen Saum an der Kontur, sondern hellt
+    // ganze Facetten mitten im Busch himmelblau auf. Genau das hat der Prüfer
+    // in `5-backlight` gefunden, und im vergrößerten Ausschnitt sieht man es
+    // sofort: helle blaugraue Flecken im Buschinnern, die als Löcher zum
+    // Himmel lesen.
+    //
+    // `tools/saumprobe.mjs` schaltet die Saumgruppen zur Laufzeit einzeln ab
+    // und misst dreierlei: den Anteil der Laubpixel, die Himmelsfarbe tragen
+    // **ohne einen Nachbarn ausserhalb des Laubs** (der Befund), und den
+    // Helligkeitssprung über die Kontur an Konifere und Laubkrone (der Grund,
+    // aus dem die Säume einmal hinzukamen):
+    //
+    //     Stand              Saum innen 1,53 Pp   Konifere 53,0 (78)   Laubkrone 66,1 (646)
+    //     ohne 0,50/2,0      Saum innen 0,36 Pp   Konifere 53,0 (78)   Laubkrone 67,7 (624)
+    //     ohne 0,26/4,2      Saum innen 1,53 Pp   Konifere 67,3 (46)   Laubkrone 66,1 (646)
+    //     ohne 0,24/4,2      Saum innen 1,52 Pp   Konifere 53,0 (78)   Laubkrone 67,9 (652)
+    //
+    // Kein Saum am Laub kauft eine Silhouette; alle drei kosten eine. Die
+    // Konifere zerfiel mit ihrem Saum in 78 statt 46 Konturstücke, und jedes
+    // sprang schwächer — aufgehellte Karten sind vom Himmel nicht mehr zu
+    // unterscheiden. An den Felsen bleibt der Saum: Ein geschlossener Körper
+    // mit glatten Normalen ist der Fall, für den der Term gedacht ist.
+    //
+    // Die Dojo-Kronen laufen durch dieselbe Funktion und haben dieselbe
+    // Mechanik — sie behalten den Saum trotzdem. Der Befund ist auf der Insel
+    // gemessen, nicht im Dojo, und ein Auftrag über die Insel ist kein Freibrief,
+    // eine andere Umgebung nebenbei zu verändern. Es steht im Protokoll.
+    himmelssaum
+      ? addSkyRim(new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }), {
+          strength: 0.5,
+          power: 2.0,
+        })
+      : new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }),
     schoepfe.length
   );
   setze(blobs, kern, farben);
@@ -714,7 +753,7 @@ function inselBaumMaterialien() {
       metalness: 0,
       vertexColors: true,
     });
-    _inselNadeln = addSkyRim(foliageMaterial({
+    _inselNadeln = foliageMaterial({
       atlas: leafAtlas('nadel'),
       // Nadeln sind steif und wachsig: wenig Wind, wenig Transluzenz. Eine
       // Konifere im Gegenlicht leuchtet **nicht** – das ist der halbe
@@ -750,18 +789,19 @@ function inselBaumMaterialien() {
       // der ganze freie Anteil, und mehr wird hier nicht genommen.
       roughness: 0.92,
       color: 0xbfe3a8,
-      // Der Himmelssaum sitzt eng und schwach.
+      // **Kein Himmelssaum, und zwar null statt klein.**
       //
-      // Bei `strength 0.55, power 1.9` war er auf einer BLATTKARTE kein Saum
-      // mehr: Eine Karte ist eine ebene Fläche mit konstanter Normale, der
-      // Fresnel-Term wird darauf zur Flächenhelligkeit. Jede schräg stehende
-      // Karte wurde damit fast weiß – gemessen lagen 18,4 % der Kronenpixel
-      // über L=190. Das ist zweierlei Schaden: Die Astlage wird unlesbar, und
-      // auf der Quest kriecht so ein Salz-und-Pfeffer-Muster bei jeder
-      // Kopfbewegung. Derselbe Fehler wie seinerzeit am Fels, dieselbe
-      // Korrektur: hoher Exponent, kleiner Betrag.
-    }), { strength: 0.26, power: 4.2 });
-    _inselKarten = addSkyRim(foliageMaterial({
+      // Er stand zuletzt auf `strength 0.26, power 4.2`, heruntergedreht von
+      // `0.55, 1.9`, weil er auf einer Karte kein Saum ist: Eine Karte ist
+      // eine ebene Fläche mit konstanter Normale, der Fresnel-Term wird darauf
+      // zur Flächenhelligkeit — nicht der Rand leuchtet, sondern die ganze
+      // Karte, sobald sie schräg steht. Der kleine Betrag hat den Fehler leise
+      // gemacht, nicht behoben: Gemessen zerfiel die Kontur der Konifere damit
+      // in 78 statt 46 Stücke bei einem Sprung von 53,0 statt 67,3. Der Saum
+      // war für den Silhouettenkontrast da und hat ihn gesenkt. Die Messreihe
+      // steht beim Hüllkörper der Schöpfe.
+    });
+    _inselKarten = foliageMaterial({
       atlas: leafAtlas('azalea'),
       // Aufgehellt auf das Inselgrün. Der Azaleen-Atlas ist für den schattigen
       // Dojo-Garten gezeichnet; unverändert standen seine Blätter als dunkle
@@ -778,7 +818,9 @@ function inselBaumMaterialien() {
       // mehr Bildpunkte als eine Nadel, die Glanzkeule schaltet also nicht so
       // hart. 0,88 statt der Vorgabe 0,78.
       roughness: 0.88,
-    }), { strength: 0.24, power: 4.2 });
+      // Kein Himmelssaum, dieselbe Messreihe wie bei den Nadeln: Er kostete
+      // die Laubkrone 1,8 Stufen Konturkontrast und kaufte nichts.
+    });
 
     // --- Alpha-Abdeckung statt Alpha-Schwelle --------------------------------
     //
@@ -852,6 +894,7 @@ function buildCollectedTrees(ctx, seed) {
       dichte: 74,
       farben: [0x2b4436, 0x33513e, 0x24392c],
       kartenFarben: [0xd8f0c0, 0xc6e4ae, 0xe4ffd0],
+      himmelssaum: false,
     });
     k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
@@ -870,6 +913,7 @@ function buildCollectedTrees(ctx, seed) {
       // seinen `slice` in genau eines davon.
       farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
       kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8, 0xd3efb0, 0xc2e39c, 0xe0f8c0],
+      himmelssaum: false,
     });
     k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
@@ -3834,6 +3878,7 @@ function addUndergrowth(group, rand, shape) {
     schale: 1.35,
     farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
     kartenFarben: [0xd2eaa8, 0xc3dd99, 0xdcf2b4, 0xcae4a0, 0xd8eeae, 0xbfd894],
+    himmelssaum: false,
   });
   busch.blobs.name = 'bushes';
   busch.karten.name = 'bush-leaves';
