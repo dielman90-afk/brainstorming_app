@@ -1449,3 +1449,103 @@ Hälfte war, dass die Karten auch stillstanden. Nachgesehen habe ich erst, als
 ich für die Hülle den Aufrufweg des Windes suchte — und der Kommentar, der genau
 diesen Fehler beschreibt, stand seit Monaten zwei Bildschirmseiten entfernt im
 selben Quelltext.
+
+---
+
+## Erdfarbe im Felskiel: Der Befund stimmt, meine Erklärung dafür nicht — Ursache offen
+
+Der Prüfer meldet in `3-edge-down` einen Kasten (400,385)–(480,425) mit Mittel
+**88,8 gegen 47,4** daneben und nennt es „Erdfarbe mitten im Felskiel". Der
+helle Fleck ist da, reproduzierbar, und sieht im vergrößerten Ausschnitt aus wie
+ein weicher beiger Klecks im dunklen Gestein.
+
+**Er ist keine Erdfarbe.** Das ist die erste gesicherte Aussage. Schaltet man
+allein die Sonne ab, steht der Fleck bei 50,3 und der Kiel daneben bei 47,4 —
+2,9 Stufen auseinander. Die Vertexfarben der beiden Flächen sind also praktisch
+gleich; die 41 Stufen Unterschied sind **Licht**, nicht Farbe.
+
+### Was gesichert ist
+
+| Messung | Fleck | Kiel daneben |
+| --- | ---: | ---: |
+| Stand | 88,8 | 47,4 |
+| nur Sonne aus | 50,3 | 47,4 |
+| **alle Werfer aus** | **93,3** | **91,1** |
+
+Ohne jeden Schattenwerfer sind beide Flächen gleich hell (Abstand 2,2 statt
+41,4). Der Kiel ist also beschattet, der Fleck nicht — der Fleck ist ein **Loch
+im Schlagschatten**. Dazu passen die Flächennormalen: (0,46 | 0,80 | 0,38) am
+Fleck gegen (0,53 | 0,77 | 0,36) daneben, N·L 0,368 gegen 0,393. Geometrisch
+sind die beiden Flächen nicht zu unterscheiden.
+
+### Was ausgeschlossen ist
+
+Jeder Regler der Schattenkarte, einzeln bis zum Anschlag gedreht, lässt den
+Fleck auf 88,7–88,8 stehen:
+
+| Regler | Bereich | Wirkung auf den Fleck |
+| --- | --- | --- |
+| `bias` | −0,05 … +0,002 | keine (der Kiel reagiert bei −0,05 mit +3,8) |
+| `normalBias` | 0 … 0,035 | keine |
+| `shadowSide` | vorne / hinten / beide | keine |
+| Ortho-Kasten | 26,4 … 46 | keine |
+| `near` / `far` | 30…95 / 215…300 | keine |
+| `mapSize` | 1024 / 2048 | +0,5 |
+
+Der Fleck liegt dabei **innerhalb** des Schattenkegels (Clipraum
+(−0,361 | 0,291 | 0,234), alle drei zwischen −1 und 1), auf demselben Mesh wie
+seine dunkle Nachbarschaft (`island-body`), mit `receiveShadow` an, und die
+Schattenkarte wird jedes Bild neu gezeichnet (`autoUpdate = true`). Ein Strahl
+vom Fleck zur Sonne trifft nach **6,00 m** `island-body`.
+
+### Vier Fehlschlüsse von mir, der Reihe nach
+
+1. **„Eine tiefe Erdzunge."** `earthEndAt()` kann das Erdreich bis auf das
+   2,5-fache seiner Nennweite hinabziehen, das sah nach der Erklärung aus. Die
+   Gegenprobe — Erdzone versuchsweise magenta — zeigte den Fleck unverändert
+   beige. Widerlegt.
+2. **„Die Vertexfarbe des Fels."** Widerlegt durch dieselbe Messung wie oben:
+   ohne Sonne sind Fleck und Kiel gleich.
+3. **„Der Fleck sitzt auf einer Mini-Insel, die keine Schatten empfängt."**
+   Widerlegt: Der Treffer hängt an `island-body < island`, der Hauptinsel, mit
+   `receiveShadow: ja`.
+4. **„Die Schattenkarte ist veraltet."** Passte auf jede Beobachtung — bis
+   `autoUpdate = true` herauskam. Widerlegt.
+
+### Zwei Werkzeugfehler, die mich Zeit gekostet haben
+
+* **`app.scene.traverse` statt der Inselgruppe.** So habe ich die
+  schattenwerfende Sonne einer *anderen* Umgebung erwischt und einen
+  Ortho-Kasten von 12 mit `near 2,5` gemeldet, wo die Insel 26,4 und 95 setzt.
+  Zehn Minuten auf eine Zahl verwendet, die zum Dojo gehörte.
+* **Werfer einzeln statt gemeinsam abgeschaltet.** Jeder einzelne Werfer
+  änderte nichts, und daraus habe ich geschlossen, der Schatten komme von
+  keinem von ihnen. Er kommt von **mehreren, die einander überdecken**: Erst
+  alle zusammen abgeschaltet hebt den Kiel von 47,4 auf 91,1. Eine
+  Einzelabschaltung beweist nur dann etwas, wenn es genau einen Verursacher
+  gibt — und das war eine Annahme, keine Messung.
+
+### Was offen bleibt
+
+**Warum an dieser einen Stelle kein Verdecker in der Schattenkarte steht,
+obwohl 6 m weiter oben Geometrie ist, weiß ich nicht.** Die eine Spur, der ich
+nicht mehr nachgegangen bin: Von den sechs Meshes namens `island-body` in der
+Szene ist genau **eines** ein Werfer (die Hauptinsel); die fünf Mini-Inseln
+werfen keinen Schatten. Ob der Treffer bei 6,00 m zur Hauptinsel gehört oder zu
+einer Mini-Insel, habe ich nicht mehr gemessen — falls Letzteres, wäre der
+Fleck schlicht der fehlende Schlagschatten einer Mini-Insel, und das wäre eine
+bewusste Entscheidung von damals (das Schattenvolumen umfasst nur die
+Hauptinsel) und kein Fehler.
+
+Ich habe hier weit mehr als die im Auftrag zugestandenen vier Durchläufe
+verbraucht und breche deshalb ab, statt weiter zu raten. Die Werkzeuge
+(`tools/kielfleck.mjs`, `tools/schattenleck.mjs`) bleiben da; der nächste Anlauf
+fängt bei der offenen Spur an und nicht bei null.
+
+### Die Lehre dieser Runde
+
+**Ein Regler, der nichts bewirkt, ist erst dann ausgeschlossen, wenn man ihn bis
+zum Anschlag gedreht hat.** Mein erster `bias`-Durchlauf lief von −0,0006 bis
++0,0002 — eine Spanne, in der sich nichts rühren *kann* — und ich hätte daraus
+beinahe geschlossen, die Tiefenverzerrung sei unschuldig. Sie ist es, aber das
+wusste ich erst bei −0,05.
