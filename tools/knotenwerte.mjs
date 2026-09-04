@@ -14,7 +14,7 @@
 // Himmel.
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 // `--ohne-werfer` schaltet vorher alle Schlagschatten ab. Damit laesst sich
@@ -22,7 +22,13 @@ const argv = process.argv.slice(2);
 // ihr Werkstoff so dunkel ist.
 const OHNE_WERFER = argv.includes('--ohne-werfer');
 const MASKE = argv.includes('--maske');
-const rest = argv.filter((a) => a !== '--ohne-werfer' && a !== '--maske');
+// `--env` waehlt die Umgebung; Vorgabe bleibt die Insel, an der das Werkzeug
+// entstanden ist. Die Gruppe heisst in jeder Umgebung `env-<id>`.
+const ENV = envArg(argv, 'island');
+const GRUPPE = `env-${ENV}`;
+const rest = argv.filter(
+  (a, i) => a !== '--ohne-werfer' && a !== '--maske' && a !== '--env' && argv[i - 1] !== '--env'
+);
 const shotName = rest[0] ?? '1-eyelevel';
 const KNOTEN = rest.slice(1);
 if (!KNOTEN.length) {
@@ -38,8 +44,8 @@ const L = (p, i) => 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.dat
 
 const sichtbar = (page, name, an) =>
   page.evaluate(
-    ({ name, an }) => {
-      const g = window.__app.scene.children.find((c) => c.name === 'env-island');
+    ({ name, an, gruppe }) => {
+      const g = window.__app.scene.children.find((c) => c.name === gruppe);
       let n = 0;
       g.traverse((o) => {
         if (o.name === name) {
@@ -49,15 +55,20 @@ const sichtbar = (page, name, an) =>
       });
       return n;
     },
-    { name, an }
+    { name, an, gruppe: GRUPPE }
   );
 
 const server = await startServer();
 const browser = await launchBrowser();
 try {
   const { page } = await openApp(browser);
-  await selectEnv(page, 'island');
-  await lockCamera(page, shotsFor('island').find((s) => s.name === shotName), 6.0);
+  await selectEnv(page, ENV);
+  const shot = shotsFor(ENV).find((s) => s.name === shotName);
+  if (!shot) {
+    process.stderr.write(`Kein Shot "${shotName}" in Umgebung "${ENV}".\n`);
+    process.exit(1);
+  }
+  await lockCamera(page, shot, 6.0);
   if (OHNE_WERFER) {
     await page.evaluate(() => {
       window.__app.scene.traverse((o) => {

@@ -343,3 +343,80 @@ behalten und schreibe die eine Reihe hierher.
 
 Zen, Nachthimmel und Insel bitgleich, Dojo Δmax 6 bei 0,009 %. Build grün,
 Konsole sauber.
+
+---
+
+## Paket 4: Der Sessel war ein schwarzer Ausschnitt vor Weiß
+
+Der Befund aus Paket 3, jetzt als eigene Messung. Auf den **eigenen
+Bildpunkten** des Sessels (Maske aus Ein- und Ausblenden, kein Rechteck):
+
+| | Median | p05 | p95 | unter L 40 |
+| --- | ---: | ---: | ---: | ---: |
+| Lederkörper | **16** | 12 | 154 | — |
+| Polster | 30 | 21 | 159 | — |
+| Holzteile | 10 | 7 | 156 | — |
+| ganze Sesselfläche | **28** | 13 | 159 | **74,3 %** |
+
+Der Hintergrund steht bei 226. Drei Viertel des Möbels liegen unter L 40 — jede
+Modellierung, die man dort hineinbaut, Keder und Knopfmulden eingeschlossen,
+bewegt ein bis vier Luminanzstufen und ist unsichtbar.
+
+**Er war schon vorher so.** Knopftafel im Ausgangsstand 25,3, nach dem
+Schattenpaket 24,1 — die 1,2 Stufen gehen auf den neuen Schlagschatten, der Rest
+war immer da.
+
+### Warum der Hebel hier so billig ist
+
+Boden und Kuppel sind **unbeleuchtete** Materialien (`MeshBasicMaterial` und ein
+eigener Shader). Licht trifft in dieser Umgebung ausschließlich die Möbel. Man
+kann die Beleuchtung verdreifachen, ohne dass die weiße Leere sich um eine Stufe
+ändert — was in jeder anderen Umgebung des Projekts undenkbar wäre.
+
+Und es ist das physikalisch Richtige: Ein dunkelroter Sessel in einem weißen
+Unendlich-Hohlraum bekommt von allen Seiten Rückwurf. Dass er dort fast schwarz
+stand, war kein dramatisches Licht, sondern ein fehlender Lichtweg.
+
+### Der Sweep
+
+`tools/konstruktlicht.mjs` fährt Hemisphäre und Führungslicht zugleich ab und
+misst neben der Tonlage die **Spanne** p05 bis p95 — ein Sessel, der bloß
+gleichmäßig heller wird, hätte nichts gewonnen:
+
+| Einstellung | Median | Spanne | unter L 40 |
+| --- | ---: | ---: | ---: |
+| Hemi ×1,0 Key ×1,0 (Stand) | 28 | 146 | 74,3 % |
+| Hemi ×2,0 Key ×1,0 | 40 | 140 | 51,0 % |
+| **Hemi ×2,6 Key ×1,4** | **48** | **136** | **25,7 %** |
+| Hemi ×3,2 Key ×1,6 | 56 | 132 | 18,5 % |
+
+Die dritte Zeile: Der Median steigt um zwanzig Stufen, drei Viertel der schwarzen
+Fläche verschwinden, und die Spanne kostet das **zehn** Punkte von 146. Das ist
+kein Tausch, das ist ein Fund.
+
+Gesetzt: Hemisphäre 1,5 → **3,9**, Führungslicht 0,7 → **0,98**.
+
+### Gemessen danach
+
+Sessel-Lederkörper Median 16 → **26**, Polster 30 → **51**, Mittel 48,2 → 65,5.
+Die Konsole gewinnt mit: Schautafel Mittel 49,8 → **79,5**, Anteil unter L 40
+13,7 → 6,4 %.
+
+**Und die Leere ist bitgleich.** Vier Messpunkte in `a-augenhoehe`, vorher wie
+nachher: Kuppel oben (226 | 231 | 236), Kuppel am Horizont (218 | 224 | 231),
+Boden am Horizont (218 | 224 | 231), Boden nah (226 | 227 | 227). Keine einzige
+Stufe. Die Überlegung, dass Licht hier nur die Möbel trifft, ist damit nicht nur
+plausibel, sondern belegt.
+
+### Regression
+
+Zen, Nachthimmel und Insel bitgleich, Dojo Δmax 4 bei 0,010 %. Build grün,
+Konsole sauber.
+
+### Die Lehre dieser Runde
+
+**Erst die Tonlage, dann das Detail.** Keder und Knopfmulden waren richtig und
+sind trotzdem in einer Fläche gelandet, die zu drei Vierteln unter L 40 lag. Die
+Reihenfolge war falsch: Wer Modellierung in einen schwarzen Umriss baut, baut
+sie für niemanden. Dass es hier trotzdem gut ausgeht, liegt daran, dass beide
+Änderungen bleiben — die Mulden sieht man jetzt erst.

@@ -13567,8 +13567,38 @@ function createMatrixEnvironment() {
   contact.position.y = -0.018;
   group.add(contact);
 
-  // Gleichmäßiges, nahezu schattenfreies Licht: Karten sind überall gut lesbar.
-  group.add(new THREE.HemisphereLight(0xffffff, 0xf0f2f5, 1.5));
+  // **3,9 statt 1,5 — und diese Zahl ist hier ungewöhnlich billig zu haben.**
+  //
+  // Der Sessel las als schwarzer Ausschnitt vor Weiß. Auf seinen eigenen
+  // Bildpunkten gemessen (Maske aus Ein- und Ausblenden, kein Rechteck) lag der
+  // Median bei **28** und **74,3 %** der Fläche unter L 40, während der
+  // Hintergrund bei 226 steht. Jede Modellierung, die man dort hineinbaut —
+  // Keder, Knopfmulden, Narbung — bewegt ein bis vier Luminanzstufen und ist
+  // damit unsichtbar.
+  //
+  // Der Hebel ist in dieser Umgebung besonders sauber: Boden und Kuppel sind
+  // UNBELEUCHTETE Materialien. Licht trifft hier ausschließlich die Möbel; die
+  // weiße Leere ändert sich um keine Stufe. In jeder anderen Umgebung des
+  // Projekts wäre eine Verdreifachung der Hemisphäre undenkbar.
+  //
+  // Und es ist auch das physikalisch Richtige: Ein dunkelroter Sessel in einem
+  // weißen Unendlich-Hohlraum bekommt von allen Seiten Rückwurf. Dass er dort
+  // fast schwarz war, ist kein „dramatisches Licht", sondern ein fehlender
+  // Lichtweg.
+  //
+  // `tools/konstruktlicht.mjs` fährt beide Regler zugleich ab und misst neben
+  // der Tonlage die SPANNE p05 bis p95 — ein Sessel, der bloß gleichmäßig
+  // heller wird, hätte nichts gewonnen:
+  //
+  //     Hemi x1,0  Key x1,0   Median 28   Spanne 146   unter L40 74,3 %
+  //     Hemi x2,0  Key x1,0   Median 40   Spanne 140   unter L40 51,0 %
+  //     Hemi x2,6  Key x1,4   Median 48   Spanne 136   unter L40 25,7 %
+  //     Hemi x3,2  Key x1,6   Median 56   Spanne 132   unter L40 18,5 %
+  //
+  // Die dritte Zeile: Der Median steigt um zwanzig Stufen, drei Viertel der
+  // schwarzen Fläche verschwinden, und die Spanne kostet das **zehn** Punkte
+  // von 146. Das ist kein Tausch, das ist ein Fund.
+  group.add(new THREE.HemisphereLight(0xffffff, 0xf0f2f5, 3.9));
   const fill = new THREE.DirectionalLight(0xffffff, 0.55);
   fill.position.set(2, 12, 6);
   group.add(fill);
@@ -13577,7 +13607,10 @@ function createMatrixEnvironment() {
   // Polster im rundum gleichen Licht flach und wirken wie eingefärbte Klötze.
   // Auf die Karten wirkt es kaum – deren Material ist von der Beleuchtung
   // ausgenommen (MeshBasicMaterial).
-  const key = new THREE.DirectionalLight(0xfff6ec, 0.7);
+  // 0,98 statt 0,7: Mit der angehobenen Hemisphaere muss auch die Modellierung
+  // nachziehen, sonst frisst das Umgebungslicht die Form, die der Schatten
+  // gerade erst gegeben hat.
+  const key = new THREE.DirectionalLight(0xfff6ec, 0.98);
   // **Das Fuehrungslicht wirft jetzt Schatten.**
   //
   // Vorher warf in dieser Umgebung nichts einen. Die Moebel standen auf einem
