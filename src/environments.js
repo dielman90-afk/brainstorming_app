@@ -13141,9 +13141,21 @@ function makeRadiolaConsole() {
       ctx.fillRect(0, 0, sw, sh);
     }
 
+    // **Das Korn kommt aus der Zeit, nicht aus `Math.random()`.**
+    //
+    // Vorher war diese Umgebung als einzige der fuenf nicht wiederholbar: Zwei
+    // Laeufe desselben Standes ergaben immer verschiedene Bilder, und der
+    // Regressionsvergleich musste sie ausnehmen (die Warnung stand woertlich in
+    // `tools/harness-common.mjs`). Damit war jede Messung an ihr wertlos, und
+    // ohne Messung ist jede Verbesserung eine Behauptung.
+    //
+    // Das Korn bleibt bewegt — es haengt an der Bildnummer, und die kommt aus
+    // der Zeit. Bei eingefrorener Uhr ist es damit immer dasselbe.
+    const rahmen = Math.floor(time / 0.08);
+    const kr = mulberry32((0x9e3779b1 ^ (rahmen * 2654435761)) >>> 0);
     const grain = ctx.getImageData(0, 0, sw, sh);
     for (let i = 0; i < grain.data.length; i += 4) {
-      const n = (Math.random() - 0.5) * 42;
+      const n = (kr() - 0.5) * 42;
       grain.data[i] += n;
       grain.data[i + 1] += n;
       grain.data[i + 2] += n;
@@ -13185,7 +13197,11 @@ function makeRadiolaConsole() {
       if (time - lastDraw < 0.08) return;
       lastDraw = time;
       drawScreen(time);
-      screenLight.intensity = 0.42 + Math.sin(time * 7.3) * 0.06 + Math.random() * 0.05;
+      // Dasselbe fuer das Flackern des Schirmlichts: aus der Bildnummer, nicht
+      // aus `Math.random()`. Eine Roehre flackert unregelmaessig, aber sie
+      // flackert bei derselben Zeit auch zweimal gleich.
+      const flacker = mulberry32((0x85ebca6b ^ (Math.floor(time / 0.08) * 374761393)) >>> 0);
+      screenLight.intensity = 0.42 + Math.sin(time * 7.3) * 0.06 + flacker() * 0.05;
     },
   };
 }

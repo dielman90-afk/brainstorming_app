@@ -243,7 +243,68 @@ export const PLANET_SHOTS = [
   },
 ];
 
-export const ENV_SHOTS = { island: SHOTS, zen: ZEN_SHOTS, night: PLANET_SHOTS };
+// ⬜ Konstrukt. Eine weisse Leere mit genau einer Sitzgruppe darin: zwei
+// Sessel, ein Staender, eine Radiola-Konsole mit Bildroehre. Die Gruppe steht
+// bei z = -3,9; die Sessel bei x = +/-1,06 / z = -4,78, das Geraet bei z = -3,12
+// auf 0,30 m Staenderhoehe. Die BILDROEHRE zeigt nach -Z, also zu den Sesseln —
+// wer sie sehen will, muss zwischen Geraet und Sesseln stehen. Was der Nutzer
+// von seinem Platz aus sieht, ist die Schautafel auf der Rueckseite.
+//
+// Sechs Kameras, dieselbe Logik wie bei den anderen Umgebungen: eine, die den
+// Normalfall zeigt, vier fuer die Gegenstaende, die es ueberhaupt gibt, und
+// eine fuer den Boden — in einer leeren weissen Welt ist der Uebergang
+// Boden/Kuppel die groesste Flaeche des Bildes.
+export const KONSTRUKT_SHOTS = [
+  {
+    name: 'a-augenhoehe',
+    title: 'Der Blick vom Platz des Nutzers auf die Sitzgruppe',
+    pos: [0, 1.6, 0.6],
+    look: [0, 0.75, -3.9],
+    fov: 60,
+  },
+  {
+    name: 'b-sessel',
+    title: 'Der linke Sessel aus der Naehe (Polster, Naehte, Knoepfe)',
+    pos: [-0.15, 1.15, -3.35],
+    look: [-1.06, 0.45, -4.78],
+    fov: 45,
+  },
+  {
+    name: 'c-roehre',
+    title: 'Die Bildroehre von der Sesselseite',
+    pos: [0, 0.95, -4.25],
+    look: [0, 0.62, -3.12],
+    fov: 45,
+  },
+  {
+    name: 'd-schautafel',
+    title: 'Die Schautafel auf der Rueckseite, die der Nutzer sieht',
+    pos: [0, 0.88, -2.05],
+    look: [0, 0.62, -3.12],
+    fov: 40,
+  },
+  {
+    name: 'e-schraeg',
+    title: 'Die ganze Gruppe von schraeg oben',
+    pos: [2.6, 2.0, -1.1],
+    look: [0, 0.45, -3.9],
+    fov: 50,
+  },
+  {
+    name: 'f-boden',
+    title: 'Boden und Fusspunkte: Kontaktschatten, Beine, horizontloser Grund',
+    pos: [0, 1.55, -1.5],
+    look: [0, -0.05, -3.4],
+    fov: 70,
+  },
+];
+
+export const ENV_SHOTS = {
+  island: SHOTS,
+  zen: ZEN_SHOTS,
+  night: PLANET_SHOTS,
+  matrix: KONSTRUKT_SHOTS,
+};
 
 export function shotsFor(envId) {
   const set = ENV_SHOTS[envId];
@@ -260,10 +321,11 @@ export function envArg(argv, fallback = 'zen') {
 
 // Screenshots der anderen Umgebungen (Regressionsvergleich).
 //
-// Achtung beim Pixelvergleich: ⬜ Konstrukt ist NICHT reproduzierbar. Das Bild
-// der Röhre wird mit Math.random() verrauscht und das Schirmlicht flackert
-// zufällig – zwei Läufe desselben Standes unterscheiden sich dort immer. Für
-// diese Umgebung zählt der Blick aufs Bild, nicht der Byte-Vergleich.
+// **⬜ Konstrukt war lange NICHT reproduzierbar** — das Bild der Röhre wurde mit
+// `Math.random()` verrauscht und das Schirmlicht flackerte zufällig, zwei Läufe
+// desselben Standes unterschieden sich dort immer. Seit beide Quellen aus der
+// Bildnummer (und damit aus der Zeit) kommen, ist auch diese Umgebung
+// bitgleich vergleichbar.
 export const REGRESSION_SHOTS = {
   island: { pos: [1.5, 1.6, 9.0], look: [-2.0, 1.2, -14.0], fov: 70 },
   // Der Nachthimmel ist ein Planet: Augenhoehe heisst hier 26,6 m ueber dem
