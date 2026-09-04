@@ -1333,3 +1333,106 @@ genau einmal aufgerufen, nämlich für die Blumen. Ob die Hüllkörper der Krone
 und Büsche stillstehend überhaupt sichtbar sind, ist noch nicht gemessen — sie
 sitzen als Verdecker **innerhalb** der Kartenschale, und was man nicht sieht,
 braucht keinen Shader. Das ist die nächste Messung, nicht die nächste Änderung.
+
+---
+
+## Paket „Bewegung", zweiter Teil: Das Laub der Insel hat sich nie bewegt
+
+Der Prüfer hatte unter #41 notiert, `addWind` werde genau einmal aufgerufen, und
+daraus geschlossen, die Hüllkörper der Kronen stünden still, während ihre
+Blattkarten schwingen. Die erste Hälfte stimmt. Die zweite war zu freundlich.
+
+Die Blattkarten bringen ihren Wind selbst mit — `foliageMaterial()` legt ihn in
+einen gemeinsamen Uniform-Satz. Hochgezählt wird der aber von genau einer
+Funktion, `updateFoliage(time)`, und die Warnung dazu steht seit dem Zen-Garten
+wörtlich im Quelltext: *„wer die Karten anderswo benutzt, muss es selbst tun,
+sonst hängen Blüten und Blätter reglos in der Luft und sehen aus wie
+aufgeklebt."*
+
+Der Zen-Garten ruft es auf. Das Dojo ruft es auf. **Die Insel nicht.**
+
+### Gemessen, nicht gelesen
+
+`tools/laubuhr.mjs` stellt die Uhr der Umgebung und liest `uTime` danach aus
+dem laufenden Stand:
+
+| Umgebungszeit | Insel | Zen |
+| ---: | --- | --- |
+| 10 s | **0,00** | 10,00 |
+| 25 s | **0,00** | 25,00 |
+| 40 s | **0,00** | 40,00 |
+
+Achtzehn Laubwerkstoffe, alle auf null. Jede Blattkarte auf jedem Baum und
+jedem Busch der Insel war reglos aufgeklebt, seit es die Insel gibt. Bewegt
+haben sich bisher: Vögel, Falter, Wolken, die Mini-Inseln — und die Blumen, weil
+sie als einzige `addWind` benutzen.
+
+### Was geändert wurde
+
+Eine Zeile: `updateFoliage(time)` im `update()` der Insel.
+
+### Ist es Wind oder ist es Flimmern?
+
+Das ist die Frage, die hier zählt, denn die Nadeln haben schon einmal ein ganzes
+Paket gekostet: `alphaTest` auf ein Bildpunkt breiten Nadeln ergibt ein
+Salz-und-Pfeffer-Muster, sobald sich etwas bewegt. Gemessen im Kronenkasten
+(950,150)–(1250,450) von `5-backlight`, Vögel und Falter ausgeblendet:
+
+| Zeitabstand | geänderte Bildpunkte | mittlerer Betrag |
+| --- | ---: | ---: |
+| **1/72 s** (ein Bild auf der Quest) | 13,84 % | **1,54** |
+| 0,5 s | 93,65 % | 24,80 |
+| 2,0 s | 97,91 % | 32,77 |
+
+Von Bild zu Bild ändert sich also wenig und schwach; über eine halbe Sekunde
+ändert sich fast alles und deutlich. Das ist die Signatur einer zusammenhängenden
+Bewegung und nicht die von Rauschen — bei Flimmern stünde in der ersten Zeile
+derselbe Betrag wie in der letzten. Ein Faktor 16 zwischen einem Bild und einer
+halben Sekunde ist reichlich Abstand.
+
+Nebenbei ist die Konifere dadurch besser geworden: Silhouettensprung 67,3 → 73,4
+bei 46 → 110 Konturstücken. Mehr Stücke **und** stärkere Sprünge — anders als
+beim Himmelssaum, wo mehr Stücke schwächere waren. Eine Konifere hat eine
+zerfranste Kante; jetzt hat sie eine.
+
+Wirkung: `5-backlight` Δmittel 11,584 (27,3 % der Bildpunkte) · `6-groundcover`
+1,409 · `1-eyelevel` 1,260 · `2-waterfall` 0,712 · `3-edge-down` 0,252 ·
+`4-aerial` 0,200. Zen und Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo Δmax 7
+bei 0,011 %.
+
+### Die Hüllkörper bleiben stehen, und das ist eine Entscheidung
+
+`tools/huellenprobe.mjs` misst differenziell, was ein Knoten überhaupt zum Bild
+beiträgt — einmal mit, einmal ohne ihn, und die geänderten Bildpunkte **sind**
+sein Beitrag:
+
+| Bild | `island-krone` | `bushes` | `island-laub` | `bush-leaves` |
+| --- | ---: | ---: | ---: | ---: |
+| 1-eyelevel | 0,65 % | 0,31 % | 4,86 % | 4,19 % |
+| 2-waterfall | 0,57 % | 0,39 % | 2,67 % | 4,03 % |
+| 3-edge-down | 0,06 % | 0,09 % | 2,32 % | 0,52 % |
+| 4-aerial | 0,66 % | 0,04 % | 3,10 % | 0,14 % |
+| 5-backlight | 0,35 % | 0,34 % | 24,53 % | 3,47 % |
+| 6-groundcover | 0,92 % | 0,29 % | 6,80 % | 3,72 % |
+
+Die Hüllkörper sind auf 0,04 bis 0,92 Prozent der Fläche zu sehen, die Karten
+davor auf dem Fünf- bis Fünfzigfachen. Sie sind Verdecker, sichtbar nur durch
+Lücken — und die Lücken selbst bewegen sich, weil die Karten es tun. Der
+Anteil hat sich durch den laufenden Wind **nicht** vergrößert (vorher 0,05–0,92,
+nachher 0,04–0,92); die Karten wandern also nicht von ihrer Hülle weg.
+
+Dagegen steht ein konkreter Preis: Der Schattendurchgang benutzt für den
+Hüllkörper das Standard-Tiefenmaterial, das keinen Windeingriff hat. Ein
+schwingender Hüllkörper würfe einen stehenden Schatten — genau der Fehler, gegen
+den `foliageMaterial()` sein eigenes Tiefenmaterial mitbringt. Für 0,5 Prozent
+der Fläche ist das der schlechtere Tausch. **Es bleibt also stehen, und hier
+steht warum.** Wer es anders will, hat die Zahlen.
+
+### Die Lehre dieser Runde
+
+**Ein Befund kann zu freundlich sein.** „Die Hülle steht still, während die
+Karten schwingen" klang nach einem Detail und war die halbe Wahrheit; die andere
+Hälfte war, dass die Karten auch stillstanden. Nachgesehen habe ich erst, als
+ich für die Hülle den Aufrufweg des Windes suchte — und der Kommentar, der genau
+diesen Fehler beschreibt, stand seit Monaten zwei Bildschirmseiten entfernt im
+selben Quelltext.
