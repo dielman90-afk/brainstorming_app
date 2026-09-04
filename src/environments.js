@@ -3006,7 +3006,26 @@ function makeBirds(rand) {
   return makeFlyers(rand, {
     count: 5,
     wingGeo: wingGeometry(0.30, 0.11),
-    material: new THREE.MeshBasicMaterial({ color: 0x3a4753, side: THREE.DoubleSide }),
+    // **Lambert statt Basic: Ein unbeleuchteter Vogel ist eine Linse, kein
+    // Vogel.**
+    //
+    // `MeshBasicMaterial` nimmt kein Licht an, also trugen beide Fluegel
+    // denselben Wert, und aus der Ueberlappung wurde ein einzelner dunkler
+    // Mandelfleck. Gemessen auf den eigenen Bildpunkten der Voegel in
+    // `4-aerial` (`tools/knotenwerte.mjs`, Maske aus dem Ein- und Ausblenden
+    // des Knotens): **p05 63, p50 63** — mehr als die Haelfte aller Punkte auf
+    // exakt einem Wert. Das ist die Signatur einer Flaechenfuellung, und der
+    // Pruefer hat sie genau so gelesen: „flache schwarze Linsen", eine davon
+    // quer ueber der Felskante als schwarzer Riss im Gestein.
+    //
+    // Die beiden Fluegel stehen durch V-Stellung (0,16) und Schlagwinkel
+    // ohnehin verschieden im Raum; sie brauchen nur ein Material, das das
+    // bemerkt. Lambert und nicht Standard, aus demselben Grund wie beim
+    // Huellkoerper der Kronen: Ein Vogel auf fuenfzehn Bildpunkten braucht
+    // keine Glanzkeule, und der PBR-Pfad kostet ihn Shader-Zeit, die er nicht
+    // zurueckzahlt. Die Falter tragen laengst ein beleuchtetes Material — die
+    // Voegel waren der Ausreisser.
+    material: new THREE.MeshLambertMaterial({ color: 0x3a4753, side: THREE.DoubleSide }),
     name: 'birds',
     // Gemessen standen die Vögel bis zu sechzig Meter neben und zweiundzwanzig
     // Meter über der Insel – dort sind sie ein Punkt und tragen nichts bei.
