@@ -1608,3 +1608,106 @@ und benennt, was auffällt, und genau das soll er. Es ist ein Vermerk für mich:
 ändert Code gegen ein Problem, das es nicht gibt — und die Insel hat davon schon
 zwei Male genug gehabt (der Himmelssaum an den falschen Werkstoffen, die
 Wasserfallfahne aus dem falschen Zufallsstrom).
+
+---
+
+## Der Prüfer, dritter Durchgang — und was seine drei größten Befunde aushalten
+
+Neu angesetzt auf `duft-09`, also nach Himmelssaum, Wolken und Laubwind. Sein
+Gesamturteil in einem Satz: Die Szene zerfällt in **zwei nicht überlappende
+Helligkeitsplateaus** — alles Vegetative zwischen L 25 und 165, der Boden
+zwischen 166 und 200 —, und die Wiese wird **zur Kamera hin glatter** statt
+reicher. Dazu 23 Einzelbefunde, geordnet.
+
+Ich habe die drei obersten nachgemessen, bevor ich etwas geändert habe. Das
+Ergebnis ist gemischt, und der Reihe nach.
+
+### #3 „Kein Sonnenlicht auf Laub" — bestätigt, aber jeder Hebel dagegen kostet mehr, als er bringt
+
+Erst die Gegenprobe zu meiner eigenen Skepsis: Ein Kasten über die ganze Krone
+meldet 25,4 % über L 190 — das klang nach Widerlegung, ist aber der **Himmel
+dahinter**. Deshalb `tools/knotenwerte.mjs`: Der Knoten wird ein- und
+ausgeblendet, die geänderten Bildpunkte **sind** seine Fläche, und darin wird
+gemessen. Kein Rechteck, kein Himmel:
+
+| Knoten | Punkte | Mittel | p05 | p95 | > 150 | > 190 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `island-laub` | 44 888 | **58,7** | 21 | 122 | 1,2 % | **0,0 %** |
+| `bush-leaves` | 38 329 | 83,1 | 25 | 165 | 12,2 % | 0,0 % |
+| `island-holz` | 5 378 | 95,3 | 58 | 154 | 5,9 % | 0,1 % |
+| Wiese daneben | — | 172,1 | 159 | 184 | — | 0,2 % |
+
+**Der Befund stimmt.** Das Laub steht bei 58,7, das Gras direkt daneben bei
+172,1, und über L 190 liegt kein einziger Blattpixel.
+
+Es ist **nicht** der Schlagschatten: Ohne jeden Werfer wird das Laub sogar
+dunkler (58,7 → 56,2). Es ist die Albedo. Also den Ton anheben —
+`tools/laubton.mjs` dreht ihn zur Laufzeit und misst gleichzeitig, was er
+kostet:
+
+| Faktor | Laub Mittel | p95 | > 150 | Silhouettensprung |
+| --- | ---: | ---: | ---: | ---: |
+| ×1,0 | 58,7 | 122 | 1,2 % | **73,4** |
+| ×1,3 | 64,4 | 125 | 1,2 % | 69,5 |
+| ×1,6 | 69,8 | 129 | 1,3 % | 66,3 |
+| ×2,0 | 76,4 | 135 | 1,7 % | 61,0 |
+| ×2,5 | 84,0 | 142 | 2,7 % | 56,2 |
+
+Das ist ein schlechter Tausch, und zwar messbar: Bei ×2,5 steigt das Mittel um
+25 Stufen, der **p95 aber nur um 20**, über L 190 kommt weiterhin nichts, und
+die Silhouette verliert **17 Stufen**. Der Hebel hebt den ganzen Ton an, statt
+Spitzlichter zu erzeugen — er macht die Krone heller und flauer zugleich, also
+genau das Gegenteil des Gewünschten.
+
+Der Hebel, der Spitzlichter erzeugen *würde*, ist die Rauheit. Und der ist in
+diesem Auftrag schon einmal gemessen und bewusst in die andere Richtung gestellt
+worden: 0,7 → 0,92 nahm **alle** ausgebrannten Bildpunkte (2,1 % → 0,1 %) und
+ein Fünftel des Flimmerns, ohne die Krone dunkler zu machen. Auf einer Nadel von
+einem Bildpunkt Breite ist eine enge Glanzkeule kein Material, sondern ein
+Schalter. Diesen Tausch wieder aufzumachen hieße, gemessene Ruhe auf der Quest
+gegen ungemessene Spitzlichter im Standbild zu tauschen.
+
+**Deshalb bleibt es, wie es ist, und hier steht warum.** Der Befund ist richtig
+beobachtet; die drei verfügbaren Hebel sind vermessen; zwei davon wurden in
+früheren Runden bereits entschieden. Wer es anders will, hat die Zahlen.
+
+### #7 „Vögel als flache schwarze Linsen" — bestätigt und behoben
+
+`MeshBasicMaterial` nimmt kein Licht an. Beide Flügel trugen deshalb denselben
+Wert, und aus ihrer Überlappung wurde ein einzelner dunkler Mandelfleck — einer
+davon liegt in `4-aerial` quer über der Felskante und liest als schwarzer Riss
+im Gestein.
+
+Die Messung auf den eigenen Bildpunkten der Vögel ist eindeutig: **p05 63,
+p50 63.** Mehr als die Hälfte aller Punkte auf exakt einem Wert — die Signatur
+einer Flächenfüllung. Die Falter tragen längst ein beleuchtetes Material; die
+Vögel waren der Ausreißer.
+
+Jetzt `MeshLambertMaterial` (nicht Standard: Ein Vogel auf fünfzehn Bildpunkten
+braucht keine Glanzkeule). Danach **p05 47, p50 52** — die V-Stellung der Flügel
+trennt die beiden Flächen, im vergrößerten Ausschnitt liegt eine sichtbare Naht
+zwischen ihnen. Kosten: keine.
+
+**Ehrlich zum Ausmaß:** Die Verbesserung ist klein. Der Vogel ist immer noch
+überwiegend eine dunkle Linse, weil sich bei diesem Blickwinkel beide Flügel
+fast deckungsgleich auf dieselbe Fläche projizieren. Der zweite Teil des
+Befunds — der Vogel sei „so groß wie eine Baumkrone" — steht noch: Bei
+`spread: 9` (mal Weltmaßstab vier = 36 m) fliegen einzelne Tiere deutlich näher
+an der Kamera als die Insel und erscheinen dadurch größer als ihre zwei Meter
+Spannweite. Das ist eine Frage der Platzierung und offen.
+
+### Kosten und Regression
+
+`5-backlight`, `2-waterfall`, `3-edge-down`, `6-groundcover` bitgleich oder
+nahezu; `4-aerial` Δmittel 0,017 auf 0,106 % der Bildpunkte, `1-eyelevel` 0,002.
+Zen und Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo Δmax 5 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Die Lehre dieser Runde
+
+**Ein bestätigter Befund ist noch kein Auftrag zur Änderung.** „Kein
+Sonnenlicht auf Laub" ist richtig gemessen und bleibt trotzdem stehen, weil alle
+drei Hebel dagegen etwas kosten, das teurer ist — und zwei davon wurden in
+diesem Auftrag schon einmal gegeneinander abgewogen, mit Zahlen, die noch
+gelten. Der Fehler wäre, den Befund abzuarbeiten, ohne die frühere Messung zu
+kennen.
