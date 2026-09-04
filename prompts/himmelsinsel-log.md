@@ -1869,3 +1869,8 @@ Bildpunkte; `2-waterfall` 0,020 auf 0,257 %; `6-groundcover` 0,009 auf 0,171 %.
 Wiesenmittel in `2-waterfall` unverändert (148,5 gegen 148,4) — die Flecken
 verschmutzen die Fläche also nicht. Zen und Nachthimmel bitgleich, Konstrukt
 Δmax 1, Dojo Δmax 4 bei 0,008 %.
+
+Kosten: 74 Draw-Calls unverändert, 196 739 → **196 919** Dreiecke. Das sind
+genau **180**, also die neunzig Blütenquads zu je zwei Dreiecken — sie liegen im
+vorhandenen verschmolzenen Mesh und kosten deshalb keinen zweiten Draw-Call.
+Grenzen sind 120 und 350 000.
