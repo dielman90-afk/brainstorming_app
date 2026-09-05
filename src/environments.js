@@ -12880,6 +12880,185 @@ function kederRing(breite, tiefe, ecke, schnur = 0.008) {
   return new THREE.TubeGeometry(kurve, 64, schnur, 6, true);
 }
 
+// --- Polster statt Platten ---------------------------------------------------
+//
+// **Warum `roundedBox` fuer ein Sitzkissen nicht reicht.**
+//
+// Der Pruefer misst die Kissenoberseite mit p05 54 und p95 62 — **acht
+// Stufen** ueber die groesste Flaeche des Sessels. Das ist kein Beleuchtungs-
+// und kein Werkstofffehler, sondern ein Formfehler: Die Flaeche IST eben, und
+// eine ebene Flaeche unter einem entfernten Licht hat ueberall dieselbe
+// Normale und damit ueberall denselben Wert. Da ist nichts zu beleuchten.
+//
+// Ein Polster ist nicht eben. Es ist oben gewoelbt, weil Fuellung sich woelbt,
+// und diese Woelbung ist die einzige Angabe, die aus einer Matratze ein Kissen
+// macht. `roundedBox` kann sie nicht liefern: Sie extrudiert einen Umriss mit
+// `steps: 1`, hat also in Extrusionsrichtung genau zwei Ringe — eine Woelbung
+// darauf ergaebe einen Keil, keine Kuppe.
+//
+// Darum hier ein eigener Koerper aus einem unterteilten Kasten:
+//
+//   1. **Kanten runden** durch Klemmen und Wegdruecken: Jeder Punkt wird auf
+//      den Innenquader geklemmt, und die Differenz wird auf Radiuslaenge
+//      normiert. Das ergibt einen exakten Rundquader aus jeder Kastenaufteilung
+//      — und die Normale faellt dabei als Nebenprodukt ab, sie IST die
+//      Wegdrueckrichtung.
+//   2. **Woelben**: y steigt um eine Kuppe, die zum Rand hin quadratisch
+//      ausleuft, gewichtet mit der Hoehe, damit die Seitenwaende stehen
+//      bleiben.
+//   3. **Normale nachziehen**: Die Kuppe kippt die Normale um ihren eigenen
+//      Anstieg. Analytisch statt aus Dreiecksnormalen — ein Kasten hat an
+//      jeder Kante doppelte Scheitelpunkte, `computeVertexNormals` erzeugt
+//      dort Knicke, und `mergeVertices` scheitert an den unterschiedlichen
+//      Texturkoordinaten.
+// --- Umgebungsverdeckung auf dem Sitzkissen ---------------------------------
+//
+// **Eine nach oben gerichtete Flaeche laesst sich in diesem Raum nicht ueber
+// die Normale modellieren. Das ist gemessen, nicht vermutet.**
+//
+// Der Befund des Pruefers lautet „Kissenoberseite ohne Form". Der naheliegende
+// Schluss war: Die Flaeche ist eben, also woelben. Das Kissen hat daraufhin
+// eine echte Kuppe bekommen (`polsterKissen`) — und der Tonwertumfang auf der
+// Oberseite blieb, wo er war:
+//
+//     ohne Kuppe        p05 47   p50 73   p95 90
+//     Kuppe 2,2 cm      p05 47   p50 72   p95 93
+//     Kuppe 5,0 cm      p05 47   p50 72   p95 93
+//
+// Fuenf Zentimeter Woelbung auf einem Kissen von 55 cm — und **drei Stufen**.
+// Der Grund liegt im Licht: Was hier von oben kommt, ist die
+// Hemisphaerenleuchte und die obere Haelfte der Umgebungskarte, und beide
+// haengen kaum von der Neigung ab. Das Fuehrungslicht steht steil; sechs Grad
+// Kippung aendern seinen Kosinus um wenige Prozent. In einer weissen Leere
+// gibt es keine Richtung, aus der eine waagerechte Flaeche NICHT beleuchtet
+// wird — und damit auch keine, in die man sie neigen koennte, um sie
+// abzudunkeln.
+//
+// Was einer solchen Flaeche Form gibt, ist deshalb nicht die Neigung, sondern
+// die **Verdeckung**: Ein Kissen zwischen zwei Wangen und einer Lehne sieht an
+// seinen Raendern weniger Himmel als in der Mitte. Genau dieser Lichtweg fehlt
+// im Projekt, und der Schlagschatten des Fuehrungslichts ist etwas anderes
+// (dieselbe Unterscheidung wie beim Kontaktschatten der Moebelfuesse).
+//
+// **Und sie loest den Befund nicht.** Gemessen, nachdem sie drin war: Selbst
+// mit einer Sohle von 0,15 statt 0,5 — also einer Verdunklung auf ein Sechstel
+// — aendern sich in der Nahsicht **1,0 %** der Bildpunkte um mindestens zwei
+// Stufen, groesster Einzelsprung 42. Der Grund ist ernuechternd einfach: Die
+// Raender, die verdeckt sind, sind auch die Raender, die von Wange und Lehne
+// VERDECKT werden. Was man vom Kissen sieht, ist sein heller Kern, und der
+// bleibt hell.
+//
+// Die Verdeckung bleibt trotzdem drin, weil sie richtig ist — ein Kissen ist
+// an seinen Raendern dunkler, und an den Stellen, an denen man diese Raender
+// sieht (schraeg von vorn, im Vorbeigehen), traegt sie. Der Befund
+// „Kissenoberseite ohne Form" ist damit aber **nicht geschlossen**, und das
+// steht so im Protokoll: Was der Oberseite in dieser Beleuchtung Form geben
+// koennte, ist weder Neigung noch Verdeckung, sondern eine Naht oder ein
+// flacheres Fuehrungslicht. Beides ist ein eigener Eingriff.
+//
+// Sie steht in **Scheitelfarben**, nicht in einem Shader. Der erste Anlauf war
+// einer: ein `onBeforeCompile`, das aus `transformed` die Kissenkoordinate
+// nahm. Das ging schief, und zwar lehrreich — `verschmelzeObjekte` **backt die
+// Matrix in die Geometrie**, und die beiden Sessel stehen gegeneinander
+// gedreht. Was im Shader ankam, war die Lounge-Koordinate: Die Verdunklung lief
+// bei einem Sessel quer und beim anderen verkehrt herum. Gemessen an der
+// Kissenvorderkante 71,9 statt 55,3 — sie hat genau die Stelle abgedunkelt, die
+// hell bleiben sollte.
+//
+// Scheitelfarben kennen dieses Problem nicht: Sie werden vor dem Verschmelzen
+// aus den LOKALEN Koordinaten berechnet und wandern danach unveraendert mit.
+function kissenVerdeckung(geometrie, breite, tiefe) {
+  const pos = geometrie.attributes.position;
+  const farben = new Float32Array(pos.count * 3);
+  const glatt = (a, b, x) => {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  for (let i = 0; i < pos.count; i++) {
+    // Abstand zur Lehne (hinten, -z) und zu den beiden Wangen (+/-x).
+    const hinten = tiefe / 2 + pos.getZ(i);
+    const seite = breite / 2 - Math.abs(pos.getX(i));
+    // 14 bzw. 11 cm Reichweite: So weit greift die Verdunklung unter einer
+    // Lehne, die 40 cm hoch darueber steht.
+    // 18 bzw. 14 cm Reichweite, Sohle 0,5. Ein erster Ansatz mit 14/11 cm und
+    // Sohle 0,55 bewegte in den festen Pruefkameras nur vier Stufen — dort ist
+    // das Kissen klein und seine verdeckten Raender liegen zum Teil hinter der
+    // Wange. Ausschlaggebend ist der Blick aus einem Meter, und dort ist das
+    // hier die Groessenordnung, in der ein Polster in seiner Mulde sitzt.
+    const v = 0.5 + 0.5 * glatt(0, 0.18, hinten) * glatt(0, 0.14, seite);
+    // Nur oben: An der Vorderkante und an den Flanken verdeckt nichts.
+    const oben = glatt(-0.02, 0.05, pos.getY(i));
+    const f = 1 - (1 - v) * oben;
+    farben[i * 3] = farben[i * 3 + 1] = farben[i * 3 + 2] = f;
+  }
+  geometrie.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  return geometrie;
+}
+
+function polsterKissen(breite, hoehe, tiefe, kante = 0.05, woelbung = 0.022, segmente = 14) {
+  const g = new THREE.BoxGeometry(breite, hoehe, tiefe, segmente, 6, segmente);
+  const r = Math.min(kante, breite / 2 - 0.001, hoehe / 2 - 0.001, tiefe / 2 - 0.001);
+  const ix = breite / 2 - r;
+  const iy = hoehe / 2 - r;
+  const iz = tiefe / 2 - r;
+  const pos = g.attributes.position;
+  const nor = g.attributes.normal;
+  const v = new THREE.Vector3();
+  const k = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    k.set(
+      Math.max(-ix, Math.min(ix, v.x)),
+      Math.max(-iy, Math.min(iy, v.y)),
+      Math.max(-iz, Math.min(iz, v.z))
+    );
+    d.subVectors(v, k);
+    const laenge = d.length();
+    if (laenge > 1e-9) {
+      n.copy(d).divideScalar(laenge);
+      v.copy(k).addScaledVector(n, r);
+    } else {
+      n.set(0, 1, 0);
+    }
+    const u = v.x / (breite / 2);
+    const w = v.z / (tiefe / 2);
+    const kuppe = Math.max(0, (1 - u * u) * (1 - w * w));
+    const oben = Math.max(0, Math.min(1, v.y / (hoehe / 2)));
+    const m = oben * oben;
+    v.y += kuppe * woelbung * m;
+    // Anstieg der Kuppe in x und z; sie kippt die Normale genau dort, wo diese
+    // nach oben zeigt.
+    const cx = woelbung * (-2 * u / (breite / 2)) * (1 - w * w) * m;
+    const cz = woelbung * (1 - u * u) * (-2 * w / (tiefe / 2)) * m;
+    const gewicht = Math.max(0, n.y);
+    n.x -= cx * gewicht;
+    n.z -= cz * gewicht;
+    n.normalize();
+    pos.setXYZ(i, v.x, v.y, v.z);
+    nor.setXYZ(i, n.x, n.y, n.z);
+  }
+  pos.needsUpdate = true;
+  nor.needsUpdate = true;
+  g.computeBoundingSphere();
+  return g;
+}
+
+// Das Kissenleder ist derselbe Werkstoff wie das uebrige Leder, nur mit
+// eingeschalteten Scheitelfarben — die tragen die Verdeckung. Gemerkt und
+// nicht je Sessel geklont: `makeConstructArmchair` laeuft zweimal, und
+// `verschmelzeObjekte` gruppiert nach Werkstoff. Zwei Klone waeren zwei Netze.
+let _konstruktKissen = null;
+function konstruktKissenLeder() {
+  if (!_konstruktKissen) {
+    const { leather } = konstruktSesselWerkstoffe();
+    _konstruktKissen = leather.clone();
+    _konstruktKissen.vertexColors = true;
+  }
+  return _konstruktKissen;
+}
+
 function makeConstructArmchair() {
   const group = new THREE.Group();
   group.name = 'construct-armchair';
@@ -12906,7 +13085,12 @@ function makeConstructArmchair() {
 
   // Rückenlehne, hoch und oben kräftig gerundet
   const backH = BACK_TOP - 0.34;
-  const back = new THREE.Mesh(roundedBox(W, backH, BACK_T, 0.16), leather);
+  // Dieselbe Behandlung wie das Sitzkissen, nur um 90 Grad gekippt: Die Kuppe
+  // liegt dann auf der Vorderseite der Lehne, wo der Ruecken sie eindrueckt.
+  // Eine Lehne, die vorn eben ist, ist eine Tuer.
+  const backGeo = polsterKissen(W, BACK_T, backH, 0.075, 0.03, 12);
+  backGeo.rotateX(Math.PI / 2);
+  const back = new THREE.Mesh(backGeo, leather);
   back.position.set(0, 0.34 + backH / 2, backZ);
   back.rotation.x = 0.07;
   group.add(back);
@@ -13023,7 +13207,23 @@ function makeConstructArmchair() {
   // Vorderkante, wo sie war, und nur die Hinterkante wandert bis 1,5 cm IN die
   // Lehne hinein.
   const seatD = frontDepth - 0.05 + 0.055;
-  const seat = new THREE.Mesh(roundedBox(seatW, 0.15, seatD, 0.05), leather);
+  // **Gewoelbt statt eben** — siehe `polsterKissen`. 2,2 cm Kuppe auf 55 cm
+  // Kissentiefe: Das ist die Groessenordnung, in der ein durchgesessenes
+  // Rosshaarpolster steht, und genug, um die Normale am Rand um sechs Grad
+  // gegen die Mitte zu kippen.
+  // Eigener Werkstoff, weil die Verdeckung die Kissenkoordinaten braucht — und
+  // aus demselben Nebennutzen wie bei der Rosette: So bleibt das Kissen ein
+  // eigenes Netz und laesst sich messen.
+  //
+  // **Gemerkt und nicht je Sessel geklont.** `makeConstructArmchair` laeuft
+  // zweimal; ein Klon je Aufruf haette zwei Werkstoffe ergeben, und
+  // `verschmelzeObjekte` haette daraus zwei Netze gemacht statt einem. Ein
+  // Draw-Call fuer eine Messhilfe ist vertretbar, zwei sind es nicht.
+  const kissenLeder = konstruktKissenLeder();
+  const seat = new THREE.Mesh(
+    kissenVerdeckung(polsterKissen(seatW, 0.15, seatD, 0.05, 0.022), seatW, seatD),
+    kissenLeder
+  );
   seat.position.set(0, 0.38, frontZ + 0.015 - 0.0275);
   group.add(seat);
 
@@ -13049,8 +13249,41 @@ function makeConstructArmchair() {
 
   // Dichte Rautenknopfheftung über die ganze Lehne. Die erste Fassung hatte drei
   // Reihen à zwei bis drei Knöpfen – auf einer Lehne dieser Höhe wirkt das leer.
+  //
+  // **Die Knoepfe sassen auf einer Flaeche, die es nicht gibt.**
+  //
+  // Sie standen alle auf derselben Tiefe `frontZ0 - 0.003`. Die Lehne ist aber
+  // um 0,07 rad zurueckgeneigt, und sie ist es um ihre eigene Mitte: Oben
+  // weicht ihre Vorderseite 2,0 cm nach hinten, unten kommt sie 2,0 cm nach
+  // vorn. Gerechnet heisst das, die oberste Reihe steckte **2,3 cm im
+  // Polster** und die unterste stand **1,8 cm davor** — im Bild sah man oben
+  // kaum noch etwas und unten aufgesetzte Perlen. Der Kommentar an den Mulden
+  // hat das Symptom sogar beschrieben („mit 9 mm Einlass verschwanden die
+  // oberen zwei Reihen") und die Ursache in der Fase der `roundedBox`
+  // vermutet. Sie lag in der Neigung.
+  //
+  // Seit die Lehne zusaetzlich gewoelbt ist, kommt die Kuppe dazu. Beides
+  // steckt jetzt in einer Funktion: Sie liefert zu einer Stelle auf der Lehne
+  // den Punkt auf deren tatsaechlicher Vorderflaeche.
+  const BACK_CY = 0.34 + backH / 2;
+  const BACK_NEIGUNG = 0.07;
+  const BACK_KUPPE = 0.03;
+  const lehnePunkt = (x, y, einlass) => {
+    const yl = y - BACK_CY;
+    const u = x / (W / 2);
+    const w = yl / (backH / 2);
+    const kuppe = Math.max(0, (1 - u * u) * (1 - w * w));
+    const zl = BACK_T / 2 + kuppe * BACK_KUPPE - einlass;
+    return [
+      x,
+      BACK_CY + yl * Math.cos(BACK_NEIGUNG) - zl * Math.sin(BACK_NEIGUNG),
+      backZ + yl * Math.sin(BACK_NEIGUNG) + zl * Math.cos(BACK_NEIGUNG),
+    ];
+  };
+
   const buttonGeo = new THREE.SphereGeometry(0.014, 10, 8);
   buttonGeo.scale(1, 1, 0.45);
+  buttonGeo.rotateX(BACK_NEIGUNG);
   const buttons = [];
   const ROWS = 6;
   for (let row = 0; row < ROWS; row++) {
@@ -13059,7 +13292,7 @@ function makeConstructArmchair() {
     for (let i = 0; i < count; i++) {
       const g = buttonGeo.clone();
       // Der Knopf sitzt IM Polster, nicht darauf: 3 mm hinter der Flaeche.
-      g.translate((i - (count - 1) / 2) * 0.165, 0.46 + row * 0.115, frontZ0 - 0.003);
+      g.translate(...lehnePunkt((i - (count - 1) / 2) * 0.165, 0.46 + row * 0.115, 0.003));
       buttons.push(g);
     }
   }
@@ -13085,6 +13318,7 @@ function makeConstructArmchair() {
   // Falte, die dabei entsteht, und die ist weich und niedrig.
   const muldeGeo = new THREE.TorusGeometry(0.03, 0.0075, 6, 14);
   muldeGeo.scale(1, 1, 0.3);
+  muldeGeo.rotateX(BACK_NEIGUNG);
   const mulden = [];
   for (const b of buttons) {
     const g = muldeGeo.clone();
@@ -13099,13 +13333,18 @@ function makeConstructArmchair() {
       sy += p.getY(i);
       sz += p.getZ(i);
     }
-    // **0,005 und nicht 0,009.** Die Rueckenlehne ist `roundedBox(W, backH,
-    // 0.19, 0.16)`: Bei einer Tiefe von 19 cm und einer Fase von 9,6 cm ist
-    // ihre Vorderseite fast vollstaendig gerundet — die Flaeche weicht nach
-    // oben hin zurueck. Mit 9 mm Einlass verschwanden die oberen zwei Reihen
-    // vollstaendig im Koerper, waehrend die unteren richtig sassen. 5 mm
-    // tragen auf allen sechs.
-    g.translate(sx / p.count, sy / p.count, sz / p.count - 0.005);
+    // 2 mm tiefer als der Knopf, gemessen entlang der geneigten Flaechen-
+    // normalen — nicht mehr entlang z, denn die Flaeche steht schraeg.
+    //
+    // Der alte Wert 5 mm war ein Ausgleich fuer den Fehler, der jetzt weg ist:
+    // Weil die oberen Reihen im Polster steckten, musste der Einlass klein
+    // bleiben, damit sie ueberhaupt noch herausschauten. Mit richtig
+    // sitzenden Knoepfen darf die Mulde wieder das sein, was sie ist.
+    g.translate(
+      sx / p.count,
+      sy / p.count + 0.002 * Math.sin(BACK_NEIGUNG),
+      sz / p.count - 0.002 * Math.cos(BACK_NEIGUNG)
+    );
     mulden.push(g);
   }
   group.add(new THREE.Mesh(mergeGeometries(mulden), leather));
