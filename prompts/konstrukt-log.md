@@ -1137,3 +1137,77 @@ Abstände, einmalig beim ersten Aufruf. Build grün, Konsole frei von Errors und
 Warnings.
 
 Neues Werkzeug `tools/narbe.mjs`.
+
+---
+
+## Paket 13 — Die Schautafel war vollständig gemalt, die Beine waren Draht
+
+Zwei Befunde des Prüfers an einem Möbel: „Schautafel ohne Relief" und
+„Konsolenbeine 2–3 px breit". Beide bestätigen sich beim freien Blick aus einem
+Meter (`tools/blick.mjs`, Position 0,75 | 1,0 | −2,15) sofort.
+
+### Die Tafel
+
+Emblem, Dreieck, Auge, Schriftzug — alles lag als Canvas-Textur auf einer
+`PlaneGeometry`. Aus Sitzabstand liest das als aufgeklebter Druck: Es gibt keine
+Kante, die Licht fängt, und keine, die Schatten wirft.
+
+Nicht alles davon braucht Geometrie. Schrift und Typenschildzeilen sind auf einem
+echten Gerät auch nur aufgedruckt — die bleiben gemalt. Was **erhaben** ist, ist
+das Beschlagwerk, und genau die drei Teile bekommen Körper:
+
+* **Firmenschild** — ein aufgesetzter Rahmen (`kederRing`) um die gemalten
+  Buchstaben. Ein Typenschild ist eine aufgeschraubte Platte, und was man davon
+  zuerst sieht, ist ihr Rand.
+* **Dreiecksrahmen** — drei Stäbe. Ein Schlauch entlang einer geschlossenen
+  Kurve hätte die Ecken rund gezogen; ein Art-déco-Emblem hat spitze.
+* **Linse** — eine flache Kuppe aus dunklem Glas mit Pupille, in einer
+  Torus-Fassung. Sie ist der Blickfang der Tafel und war ein gemalter Kreis.
+
+Die Umrechnung Canvas → Tafel steht als Funktion im Quelltext statt als geratene
+Zahlen: Die Tafel misst (W − 0,07) × (H − 0,08) bei 512 × 560 Bildpunkten.
+
+### Ein Nebeneffekt, der dreimal nachgestellt werden musste
+
+Ein erhabener Rahmen **verdeckt** aus schräger Sicht, was hinter ihm liegt — das
+ist physikalisch richtig und war trotzdem ein Problem: Bei der ursprünglichen
+Textlage (±104) fehlte von schräg vorn das „D" von DEEP, und „LEEP IMAGE" liest
+als Fehler, nicht als Perspektive.
+
+| Textlage | von schräg vorn | von vorn |
+| --- | --- | --- |
+| ±104 | „LEEP IMAGE" | richtig |
+| ±80 | richtig | „DEEPIMAGE" — die Wörter stoßen zusammen |
+| **±88** | richtig | richtig, letztes E leicht angeschnitten |
+
+Dazu ist der Stab von 7 auf 5 mm Höhe und von 11 auf 9 mm Breite zurück. Das
+angeschnittene E bleibt — ein Rahmen, der vor dem Druck steht, tut genau das.
+
+### Die Beine
+
+14 mm oben und 9 mm unten sind im Bild zwei bis drei Bildpunkte breit — dünner
+als jede andere Linie der Szene. Ein Fernsehmöbel der Fünfziger steht auf
+konischen Holzbeinen von rund 25 mm am Zargenanschluss; die Zahl ist kein
+Geschmack, sie trägt das Gerät. Jetzt 24/13 mm.
+
+Dazu, was solche Beine immer haben und was hier fehlte: eine **Zwinge** am oberen
+Ende, wo das Bein in die Zarge geht, und eine **Messingspitze** unten. Beide sind
+winzig, und beide tun genau das, was einem 2-Pixel-Stab fehlt — sie geben ihm ein
+Ende statt eines Abbruchs.
+
+### Ein Budgetfehler, den die Messung sofort gezeigt hat
+
+Zwingen und Spitzen als eigene Meshes ließen den Ständer auf **dreizehn**
+Körper anwachsen — Zargenplatte, vier Beine, vier Zwingen, vier Spitzen — und
+das Budget sprang von 51 auf **62 Draw-Calls**, allein für Zierteile von wenigen
+Millimetern. Sie sind statisch und teilen sich zwei Werkstoffe; damit ist es
+genau der Fall für `verschmelzeObjekte`. Zwei Meshes statt dreizehn.
+
+### Regression und Kosten
+
+Draw-Calls 51 → **48** (der verschmolzene Ständer spart mehr, als das Relief
+kostet), Dreiecke 89 150 → **93 010**, Texturspeicher 1,98 MB. Zen, Nachthimmel
+und Insel **bitgleich**, Dojo Δmax 4 bei 0,011 %. Das Verschmelzen selbst ändert
+`a-augenhoehe` und `f-boden` um 0,002 % der Bildpunkte an den Beinkanten — das
+übliche Fließkommarauschen, wenn Ortsangaben in die Geometrie gebacken werden.
+Build grün, Konsole frei von Errors und Warnings.
