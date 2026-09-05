@@ -12790,7 +12790,15 @@ function konstruktSesselWerkstoffe() {
     // und sichtbar abgenutzt.
     const leather = new THREE.MeshStandardMaterial({
       color: 0x6f1c22,
-      roughness: 0.72,
+      // **0,45 statt 0,72.** Die Rauheitskarte multipliziert darauf (0,70 bis
+      // 0,92), wirksam sind also 0,32 bis 0,41 — matt genug fuer gealtertes
+      // Leder, schmal genug fuer eine Keule, die man sieht. Bei 0,72 lag die
+      // Keule so breit, dass sie im diffusen Anteil verschwand; gemessen stieg
+      // das Korn im hellsten Zwanzigstel von 5,4 (0,72) ueber 9,0 (0,55) auf
+      // 11,2 (0,45). Weiter herunter waere Lack: Bei 0,22 klettert es auf 23,6,
+      // und das ist dann kein Leder mehr, sondern Sprenkelrauschen — in einer
+      // Brille die Sorte Muster, die beim Kopfdrehen kribbelt.
+      roughness: 0.45,
       metalness: 0.02,
       normalMap,
       normalScale: new THREE.Vector2(0.5, 0.5),
@@ -13516,6 +13524,88 @@ function makeConsoleStand(width, depth, height) {
 // und Schautafel liegen auf gegenüberliegenden Seiten des Gehäuses. Wer das
 // laufende Bild sehen will, geht um die Gruppe herum; von vorn verrät es sich
 // über den Lichtschein, den die Röhre auf die Sessel wirft.
+// --- Die weisse Leere als Lichtquelle ---------------------------------------
+//
+// **Warum das Leder als Filz las.**
+//
+// Der Pruefer hat es auf den eigenen Bildpunkten der Sessel gemessen: p99 bei
+// L 90, Maximum 113,6 — kein Glanzlicht, nirgends. Der Grund steht nicht im
+// Werkstoff, sondern im Lichtaufbau: Spiegelnd wirkten hier nur drei gerichtete
+// Lampen mit zusammen 1,9 Einheiten, und bei Rauheit 0,72 ist deren Keule so
+// breit, dass von 4 % Grundreflexion nichts uebrig bleibt. Der Raum selbst, ein
+// weisser Hohlraum von 60 m, trug **gar nichts** bei — es gab keine
+// Umgebungskarte.
+//
+// Das ist die eigentliche Auslassung. In einem weissen Unendlich-Raum ist die
+// Wand die Lichtquelle, und ein Ledersessel darin spiegelt nach allen Seiten
+// Weiss. Die Hemisphaerenleuchte auf 3,9 war der Ersatz dafuer: Sie hat die
+// Helligkeit nachgestellt, die eine Umgebungskarte von selbst mitbringt, aber
+// sie traegt keinen spiegelnden Anteil (three ruft fuer sie nur den diffusen
+// Pfad). Ein Sessel unter reiner Hemisphaerenleuchte KANN kein Glanzlicht
+// haben.
+//
+// Die Sonde ist prozedural wie alles hier: eine Kugel von innen, oben das
+// Weiss der Kuppel, unten der etwas kuehlere Bodenton, dazwischen ein
+// Uebergang an der Stelle des Horizonts. `PMREMGenerator.fromScene()` faltet
+// darueber — dasselbe Muster wie im Dojo und im Zen-Garten, nur ohne
+// Sonnenscheibe, weil es hier keine gibt.
+//
+// Gemessen auf der Sesselmaske in `b-sessel` (287 966 Bildpunkte):
+//
+//     Stand                          p50 44   p95  64   p99  81   >L110 0,23 %
+//     Hemi 1,17 + Karte 0,35 r0,45   p50 43   p95  86   p99 107   >L110 0,77 %
+//
+// Der Median bleibt, wo er war — der Sessel wird nicht heller, er bekommt
+// einen Kopf. Und das Korn im hellsten Zwanzigstel steigt von 5,4 auf 11,1:
+// Die Ledernarbung, die vorher nur auf den senkrechten Wangen zu sehen war,
+// bricht jetzt das Glanzlicht.
+let _konstruktKarte = null;
+function konstruktUmgebungskarte(renderer) {
+  const gemerkt = _konstruktKarte;
+  if (gemerkt && gemerkt.renderer === renderer) return gemerkt.texture;
+
+  const probe = new THREE.Scene();
+  const material = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      // `THREE.Color` rechnet Hexwerte von sRGB in den linearen Arbeitsraum um;
+      // die Sonde wird linear gerendert, hier stehen also genau die Toene, die
+      // der Nutzer als Kuppel und Boden sieht.
+      uOben: { value: new THREE.Color(0xffffff) },
+      uUnten: { value: new THREE.Color(0xdfe3e8) },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main() {
+        vDir = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      varying vec3 vDir;
+      uniform vec3 uOben;
+      uniform vec3 uUnten;
+      void main() {
+        float h = normalize(vDir).y;
+        gl_FragColor = vec4(mix(uUnten, uOben, smoothstep(-0.3, 0.55, h)), 1.0);
+      }`,
+  });
+  // 32x20 reicht: In dieser Karte gibt es keine Scheibe und keine Kante, nur
+  // einen weichen Uebergang. Die feinere Unterteilung der Dojo-Sonde ist dort
+  // noetig, weil eine 4-Grad-Sonne sonst in ein Dreieck faellt.
+  probe.add(new THREE.Mesh(new THREE.SphereGeometry(8, 32, 20), material));
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const ziel = pmrem.fromScene(probe, 0, 0.1, 30);
+  pmrem.dispose();
+  probe.traverse((o) => {
+    if (o.isMesh) o.geometry.dispose();
+  });
+  material.dispose();
+  _konstruktKarte = { renderer, texture: ziel.texture };
+  return ziel.texture;
+}
+
 function makeConstructLounge() {
   const group = new THREE.Group();
   group.name = 'construct-lounge';
@@ -13773,7 +13863,26 @@ function createMatrixEnvironment() {
   // Die dritte Zeile: Der Median steigt um zwanzig Stufen, drei Viertel der
   // schwarzen Fläche verschwinden, und die Spanne kostet das **zehn** Punkte
   // von 146. Das ist kein Tausch, das ist ein Fund.
-  group.add(new THREE.HemisphereLight(0xffffff, 0xf0f2f5, 3.9));
+  // **1,2 statt 3,9 — und das ist keine Ruecknahme, sondern ein Tausch.**
+  //
+  // Die 3,9 standen hier, weil es keine Umgebungskarte gab: Eine
+  // Hemisphaerenleuchte war das einzige Mittel, den Rueckwurf der weissen Leere
+  // ueberhaupt anzudeuten. Jetzt gibt es den Rueckwurf wirklich
+  // (`konstruktUmgebungskarte`), und beide Wege zusammen zaehlten denselben
+  // Lichtweg zweimal: Mit Karte bei 0,35 und unveraenderter Hemisphaere stieg
+  // der Median der Sesselflaeche von 44 auf 62 — der Sessel waere von
+  // dunkelrot nach altrosa gekippt.
+  //
+  // Gemessen wurde deshalb entlang der Linie „Median bleibt bei 44":
+  //
+  //     Hemi 3,90  ohne Karte     p50 44   p95  64   p99  81
+  //     Hemi 1,17  Karte 0,30     p50 43   p95  86   p99 107
+  //     Hemi 1,17  Karte 0,40     p50 49   p95  98   p99 119
+  //     Hemi 0,00  Karte 0,30     p50 34   p95  78   p99 101
+  //
+  // Die Hemisphaere bleibt also drin, aber als das, was sie ist: ein
+  // Aufheller, kein Ersatz fuer einen Raum.
+  group.add(new THREE.HemisphereLight(0xffffff, 0xf0f2f5, 1.2));
   const fill = new THREE.DirectionalLight(0xffffff, 0.55);
   fill.position.set(2, 12, 6);
   group.add(fill);
@@ -13833,6 +13942,7 @@ function createMatrixEnvironment() {
   // 1,15 m Radius vor dem Nutzer. Die Sessel müssen dahinter bleiben, sonst
   // stehen sie mitten im Arbeitsbereich – mit ihrer Tiefe von 1,7 m ab Mitte
   // heißt das gut dreieinhalb Meter.
+  let karteGesetzt = false;
   const lounge = makeConstructLounge();
   lounge.group.position.set(0, 0, -3.9);
   // **Werfer nach Groesse, nicht pauschal — und das ist eine Kostenfrage.**
@@ -13909,6 +14019,32 @@ function createMatrixEnvironment() {
     name: '⬜ Konstrukt',
     background: new THREE.Color(0xffffff),
     group,
+
+    // Die Umgebungskarte entsteht erst beim ersten Sichtbarwerden: Der
+    // PMREM-Generator braucht einen lebenden Renderer, und alle Umgebungen
+    // werden beim Modulstart gebaut. Wer das Konstrukt nie aufruft, zahlt
+    // nichts.
+    //
+    // Die Karte haengt an den Werkstoffen und NICHT an `scene.environment`.
+    // Letzteres gaelte fuer jedes Standardmaterial der Szene — auch fuer die
+    // Karten und das Whiteboard, die zu keiner Umgebung gehoeren und in allen
+    // fuenf gleich aussehen muessen.
+    ensureEnvironment(renderer) {
+      if (!renderer || karteGesetzt) return null;
+      const karte = konstruktUmgebungskarte(renderer);
+      group.traverse((o) => {
+        if (!o.isMesh) return;
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (!m?.isMeshStandardMaterial) continue;
+          m.envMap = karte;
+          m.envMapIntensity = 0.35;
+          m.needsUpdate = true;
+        }
+      });
+      karteGesetzt = true;
+      return null;
+    },
+
     update(time) {
       lounge.update(time);
     },
