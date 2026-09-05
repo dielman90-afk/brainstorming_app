@@ -13683,8 +13683,13 @@ function makeRadiolaConsole() {
   p.save();
   p.translate(cx, top + 52);
   p.letterSpacing = '14px';
-  p.fillText('DEEP', -104, 0);
-  p.fillText('IMAGE', 104, 0);
+  // Etwas enger als frueher (104): Der erhabene Dreiecksrahmen verdeckt aus
+  // schraeger Sicht, was zu nah an der Kante steht: Bei 104 fehlte von schraeg
+  // vorn das „D". Der Ausgleich hat zwei Grenzen und 88 liegt dazwischen — bei
+  // 80 stossen die beiden Woerter von vorn gesehen zusammen und lesen als
+  // „DEEPIMAGE", bei 98 verschwindet das D wieder.
+  p.fillText('DEEP', -88, 0);
+  p.fillText('IMAGE', 88, 0);
   p.restore();
 
   // Rundes Emblem in der Dreiecksmitte
@@ -13730,6 +13735,84 @@ function makeRadiolaConsole() {
   );
   plateMesh.position.set(0, H / 2 - 0.005, D / 2 + 0.004);
   group.add(plateMesh);
+
+  // --- Relief auf der Schautafel ---------------------------------------------
+  //
+  // **Die Schautafel war vollstaendig gemalt.** Emblem, Dreieck, Auge,
+  // Schriftzug — alles lag als Canvas-Textur auf einer `PlaneGeometry`. Aus
+  // Sitzabstand liest das als aufgeklebter Druck, nicht als Gehaeusefront: Es
+  // gibt keine Kante, die Licht faengt, und keine, die Schatten wirft.
+  //
+  // Nicht alles davon braucht Geometrie. Schrift und Typenschildzeilen sind auf
+  // einem echten Geraet auch nur aufgedruckt, die bleiben. Was **erhaben** ist,
+  // ist das Beschlagwerk: das Firmenschild, der Dreiecksrahmen und die Linse in
+  // seiner Mitte. Genau diese drei bekommen Koerper.
+  //
+  // Die Umrechnung Canvas -> Tafel steht hier einmal und wird nicht geraten:
+  // Die Tafel misst (W - 0,07) x (H - 0,08) bei 512 x 560 Bildpunkten.
+  const tafelB = W - 0.07;
+  const tafelH = H - 0.08;
+  const tafelZ = D / 2 + 0.004;
+  const tafelY = H / 2 - 0.005;
+  const ausCanvas = (px, py) => [(px / PW - 0.5) * tafelB, tafelY + (0.5 - py / PH) * tafelH];
+
+  const reliefTeile = [];
+  const lege = (geo, x, y, z, drehZ = 0) => {
+    if (drehZ) geo.rotateZ(drehZ);
+    geo.translate(x, y, z);
+    reliefTeile.push(geo);
+  };
+
+  // Firmenschild: ein aufgesetzter Rahmen um die gemalten Buchstaben. Ein
+  // Typenschild ist eine aufgeschraubte Platte, und was man davon zuerst sieht,
+  // ist ihr Rand.
+  {
+    const [bx, by] = ausCanvas(PW / 2, 67);
+    const rahmen = kederRing(0.163, 0.065, 0.012, 0.0035);
+    rahmen.rotateX(Math.PI / 2);
+    lege(rahmen, bx, by, tafelZ + 0.003);
+  }
+
+  // Dreiecksrahmen aus drei Staeben. Ein Schlauch entlang einer geschlossenen
+  // Kurve haette die Ecken rund gezogen; ein Art-deco-Emblem hat spitze.
+  {
+    const [ax, ay] = ausCanvas(PW / 2 - 178, 130);
+    const [bx2, by2] = ausCanvas(PW / 2 + 178, 130);
+    const [cx2, cy2] = ausCanvas(PW / 2, 430);
+    const stab = (x1, y1, x2, y2) => {
+      const laenge = Math.hypot(x2 - x1, y2 - y1) + 0.014;
+      // 5 mm hoch und nicht 7: Ein Stab, der weiter vorsteht, verdeckt aus
+      // schraeger Sicht die Schrift dahinter — beim ersten Versuch fehlte das
+      // „D" von DEEP.
+      const geo = new THREE.BoxGeometry(laenge, 0.009, 0.005);
+      lege(geo, (x1 + x2) / 2, (y1 + y2) / 2, tafelZ + 0.0025, Math.atan2(y2 - y1, x2 - x1));
+    };
+    stab(ax, ay, bx2, by2);
+    stab(ax, ay, cx2, cy2);
+    stab(bx2, by2, cx2, cy2);
+  }
+
+  // Fassung der Linse
+  {
+    const [ex2, ey2] = ausCanvas(PW / 2, 285);
+    const fassung = new THREE.TorusGeometry(0.046, 0.0065, 8, 26);
+    lege(fassung, ex2, ey2, tafelZ + 0.003);
+  }
+  group.add(new THREE.Mesh(mergeGeometries(reliefTeile), shellMat));
+
+  // Die Linse selbst: eine flache Kuppe aus dunklem Glas mit einer Pupille.
+  // Sie ist der Blickfang der Tafel und war bisher ein gemalter Kreis.
+  {
+    const [ex2, ey2] = ausCanvas(PW / 2, 285);
+    const linse = new THREE.SphereGeometry(0.042, 18, 12);
+    linse.scale(1, 1, 0.3);
+    const pupille = new THREE.SphereGeometry(0.016, 12, 9);
+    pupille.scale(1, 1, 0.5);
+    pupille.translate(0, 0, 0.007);
+    const glas = new THREE.Mesh(mergeGeometries([linse, pupille]), bezelMat);
+    glas.position.set(ex2, ey2, tafelZ + 0.002);
+    group.add(glas);
+  }
 
   // --- Rückseite: die Bildröhre ---
   const SCREEN_W = 0.44;
@@ -13937,12 +14020,36 @@ function makeConsoleStand(width, depth, height) {
   group.name = 'console-stand';
   const wood = new THREE.MeshStandardMaterial({ color: 0x241610, roughness: 0.45, metalness: 0.15 });
 
+  // **Verschmolzen, weil aus einem Bauteil dreizehn geworden waren.**
+  //
+  // Der Staender bestand aus Zargenplatte, vier Beinen, vier Zwingen und vier
+  // Spitzen — dreizehn Meshes fuer ein Moebelchen von 66 cm. Gemessen sprang
+  // das Budget von 51 auf 62 Draw-Calls, allein fuer Zierteile von wenigen
+  // Millimetern. Sie sind statisch und teilen sich zwei Werkstoffe; das ist
+  // genau der Fall fuer `verschmelzeObjekte`.
+  const teile = [];
   const top = new THREE.Mesh(roundedBox(width, 0.035, depth, 0.01), wood);
   top.position.set(0, height - 0.0175, 0);
-  group.add(top);
+  teile.push(top);
 
+  // **Die Beine waren Draht.**
+  //
+  // 14 mm oben, 9 mm unten — im Bild zwei bis drei Bildpunkte breit, und damit
+  // duenner als jede Linie, die die Szene sonst zeigt. Ein Fernsehmoebel der
+  // Fuenfziger steht auf konischen Holzbeinen von rund 25 mm am Zargenanschluss;
+  // die Zahl ist kein Geschmack, sie traegt das Geraet.
+  //
+  // Dazu, was solche Beine immer haben und was hier fehlte: eine **Zwinge** am
+  // oberen Ende, wo das Bein in die Zarge geht, und eine **Messingspitze**
+  // unten. Beide sind winzig und beide tun genau das, was einem 2-Pixel-Stab
+  // fehlt — sie geben ihm ein Ende statt eines Abbruchs.
   const legH = height - 0.035;
-  const legGeo = new THREE.CylinderGeometry(0.014, 0.009, legH, 10);
+  const legGeo = new THREE.CylinderGeometry(0.024, 0.013, legH, 12);
+  const zwingeGeo = new THREE.CylinderGeometry(0.028, 0.026, 0.016, 12);
+  zwingeGeo.translate(0, legH / 2 - 0.008, 0);
+  const spitzeGeo = new THREE.CylinderGeometry(0.012, 0.008, 0.014, 12);
+  spitzeGeo.translate(0, -legH / 2 + 0.006, 0);
+  const messing = new THREE.MeshStandardMaterial({ color: 0x6d5a33, roughness: 0.38, metalness: 0.6 });
   for (const sx of [-1, 1]) {
     for (const sz of [-1, 1]) {
       const leg = new THREE.Mesh(legGeo, wood);
@@ -13951,9 +14058,16 @@ function makeConsoleStand(width, depth, height) {
       // Möbel wie ein Hocker, die Schrägstellung macht daraus einen Ständer.
       leg.rotation.z = -sx * 0.1;
       leg.rotation.x = sz * 0.1;
-      group.add(leg);
+      teile.push(leg);
+      for (const geo of [zwingeGeo, spitzeGeo]) {
+        const teil = new THREE.Mesh(geo, messing);
+        teil.position.copy(leg.position);
+        teil.rotation.copy(leg.rotation);
+        teile.push(teil);
+      }
     }
   }
+  for (const m of verschmelzeObjekte(teile, 'console-stand-teile')) group.add(m);
 
   group.add(makeBlobShadow(0.42, 0.8, 0.006));
   return group;
