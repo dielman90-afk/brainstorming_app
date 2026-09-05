@@ -785,3 +785,75 @@ Steg für ein Bauteil von anderthalb Zentimetern. Beides bleibt weit im Budget
 eine Blende, und das gehört hier notiert statt weggelächelt. Wer die Zahl
 braucht, findet sie in `roundedBox` — `bevelSegments: 3` und `curveSegments: 6`
 sind für ein 13-mm-Teil großzügig.
+
+---
+
+## Paket 8 — Die Bildröhre gab kein Licht ab
+
+**Befund des Prüfers (Rang 5):** „Die Röhre gibt kein Licht ab — kein Bloom,
+keine Glasspiegelung, kein Bildpunkt über L 135."
+
+### Der Befund stimmt, seine Zahlen nicht
+
+Er nennt „Schirmmitte L 89 gegen Blende L 142". Auf der Beitragsmaske des
+Schirms gemessen (`c-roehre`, 142 689 Bildpunkte) steht es anders da:
+
+| Knoten | Mittel | p50 | p95 | max |
+| --- | --- | --- | --- | --- |
+| Schirm | 71,8 | 68 | 116 | 172 |
+| Blende (`bezelMat`, 0x1a1916) | 38,1 | 38 | 48 | 102 |
+
+Die Blende ist mit L 38 das **Dunkelste** am Gerät; was er bei 142 gemessen
+hat, ist das olivfarbene Gehäuse. Der Befund bleibt trotzdem richtig, nur
+anders begründet: Das Gehäuse liegt bei p50 60 bis 66 und p95 104 bis 141 — der
+Schirm hebt sich davon **nicht** ab. Eine eingeschaltete Bildröhre, die so hell
+ist wie der Schrank, in dem sie steckt, ist eine graue Platte.
+
+### Zwei Ursachen, zwei Mittel
+
+**Erstens: zu dunkel gezeichnet.** Das Material ist `MeshBasicMaterial` mit
+`toneMapped: false` — was im Canvas steht, kommt unverändert heraus, 255 ist die
+Obergrenze, und die Helligkeit muss deshalb im Canvas entstehen. Grundverlauf
+und Schwaden angehoben, Vignette von 0,34 auf 0,26.
+
+**Zweitens: keine Spiegelung — und die war bis zu diesem Stand nicht baubar.**
+Eine Spiegelung braucht etwas zum Spiegeln; die Umgebungskarte gibt es erst seit
+dem Lederpaket. Jetzt liegt 2 mm vor dem Schirm eine zweite, gleich gewölbte
+Fläche: schwarze Grundfarbe, additiv, Rauheit 0,12 — damit trägt sie keinen
+diffusen Anteil, sondern ausschließlich ihre Spiegelung. Das ist das Verhalten
+einer klaren Scheibe vor einer selbstleuchtenden Fläche, und es ist
+blickabhängig: Beim Kopfdrehen wandert der Schleier über das Bild, und der
+Reflex des Führungslichts wandert mit.
+
+| Schritt | Mittel | p50 | p95 | max | > L 150 |
+| --- | --- | --- | --- | --- | --- |
+| Stand | 71,8 | 68 | 116 | 172 | 0,2 % |
+| Bild heller gezeichnet | 106,4 | 103 | 158 | 225 | 7,7 % |
+| + Glasscheibe | **123,9** | **120** | **178** | **255** | **16,9 %** |
+
+### Was unterwegs schiefging
+
+Die Scheibe stand zuerst auf Rauheit 0,05 und Kartenstärke 1,0. Das ergab
+zweierlei Ärger: Der Schirm wurde als Ganzes um 37 Stufen angehoben (p50 103 →
+140) — in einem gleichmäßig weißen Raum ist die Spiegelung eben auch
+gleichmäßig, sie wäscht das Bild —, und der Reflex des Führungslichts wurde ein
+**harter weißer Punkt** von wenigen Bildpunkten, also genau das Muster, das beim
+Kopfdrehen springt. Auf einer gewölbten Röhre ist ein Lichtreflex ein Fleck, kein
+Stern. Jetzt: Kartenstärke 0,45 (getönte Sicherheitsscheibe, nicht Spiegel) und
+Rauheit 0,12.
+
+Damit `ensureEnvironment` der Scheibe mehr geben kann als den Möbeln, liest es
+jetzt `material.userData.envStaerke`; ohne Angabe bleibt es bei 0,35.
+
+### Kein Flimmern dazugekommen
+
+`tools/kamm.mjs` über die Schirmfläche: Streuung 67,3, Zittern **0,47**,
+Quotient 0,007 — der ruhigste Bereich der ganzen Szene. Die Rasterzeilen kommen
+aus einer Textur und werden mit dem Abstand von selbst weicher.
+
+### Regression und Kosten
+
+Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 5 bei 0,010 %. Draw-Calls
+45 → **47** (die Scheibe ist ein eigener Körper und liegt im
+Transparenz-Durchgang), Dreiecke 73 406 → 74 078, Texturspeicher 1,98 MB.
+Build grün, Konsole frei von Errors und Warnings.

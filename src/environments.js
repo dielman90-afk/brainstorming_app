@@ -13415,11 +13415,51 @@ function makeRadiolaConsole() {
     screenGeo,
     new THREE.MeshBasicMaterial({ map: screenTexture, toneMapped: false })
   );
+  screen.name = 'roehre-schirm';
   screen.position.set(0, H / 2 + 0.06, -D / 2 - 0.015);
   screen.rotation.y = Math.PI;
   group.add(screen);
 
+  // **Die Glasscheibe — das, was eine Roehre in einem weissen Raum ausmacht.**
+  //
+  // Der Pruefer nennt es „keine Glasspiegelung". Das war bis zu diesem Stand
+  // gar nicht baubar: Eine Spiegelung braucht etwas zum Spiegeln, und die
+  // Umgebungskarte gibt es erst seit dem Lederpaket. Jetzt gibt es sie, und
+  // damit die eine Angabe, die eine Bildroehre von einer leuchtenden Tapete
+  // unterscheidet — die gewoelbte Scheibe wirft den Raum zurueck, und sie tut
+  // es blickabhaengig: Beim Kopfdrehen wandert der helle Schleier ueber das
+  // Bild.
+  //
+  // Additiv und mit schwarzer Grundfarbe: Damit traegt das Material keinen
+  // diffusen Anteil, sondern ausschliesslich seine Spiegelung — genau das
+  // Verhalten einer klaren Scheibe vor einer selbstleuchtenden Flaeche. Die
+  // Geometrie ist dieselbe gewoelbte Flaeche wie der Schirm, 2 mm davor.
+  const glas = new THREE.Mesh(
+    screenGeo.clone(),
+    new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      // 0,12 und nicht 0,05: Bei 0,05 wird die Spiegelung des Fuehrungslichts
+      // ein harter weisser Punkt von wenigen Bildpunkten — ein Muster, das
+      // beim Kopfdrehen springt. Auf einer gewoelbten Roehre ist der
+      // Lichtreflex ein Fleck, kein Stern.
+      roughness: 0.12,
+      metalness: 0,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  // Die Scheibe braucht mehr als die 0,35 der Moebel: Glas spiegelt, Leder
+  // schimmert.
+  glas.material.userData.envStaerke = 0.45;
+  glas.name = 'roehre-glas';
+  glas.position.set(0, H / 2 + 0.06, -D / 2 - 0.017);
+  glas.rotation.y = Math.PI;
+  glas.renderOrder = 2;
+  group.add(glas);
+
   const bezel = new THREE.Mesh(roundedBox(SCREEN_W + 0.05, SCREEN_H + 0.05, 0.014, 0.03), bezelMat);
+  bezel.name = 'roehre-blende';
   bezel.position.set(0, H / 2 + 0.06, -D / 2 - 0.006);
   group.add(bezel);
 
@@ -13452,10 +13492,21 @@ function makeRadiolaConsole() {
     // Gleichmäßige Grundhelligkeit über die ganze Röhre. Ohne sie leuchten nur
     // die Schwaden in der Mitte, und der Bildschirm wirkt wie ein heller Fleck
     // in einem schwarzen Loch statt wie eine ausgeleuchtete Bildfläche.
+    // **Der Schirm war dunkler als der Schrank, in dem er steckt.**
+    //
+    // Gemessen auf seinen eigenen Bildpunkten (Maske aus Ein- und Ausblenden)
+    // in `c-roehre`: Mittel 71,8, p95 116, Hoechstwert 172 — das Gehaeuse
+    // daneben liegt bei p50 60 bis 66 und p95 104 bis 141. Eine eingeschaltete
+    // Bildroehre, die sich vom Moebel nicht abhebt, ist keine eingeschaltete
+    // Bildroehre; sie ist eine graue Platte.
+    //
+    // Das Material ist `MeshBasicMaterial` mit `toneMapped: false` — was im
+    // Canvas steht, kommt unveraendert heraus, und 255 ist die Obergrenze.
+    // Die Helligkeit muss also im Canvas entstehen, nicht im Licht.
     const glow = ctx.createLinearGradient(0, 0, 0, sh);
-    glow.addColorStop(0, 'rgba(148,154,148,0.34)');
-    glow.addColorStop(0.5, 'rgba(122,128,122,0.3)');
-    glow.addColorStop(1, 'rgba(92,98,92,0.32)');
+    glow.addColorStop(0, 'rgba(196,204,196,0.56)');
+    glow.addColorStop(0.5, 'rgba(170,178,170,0.52)');
+    glow.addColorStop(1, 'rgba(132,140,132,0.5)');
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, sw, sh);
 
@@ -13465,8 +13516,11 @@ function makeRadiolaConsole() {
       const y = sh * (0.5 + Math.cos(t * 0.8 + i) * 0.3);
       const r = sh * (0.52 + Math.sin(t * 1.7) * 0.12);
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      const level = 140 + i * 20;
-      g.addColorStop(0, `rgba(${level},${level + 6},${level},0.62)`);
+      // Die Schwaden sind der Kern des Bildes und duerfen anschlagen: Eine
+      // Roehre hat helle Stellen, die im Weiss stehen, sonst wirkt sie
+      // abgeblendet.
+      const level = 214 + i * 10;
+      g.addColorStop(0, `rgba(${level},${level + 6},${level},0.76)`);
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, sw, sh);
@@ -13506,7 +13560,7 @@ function makeRadiolaConsole() {
 
     const vign = ctx.createRadialGradient(sw / 2, sh / 2, sh * 0.45, sw / 2, sh / 2, sh * 1.05);
     vign.addColorStop(0, 'rgba(0,0,0,0)');
-    vign.addColorStop(1, 'rgba(0,0,0,0.34)');
+    vign.addColorStop(1, 'rgba(0,0,0,0.26)');
     ctx.fillStyle = vign;
     ctx.fillRect(0, 0, sw, sh);
 
@@ -14091,7 +14145,7 @@ function createMatrixEnvironment() {
         for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
           if (!m?.isMeshStandardMaterial) continue;
           m.envMap = karte;
-          m.envMapIntensity = 0.35;
+          m.envMapIntensity = m.userData.envStaerke ?? 0.35;
           m.needsUpdate = true;
         }
       });
