@@ -13099,31 +13099,39 @@ function makeConstructArmchair() {
   // Ohne sie ist es kein Ohrensessel, sondern ein Clubsessel mit hoher Lehne.
   const WING_H = 0.52;
   const WING_D = 0.3;
+  // **Der Fluegel dreht jetzt um seine Hinterkante, nicht um seine Mitte.**
+  //
+  // Vorher: `wing.rotation.y = -side * 0.2` auf einem Koerper, dessen Ursprung
+  // in seiner Mitte liegt. Damit schwenkt die Vorderkante nach innen — und die
+  // **Hinterkante nach aussen**. Gerechnet: Die aeussere hintere Ecke sitzt bei
+  // 0,065 m vom Fluegelmittelpunkt, nach der Drehung bei 0,0935 m, also bei
+  // x = 0,4685 — die Lehne endet bei 0,44. Die Ecke stand **2,85 cm ueber die
+  // Lehne hinaus**, und dazwischen klaffte eine Kerbe, durch die man von
+  // hinten-seitlich ins Freie sah. Im Bild las der Fluegel dadurch als
+  // angelehnte Platte statt als Teil der Lehne.
+  //
+  // Ein Ohrensessel-Fluegel waechst aus der Lehne heraus und flaert nach vorn.
+  // Genau das ist eine Drehung um die HINTERKANTE: Die bleibt, wo sie ist,
+  // buendig mit der Lehnenflanke, und nur die Vorderkante wandert. Der Ursprung
+  // der Geometrie wandert dafuer an die Hinterkante.
+  //
+  // Dazu steckt er tiefer: 10 cm statt 7 in der Lehne. Sichtbar bleibt davon
+  // nichts, aber es gibt keine Blickrichtung mehr, aus der zwischen beiden
+  // Licht durchfaellt.
   for (const side of [-1, 1]) {
-    const wing = new THREE.Mesh(roundedBox(0.13, WING_H, WING_D, 0.06), leather);
-    // **Der Flügel bekommt dieselbe Neigung wie die Lehne, und er steckt
-    // tiefer in ihr.**
-    //
-    // Die Lehne steht mit `rotation.x = 0.07` zurückgelehnt, der Flügel stand
-    // senkrecht. Zwischen beiden öffnete sich dadurch ein Keil, der mit der
-    // Höhe wächst — der Prüfer hat ihn als „tiefe harte Spalte" zwischen Wange
-    // und Lehne gemeldet, und er ist zugleich die Ursache eines zweiten
-    // Befunds: eines hellen Splitters MITTEN im Schlagschatten auf dem Boden.
-    //
-    // Dass es ein echter Spalt ist und kein Rundungsfehler der Schattenkarte,
-    // ist gemessen: Bei doppelter Auflösung der Schattenkarte wurde der
-    // Splitter **schärfer und heller** (19 auf 27 Bildpunkte, hellster Wert 222
-    // auf 230). Ein Präzisionsartefakt wäre kleiner geworden.
-    //
-    // Die Überlappung geht von 4 auf 7 cm; bei 11,5 Grad Gierung schwenkt die
-    // Hinterkante des Flügels sonst aus der Lehne heraus.
+    const wingGeo = roundedBox(0.13, WING_H, WING_D, 0.06);
+    wingGeo.translate(0, 0, WING_D / 2);
+    const wing = new THREE.Mesh(wingGeo, leather);
     wing.position.set(
       side * (W / 2 - 0.065),
       BACK_TOP - WING_H / 2 - 0.04,
-      backZ + BACK_T / 2 + WING_D / 2 - 0.07
+      backZ + BACK_T / 2 - 0.1
     );
+    // Dieselbe Neigung wie die Lehne. Ohne sie oeffnet sich zwischen beiden ein
+    // Keil, der mit der Hoehe waechst — der Pruefer hat ihn als „tiefe harte
+    // Spalte zwischen Wange und Lehne" gemeldet.
     wing.rotation.x = 0.07;
-    wing.rotation.y = -side * 0.2; // leicht nach innen gestellt
+    wing.rotation.y = -side * 0.2; // nach vorn nach innen gestellt
     group.add(wing);
   }
 
