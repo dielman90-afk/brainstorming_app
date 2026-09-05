@@ -928,3 +928,100 @@ und Buckel, rund 2000 Dreiecke je Stück). Texturspeicher 1,98 MB. Build grün,
 Konsole frei von Errors und Warnings.
 
 Neues Werkzeug `tools/kasten.mjs`.
+
+---
+
+## Paket 10 — Die Knopfheftung saß auf einer Fläche, die es nicht gibt
+
+Der Anlass war ein anderer: der Befund „Kissenoberseite ohne Form" (p05 54 /
+p95 62 — acht Stufen). Gefunden wurde unterwegs ein handfester Baufehler an der
+Lehne, und der Befund selbst blieb offen. Der Reihe nach.
+
+### Der Baufehler
+
+Die 21 Knöpfe der Kapitonierung standen alle auf derselben Tiefe
+`frontZ0 - 0.003`. Die Lehne ist aber um 0,07 rad zurückgeneigt, **um ihre
+eigene Mitte**: Oben weicht ihre Vorderseite 2,0 cm nach hinten, unten kommt sie
+2,0 cm nach vorn. Gerechnet heißt das:
+
+* oberste Reihe: **2,3 cm im Polster**
+* unterste Reihe: **1,8 cm davor**
+
+Im Bild sah man oben kaum noch etwas und unten aufgesetzte Perlen. Der
+Kommentar an den Mulden hat das Symptom sogar beschrieben — „mit 9 mm Einlass
+verschwanden die oberen zwei Reihen vollständig im Körper, während die unteren
+richtig saßen" — und die Ursache in der Fase der `roundedBox` vermutet. Sie lag
+in der Neigung. Der damalige Ausgleich (Einlass von 9 auf 5 mm) hat den Fehler
+gemildert und dabei die Mulden flacher gemacht, als sie sein sollten.
+
+Jetzt liefert eine Funktion `lehnePunkt(x, y, einlass)` zu jeder Stelle auf der
+Lehne den Punkt auf deren **tatsächlicher** Vorderfläche — Neigung und Wölbung
+eingerechnet — und Knöpfe wie Mulden sitzen darauf. Alle sechs Reihen tragen,
+der Einlass darf wieder 2 mm sein.
+
+### Zwei Versuche am eigentlichen Befund, beide gemessen, beide klein
+
+**Erstens: wölben.** Neuer Körper `polsterKissen` — ein unterteilter Kasten,
+dessen Kanten durch Klemmen und Wegdrücken gerundet werden (die Normale fällt
+dabei als Wegdrückrichtung ab) und dessen Oberseite eine zum Rand hin
+auslaufende Kuppe bekommt. `roundedBox` kann das nicht: Sie extrudiert mit
+`steps: 1`, hat also in Extrusionsrichtung zwei Ringe, und eine Wölbung darauf
+ergäbe einen Keil.
+
+| Kissenoberseite in `e-schraeg` | p05 | p50 | p95 |
+| --- | --- | --- | --- |
+| ohne Kuppe | 47 | 73 | 90 |
+| Kuppe 2,2 cm | 47 | 72 | 93 |
+| Kuppe 5,0 cm | 47 | 72 | 93 |
+
+**Fünf Zentimeter Wölbung auf 55 cm Kissentiefe — drei Stufen.** Der Grund liegt
+im Licht: Was von oben kommt, ist die Hemisphärenleuchte und die obere Hälfte
+der Umgebungskarte; beide hängen kaum von der Neigung ab. Das Führungslicht
+steht steil, sechs Grad Kippung ändern seinen Kosinus um wenige Prozent. **In
+einer weißen Leere gibt es keine Richtung, aus der eine waagerechte Fläche nicht
+beleuchtet wird — und damit auch keine, in die man sie neigen könnte.**
+
+**Zweitens: verdecken.** Ein Kissen zwischen zwei Wangen und einer Lehne sieht
+an seinen Rändern weniger Himmel. Als Scheitelfarben aus den lokalen
+Kissenkoordinaten, Sohle 0,5, Reichweite 18 cm zur Lehne und 14 cm zu den
+Wangen.
+
+Auch das trägt wenig, und auch das ist gemessen: Mit einer Sohle von **0,15**
+statt 0,5 — Verdunklung auf ein Sechstel — ändern sich in der Nahsicht **1,0 %**
+der Bildpunkte um mindestens zwei Stufen, größter Einzelsprung 42. Der Grund ist
+ernüchternd: Die Ränder, die verdeckt sind, sind auch die Ränder, die von Wange
+und Lehne **verdeckt** werden. Was man vom Kissen sieht, ist sein heller Kern.
+
+### Was daraus folgt
+
+Die Verdeckung bleibt drin, weil sie richtig ist, und die Kuppe bleibt, weil sie
+der Silhouette und den Kanten guttut. **Der Befund ist damit nicht geschlossen**,
+und ich schreibe das lieber hin, als eine Zahl zu suchen, die gut aussieht: Was
+der Oberseite in dieser Beleuchtung Form geben könnte, ist weder Neigung noch
+Verdeckung, sondern eine **Naht** quer über das Polster oder ein **flacheres
+Führungslicht**. Beides ist ein eigener Eingriff mit eigenen Folgen — ein
+flacheres Licht ändert jede andere Fläche der Szene mit.
+
+### Ein Fehlschlag, der eine Lehre wert ist
+
+Die Verdeckung stand zuerst in einem Shader und nahm ihre Koordinate aus
+`transformed`. Das ging schief: **`verschmelzeObjekte` backt die Matrix in die
+Geometrie**, und die beiden Sessel stehen gegeneinander gedreht. Im Shader kam
+die Lounge-Koordinate an, nicht die Kissenkoordinate — die Verdunklung lief bei
+einem Sessel quer und beim anderen verkehrt herum und traf ausgerechnet die
+Vorderkante, die hell bleiben sollte (71,9 auf 55,3). Scheitelfarben kennen das
+Problem nicht: Sie werden vor dem Verschmelzen aus den lokalen Koordinaten
+berechnet und wandern danach unverändert mit.
+
+### Regression und Kosten
+
+Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 5 bei 0,008 %. Draw-Calls
+49 → **51** (das Kissen bekommt eigene Scheitelfarben und damit einen eigenen
+Werkstoff), Dreiecke 82 270 → **89 150** (der unterteilte Kasten des Kissens
+statt der Extrusion). Texturspeicher 1,98 MB. Build grün, Konsole sauber.
+
+Neue Werkzeuge: `tools/blick.mjs` (freie Kamera zum Hinsehen, ohne den
+eingefrorenen Kamerasatz anzutasten), `tools/maskenwerte.mjs` (dieselbe
+Knotenmaske auf einem anderen Stand messen — der Weg zu einem Vorher, wenn das
+Bauteil damals noch mit anderen verschmolzen war), `tools/kamcheck.mjs`
+(Sollkamera gegen Istkamera).
