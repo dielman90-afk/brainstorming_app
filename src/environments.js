@@ -14564,10 +14564,87 @@ function createMatrixEnvironment() {
   //
   // Zwoelf Meter kosten nichts: Die Flaeche ist durchsichtig und traegt nur
   // dort etwas ein, wo die Schattenkarte ueberhaupt reicht.
-  const schattenBoden = new THREE.Mesh(
-    new THREE.CircleGeometry(12, 48),
-    new THREE.ShadowMaterial({ opacity: 0.3, depthWrite: false })
-  );
+  // **Der Schlagschatten war exakt neutral und innen vollkommen flach.**
+  //
+  // Beides ist gemessen, in `e-schraeg` auf 33 460 reinen Schattenpunkten:
+  //
+  //     Boden hell    (225,9 | 227,7 | 228,6)   B-R 2,68
+  //     Schatten      (156,4 | 157,7 | 158,6)   B-R 2,22
+  //
+  // Kanalweise ist das 0,692 / 0,693 / 0,694 — **derselbe Farbton**, nur
+  // dunkler. Ein `ShadowMaterial` mit schwarzer Farbe kann gar nichts anderes:
+  // Es multipliziert. Und der Boden ist ein `MeshBasicMaterial` ohne
+  // Tonemapping, empfaengt also gar kein Licht; die Schattenfarbe kann nicht
+  // aus der Beleuchtung entstehen, sie muss gesetzt werden.
+  //
+  // **Was steht ihr zu?** Das Fuehrungslicht ist 0xfff6ec, also warm. Wo es
+  // fehlt, bleibt das Uebrige — Hemisphaere, Aufheller, Saumlicht 0xdce6f0 und
+  // die Umgebungskarte — und das ist kuehler. Aufsummiert traegt das
+  // Fuehrungslicht rund 0,98 von 3,03 Einheiten, also **32 %**; der Schatten
+  // muesste linear bei 0,677 / 0,686 / 0,696 liegen, das Blau also 2,8 %
+  // hoeher als das Rot.
+  //
+  // Gesetzt sind Farbe 0x1c2127 bei Deckkraft 0,36 und `toneMapped: false` —
+  // Letzteres, damit Boden und Schatten in derselben Zahlenwelt rechnen (der
+  // Boden laeuft aus demselben Grund ohne Tonemapping). Das ergibt an der
+  // dunkelsten Stelle etwa (154 | 157 | 161): dieselbe Tonlage wie vorher, aber
+  // B-R 6 statt 2,2.
+  //
+  // **Und die Flaeche bekommt ein Gefaelle.** Der Grund dafuer ist derselbe wie
+  // fuer die Farbe: Ein Gegenstand verdeckt nicht nur das Fuehrungslicht,
+  // sondern auch einen Teil des Himmels — dicht an seinem Fuss viel, weit weg
+  // wenig. Genau deshalb ist ein Schatten nah am Werfer dunkel und laeuft nach
+  // aussen aus; dass er hier ueber Meter hinweg denselben Wert hielt, war der
+  // eigentliche Befund. Das Gefaelle laeuft entlang der Bodenprojektion der
+  // Lichtrichtung, gerechnet aus der Sitzgruppenmitte.
+  const SCHATTEN_RICHTUNG = new THREE.Vector2(3.5, -5.0).normalize();
+  const schattenMat = new THREE.ShadowMaterial({
+    color: 0x1c2127,
+    opacity: 0.36,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  // **Eine Ersetzung, die nicht trifft, ist stumm.** `String.replace` gibt den
+  // unveraenderten Text zurueck, wenn das Muster fehlt — und ein Shader, in dem
+  // nichts eingebaut wurde, sieht aus wie ein Shader, dessen Einbau nichts
+  // bewirkt. Genau dieser Fall ist hier eingetreten (siehe unten). Ab jetzt
+  // wirft es.
+  const ersetzeGenau = (text, suchen, ersetzen) => {
+    if (!text.includes(suchen)) throw new Error(`Shader-Muster nicht gefunden: ${suchen.slice(0, 60)}`);
+    return text.replace(suchen, ersetzen);
+  };
+  schattenMat.onBeforeCompile = (shader) => {
+    shader.uniforms.schattenMitte = { value: new THREE.Vector2(0, -3.9) };
+    shader.uniforms.schattenRichtung = { value: SCHATTEN_RICHTUNG };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSchattenOrt;')
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvSchattenOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = ersetzeGenau(
+      ersetzeGenau(
+        shader.fragmentShader,
+        '#include <common>',
+        '#include <common>\nvarying vec3 vSchattenOrt;\nuniform vec2 schattenMitte;\nuniform vec2 schattenRichtung;'
+      ),
+        // **Die Zeile heisst `getShadowMask()`, nicht `shadowMask`.**
+        //
+        // Der erste Versuch hat auf ein Muster ersetzt, das es in three nicht
+        // gibt — und `String.replace` meldet das nicht, es gibt den Text
+        // unveraendert zurueck. Sichtbar war davon genau das, was auch bei
+        // einem Treffer sichtbar gewesen waere, wenn das Gefaelle klein ist:
+        // nichts. Die Farbe kam trotzdem an, weil sie aus einer Uniform
+        // stammt; nur das Gefaelle fehlte. Darum steht die Ersetzung jetzt in
+        // `ersetzeGenau`, das wirft, wenn das Muster fehlt.
+        'gl_FragColor = vec4( color, opacity * ( 1.0 - getShadowMask() ) );',
+        `float lauf = dot(vSchattenOrt.xz - schattenMitte, schattenRichtung);
+         float weite = mix(1.0, 0.55, smoothstep(0.15, 2.0, lauf));
+         gl_FragColor = vec4( color, opacity * weite * ( 1.0 - getShadowMask() ) );`
+    );
+  };
+  schattenMat.customProgramCacheKey = () => 'konstrukt-schatten-v1';
+  const schattenBoden = new THREE.Mesh(new THREE.CircleGeometry(12, 48), schattenMat);
   schattenBoden.name = 'schattenboden';
   schattenBoden.rotation.x = -Math.PI / 2;
   schattenBoden.position.y = -0.015;

@@ -1211,3 +1211,74 @@ und Insel **bitgleich**, Dojo Δmax 4 bei 0,011 %. Das Verschmelzen selbst ände
 `a-augenhoehe` und `f-boden` um 0,002 % der Bildpunkte an den Beinkanten — das
 übliche Fließkommarauschen, wenn Ortsangaben in die Geometrie gebacken werden.
 Build grün, Konsole frei von Errors und Warnings.
+
+---
+
+## Paket 14 — Der Schlagschatten war exakt neutral und innen vollkommen flach
+
+Zwei Befunde des Prüfers, beide auf 33 355 reinen Schattenpunkten in
+`e-schraeg` bestätigt:
+
+| | R | G | B | B−R | p05 | p50 | p95 | Spanne |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Boden hell | 225,9 | 227,7 | 228,6 | 2,68 | | | | |
+| Schatten vorher | 156,2 | 157,6 | 158,5 | **2,24** | 152,6 | 156,6 | 161,6 | **8,9** |
+
+Kanalweise ist das 0,692 / 0,693 / 0,694 — **derselbe Farbton**, nur dunkler,
+und über Meter hinweg derselbe Wert.
+
+### Warum ein `ShadowMaterial` das gar nicht anders kann
+
+Es multipliziert mit einer Farbe, und die stand auf Schwarz. Dazu kommt: Der
+Boden ist ein `MeshBasicMaterial` **ohne Tonemapping** und empfängt gar kein
+Licht — die Schattenfarbe kann hier prinzipiell nicht aus der Beleuchtung
+entstehen. Sie muss gesetzt werden, und die Frage ist, worauf.
+
+### Was ihr zusteht
+
+Das Führungslicht ist 0xfff6ec, also warm. Wo es fehlt, bleibt das Übrige —
+Hemisphäre 1,2, Aufheller 0,55, Saumlicht 0xdce6f0 mit 0,35 und die
+Umgebungskarte —, und das ist kühler. Aufsummiert trägt das Führungslicht rund
+0,98 von 3,03 Einheiten, also **32 %**; der Schatten müsste linear bei
+0,677 / 0,686 / 0,696 liegen, das Blau also 2,8 % höher als das Rot.
+
+Gesetzt: Farbe 0x1c2127 bei Deckkraft 0,36 und `toneMapped: false` — Letzteres,
+damit Boden und Schatten in derselben Zahlenwelt rechnen.
+
+### Und das Gefälle
+
+Der Grund dafür ist derselbe wie für die Farbe: Ein Gegenstand verdeckt nicht
+nur das Führungslicht, sondern auch einen Teil des Himmels — dicht an seinem Fuß
+viel, weit weg wenig. Genau deshalb ist ein Schatten am Werfer dunkel und läuft
+nach außen aus. Das Gefälle läuft entlang der Bodenprojektion der Lichtrichtung
+(3,5 | −5,0), gerechnet aus der Sitzgruppenmitte, und nimmt die Deckkraft über
+zwei Meter auf 55 % zurück.
+
+| Schatten nachher | R | G | B | B−R | p05 | p50 | p95 | Spanne |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| | 166,5 | 169,4 | 172,1 | **5,63** | 151,6 | 158,6 | 190,6 | **39,0** |
+
+Am Fuß bleibt er, wo er war (p50 156,6 → 158,6); nach außen hin läuft er von
+161,6 auf 190,6 aus. Die Spanne im Schatteninnern vervierfacht sich.
+
+### Der Fehler, der eine Regel wert ist
+
+Der erste Anlauf hat im Shader auf `gl_FragColor = vec4( color, opacity * ( 1.0
+- shadowMask ) );` ersetzt. Die Zeile heißt in three aber
+`... ( 1.0 - getShadowMask() ) ...`. **`String.replace` meldet einen Fehlschlag
+nicht** — es gibt den unveränderten Text zurück. Sichtbar war davon genau das,
+was auch bei einem Treffer mit zu kleinem Gefälle sichtbar gewesen wäre:
+nichts. Die Farbe kam trotzdem an, weil sie aus einer Uniform stammt, und der
+erste Messlauf zeigte deshalb eine korrekte Farbverschiebung bei unveränderter
+Spanne — ein Befund, der wie ein Sachergebnis aussah und ein Tippfehler war.
+
+Ab jetzt läuft die Ersetzung durch `ersetzeGenau`, das wirft, wenn das Muster
+fehlt. Das ist die zweite stumme Falle dieser Art im Projekt — die erste waren
+die Backticks in GLSL-Kommentaren, gegen die `tools/shaderlint.mjs` als
+`prebuild` läuft.
+
+### Regression und Kosten
+
+48 Draw-Calls, 93 010 Dreiecke, 1,98 MB Textur — alle unverändert; es ist
+dasselbe Mesh mit anderem Werkstoff. Zen, Nachthimmel und Insel **bitgleich**,
+Dojo Δmax 4 bei 0,009 %. Build grün, Konsole frei von Errors und Warnings.
