@@ -1025,3 +1025,48 @@ eingefrorenen Kamerasatz anzutasten), `tools/maskenwerte.mjs` (dieselbe
 Knotenmaske auf einem anderen Stand messen — der Weg zu einem Vorher, wenn das
 Bauteil damals noch mit anderen verschmolzen war), `tools/kamcheck.mjs`
 (Sollkamera gegen Istkamera).
+
+---
+
+## Paket 11 — Der Flügel drehte um die falsche Achse
+
+Im freien Blick von hinten-seitlich (`tools/blick.mjs`, Position 1,75 | 1,5 |
+−4,0) stand der Flügel als angelehnte Platte neben der Lehne, mit einer Kerbe
+dazwischen, durch die man ins Freie sah.
+
+### Die Ursache ist eine Zeile
+
+```js
+wing.rotation.y = -side * 0.2;
+```
+
+auf einem Körper, dessen Ursprung in seiner **Mitte** liegt. Damit schwenkt die
+Vorderkante nach innen — und die Hinterkante nach außen. Gerechnet: Die äußere
+hintere Ecke sitzt 0,065 m vom Flügelmittelpunkt entfernt; nach der Drehung um
+0,2 rad liegt sie bei
+
+```
+x = 0,065·cos(0,2) + 0,15·sin(0,2) = 0,0637 + 0,0298 = 0,0935 m
+```
+
+also bei x = 0,4685 — und die Lehne endet bei 0,44. Die Ecke stand **2,85 cm
+über die Lehne hinaus**, und dazwischen blieb eine Kerbe offen.
+
+### Die Drehung gehört an die Hinterkante
+
+Ein Ohrensessel-Flügel wächst aus der Lehne heraus und flart nach vorn. Das ist
+eine Drehung um die **Hinterkante**: Die bleibt bündig mit der Lehnenflanke, nur
+die Vorderkante wandert. Der Ursprung der Geometrie wandert dafür mit
+`translate(0, 0, WING_D / 2)` an die Hinterkante, und die Position beschreibt
+jetzt genau diese Kante.
+
+Dazu steckt der Flügel 10 statt 7 cm in der Lehne. Sichtbar ist davon nichts,
+aber es gibt keine Blickrichtung mehr, aus der zwischen beiden Licht durchfällt.
+
+Dreiecke und Draw-Calls bleiben unverändert — es ist derselbe Körper, nur mit
+verschobenem Ursprung. Im festen Kamerasatz ändert sich `e-schraeg` um 0,81 %
+der Bildpunkte (≥ 8 Stufen); Zen, Nachthimmel und Insel bitgleich, Dojo Δmax 7
+bei 0,009 %.
+
+51 Draw-Calls, 89 150 Dreiecke, 1,98 MB Textur — alle drei unveraendert. Build
+gruen, Konsole frei von Errors und Warnings.
