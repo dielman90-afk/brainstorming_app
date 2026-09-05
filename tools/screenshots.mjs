@@ -18,6 +18,7 @@ import {
   openApp,
   selectEnv,
   lockCamera,
+  ladeThree,
 } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
@@ -35,6 +36,9 @@ try {
   const { page, messages } = await openApp(browser);
 
   await selectEnv(page, envId);
+  // `setzeStation` braucht three im Seitenkontext (ein Bild darf eine Station
+  // des Rundgangs verlangen).
+  await ladeThree(page);
   for (const shot of SHOTS) {
     await lockCamera(page, shot, 6.0);
     await page.waitForTimeout(450);

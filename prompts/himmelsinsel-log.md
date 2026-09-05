@@ -1,827 +1,2072 @@
-# 🏝 Himmelsinsel – Überarbeitungsprotokoll
+# 🏝 Himmelsinsel — Protokoll
 
-Fortlaufendes Protokoll der Durchläufe: Arbeitspaket, Durchlauf-Nr., Messwerte,
-Prüfer-Urteil, offene Punkte.
+Derselbe Auftrag wie beim 🌌 Nachthimmel, dieselben Regeln: rein prozedural,
+keine neuen Laufzeit-Abhängigkeiten, keine Regressionen, Budget
+(Draw-Calls ≤ 120, Dreiecke ≤ 350 000, Texturspeicher ≤ 60 MB), Instancing und
+Verschmelzung Pflicht, Harness nach `tools/`, ein Commit je bestandenem Paket,
+Befunde mit Koordinate und Zahl statt Eindrücken.
 
-## Werkzeuge
-
-| Datei | Zweck |
-| --- | --- |
-| `tools/harness-common.mjs` | Server-Start, Browser, App-Bootstrap, **die sechs festen Kamerapositionen** |
-| `tools/screenshots.mjs` | Sechs Insel-Ansichten (+ `--all-envs`: je ein Bild der drei anderen Umgebungen) |
-| `tools/measure.mjs` | Draw-Calls, Dreiecke, Programme, Texturspeicher, Frame-Zeit → JSON |
-| `tools/inspect.mjs` | Aufschlüsselung: woraus die Draw-Calls bestehen |
-| `tools/verify.mjs` | Ein Kommando: Build → Screenshots → Messung → Budget-Urteil |
-
-Aufruf eines Durchlaufs: `node tools/verify.mjs run-NN`
-
-### Kamerapositionen (unveränderlich)
-
-| # | Name | Position | Blickziel | FOV |
-| --- | --- | --- | --- | --- |
-| 1 | Augenhöhe Inselmitte | 1.5 / 1.6 / 9.0 | −2 / 1.2 / −14 | 70° |
-| 2 | Blick zum Wasserfall | −2 / 1.7 / 6.0 | 15.5 / −1.5 / −9.1 | 65° |
-| 3 | Über die Kante nach unten | 0 / 2.0 / 18.5 | 0 / −13 / 27 | 75° |
-| 4 | Totale von schräg oben | 36 / 24 / 38 | 0 / −4 / 0 | 55° |
-| 5 | Gegenlicht in die Sonne | −9 / 1.7 / 12 | 22 / 14 / −18 | 70° |
-| 6 | Nahaufnahme Bodenvegetation | 4.6 / 0.55 / 7.4 | 1.0 / −0.15 / 1.6 | 60° |
-
-### Ehrliche Einordnung der Frame-Zeit
-
-Der Container hat **keine GPU** (`/dev/dri` fehlt); Chromium rendert per
-SwiftShader in Software. Zum Vergleich: die leere ⬜-Konstrukt-Umgebung kostet
-bei 1280×720 rund **0,45 ms**, die Insel im Ausgangsstand **105–175 ms**. Der
-im Auftrag genannte Zielwert „≤ 8 ms im Desktop-Headless-Harness" ist unter
-einem Software-Rasterizer für **keine** nicht-triviale Szene erreichbar und
-sagt nichts über die Quest 3 aus. Die Zahl wird deshalb als **relativer**
-Vergleichswert zwischen zwei Ständen geführt, nicht als bestandene/nicht
-bestandene Budgetgrenze. Die belastbaren Budgetgrenzen sind Draw-Calls,
-Dreiecke und Texturspeicher – und die sind auf der Quest ohnehin die
-entscheidenden Größen.
+**Eine Regel ist umzudeuten.** „Es bleibt Nacht" hieß dort: nicht heller machen.
+Hier heißt sie **„es bleibt Tag"** — eine stilisierte, helle Schwebeinsel unter
+blauem Himmel. Die Aufgabe ist nicht, sie dramatisch zu machen, sondern ihr
+Modulation zu geben, wo heute Farbfelder stehen.
 
 ---
 
-## Stand der Arbeit
+## Paket 0: Der Prüfstand — die Insel ist jetzt reproduzierbar
 
-| Paket | Stand |
-| --- | --- |
-| 0 Bestandsaufnahme | abgeschlossen |
-| **Zwischenschritt: Branch-Zusammenführung** | PR #9 (60 Commits) in den Default-Branch, Vegetation daraus übernommen und ins Draw-Call-Budget verschmolzen (129 → 85) |
-| 1 Silhouette & Fels | abgeschlossen, **nicht bestanden** – 5 offene Punkte |
-| 2 Licht & Atmosphäre | abgeschlossen, **nicht bestanden** – Kriterium 6 bestanden, 5 offene Punkte |
-| 3 Terrain-Material | abgeschlossen, **nicht bestanden** – 4 offene Punkte |
-| 4 Vegetation | gebaut, **ohne förmliche Prüfung abgeschlossen** (Variantenentscheid durch den Nutzer) |
-| Zwischenschritt: Aufräumliste des Nutzers | Wasserfall, schwebende Ranken, schwebende Gräser, Wasserlauf, Regenbogen – erledigt |
-| 5 Wasser | gebaut, auf direkte Anweisung statt als förmlicher Paketdurchlauf |
-| 6 Wolken & Tiefe | abgeschlossen |
-| 7 Leben | abgeschlossen, **sieben Durchläufe statt der zulässigen vier** – Begründung unten |
-| 8 Mini-Inseln (+ Nacharbeit aus der Prüfung zu 6/7) | abgeschlossen, **nicht bestanden** – 8 offene Punkte |
-| 9 Performance-Pass | offen |
+Seit drei Aufträgen steht im Protokoll: *„Die Insel ist nicht reproduzierbar.
+Zwei Läufe desselben Standes unterscheiden sich bei `env-island.png` in 0,6 bis
+0,9 % der Pixel. Beim Regressionsblick auf die Insel zählt nur eine Abweichung
+deutlich darüber."*
 
-**Budget durchgehend eingehalten:** 93 von 120 Draw-Calls, 173 667 von 350 000
-Dreiecken, 11,83 von 60 MB Texturspeicher. Konsole sauber, Build grün, die vier
-anderen Umgebungen unverändert.
+Das war nie eine Eigenschaft der Insel, sondern **acht Zeilen Code**.
 
-### Offene Punkte aus Paket 3
+### Gemessen
 
-| Punkt | Befund | Weitergabe |
+Zwei Läufe des festen Bildersatzes, derselbe Stand:
+
+| Bild | Δmittel | ≥ 2 |
 | --- | --- | --- |
-| Ringsignatur der Granitkarte | Rund 20 gleiche elliptische Sichelstempel, Wiederholungsvektor (18,6), Korrelation 0,377. Sie hat sich in Durchlauf 3 **verdoppelt**, weil die Karte aufs helle Erdband kam. Karte dort wieder entfernt – auf dem Fels bleibt sie und damit auch die Signatur. | Schlusspass: eigene Felskarte statt der Dojo-Granitkarte |
-| Wiese im Nahbereich | Auf Inselmaßstab jetzt variabel (L-Spanne 8,6 → 15,6), auf Schrittmaßstab weiterhin flach: 32 Farben auf 64 000 Pixel. | Paket 4 (Bodenbewuchs deckt die Fläche) |
-| Sodendicke der Mini-Inseln | 6–9 px Gras auf 54–85 px Fels. Die festen Randringe haben dort nichts bewirkt – das Verhältnis ist die Proportion der Insel selbst, nicht ein Fehler der Kante. **Hier widerspreche ich dem Prüfer teilweise.** | Paket 8 (Mini-Inseln) |
-| Spektrallücke 5–17 px im Felsrelief | Zwischen 4-px-Korn und Facettenmaßstab liegt nichts – es fehlt die mittlere Skala (Risse, Adern, Abplatzungen). | Schlusspass |
+| 1-eyelevel | 0,039 | 0,556 % |
+| **2-waterfall** | **0,168** | **1,535 %** |
+| 3-edge-down | 0,003 | 0,071 % |
+| 4-aerial | 0,015 | 0,256 % |
+| 5-backlight | 0,003 | 0,057 % |
+| 6-groundcover | 0,019 | 0,257 % |
 
-### Eigene Fehler in Paket 3
+Die beiden größten Abweichungen stehen in den beiden Bildern mit **Wasser**.
+Vier Aufnahmen innerhalb **eines** Seitenaufrufs waren dagegen bitgleich — also
+kein Rasterisierer, sondern der Aufbau.
 
-- **Regression:** Auf den Vorwurf „ein Dreieck überspannt 400 px" habe ich die
-  Facettenzahl der Findlinge vervierfacht. Damit sank die Tontrennung um 59 %
-  (SD 18,89 → 7,59) und der nächstgelegene Stein wurde eine weiche Beule. Der
-  stilisierte Look lebt von **wenigen, klar getrennten** Facetten – die
-  Korrektur war eine zweite Verschiebungsebene bei gleicher Facettenzahl.
-- **Falscher Hebel:** Die Mooskarten kosteten den dreifachen Texturspeicher
-  (+18,7 MB) und änderten am Bild messbar nichts. Wieder entfernt.
-- **Toter Parameter:** Meine Feuchte-Achse leitete sich aus der absoluten Höhe
-  ab – auf der bewusst ebenen Fläche ergibt das überall denselben Wert. Die
-  Wiese bekam dadurch nur Helligkeits-, keine Farbtonvariation. Feuchte kommt
-  jetzt aus Mulden und Bachnähe.
+### Die Ursache
 
-**Bestandene Messlatten-Kriterien: 1 von 8** (Tiefenstaffelung). Der Fortschritt
-ist real und in jeder Runde nachgemessen, aber die Messlatte ist hoch angesetzt.
+`makeWaterTexture()` zeichnet acht helle Strähnen auf ein 64 × 256er Blatt und
+holte ihre Lage und Deckkraft aus **`Math.random()`**. Bei jedem Seitenaufruf
+sah das Wasser damit anders aus. Ein gesäter Strom (`mulberry32(90210)`) liefert
+dieselben acht Strähnen und sieht keinen Deut anders aus.
 
----
+### Danach
 
-## Durchlauf 0 – Bestandsaufnahme (Ausgangswerte)
+Zwei getrennte Durchläufe, alle sechs Bilder: **Δmittel 0,000, Δmax 0.**
 
-Commit-Basis: `claude/himmelsinsel-optimization-2g3px8`, Stand vor der Überarbeitung.
+Damit ist die Insel dieselbe Messgrundlage wie die übrigen vier Umgebungen, und
+das „Rauschband 0,6–0,9 %" ist aus dem Protokoll zu streichen. Jede Abweichung
+unter dieser Schwelle war bisher nicht messbar — von jetzt an ist sie es.
 
-### Messwerte (`tools/metrics/run-00.json`)
-
-| Kameraposition | Draw-Calls | Dreiecke | Renderzeit (SW) |
-| --- | ---: | ---: | ---: |
-| 1 Augenhöhe | 102 | 25 744 | 114,5 ms |
-| 2 Wasserfall | 84 | 18 714 | 168,8 ms |
-| 3 Kante | 112 | 29 036 | 174,5 ms |
-| 4 Totale | 111 | 30 752 | 105,3 ms |
-| 5 Gegenlicht | 95 | 20 758 | 127,4 ms |
-| 6 Bodennah | 78 | 21 768 | 130,6 ms |
-
-| Budget | Ist | Grenze | |
-| --- | ---: | ---: | --- |
-| Draw-Calls (env-island) | **112** | 120 | knapp – nur 8 Reserve |
-| Dreiecke (Szene) | 30 752 | 350 000 | 11× Reserve |
-| Texturspeicher | 0,50 MB | 60 MB | 120× Reserve |
-| Shader-Programme | 12 | – | |
-| Konsole | sauber | – | |
-
-### Aufschlüsselung der Draw-Calls (`tools/inspect.mjs`)
-
-| Art | Knoten | Calls | Dreiecke |
-| --- | ---: | ---: | ---: |
-| Icosaeder-Meshes (Steine, Blumen-Einzelteile) | 40 | 40 | 1 880 |
-| BufferGeometry (25 Wolken, 6 Felsunterseiten, 6 Rankenbündel, Fluss) | 38 | 38 | 41 356 |
-| Cylinder (Baumstämme, mehrmaterialig) | 19 | 31 | 1 568 |
-| **Blob-Schatten** | **28** | **28** | 56 |
-| CircleGeometry (Quelle, Becken) | 12 | 12 | 148 |
-| ConeGeometry (Nadelbaum-Etagen) | 10 | 10 | 280 |
-| PlaneGeometry (Vogelflügel) | 8 | 8 | 16 |
-| Sprites (Sonne, Dunst, Gischt, Schaum) | 4 | 4 | 0 |
-| InstancedMesh (Blumen, Grasbüschel, Büsche, Pilze) | 4 | 4 | 3 392 |
-| Sonstige (Kuppel, Regenbogen, Wassertropfen) | 3 | 3 | 2 416 |
-| **Summe** | **166** | **178 potentiell / 112 gerendert** | 51 112 |
-
-### Befund
-
-Das Budget ist **falsch verteilt**: Draw-Calls sind zu 93 % ausgereizt,
-Dreiecke zu 9 %, Texturspeicher zu 0,8 %. Die Umgebung besteht aus sehr vielen
-sehr einfachen Einzelobjekten – genau das Profil, das eine mobile GPU
-(Quest 3, XR2 Gen 2) am schlechtesten verträgt. Allein 28 Draw-Calls gehen für
-Blob-Schatten mit zusammen 56 Dreiecken drauf.
-
-Die Überarbeitung muss deshalb zuerst **verschmelzen und instanzieren**, um
-Draw-Calls freizuräumen, und den freien Dreiecks- und Texturspeicher in echte
-Form- und Materialdichte investieren.
-
-### Arbeitspakete (Reihenfolge = Priorität)
-
-1. Silhouette & Fels
-2. Licht & Atmosphäre
-3. Terrain-Material
-4. Vegetation
-5. Wasser
-6. Wolken & Tiefe
-7. Leben
-8. Mini-Inseln
-9. Performance-Pass
-
-### Nebenbei behoben (Voraussetzung für „Konsole sauber")
-
-- `THREE.Clock` → `THREE.Timer` in `src/main.js` (three r185 warnt bei jedem Start).
-- `getContext('2d', { willReadFrequently: true })` für die Bildröhre im ⬜ Konstrukt.
-
-Beides ist verhaltensneutral; die Regressionsbilder der drei anderen Umgebungen
-liegen als Referenz in `tools/shots/reference/`.
-
-### Korrektur am Harness (nach Durchlauf 1 gefunden)
-
-Zwei Fehler im Harness, die die ersten Bilder wertlos machten – beide behoben,
-`run-00` wurde danach mit dem unveränderten Ausgangsstand **neu erzeugt**:
-
-1. `OrbitControls.update()` ruft am Ende `lookAt(controls.target)` auf und hat
-   jede von außen gesetzte Blickrichtung überschrieben. Alle sechs Bilder
-   zeigten in Wahrheit dieselbe Richtung. Der Harness setzt jetzt zusätzlich
-   `controls.target`.
-2. Kamera 3 („über die Kante nach unten") stand auf der Insel und blickte über
-   den neuen Randwall in den leeren Himmel. Sie steht jetzt knapp außerhalb der
-   Abbruchkante und blickt zurück und hinab – sie zeigt Grasnarbe, Erdschicht
-   und Fels in einem Bild, also genau das, worum es in Paket 1 geht.
-
-Die Kamerapositionen sind seit `run-00` (neu) unverändert und bleiben es.
+**Die Lehre:** Eine Ungenauigkeit, die lange genug im Protokoll steht, wird zur
+angenommenen Eigenschaft des Gegenstands. „Die Insel ist nicht reproduzierbar"
+stand dort als Naturgesetz und war ein `Math.random()` in einer Textur.
 
 ---
 
-## Paket 1 – Silhouette & Fels
+## Ausgangsstand, gemessen
+
+`tools/shots/insel-01/`, sechs feste Kameras.
+
+### Budget — dasselbe Bild wie beim Nachthimmel: es ist Platz da
+
+| Größe | Grenze | Ist |
+| --- | ---: | ---: |
+| Draw-Calls env-island | ≤ 120 | **73** |
+| Dreiecke szenenweit | ≤ 350 000 | **186 257** |
+| Texturspeicher | ≤ 60 MB | **11,83 MB** |
+
+47 Draw-Calls, 164 000 Dreiecke und 48 MB Textur sind frei.
+
+### Befund 1 — Die Wiese ist ein Farbfeld
+
+`6-groundcover` heißt „Nahaufnahme Bodenvegetation". Der Bereich
+(100,420)–(1180,700), also 304 000 Bildpunkte und über die Hälfte des Bildes:
+
+```
+Hochpass |d| 0,040   p95 0,23   Kante waagerecht 0,013   senkrecht 0,034
+Mittel 181,1   p05…p95 = 176…188
+```
+
+**Zwölf Tonwertstufen von 255**, und ein Hochpass von 0,040. Zum Vergleich: Der
+Regolith des Nachthimmels — eine bewusst dunkle Fläche — hat an derselben Stelle
+0,867, also das **Einundzwanzigfache**. In `1-eyelevel` ist es mit 1,203 besser,
+aber dort stehen Büsche und Blumen im Ausschnitt; die reine Wiese trägt nichts.
+
+### Befund 2 — ~~95 Zeichenknoten, 7 Werfer, 4 Empfänger~~ **berichtigt, siehe unten**
+
+`tools/lichtzensus.mjs` (neu):
+
+```
+env-island: 95 Zeichenknoten, 7 Schattenwerfer, 4 Empfänger
+sceneAmbient: — (nicht gesetzt)
+```
+
+Ohne Schattenrolle sind unter anderem: `island-body` (der Boden selbst),
+`island-krone` und `island-laub` (die Baumkronen), `island-stones`, `bushes`,
+`mushrooms`, `undergrowth-shade`. Es gibt `island-shadows` — gemalte Blobs, die
+immer senkrecht nach unten liegen —, aber die Sonne steht schräg. In
+`5-backlight` steht die Sonne hoch rechts, und der große Findling rechts wirft
+**nichts**.
+
+### Befund 3 — Die globale Hemisphäre wird mit einem negativen Licht aufgehoben
+
+Die Szene trägt 18 Lichter. Darunter die globale `HemisphereLight` mit Stärke
+1,4 **und** eine `global-hemi-compensation` mit Stärke **−1,4**. Das funktioniert,
+aber `sceneAmbient` ist genau dafür da und wird von der Insel nicht gesetzt.
+
+### Befund 4 — Der Nadelbaum flimmert
+
+In `5-backlight` füllt eine Konifere das rechte Bilddrittel; ihre Nadeln stehen
+als hochfrequentes Gekrissel. Das ist die bezahlte Lehre „Der Detailgrad muss zur
+Abtastung passen" — noch nicht gemessen, kommt im Paket Vegetation.
+
+### Befund 5 — Ein Gegenlichtbild ohne Gegenlicht
+
+`5-backlight` heißt so, weil die Kamera in die Sonne blickt. Das Laub davor ist
+flach dunkelgrün: kein Randlicht, keine Durchleuchtung, kein Streiflicht auf den
+Kanten. Die Sonne selbst ist ein weißer Fleck mit weichem Hof.
+
+---
+
+## Berichtigung zu Befund 2: Die Schatten sind verdrahtet, es steht nur nichts drin
+
+Oben steht: „Ohne Schattenrolle sind unter anderem `island-body` (der Boden
+selbst), `island-krone` und `island-laub` (die Baumkronen), `island-stones`,
+`bushes`." **Das ist falsch, und der Fehler war mein Werkzeug.**
+
+`tools/lichtzensus.mjs` hat in seiner ersten Fassung nur die Knoten **ohne**
+Schattenrolle aufgelistet. Die Namen `island-body`, `island-krone`,
+`island-laub` und `island-stones` kommen aber **mehrfach** vor: einmal für die
+Hauptinsel und je einmal für die fünf Mini-Inseln, die absichtlich keine
+Schatten haben (die Begründung steht im Quelltext: dieselbe Kartenauflösung über
+die sechsfache Fläche würde aus scharfen Baumschatten Flecken machen). Ich habe
+die Kopien der Mini-Inseln gesehen und auf die Hauptinsel geschlossen.
+
+Mit der Namensliste statt der Zahl:
+
+```
+wirft:     island-body, island-holz, island-krone, island-laub,
+           island-krone, island-laub, island-stones
+empfaengt: island-body, island-stones, flowers, bush-leaves
+```
+
+Die Hauptinsel wirft also vollständig: Körper, Stämme, beide Kronentypen,
+Findlinge.
+
+### Was stattdessen der Befund ist
+
+`tools/schattenanteil.mjs` (neu) nimmt jedes feste Bild zweimal auf — einmal mit
+Schattenwurf, einmal ohne — und misst die Differenz. Was dazwischen liegt,
+**ist** der Schatten, schwellenfrei.
+
+| Bild | Fläche mit Schatten | Abfall Mittel | Abfall größter |
+| --- | ---: | ---: | ---: |
+| 1-eyelevel | **0,57 %** | 39,2 | 120 |
+| 2-waterfall | **0,93 %** | 44,7 | 156 |
+| 3-edge-down | 22,73 % | 29,9 | 121 |
+| 4-aerial | 5,51 % | 30,9 | 67 |
+| 5-backlight | **1,78 %** | 42,1 | 169 |
+| 6-groundcover | **0,99 %** | 36,8 | 135 |
+
+Wo Schatten liegt, ist er **kräftig** — 30 bis 45 Luminanzstufen Abfall, in der
+Spitze 169. Das ist kein zu schwaches Licht und keine falsche Karte.
+
+Der Mangel ist, dass er in den vier Augenhöhen-Bildern **unter zwei Prozent der
+Fläche** einnimmt. Die Sonne steht auf 38,7 Grad; ein vier Meter hoher Baum wirft
+dort fünf Meter Schatten. Dass davon nichts im Bild ist, heißt nicht „die
+Schatten fehlen", sondern **auf der Wiese steht nichts, das welche wirft**. Das
+ist derselbe Befund wie Befund 1, aus einer anderen Richtung gemessen.
+
+Ein echter Nebenbefund bleibt: `bushes`, `undergrowth-shade` und `mushrooms`
+**empfangen** keine Schatten. Ein Busch im Schatten eines Baumes steht damit voll
+beleuchtet in einem dunklen Feld.
+
+**Die Lehre:** Ein Werkzeug, das nur die Ausreißer ausgibt, lädt zum Fehlschluss
+ein. Die Namensliste der Werfer stand nach drei Zeilen Änderung da und hätte den
+falschen Befund nie entstehen lassen.
+
+---
+
+## Paket „Wiese": Die Narbe trägt jetzt Struktur — für null Byte Textur
+
+Der größte Hebel der Insel: Die Grasnarbe füllt in vier der sechs festen Bilder
+die halbe bis dreiviertel Fläche, und sie war ein Farbfeld.
+
+### Warum die vorhandene Einfärbung nicht ausreicht
+
+Die Wiese hat eine sorgfältig gebaute Vertex-Einfärbung — Feuchte aus Mulden und
+Bachnähe, Moos im Nassen, dürres Gras auf dem Rücken, drei Ortsfrequenzen. Die
+hängt aber an den **Scheitelpunkten**, und die begehbare Fläche ist absichtlich
+eben und damit grob unterteilt. Aus anderthalb Metern deckt eine Gitterzelle
+einen guten Teil des Bildes ab, und was dazwischen liegt, ist eine lineare
+Interpolation — ein weicher Verlauf, dessen Hochpass definitionsgemäß bei null
+liegt.
+
+Es ist derselbe Befund wie beim Nachthimmel-Vordergrund und dieselbe Antwort:
+**nicht fehlendes Detail, sondern Vergrößerung.** Was fehlt, ist Struktur im
+Maßstab der Halme.
+
+### Warum keine Textur
+
+Ein früherer Anlauf hat die Mooskarten des Dojo-Satzes auf die Narbe gelegt:
+dreifacher Texturspeicher (9,17 → 27,83 MB) bei unverändertem Bild
+(Bildmittel 144,9 gegen 145,0). Diese Lehre steht im Quelltext und gilt weiter.
+
+Die Struktur entsteht deshalb **rechnend im Shader** — kein Texturspeicher, kein
+Draw-Call, keine Kachelgrenze:
+
+* **Albedo**, zwei Ortsfrequenzen: Flecken von rund 90 cm, die dem Rasen Gebiete
+  geben, plus ein Korn von 16 cm für die Halme. Dazu eine Farbwanderung ins
+  Gelbe auf dem Korn — die Spitze ist heller als der Grund, und sie wandert mit
+  dem einzelnen Büschel, nicht mit dem Gebiet.
+* **Normale**, Büschel von 18 cm: Der Gradient kommt aus drei Abtastungen, die
+  Störung wird im Weltraum gebildet und erst dann in den Blickraum gedreht —
+  ohne Normalenkarte steht im Shader kein Tangentensystem.
+
+**Der Maßstab ist gerechnet, nicht geschätzt.** Die Kamera löst 60 Grad auf 720
+Zeilen auf, also 1,45 mrad je Bildpunkt; auf 1,5 m sind das 2,2 mm, auf 6 m
+8,7 mm. Ein Büschel von 18 cm ist auf 1,5 m 82 Bildpunkte breit. Die
+Normalenstörung blendet trotzdem zwischen 5 und 14 m aus — nicht weil sie dort zu
+klein wäre, sondern weil eine Normalenstörung unterhalb weniger Bildpunkte zu
+flimmerndem Korn wird statt zu Form. Die 90-cm-Flecken bleiben ungedämpft; sie
+tragen die Wiese auch in der Ferne.
+
+### Gemessen
+
+Wiese in `6-groundcover`, (100,420)–(1180,700), 304 000 Bildpunkte:
+
+| | vorher | nachher |
+| --- | --- | --- |
+| Hochpass | 0,040 | **0,532** |
+| p95 des Hochpasses | 0,23 | **1,94** |
+| Kante senkrecht | 0,034 | **0,894** |
+| p05…p95 | 176…188 (12 Stufen) | **166…192 (26 Stufen)** |
+
+Wiese in `1-eyelevel`, (100,470)–(1180,700): Hochpass **1,203 → 2,554**.
+
+Bandweise von nah nach fern (`tools/hochpass-reihe.mjs`, reine Wiesenbänder):
+
+```
+6-groundcover  vorher   0,016  0,019  0,022  0,026  0,034  0,061
+               nachher  0,181  0,194  0,215  0,284  0,453  0,754
+1-eyelevel     vorher   0,045  0,055  0,086
+               nachher  0,597  0,804  1,209
+```
+
+Elf- bis zwölffach über den ganzen Nahbereich, und ohne Sprung an der
+Ausblendgrenze.
+
+### Kein Flimmern in der Ferne
+
+Die Gegenprobe ist der Punkt, an dem so etwas üblicherweise scheitert:
+
+| Bild | vorher | nachher |
+| --- | --- | --- |
+| 4-aerial (Totale, 24 m Höhe) | 3,596 | 3,646 |
+| 5-backlight | 7,397 | 7,428 |
+| 3-edge-down | 2,157 | 2,163 |
+| 2-waterfall | 2,344 | 3,071 |
+
+Die drei Bilder, in denen die Wiese weit weg ist, bleiben praktisch unverändert
+— die Ausblendung greift. `2-waterfall` gewinnt, weil dort Wiese im Nahbereich
+steht.
+
+### Kosten
+
+**Keine.** 73 Draw-Calls von 120, 186 257 Dreiecke von 350 000, 11,83 MB von 60
+— jede Zahl unverändert. Regression: Zen bitgleich, Konstrukt Δmittel 0,001,
+Dojo 0,000, alle acht Nachtbilder bitgleich. Konsole frei von Errors und
+Warnings.
+
+### Was offen bleibt
+
+Im Nahbereich liest das Korn als **waagerechte Schlieren**. Bei streifendem
+Blick projiziert ein isotropes Rauschen so — echtes Gras tut es auch —, aber es
+ist an der Grenze. Wenn der Prüfer es meldet, ist die Antwort nicht weniger
+Stärke, sondern eine Störung, die die Halmrichtung kennt.
+
+---
+
+## Der Prüfer über den Ausgangsstand
+
+Er hat den Stand **vor** dem Wiesen-Paket beurteilt. Sein Urteil: sieben der acht
+Kriterien nicht bestanden, allein **Farbharmonie** bestanden (gesättigte Pixel in
+genau zwei Fächern, 0,0 % im Bereich 240–360°, selbst Vögel und Pilzkappen
+innerhalb der Tonart).
+
+Elf Mängel, nach visueller Wirkung. Was er ausdrücklich als gut bezeichnet und
+was ich nicht anfassen darf: die Farbtonart, der Fels (Hochpass 2,30 gegen Erde
+1,73 und Rinde 4,91), die Kiel-Silhouette (Unterseite 63,5 gegen Himmel 192,2 —
+128 Stufen), `5-backlight` als einziges Bild mit Achse (Masse L:R 1,43,
+Kantenanteil unteres Drittel 14,09 %), der Nebel auf den Mini-Inseln und die
+Vogelbahnen.
+
+**Er widerlegt außerdem meinen Auftrag an ihn.** Ich hatte ihm mitgegeben, die
+Blob-Schatten lägen immer senkrecht, während die Sonne schräg steht. Er findet
+sie im Bildsatz nicht: Die Schlagschatten stimmen in Richtung und Länge zu
+`SUN_DIR = (18,24,−24)`, in `6-groundcover` nach links unten, in `5-backlight`
+auf die Kamera zu. Das deckt sich mit meiner eigenen Berichtigung weiter oben.
+
+### Sein Mangel 1 ist bereits erledigt
+
+*„Das Nahfeld ist leer, im Bild, das es zeigen soll"* — `6-groundcover`, Zeilen
+420–719, Hochpass 0,017 bis 0,038, kein Pixel unterscheidet sich von seinem
+Nachbarn um mehr als 3 von 255.
+
+Nachgemessen im selben Bereich: **0,038 → 0,545.** Vierzehnfach.
+
+Ein Teil seines Befundes steht aber weiter: **Kantenanteil im unteren Bilddrittel
+0,00 %**, unverändert. Der nächste Grasbewohner überhaupt steht bei 4,2 m. Die
+Wiese hat jetzt Oberfläche, aber immer noch keinen Vordergrundanker.
+
+---
+
+## Paket „Laub": Das Flimmern der Krone, gemessen statt geraten
+
+**Sein Mangel 2** (`5-backlight`, Kasten (950,150)–(1250,450)): Hochpass 27,4 bei
+p95 = 81,0, gleichzeitig 39,0 % der Kronenpixel unter L 40 und 2,2 % über L 190
+— ein pixelweise abwechselndes Schwarz-Weiß-Gitter.
+
+**Sein Mangel 5** (ferner Busch Hochpass 23,1 gegen nahen 12,6) hat dieselbe
+Wurzel: Entfernung verdoppelt die Mikrokontraste, statt sie zu dämpfen.
+
+### Erster Anlauf: `alphaToCoverage` — und er hat fast nichts gebracht
+
+Die naheliegende Erklärung war die Alphaschwelle: `foliageMaterial` benutzt
+`alphaTest` statt `transparent`, damit das Laub im Tiefenpuffer bleibt und
+Schatten wirft. Wird die Karte kleiner, mittelt die Mipmap Alpha und Farbe
+gemeinsam herunter, das Alpha fällt unter 0,42, der Bildpunkt verschwindet ganz
+— während der Nachbar mit voller Farbe stehen bleibt.
+
+`alphaToCoverage` verteilt die Schwellenentscheidung auf die vier
+MSAA-Abtastpunkte, die dieser Renderer ohnehin hält. Gemessen:
+**27,355 → 26,908**, dunkle Pixel 39,0 → 37,5 %. Also 1,6 Prozent. Die Zeile
+bleibt drin — sie ist die richtige Darstellung für alphageprüftes Laub und
+kostet nichts —, aber sie war nicht die Ursache, und das steht hier, damit
+niemand sie später für die Lösung hält.
+
+### Dann gemessen statt weitergeraten
+
+`tools/laubprobe.mjs` (neu) schaltet die vier möglichen Ursachen im laufenden
+Bild einzeln ab:
+
+| | Hochpass | unter L 40 | über L 190 |
+| --- | ---: | ---: | ---: |
+| Stand | 26,908 | 37,6 % | 2,1 % |
+| Rauheit 0,92 | **21,347** | **37,5 %** | **0,1 %** |
+| Rauheit 0,92 + Normale ×0,75 | 18,868 | 45,5 % | 0,1 % |
+| Rauheit 0,92 + Normale ×0,6 | 16,642 | 51,6 % | 0,1 % |
+| ohne Normalenkarte | 5,135 | 75,1 % | 2,5 % |
+
+Die **Normalenkarte** ist mit Abstand der größte Beitrag zum Flimmern — und
+zugleich das, was die Krone überhaupt ins Licht hebt: Ohne sie liegen drei
+Viertel der Kronenpixel unter L 40. Jeder Schritt, der sie zurückdreht, kauft
+Ruhe mit Dunkelheit.
+
+Die **Rauheit** nicht. Sie nimmt ein Fünftel des Flimmerns und **alle**
+ausgebrannten Bildpunkte, ohne die Krone eine Zehntelstufe dunkler zu machen.
+Das ist der freie Anteil, und mehr wird nicht genommen: Nadeln 0,7 → 0,92,
+Blattkarten 0,78 → 0,88.
+
+**Warum 0,7 dort stand und trotzdem falsch war:** „wachsig" ist richtig für eine
+Nadel. Nur ist eine Nadel in diesem Bild **einen Bildpunkt** breit, und auf einem
+Bildpunkt ist eine enge Glanzkeule kein Material, sondern ein Schalter.
+
+### Gemessen am Bild
+
+Konifere in `5-backlight`, (950,150)–(1250,450):
+
+| | vorher | nachher |
+| --- | ---: | ---: |
+| Hochpass | 27,355 | **21,347** |
+| p95 des Hochpasses | 81,01 | **54,78** |
+| Kante senkrecht | 34,529 | **27,295** |
+| über L 190 | 2,2 % | **0,1 %** |
+| unter L 40 | 39,0 % | 37,3 % |
+
+Budget unverändert: 73 Draw-Calls, 186 257 Dreiecke, 11,83 MB. Regression:
+Nacht und Zen bitgleich, Konstrukt Δmittel 0,001, Dojo 0,001. Konsole sauber.
+
+### Bestanden ist das nicht
+
+Das Weiß ist weg und das Flimmern um ein Fünftel kleiner, aber die Krone liest
+weiterhin als feines Rauschen und nicht als Nadelbüschel. Die verbleibende
+Ursache ist benannt und **nicht behoben**: Der Nadelatlas zeichnet einzelne
+Nadeln in Texelbreite, und die Karte steht im Bild etwa 1:1 — eine Struktur an
+der Abtastgrenze. Was hilft, ist eine gröber gezeichnete Nadel**gruppe** statt
+einzelner Nadeln, und die sitzt in `src/dojo/foliage.js`, wo auch das Dojo sie
+holt. Das ist ein eigener Auftrag mit eigener Messung und nicht der Rest dieses
+Pakets.
+
+**Sein Mangel 5 bleibt ebenfalls offen:** ferner Busch 23,6 gegen nahen 11,6 —
+die Rauheit hat daran nichts geändert. Ob das Aliasing ist oder eine Folge davon,
+dass ein kleiner Messkasten um ein fernes Objekt überwiegend dessen Rand enthält,
+ist **nicht geklärt**; die Frage gehört vor die nächste Änderung, nicht danach.
+
+---
+
+## Paket „Der Sturz": Was gemessen wurde, war nicht das, was ich gesucht habe
+
+**Prüfer-Mangel 3:** *„Der Wasserfall hat keinen Körper und hängt neben der
+Insel."* In `4-aerial` reißt der Sturz über je 60 px vollständig ab, größter
+Abstand zum Himmel 16,2 Stufen; in `2-waterfall` — dem Bild, das nach ihm heißt
+— kommt er gar nicht vor.
+
+### Zwei falsche Fährten, beide gemessen widerlegt
+
+*Erstens:* Ich hielt die Bahn für **kantensichtig** — ein flaches Band, das man
+von der Schmalseite sieht, ist ein Strich. `tools/wasserfall.mjs` (neu) rechnet
+Breite, Winkel zur Blickrichtung und Bildbreite je Querschnitt aus: In
+`4-aerial` steht die Bahn **11 bis 37 Bildpunkte** breit im Bild, in
+`6-groundcover` bis 806. An der Breite lag es nicht.
+
+*Zweitens:* Ich habe einen Kasten um den Sturz gelegt und gegen den Himmel
+gemessen — Ergebnis „Ausschlag Mittel 74,1". Im selben Kasten steht die
+**Felswand**, und ihre 140 Stufen überdecken alles. Gemessen war der Fels.
+
+### Die Messung, die trägt
+
+`tools/sturzprobe.mjs` (neu) schaltet jeden Teil einzeln unsichtbar und nimmt
+die Differenz — dieselbe Methode wie beim Schattenanteil, schwellenfrei. Dafür
+haben die vier Teile jetzt Namen.
+
+| Teil | in wie vielen Bildern | Fläche | Ausschlag |
+| --- | --- | --- | --- |
+| `waterfall-sheet` | **1 von 6** | 1175 px | 9,1 |
+| `waterfall-drops` | **1 von 6** | 297 px | 11,6 |
+| `waterfall-mist` | **1 von 6** | 2917 px | **1,8** |
+| `waterfall-foam` | 4 von 6 | 669–2588 px | 4,3–14,6 |
+
+Das ist deutlich schärfer als der Befund des Prüfers und verschiebt ihn: Der
+Sturz **reißt nicht ab, er ist nicht da.** Wer auf der Insel steht, sieht ihn
+nicht — er fällt hinter der Kante, auf der man steht. Das ist Geometrie und
+lässt sich nicht polieren. Sichtbar ist von der Wiese aus allein die **Lippe**.
 
 ### Was gebaut wurde
 
-Der Inselkörper war eine `CylinderGeometry` (Grasplatte) mit einer
-`ConeGeometry` darunter (Fels) – zwei getrennte Rotationskörper mit einer
-harten Kante dazwischen. Er ist jetzt **ein** Gitter aus einer analytischen
-Formbeschreibung (`makeIslandShape`):
+**Eine Sprühfahne über der Lippe.** Neunzig Tropfen, die im Sinusbogen
+aufsteigen, über die Kante driften und beschleunigt darunter verschwinden. Der
+Umlauf setzt im hellen Schaum wieder ein, wo der Wechsel nicht zu sehen ist.
 
-- **Grundriss** nicht mehr kreisrund: gewellter Umriss plus eine vorspringende
-  Landzunge und eine Bucht.
-- **Oberfläche** in der Mitte bewusst eben (siehe Einschränkung unten), nach
-  außen ein weicher Höhenrücken gegenüber dem Wasserfall, am Rand abgerundete
-  Traufkante, dazu eine eingeschnittene Flussrinne.
-- **Flanke** in einem Zug: Erdschicht mit senkrechten Auswaschungsstreifen,
-  darunter geschichteter Fels – Bänke mit scharfer Oberkante, schräg liegend
-  und pro Sektor versetzt, dazu grobe Felsplatten (18 Sektoren × Tiefenbänder)
-  für große ebene Wandflächen, senkrechte Risse und zwei bis drei
-  Strebepfeiler, die ihren Sektor tiefer ziehen.
-- **Keil statt Kegel**: die Masse bleibt unten zusammen und endet stumpf,
-  seitlich versetzt (`lean`), statt in eine Eiszapfen-Nadel auszulaufen.
-- Drei Materialgruppen auf einem Mesh: Gras (glatt, stumpf), Erde (glatt, ganz
-  stumpf), Fels (facettiert, etwas glänzender).
-- Alles Übrige sitzt jetzt auf `shape.heightAt(x, z)`: Bäume, Findlinge,
-  Blumen, Grasbüschel, Büsche, Pilze, Quelle, Fluss, Auffangbecken. Nichts
-  schwebt mehr, nichts steckt im Boden.
-- Draw-Call-Umbau: Baumstämme, Blattwerk, Findlinge, Wurzelvorhänge und
-  **alle Kontaktschatten** je Insel zu einem Mesh verschmolzen (vorher 28
-  Draw-Calls allein für Schatten mit zusammen 56 Dreiecken).
-
-### Wichtige Einschränkung, bewusst so entschieden
-
-`locomotion.js` kennt kein Gelände – der Nutzer läuft immer auf y = 0. Ein
-durchgehend hügeliges Oberdeck ließe ihn in Kuppen versinken. Die begehbare
-Innenfläche (bis 58 % des Radius, rund 23 m Durchmesser) bleibt deshalb eben;
-die Höhenentwicklung setzt erst außerhalb ein. Das kostet Relief in der
-Bildmitte und ist der Preis dafür, dass die Fortbewegung unverändert
-funktioniert. Wenn hier mehr Relief gewünscht ist, braucht `locomotion.js`
-eine Geländeabfrage – das wäre eine Änderung an einer App-Funktion und steht
-so nicht im Auftrag.
-
-### Ein echter Fehler, gefunden und behoben
-
-Der innerste Gitterring liegt komplett im Mittelpunkt; dort ist das
-Kreuzprodukt zur Normalenberechnung null. Ohne Sonderbehandlung blieb die
-Normale (0,0,0) – die Fläche wurde **stockschwarz** gerendert, ein rund 2 m
-großes schwarzes Loch mitten im Gras (`tools/shots/debug/only-body.png`).
-
-### Messwerte
-
-| Durchlauf | Draw-Calls | Dreiecke | Texturspeicher | Konsole |
-| --- | ---: | ---: | ---: | --- |
-| run-00 (Ausgang) | 112 | 27 816 | 0,50 MB | sauber |
-| run-01 | 70 | 44 254 | 0,50 MB | sauber |
-| run-02 | 72 | 45 731 | 0,50 MB | sauber |
-| run-03 | 71 | 49 112 | 0,50 MB | sauber |
-| run-04 | 71 | 49 112 | 0,50 MB | sauber |
-| run-05 | 73 | 53 787 | 0,50 MB | sauber |
-| run-06 | 73 | 53 787 | 0,50 MB | sauber |
-| run-07 | 73 | 53 787 | 0,50 MB | sauber |
-
-Draw-Calls **112 → 71** bei gleichzeitig dreifacher Baumzahl, doppelter
-Findlingszahl und deutlich dichterem Inselgitter. Dreiecke 27 816 → 49 112,
-das sind 14 % des Budgets.
-
-### Zwischenschritte (Selbstkritik vor dem Prüfer)
-
-- run-01: Der ausgefranste Materialübergang Gras→Erde wurde pro Viereck
-  entschieden und ergab eine **Treppe aus rechten Winkeln** – ein
-  Lehrbuch-„Programmierer-Tell". Der Übergang läuft seit run-02 über die
-  Vertex-Farbe und ist damit stufenlos.
-- run-01/02: Die Schichtbänke liefen als saubere Ringe um die Insel („wie
-  gedrechselt"). Seit run-03 sind sie pro Sektor verschoben und geneigt.
-- run-02: Der Fels lief in eine dünne Nadel aus. Seit run-03 endet er stumpf.
-- Der Fels war in run-01–03 deutlich zu hell (beige/kalkweiß). Ursache ist
-  überwiegend die Beleuchtung: Szene und Umgebung summieren sich auf eine
-  Bestrahlung weit über 1, alles läuft ins Weiße. In run-04 wurden die
-  Umgebungslichter vorläufig gesenkt (Sonne 1,9 → 1,35, Hemisphäre 1,15 →
-  0,75) – die eigentliche Lichtführung ist Paket 2.
-
-### Prüfung 1 (nach run-04): NICHT BESTANDEN
-
-Der Prüfer hat alle acht Kriterien bewertet – sieben nicht bestanden, Bewegung
-aus Standbildern nicht beurteilbar – und zehn lokalisierte Paket-1-Defekte
-gemeldet. Die schwersten:
-
-- **B1** Grundriss durchgehend konvex, keine einzige Einbuchtung. „Als schwarze
-  Silhouette wäre run-04 kaum von run-00 zu unterscheiden."
-- **B2** Erde↔Fels als umlaufend höhengleiche Kante, Erdschicht überall gleich
-  dick – der stärkste Programmierer-Tell im Bild.
-- **B3** Grasplatte als gleichmäßig dicke, rundgeschliffene „Zuckerguss"-Kante.
-- **B4** Terrassen ohne Größenhierarchie, alle Formen derselben Größenordnung.
-- **B5** Fels und Erde im gleichen Hellwert; Fels so hell wie die besonnte
-  Grasoberseite.
-- **B6** Unterseite endet als Sägezahnreihe statt als Kiel.
-- **B7** Profil spiegelsymmetrisch, nirgends ein Überhang.
-- **B8** Ranken setzen sichtbar neben der Felsoberfläche an.
-- **B9/B10** Mini-Inseln als erkennbare Kopie; harte Schnittkante Gras↔Fels dort.
-
-Zusätzlich als schwerster Einzelbefund der ganzen Serie: **in keinem der sechs
-Bilder gibt es einen einzigen Schlagschatten** – nichts steht, alles schwebt
-auf dem Boden. Das gehört zu Paket 2.
-
-### Nacharbeit (run-05 bis run-07)
-
-- **B1**: Landzunge (+0,30), tiefe Bucht (−0,24) und schmaler Einschnitt
-  (−0,17) statt ±8 % Welligkeit. Der Radius schwankt jetzt zwischen rund 0,6
-  und 1,3 – echte Konkavität.
-- **B2**: Dicke der Erdschicht schwankt um etwa Faktor 10 über den Umfang;
-  an manchen Stellen stößt der Fels bis unter die Grasnarbe durch.
-- **B3**: Grasnarbe zieht sich nur noch halb so weit über die Kante; dazu ein
-  ungleichmäßiger Abriss (Zungen und Kerben) in der Geometrie am äußersten
-  Rand, eine kürzere und steilere Traufkante und teilversenkte Felsknöchel im
-  Kantensaum.
-- **B4**: EIN dominanter Kiel (Breite 0,62, Tiefenzuschlag bis 0,62) plus zwei
-  bis drei kleinere Strebepfeiler; Bankdicke, Sektorzahl und Neigung je Insel
-  neu gewürfelt.
-- **B5**: Fels deutlich dunkler und kühler (L 0,095 statt 0,175, Sättigung
-  halbiert), Erde bleibt warm; Verdunklung nach unten von 0,52 auf 0,62.
-- **B6/B7**: stumpf endender Keil, überkragendes Gesims und eine durchgehende
-  Kaminspalte.
-- **B8**: Ranken stecken im Fels statt auf der Haut zu sitzen, mit Wurzelteller
-  am Ansatz.
-- **B10**: Felston von Findlingen, Knöcheln und Inselkörper angeglichen.
-
-### Prüfung 2 (nach run-07): NICHT BESTANDEN
-
-6 von 10 Defekten behoben (B1 Grundriss, B2 Erde↔Fels-Kante, B5 Tontrennung,
-B6 Kiel, B7 Undercut/Kaminspalte, B9 Mini-Insel-Formen), 4 teilweise
-(B3, B4, B8, B10). Dazu fünf **neue** Defekte, die die Änderungen erzeugt haben:
-
-- **N1** Die Felswand ist jetzt gleichförmiges Splitterrauschen: „Der alte
-  Fehler war zu viel Regelmäßigkeit – der neue ist zu viel gleichverteilte
-  Unregelmäßigkeit." Es fehlen große ruhige Wandflächen, gegen die sich der
-  Bruch abheben kann.
-- **N2** Der dunklere Klippenfels hat die Szene in zwei unvereinbare
-  Felsfamilien gespalten – die Findlinge auf der Wiese blieben hell.
-- **N3** Durch die stellenweise auf null gehende Erddicke ist die Erdschicht
-  ausgerechnet in der Totale fast nicht mehr zu sehen.
-- **N4** Die Ranken haben keinen Durchhang und laufen als Haarlinien über die
-  Felskontur vor den Himmel.
-- **N5** Die neuen Kantensaum-Knöchel stecken mit harter, gerader
-  Durchdringungslinie in der Wiese.
-
-### Nacharbeit (run-08, run-09)
-
-- **N1**: Bruchzonen-Maske über die Wand; hochfrequente Rauschanteile halbiert,
-  niederfrequente verstärkt; Felsplatten größer (10–14 Sektoren statt 14–22).
-- **N2**: Findlinge, Quellsteine und Knöchel auf dieselbe Palette wie der
-  Klippenfels (Helligkeit 0,20–0,32 → 0,115–0,19).
-- **N3**: Untergrenze der Erddicke angehoben, sie geht nirgends mehr auf null.
-- **N4**: Ranken doppelt so dick, mit Kettenlinien-Durchhang, oben dick nach
-  unten dünn; Wurzelteller entfernt (sie lagen als brauner Span auf der Wand).
-- **N5**: Knöchel kleiner, tiefer versenkt, nur noch ganz außen, mit erdigem
-  Fuß und flachem Erdaufwurf.
-- **B3**: Grasnarbe zieht sich nochmals halb so weit über die Kante; der Abriss
-  wirkt jetzt über den ganzen Umfang statt nur punktuell.
-
-**run-08 war ein Rückschritt** und wird hier festgehalten, weil das Muster
-lehrreich ist: Der erdige Fuß der Knöchel färbte über den gewählten
-Verlaufsbereich den *ganzen* Block sandbraun, und der „Erdaufwurf" war so groß
-und flach, dass die Blöcke als Tische auf der Grasnarbe lagen. In run-09
-korrigiert.
-
-Außerhalb von Paket 1 vorgezogen: Die Fliegenpilze waren in drei von sechs
-Bildern das größte und lauteste Objekt im Frame (voll gesättigtes Rot). Sie
-sind jetzt auf ein Drittel verkleinert und entsättigt – das gehört eigentlich
-zu Paket 4, hätte aber jede weitere Prüfung verfälscht.
-
-### Prüfung 3 (nach run-09): NICHT BESTANDEN, Restliste auf zwei Punkte
-
-Behoben: N1 (Bruchzonen-Maske wirkt – „genau der Wechsel aus wenigen ruhigen
-Flächen und wenigen konzentrierten Bruchzonen, der gefehlt hat"), N3, B4
-(Größenhierarchie), B8 (Rankenverankerung), B10. Teilweise: N2, N4, N5, B3
-(„jetzt ein Feinheitsproblem, kein Formproblem").
-
-Drei neue Defekte:
-
-- **N6** Die Kantensaum-Knöchel sind über ihre ganze Fläche warmes Sandbraun
-  und lesen sich als Erdklumpen statt als durchstoßender Fels.
-- **N7** Das Erdband ist durch die angehobene Untergrenze die zweitgrößte
-  Fläche im Nahbild geworden – und ein vollkommen glatter Farbverlauf ohne
-  Facettierung, Krümel, Wurzelsaum oder Vertex-Variation. Neben dem
-  facettierten Fels trennt es sich damit nur noch über den Ton.
-- **N8** Im Frontsektor der Totale liegen wieder vier parallele, gleich dicke
-  Bänke übereinander, während links und rechts der Sektorversatz funktioniert.
-
-### Nacharbeit (run-10, run-11) – Durchlauf 4, die zulässige Obergrenze
-
-- **N6**: Der Übeltäter war nicht die Einfärbung des Blocks, sondern ein
-  zusätzlicher flacher „Erdaufwurf" aus run-08 – eine waagerechte Scheibe, die
-  auf dem geneigten Kantensaum talseitig weit heraushing. Ersatzlos entfallen;
-  der Erdton wirkt jetzt nur noch auf den verdeckten Fuß.
-- **N7**: Senkrechte Auswaschungsrillen (zwei Frequenzen), blockweise
-  Krümelstruktur, dunkler Humussaum unter der Grasnarbe, körnige
-  Vertex-Variation; Erdmaterial auf facettierte Schattierung umgestellt,
-  bleibt aber matter als der Fels.
-- **N8**: Bankfolge springt jetzt pro Sektor im Versatz UND in der Dichte
-  (Bankdicke je Sektor 0,72–1,34 der Grundrate).
-- **N4**: Ranken dünner und länger mit stärkerem Ausschwung, dunkler
-  Wurzelton. run-10 war hier zu kurz und zu dick – sie standen als helle
-  Stummel vom Fels ab.
-
-**Zum Streitpunkt „dritter Felston" (N2-Rest):** Der Prüfer sah in der Totale
-eine auffällig helle, weißlich-graue Fläche und ordnete sie als dritte,
-nicht angeglichene Felsfamilie ein. Die Nachstellung
-(`tools/shots/debug/mini-closeup.png`) zeigt: Es ist **kein Fels**. Die Fläche
-ist grün, aber stark entsättigt, und dahinter steht eine reinweiße Wolke. Das
-ist fehlende atmosphärische Perspektive und gehört zu Paket 6.
-
-### Prüfung 4 (nach run-11): NICHT BESTANDEN – Durchläufe aufgebraucht
-
-Der Prüfer hat diesmal Pixelwerte gemessen statt geschätzt. Ergebnis:
-
-**Behoben:** N2b (Nahfindling misst (101,99,94) – identisch mit dem Klippenfels
-(101,99,92)), N6 (alle Knöchel im Grauband der Klippe). **Teilweise:** N7 (der
-glatte Verlauf ist weg, es fehlt die kleine Skala und der Wurzelsaum), N8
-(Zickzack nimmt die Geradlinigkeit, nicht die Gleichmäßigkeit).
-**Keine echten Rückfälle.**
-
-**Ich lag beim Streitpunkt N2a falsch.** Meine Erklärung „reinweiße Wolke
-dahinter" ist an der genannten Koordinate widerlegt: Der Himmel neben der
-Fläche misst (180,218,236), das Weiß sitzt auf dem Objekt selbst. Der Prüfer
-gibt den Punkt trotzdem an Paket 6 ab – aber mit einer schärferen Diagnose als
-meiner: Es fehlt nicht die atmosphärische Perspektive, sie ist **falsch
-gefärbt und zu stark**. Der Dunst zieht gegen Weiß/Mint statt gegen die
-Himmelsfarbe, dadurch wird das ferne Objekt **heller als der Himmel davor**.
-Gemessen über drei Inseln desselben Materials: fern (157–190), Hauptkörper
-(67–113), mittlere Mini-Insel (17–88). **Die Tiefenstaffelung ist nicht
-schwach, sie ist invertiert.** Auftrag an Paket 6: Dunstfarbe an den Himmel
-binden und die Kurve einheitlich über alle Objekte außerhalb der Hauptinsel
-anwenden.
-
-### Sofort behoben (echter Fehler, keine Paket-Iteration)
-
-Die Ranken hingen senkrecht an einem Radius, der nur am Ansatzpunkt bestimmt
-wurde – die Felswand zieht sich nach unten aber ein. Ergebnis: kurze Stummel,
-die frei vor der Wand standen, und Haarlinien, die unter der Insel im blauen
-Himmel abbrachen. Die Flanke wird jetzt über die **ganze** Stranglänge
-abgetastet und der engste Radius genommen, das Strangende bleibt über der
-Felsunterkante, und jeder Strang endet in einem Blattbüschel statt in einem
-glatt abgeschnittenen Zylinder. Zusätzlich saßen die Blattbüschel wegen eines
-falschen Faktors (0,22 statt 0,34) neben der Strangspitze statt an ihr.
-
-## Paket 1 – Abschluss: NICHT BESTANDEN nach vier Durchläufen
-
-Der Hauptkörper ist erledigt und wurde vom Prüfer ausdrücklich so bewertet:
-Kiel, überkragendes Gesims, Kaminspalte, Bruchzonen, Erdband-Facettierung,
-Ton- und Hellwerttrennung, Größenhierarchie, Grundrisskonkavität. Kriterium 5
-(Materialtrennung) ist für die Trias Fels/Erde/Gras **bestanden**, gemessen:
-Fels (101,99,92), Erde (127,108,82), Gras (152,177,120).
-
-**Paket 1 scheitert nicht am Hauptkörper, sondern daran, dass zwei Dinge nicht
-erfasst wurden, die zum Umfang gehören.** Offene Punkte, die weitergetragen
-werden:
-
-| # | Offener Punkt | Weitergabe an |
+| | vorher | nachher |
 | --- | --- | --- |
-| 1 | **Mini-Inseln haben Kastensilhouette**: flacher Deckel, senkrechte Flanken, gekappte Unterkante, acht gleich dicke Simse. In `1-eyelevel`, `2-waterfall` und `5-backlight` stellen sie die **einzige** Felssilhouette gegen den Himmel – dort ist von Paket 1 nichts zu sehen. | **Paket 8** (dessen Thema sie sind) |
-| 2 | **Fehlende Sodendicke**: Messreihe über die Kante zeigt einen reinen Schattierungsverlauf über 54 px ohne einen einzigen Materialsprung. An den Mini-Inseln ist die Narbe eine „rasierklingendünne Waffel". | **Paket 3** |
-| 3 | **Facettenskala im Nahbereich**: In `6-groundcover` ist ein Block über 30 % der Bildfläche auf ±1 Tonwert uniform. Der Fels ist für die Totale gebaut, nicht für Augenhöhe – also nicht für die VR-Standarddistanz. | **Paket 3** |
-| 4 | **Metronomische Bankrhythmik im Frontsektor**: Höhe, Abstand und Zickzack-Amplitude bleiben über die ganze Frontbreite gleich – liest sich als Textur-Kachelung. | Performance-/Schlusspass |
-| 5 | Nachrangig: N7-Feinskala (Krümel, Wurzelsaum an der Naht Gras↔Erde), Restfuge unter dem großen Knöchel, inkonsistenter Nahtcharakter (links Airbrush-Verlauf, rechts harte Facettenkante). | Paket 3 |
+| in wie vielen Bildern sichtbar | — | **5 von 6** |
+| `1-eyelevel` | — | 173 px, Ausschlag **42,4** |
+| `2-waterfall` | — | 108 px, 8,6 |
+| `4-aerial` | — | 132 px, 6,0 |
+| `5-backlight` | — | 75 px, 7,4 |
 
-Der Prüfer stellt ausdrücklich fest: **keine Budget-Ausrede.** 73 von 120
-Draw-Calls, 54 767 von 350 000 Dreiecken, 0,5 von 60 MB. Alle offenen Punkte
-sind Form- und Geometrieprobleme mit reichlich Kopfraum; nur bei den
-Mini-Inseln ist auf die Draw-Call-Seite zu achten.
+**Eigenleuchten auf der Bahn.** Die Wassertextur läuft von 0x8fd2f0 nach
+0x5fb6e6 — genau das Blau, vor dem sie steht. Mit `emissive` 0xcdeaf8 bei
+Stärke 0,5: Ausschlag in `4-aerial` **9,1 → 11,3**. Das ist wenig, und es steht
+hier als wenig.
+
+### Zwei eigene Fehler in diesem Durchlauf
+
+**Der Schaum.** Ich habe das Sprite von 1,3 × 0,5 auf 1,7 × 0,62 vergrößert. Die
+Messzahl wurde besser (`1-eyelevel` 2588 → 4588 Bildpunkte, Ausschlag 14,6 →
+19,1) und das Bild schlechter: Das Sprite ist ein **Billboard** und liegt damit
+als blasser Fleck von knapp sieben Metern quer über der Wiese, nicht als Schaum
+an einer Kante. Nachgesehen hat es der Ausschnitt, nicht die Messung.
+**Zurückgenommen.**
+
+**Der Zufallsstrom.** Die 540 Werte der Fahne kamen zuerst aus `rand`, dem
+gesäten Inselstrom — und verschoben damit alles, was danach gebaut wird:
+Mini-Inseln, ihre Bäume, ihre Findlinge. Gemessen schlug das mit Δmittel **1,6
+bis 7,7** auf allen sechs Inselbildern durch und mit **2952 Dreiecken** im
+Budget, für eine Punktwolke ohne ein einziges Dreieck. Die Lehre steht wortgleich
+im Auftrag („Ein zusätzlicher `rand()`-Aufruf verschiebt **alles** danach"); ich
+bin trotzdem hineingelaufen. Mit eigenem Strom: Δmittel **0,000 bis 0,048**,
+Dreiecke wieder 186 257.
+
+### Kosten und Regression
+
+74 Draw-Calls von 120 (+1 für die Punktwolke), 186 257 Dreiecke, 11,83 MB
+Textur. Nacht und Zen bitgleich, Konstrukt Δmittel 0,002, Dojo 0,000. Konsole
+frei von Errors und Warnings.
+
+### Was offen bleibt und was als Nächstes dran ist
+
+Der Sturz selbst bleibt in fünf von sechs Bildern unsichtbar. Das ist keine
+Materialfrage; wer ihn sehen will, muss über die Kante blicken, und genau dafür
+gibt es `3-edge-down` — nur zeigt diese Kamera eine andere Stelle des Randes.
+**Eine feste Kamera zu verschieben ist ausgeschlossen** (sie sind der
+Vergleichsmaßstab über den ganzen Auftrag); ob der Sturz an eine sichtbarere
+Stelle des Randes gehört, ist eine Frage an den Auftraggeber, keine, die ich
+still entscheide.
+
+Beim Nachsehen am Ausschnitt ist der eigentlich lautere Nachbar aufgefallen: Das
+breite blasse Gebilde neben der Lippe in `1-eyelevel` ist das **Bachband**, das
+zur Kante hin auf sieben Meter aufgeht und als durchscheinende Folie über der
+Wiese liegt. Das ist Prüfer-Mangel 6, und es ist im Bild deutlicher als alles,
+was dieses Paket betroffen hat.
 
 ---
 
-## Paket 2 – Licht & Atmosphäre: NICHT BESTANDEN nach vier Durchläufen
+## Entscheidung des Auftraggebers: Der Sturz muss nicht sichtbar sein
 
-### Was erledigt ist (vom Prüfer gemessen bestätigt)
-
-| Befund | Vorher | Nachher |
-| --- | --- | --- |
-| **Rim im Gegenlicht** – Kronenrand `5-backlight` (294,380) | (0,13,2) L=9,4 | **L=28,0**, rechte Krone 51→85, Saum stellenweise heller als der Himmel |
-| **Bounce von unten** – Kiel `4-aerial` x=600 | 147/95/54/25, fallend | **127/57/145/98**, zum Kiel hin *steigend* |
-| **Tiefenstaffelung** | invertiert (fern heller als der Himmel) | **Kriterium 6 BESTANDEN** – Dunst zieht messbar zur Himmelsfarbe (b−r +28…+32), Fog erreicht die Nachbarinseln |
-| **Globale Helligkeit** | Einbruch in 5 von 6 Bildern | fünf von sechs auf oder über Ausgangsniveau |
-| **Sonne mit Hof, Himmel weiß von ihr** | flache Scheibe | Kern + Korona + Hof im Kuppel-Shader |
-| **Konsistente Lichtrichtung** | Sonne und Licht an verschiedenen Orten | eine Quelle für Sprite, Hof, Licht und Schatten |
-| **Zenit-Clamp** | Kuppel oben flach | Verlauf 112,6 → 204,4 wiederhergestellt |
-
-### Offene Punkte, die weitergetragen werden
-
-| # | Punkt | Weitergabe |
-| --- | --- | --- |
-| 1 | **Himmelssaum an der Grasnarbe.** Der Prüfer misst an der Inselkante ein helles Band (104 → 140), wo vor Paket 2 eine Verdunklung lag (153 → 49), und wertet es als Kontur statt Licht. Ich habe den Saum von Gras und Erde entfernt – das Band blieb. Es stammt also **nicht** vom Saum, sondern vom Bounce-Licht, das die nach unten gekrümmte Traufkante beleuchtet. Physikalisch ist das an einer frei schwebenden Insel richtig; dass es als gleichbreite Kontur liest, ist es nicht. **Hier widerspreche ich dem Prüfer in der Ursache, nicht im Befund.** | Paket 3 (Terrain-Material), zusammen mit der fehlenden Sodendicke |
-| 2 | **Schlagschatten weiterhin lückenhaft.** Bäume und Findlinge werfen, Büsche/Grasbüschel/Blüten/Pilze nicht; `6-groundcover` enthält keinen einzigen. Schatten tragen keine Himmelsfarbe (b/g = 0,62/0,66). | Paket 4 (Vegetation) + Schlusspass |
-| 3 | **Wolken tragen zu wenig Lichtrichtung.** Die Richtung ist jetzt in die Scheitelfarben gebacken (Modulation 3,6 → 12,7 Luminanzstufen), aber weit von einem Silberrand entfernt. | Paket 6 (Wolken) |
-| 4 | **Facettenspreizung der Unterseite** an der Messstelle `3-edge-down` x=400: 9,1 gegen 27,3 im Ausgangsstand. Flächig ist die Unterseite besser (Spreizung 73 gegen 57), an dieser Stelle nicht. | Paket 3 |
-| 5 | **Halbschattenbreite inkonsistent** (5 px gegen 20 px) – Auflösungsgrenze der Schattenkarte. | Schlusspass |
-
-### Eigene Fehler in diesem Paket, protokolliert
-
-- **Regression:** Ich nahm 1,4 globales Hemisphärenlicht weg und gab nur 0,78
-  zurück. Der Kiel fiel von L≈100 auf L≈30 – die untere Inselhälfte war
-  *unlesbarer als vor dem Paket*.
-- **Zweimal am falschen Ort gesucht:** Das Schattenvolumen war in lokalen statt
-  Welteinheiten gesetzt (deckte 14 m einer 40-m-Insel ab), und
-  `renderer.shadowMap.enabled` stand in der Dojo-Atmosphäre, die erst beim
-  Betreten des Dojos läuft. Beide Male habe ich zur Laufzeit nachgemessen
-  statt weiter zu raten – das war der schnellere Weg.
-- **Rim-Light falsch verstanden:** Ein gerichtetes Licht von hinten beleuchtet
-  die Rückseite, die man nicht sieht. Der Saum musste ein Materialeffekt
-  werden.
-- **Saum überdosiert:** Bei `flatShading` ist die Normale je Facette konstant,
-  der Fresnel-Term wird damit zur Flächenhelligkeit statt zur Kante – der Fels
-  sah aus wie bereift.
-- **Kontaktverdunklung zu grob entfernt:** Ich hatte sie beim Einführen der
-  echten Schatten ganz gestrichen. Ein Schlagschatten sagt, wo die Sonne nicht
-  hinkommt; eine Kontaktverdunklung sagt, wo das Umgebungslicht nicht
-  hinkommt. Sie ist jetzt wieder da, eng und schwach.
-
-### Messwerte Paket 2 (Abschluss)
-
-| | vor Paket 2 | Paket 2 | Budget |
-| --- | ---: | ---: | ---: |
-| Draw-Calls env-island | 83 | **93** | 120 |
-| Dreiecke Szene | 117 769 | **164 461** | 350 000 |
-| Texturspeicher | 9,17 MB | 9,17 MB | 60 MB |
-| Shader-Programme | 22 | 30 | – |
-| Konsole | sauber | sauber | – |
-| Andere vier Umgebungen | – | unverändert | – |
-
-### Für Paket 2 vorgemerkte Messwerte des Prüfers
-
-- Gegenlicht-Krone in `5-backlight` misst **(0,19,5)** – absolut schwarz, kein
-  Rim-Light, keine Blattdurchsicht.
-- Die Sonne ist eine flache Scheibe (231,184,140) ohne Halo.
-- Der Kiel wird nach unten **dunkler** statt heller: (158,148,117) → (95,92,85)
-  → (51,52,51). Null Bounce-Fill von unten, an einer Insel, die frei im hellen
-  Himmel hängt.
-- In keinem der sechs Bilder gibt es einen Schlagschatten.
-
-Das ist laut Prüfer der Hauptgrund, warum der gut geformte Fels noch nach
-grauem Kunststoff aussieht: „die Form von Paket 1 wird vom fehlenden Licht
-verschenkt."
-
-### Messwerte Paket 1 (Abschluss)
-
-| | Ausgang | Paket 1 | Budget |
-| --- | ---: | ---: | ---: |
-| Draw-Calls env-island | 112 | **73** | 120 |
-| Dreiecke Szene | 27 816 | **59 282** | 350 000 |
-| Texturspeicher | 0,50 MB | **0,50 MB** | 60 MB |
-| Shader-Programme | 19 | 18 | – |
-| Konsole | sauber | sauber | – |
-| Build | grün | grün | – |
-| Andere drei Umgebungen | – | unverändert | – |
+Auf die offene Frage aus dem vorigen Paket — ob der Wasserfall an eine
+sichtbarere Stelle des Randes gehört — lautet die Antwort: **nein.** Er bleibt,
+wo er ist. Damit ist der Befund „in fünf von sechs Bildern unsichtbar" kein
+offener Mangel mehr, sondern eine bewusste Eigenschaft der Umgebung, und die
+Sprühfahne über der Lippe ist das, was von ihm im Bild ankommt.
 
 ---
 
-## Zwischenschritt – Aufräumliste des Nutzers
+## Paket „Der Bach": Aus der Folie wird ein Lauf mit Ufer
 
-Vier Punkte, direkt benannt, außerhalb der Paketreihenfolge erledigt.
+**Prüfer-Mangel 6:** *„Der Bach ist eine geradkantige Folie über dem Gras."*
+Querschnitt in `2-waterfall` bei y = 520: ein monotoner Verlauf über vierzehn
+Stufen, Hochpass 1,66; kein Ufer, kein nasser Saum, keine Kräuselung, kein
+Glanzpunkt, keine Schaumkrause.
 
-| Punkt | Ursache | Behebung |
-| --- | --- | --- |
-| Ranken schweben in der Luft | **Achsenkonvention.** Die gesamte Formbeschreibung rechnet `x = sin(a)`, `z = cos(a)`. Der Rankenbauer aus PR #9 rechnete `x = cos(a)`, `z = sin(a)` – der Strang wurde also an einem ANDEREN Winkel abgesetzt, als sein Radius bestimmt wurde. Zwei frühere Versuche, das über den Ausschwung zu korrigieren, sind gescheitert, weil sie am falschen Ort ansetzten. | Konvention angeglichen |
-| Gräser schweben in der Luft | Die Streudekoration sitzt auf der **Geländehöhe**, die Findlinge liegen darüber. Ein Horst an derselben Stelle wächst aus dem Stein oder schwebt davor. | `shape.blocked` / `shape.frei(x,z)`: Sperrkreise um jeden Findling, zusätzlich Begrenzung auf 90 % der Kontur |
-| Wasserlauf am Ende komisch geführt | Der Randwall stieg auch auf der Wasserfallseite an, und die Rinne schnitt dort flacher ein – das Wasser lief bergauf. | Entwässerungskerbe in `relief()`: `h = band * (1 - 0.92 * korridor) * (ridge + rough)`, dazu ein Absatz der Grasnarbe zum Rand hin |
-| Wasserfall | Er fiel senkrecht von der Lippe, während die Wand zurückweicht – die Bahn lag also **im Fels**. Der Ausblendbereich war zusätzlich als Scheitelfarbe kodiert; Scheitelfarbe multipliziert die FARBE, nicht die Deckkraft, und endete deshalb in einem schwarzen Rechteck. | Das Fallblatt tastet je Fallhöhe `shape.sideRadius(t, angle) + 0.035` ab und folgt der Wand; die Ausblendung läuft über eine `alphaMap` |
-| Regenbogen | – | vollständig entfernt |
-
----
-
-## Paket 6 – Wolken & Tiefe
+Die Ursache ist dieselbe wie bei der Wiese: Das Band hat **zwei
+Scheitelpunkte je Querschnitt** und eine Farbtextur darauf. Zwischen den beiden
+Rändern kann nichts stehen als eine lineare Interpolation.
 
 ### Was gebaut wurde
 
-- **Form aus Anzahl statt aus Größe.** Vorher fünf bis acht gleich große
-  Kugeln; jede war groß genug, ihre eigene Rundung zu zeigen, und die
-  Konstruktion war als solche lesbar. Jetzt tragen 3–4 große Ballen die Masse
-  und 7–12 kleine Knospen brechen die Silhouette auf – derselbe Gedanke wie bei
-  den Baumkronen. Die Knospen bekommen 7×6 statt 12×10 Kugelsegmente: Sie sind
-  auf dem Schirm wenige Pixel groß und kosteten sonst dieselben Dreiecke.
-- **Flache Unterkante.** Eine Haufenwolke schwimmt auf der Höhe, in der der
-  Wasserdampf kondensiert; ihr Boden ist deshalb eine waagerechte Ebene, ihr
-  Oberteil aufgetürmt. Ohne diese Klemmung bleibt es ein Traubenhaufen.
-- **Silberrand.** `f += 0.85 * pow(max(0, facing), 7)` – der schmale, sehr helle
-  Saum genau dort, wo die Sonne die Wolke streift, ist das Erkennungszeichen
-  einer Haufenwolke im Gegenlicht und fehlte vollständig. Der hohe Exponent
-  hält ihn als Saum, statt die halbe Wolke aufzuhellen.
-- Grundhelligkeit neu gestaffelt (sonnenzugewandt heller, oben heller,
-  Schattenseite tiefer und kühler).
+Das Bachband bekommt ein eigenes Material (`bachMaterial`) mit drei Eingriffen
+im Shader — kein Texturspeicher, kein Draw-Call, kein Dreieck:
 
-### Messwerte
+* **Kräuselung.** Zwei Lagen Rauschen, quer zur Fließrichtung gestreckt und mit
+  ihr wandernd. Sie stören die Normale, und erst dadurch bekommt die niedrige
+  Rauheit etwas zu spiegeln — vorher war der Glanzpunkt einer ebenen
+  waagerechten Fläche entweder ganz da oder gar nicht.
+* **Weiches Ufer.** Die Deckkraft läuft zu beiden Rändern hin aus, und zwar
+  **mit derselben Welle**, die auch die Oberfläche trägt: Eine glatt
+  auslaufende Kante wäre wieder eine gerade Linie, nur unschärfer.
+* **Schaumsaum.** Ein heller, unruhiger Streifen dort, wo das Wasser an die
+  Grasnarbe stößt.
 
-| | vor Paket 6 (`run-p5-03`) | Paket 6 (`run-p6-01`) | Budget |
-| --- | ---: | ---: | ---: |
-| Draw-Calls env-island | 97 | 97 | 120 |
-| Dreiecke Szene | 199 866 | 199 700 | 350 000 |
-| Texturspeicher | 11,83 MB | 11,83 MB | 60 MB |
-| Konsole | sauber | sauber | – |
+Die Fließrichtung kommt als Uniform herein — ohne sie weiß die Kräuselung
+nicht, wo längs und wo quer ist, und quer gestreckte Wellen, die mit dem Strom
+wandern, sind der halbe Unterschied zwischen Wasser und Marmor.
 
----
+### Gemessen — und zuerst dreimal danebengemessen
 
-## Paket 7 – Leben
-
-### Was gebaut wurde
-
-- **Ein `InstancedMesh` je Art statt einer Gruppe je Tier.** Vorher war jedes
-  Tier ein `Group`-Objekt mit zwei Flügel-Meshes: vier Vögel und fünf Falter
-  kosteten zusammen **achtzehn Draw-Calls für achtzehn Rechtecke**. Jetzt
-  sitzen alle Flügel einer Art in einem `InstancedMesh`, dessen Matrizen je
-  Bild neu gesetzt werden – **zwei Draw-Calls**. Die Bewegung bleibt CPU-seitig,
-  und das ist hier richtig: Es sind achtzehn Matrizen, kein Vertex-Strom, und
-  die Flugbahn muss ohnehin je Tier bekannt sein.
-- **Flügelumriss statt Rechteck** (`wingGeometry`). Fünf Dreiecke je Flügel,
-  Sichelform mit ausgezogener Spitze. Der Umriss beginnt bei negativem `x`,
-  greift also über die Körperachse; weil der zweite Flügel die Spiegelung des
-  ersten ist (Skalierung `x = -1`), überlappen sich die Wurzeln in der Mitte
-  und bilden dort einen Rumpf. Ohne das klafft zwischen den Flügeln eine Lücke
-  und das Tier zerfällt im Bild in zwei Splitter.
-- **Segelnde Haltung.** Flacher V-Sockel (`dihedral 0,16`) plus kleiner
-  Ausschlag (`flapAmp 0,30`) statt eines Ausschlags von 49°, dazu Schräglage in
-  der Kurve. Ein Greifvogel hält die Flügel fast waagerecht und schlägt selten.
-- **Schmetterlinge maßstäblich.** Sie waren 0,07 Einheiten groß – mal
-  Weltmaßstab vier sind das Flügel von 35 cm, also Falter mit siebzig
-  Zentimetern Spannweite. Dazu gesättigtes Rosa, Violett, Gelb und Hellblau als
-  einzige Farben außerhalb der Palette. Jetzt rund neun Zentimeter Spannweite,
-  Cremetöne aus der Umgebungspalette, und sie gaukeln knapp über der Grasnarbe
-  statt in Baumhöhe.
-- **Keine Allokation in `update()`.** Die Schleife läuft 72-mal je Sekunde;
-  vorgehaltene Hilfsvektoren statt `new THREE.Vector3()` je Flügel und Bild.
-
-### Der eigentliche Befund: Kreisbahnen waren geometrisch falsch
-
-Nach zwei erfolglosen Anläufen habe ich die Instanzmatrizen zur Laufzeit
-ausgelesen statt weiter zu raten. Ergebnis: Bei einer **Kreisbahn** steht die
-Spannweite immer **radial** zum Bahnmittelpunkt. Alle Bahnmittelpunkte lagen im
-Inselnullpunkt, und die Prüfkameras schauen auf den Inselnullpunkt. Damit zeigte
-**jeder Vogel, der in der Bildmitte auftauchte, seine Flügel genau in die
-Blickachse** und wurde zum senkrechten schwarzen Strich. Das war kein Zufall
-einzelner Standbilder, sondern ein systematischer Zusammenhang.
-
-Behoben durch zwei überlagerte Oberschwingungen (aus dem Kreis wird eine
-Schleife) und durch Ableitung der Blickrichtung aus der **tatsächlichen
-Bewegung** (`atan2` über eine Vorwärtsdifferenz) statt aus dem Bahnwinkel.
-Zusätzlich hat jedes Tier einen eigenen Bahnmittelpunkt.
-
-Gemessen wurde dabei auch, dass die Vögel bis zu **sechzig Meter neben und
-zweiundzwanzig Meter über** der Insel kreisten – dort sind sie ein Punkt. Die
-Bahnen liegen jetzt über der Insel.
-
-### Durchläufe: sieben statt vier – ehrliche Einordnung
-
-Die Obergrenze von vier Durchläufen je Paket wurde überschritten. Die ersten
-drei Durchläufe waren verschwendet, weil ich die Ursache **geraten** statt
-gemessen habe: erst die Flügelform, dann die Schlagamplitude, dann die
-Flughöhe – alles Symptomkuren an einem Problem, das in der Bahnkonstruktion
-saß. Erst der Laufzeit-Auszug der Instanzmatrizen im vierten Durchlauf hat den
-Zusammenhang gezeigt. Das ist derselbe Fehler wie beim Schattenvolumen in
-Paket 2, und dieselbe Lehre: bei zwei erfolglosen Anläufen aufhören zu raten
-und nachmessen.
-
-### Messwerte
-
-| | vor Paket 7 (`run-p6-01`) | Paket 7 (`run-p7-07`) | Budget |
-| --- | ---: | ---: | ---: |
-| Draw-Calls env-island | 97 | **76** | 120 |
-| Dreiecke Szene | 199 700 | 206 390 | 350 000 |
-| Texturspeicher | 11,83 MB | 11,83 MB | 60 MB |
-| Shader-Programme | 30 | 29 | – |
-| Konsole | sauber | sauber | – |
-| Build | grün | grün | – |
-| Andere vier Umgebungen | – | unverändert | – |
-
-Die 21 eingesparten Draw-Calls sind der größte Einzelgewinn seit der
-Paket-1-Verschmelzung – für neun Rechtecke, die zusammen weniger als ein
-Promille der Bildfläche bedecken.
-
-### Neues Werkzeug
-
-`tools/crop.mjs` – Bildausschnitt ohne Glättung vergrößern. Die Prüfbilder sind
-1280×720; ein Vogel darin ist fünfzehn Pixel groß. Ob seine Silhouette liest
-oder ob er ein schwarzer Strich ist, war ohne dieses Werkzeug nicht
-entscheidbar.
-
----
-
-## Prüfung nach Paket 6/7: 1 von 8 Kriterien bestanden
-
-Bestanden: **Farbharmonie**. Der Prüfer hat belegt, dass die Umstellung der
-Schmetterlinge die richtige war – im Stand davor lag in `5-backlight` ein
-gelber Fleck von 61 × 40 px bei (278,84), der einzige echte Farbausreißer der
-Szene; er ist weg.
-
-Nicht bestanden: Silhouette, Komposition, Licht, Materialtrennung,
-Tiefenstaffelung, Bewegung, Kein-Programmierer-Tell.
-
-### Zwei echte Fehler, die ich ausgeliefert hatte
-
-**1. Die Wolken wurden von unten beleuchtet.** Drei unabhängige Messungen bei
-jeweils oben stehender Sonne:
-
-| Bild | Spalte | Oberkante | Inneres | Unterkante |
-| --- | --- | ---: | ---: | ---: |
-| `5-backlight` | x=450 | 191,2 | 174–180 | **203,3** |
-| `2-waterfall` | x=180 | 192,5 | 166,1 | **200,4** |
-| `1-eyelevel` | x=1070 | 194,9 | 184,4 | **213,0** |
-
-Ursache: `CLOUD_MATERIAL` war ein `MeshStandardMaterial`. Über den
-einbebackenen Scheitelfarben lag damit die volle Szenenbeleuchtung –
-einschließlich der starken Aufhellung von unten, die in Paket 2 für den
-Inselkiel eingeführt wurde. Der Kommentar in `makeCloud` beschrieb genau diese
-Gefahr; das Material wurde trotzdem nie umgestellt. Die flache
-Haufenwolken-Unterkante war geometrisch korrekt gebaut (Abweichung 7 px auf
-65 px Breite, vom Prüfer nachgemessen) und wurde als Leuchtfläche gerendert.
-
-Behoben: `MeshBasicMaterial`. Eine Wolke ist kein Lambert-Körper; ihre
-Helligkeit kommt aus Streuung. Jetzt ist der Bake die ganze Wahrheit und keine
-Lichtquelle kann die Richtung mehr überstimmen.
-
-**2. Die Tiefenstaffelung war wirkungslos.** Gemessen: naher Findling L=106,8
-gegen Fels der fernen Mini-Insel L=105,0 – 1,8 Stufen über zig Meter. In
-`1-eyelevel` war der ferne Körper mit L=83,2 sogar *dunkler* als der nahe mit
-L=102,7.
-
-Ursache: `Fog(near = 10 * WORLD_SCALE)` – der Dunst begann 40 m vor der Kamera,
-und dort ist der interessante Teil der Szene zu Ende. Die nahen Mini-Inseln
-stehen 48 m entfernt und bekamen 6 %. Zusätzlich rechnet three mit
-`vFogDepth = -mvPosition.z`, also der Tiefe ENTLANG DER BLICKACHSE: Eine Insel,
-die 46° seitlich steht, hat bei 82 m Abstand nur 57 m Tiefe.
-
-Behoben: `Fog(6 * WORLD_SCALE, 32 * WORLD_SCALE)`.
-Messwert danach: 101,8 gegen **129,3** – der ferne Körper ist jetzt heller und
-kühler als der nahe.
-
-### Ein Befund, dem ich nach Messung widerspreche
-
-Der Prüfer führte als Mangel 13: „Kronen-Sprenkel als Flimmerquelle –
-6,8 % der Kronenpixel über L=190, auf der Quest ein Kriechen."
-
-Ich habe die hellen Pixel in genau seinem Bereich (540,100)–(670,360)
-ausgelesen. Die hellsten sind **(211,227,236)** bei mittlerer Sättigung 0,186 –
-das ist **Himmel**, der zwischen den Ästen durchscheint, nicht leuchtendes
-Laub. Pixel mit L > 150, bei denen Blau *nicht* der stärkste Kanal ist, gibt es
-**325 von 34 191**, also 0,95 %.
-
-Eine offene Koniferenkrone SOLL Himmel durchlassen. Der Messbereich enthielt
-den Hintergrund; die Kennzahl misst ihn mit. Der Mangel besteht in dieser Form
+**Drei Anläufe habe ich einen Kasten von Hand um das Wasser gelegt und Gras
+gemessen.** Beim Sturz war es sogar die Felswand. Die Zahlen bewegten sich
+jedesmal um weniger als ein Prozent, während der Bildausschnitt einen deutlichen
+Unterschied zeigte — ich hätte daraus fast geschlossen, die Änderung greife
 nicht.
 
-**Aber:** Bei der Prüfung dieser Behauptung ist ein anderer Fehler aufgefallen.
-Der Himmelssaum stand auf den Blattkarten bei `strength 0,55, power 1,9`. Eine
-Blattkarte ist eine ebene Fläche mit konstanter Normale – der Fresnel-Term wird
-darauf zur Flächenhelligkeit statt zur Kante, derselbe Fehler wie seinerzeit am
-Fels. Im Bildvergleich lag über der ganzen Krone ein milchig-blauer Schleier.
-Auf `0,26 / 4,2` reduziert; die Grüntöne sind sichtbar klarer. **Richtige
-Änderung, falsche Begründung** – das gehört so ins Protokoll.
+`tools/sturzprobe.mjs` misst deshalb jetzt den Hochpass **auf der Maske des
+Gegenstands selbst**: Der Knoten wird unsichtbar geschaltet, die geänderten
+Bildpunkte sind seine Fläche, und nur über sie wird gemittelt. Damit kann der
+Messbereich nicht mehr danebenliegen.
+
+| Bild | Hochpass vorher | nachher | Fläche vorher → nachher |
+| --- | ---: | ---: | --- |
+| 1-eyelevel | 5,57 | **6,25** | 6764 → 6267 px |
+| 2-waterfall | 3,26 | **3,53** | 12379 → 11541 px |
+| 3-edge-down | 8,73 | **10,86** | 956 → 788 px |
+| 4-aerial | 4,09 | **4,98** | 2106 → 1849 px |
+| 5-backlight | 10,07 | **10,35** | 1296 → 1110 px |
+| 6-groundcover | 6,88 | **8,23** | 2734 → 2450 px |
+
+Drei bis vierundzwanzig Prozent mehr Feinstruktur, in **jedem** Bild. Die Fläche
+schrumpft um sechs bis achtzehn Prozent, und das ist kein Verlust, sondern die
+Wirkung des weichen Ufers: Was vorher als volle Deckkraft bis zur Polygonkante
+stand, läuft jetzt unter die Messschwelle aus.
+
+**Die Zahl untertreibt den Unterschied.** Der Hauptgewinn sitzt an der *Kante*,
+und ein Hochpass über die Fläche misst die Kante kaum mit. Der Beleg ist der
+Ausschnitt: Wo vorher eine durchscheinende Platte mit geraden Rändern über den
+Findlingen lag, steht jetzt ein Lauf mit ausgefranstem, schaumigem Ufer.
+
+### Kosten und Regression
+
+74 Draw-Calls von 120, 186 257 Dreiecke, 11,83 MB Textur — jede Zahl
+unverändert. Nacht und Zen bitgleich, Konstrukt Δmittel 0,002, Dojo 0,000.
+Konsole frei von Errors und Warnings.
+
+### Was offen bleibt
+
+Das Band läuft weiterhin **über** die Findlinge im Bachbett, statt an ihnen zu
+brechen. Ein Schaumkranz am Stein braucht die Steinorte im Shader; das ist
+machbar (die Kranzsteine der Quelle stehen als Liste da), aber ein eigenes
+Paket. Und der breite Abschnitt kurz vor der Lippe bleibt flächiger als der
+schmale — dort ist das Band bis zu sieben Meter breit, und ein Ufersaum trägt
+über diese Breite nicht.
+
+### Die Lehre dieser Runde
+
+**Ein von Hand gesetzter Messkasten ist eine Vermutung, kein Messbereich.** Drei
+Mal hintereinander habe ich damit den falschen Gegenstand gemessen und zweimal
+fast die falsche Schlussfolgerung gezogen. Die Maske des Gegenstands steht als
+Nebenprodukt jeder differentiellen Messung schon da — man muss sie nur benutzen.
 
 ---
 
-## Paket 8 – Mini-Inseln (mit Nacharbeit aus der Prüfung)
+## Paket „Licht": Die Sonne hat wieder eine Farbe
 
-### Mini-Inseln
+**Prüfer-Mangel 7:** `5-backlight`, Kasten x 529–608, y 141–220 — **5036
+Bildpunkte reines (255,255,255)**, Sättigung entlang y = 175 durchgehend null.
 
-- **Die Treppe war Unterabtastung, kein Formfehler.** Die Flanken bestanden aus
-  acht bis zehn gleich hohen, waagerechten Absätzen – „gestapelte Regalbretter",
-  eine gedrehte Kiste. Die Schichtbänke sind ein Sägezahn über die
-  Flankenkoordinate, abgetastet mit `sideRings * detail` Ringen. Bei
-  `detail 0,55` sind das 20 Ringe für bis zu neun Bänke: knapp zwei Stützstellen
-  je Bank. Bei dieser Abtastung KANN der Sägezahn nicht als Sims lesen, er
-  kippt in eine Treppe um. `strataRate` ist jetzt an die Ringzahl gekoppelt
-  (mindestens 4,5 Ringe je Bank), was inhaltlich ebenfalls richtig ist: Was
-  weiter weg steht, zeigt weniger, aber größere Formen.
-- **Schieflage.** Fünf Inseln, deren Deckel alle exakt waagerecht liegen, sind
-  die auffälligste Regelmäßigkeit am Horizont. Nichts, was frei im Raum treibt,
-  richtet sich nach der Weltachse aus.
-- **Tiefe je Insel verschieden** (7,2 … 9,6 statt einheitlich 6,4). Vorher
-  hatten alle fünf dasselbe Verhältnis und lasen sich als Serienteil.
+Über der betreffenden Zeile im Quelltext stand: *„Warmer Kern. Gemessen war die
+Scheibe über neunzig Pixel hinweg reines (255,255,255) bei Sättigung null."* Der
+Kommentar beschrieb den Befund als behoben. Der Prüfer hat ihn unverändert
+wiedergefunden.
 
-### Nacharbeit aus der Prüfung
+### Warum ein warmer Kern nicht reicht
 
-| Mangel (Rang des Prüfers) | Behebung | Messwert |
-| --- | --- | --- |
-| **1** Identische Dellen als Raster über allen Felskörpern | Eigene Felskarte `cliffMaps()` **ohne Absplitterungen**. Die Granitkarte des Dojo-Gartens ist für 40-cm-Kacheln auf Gartensteinen gezeichnet; auf einer 40-m-Flanke kehren ihre Muschelabplatzer dutzendfach wieder. Ein Rauschfeld wiederholt sich auch, aber unauffällig – eine erkennbare Form wiederholt sich auffällig. Stattdessen zwei sich kreuzende Rissscharen aus geriffeltem Rauschen; das füllt zugleich die seit Paket 3 offene Spektrallücke zwischen 4-px-Korn und Facettenmaßstab. | Raster im Bild nicht mehr auffindbar |
-| **2/3** Wolken von unten beleuchtet, kein Silberrand | unbeleuchtetes Material, siehe oben | – |
-| **4** `6-groundcover` zeigt keinen Bodenbewuchs (69,8 % Fels) | Findlinge fallen nicht mehr in den Arbeitsbereich. Bis `ISLAND_FLAT_R` (0,58 des Radius) ist die Fläche bewusst eben – dort steht der Nutzer und dort legt die App die Karten ab. Vorher landete gut jeder dritte Findling bei 0,30…0,60, also mitten darin. **Das war nicht nur ein Bildfehler, sondern hätte in der Anwendung zwischen Nutzer und Karten gestanden.** | Der Block ist aus dem Bild verschwunden; Gräser, Blüten, Pilze, Büsche, Bach und Bäume sind sichtbar |
-| **7** Wolken durchdringen Mini-Inseln (3 von 6 Bildern) | Rückweisung beim Platzieren: bis zu 14 Versuche gegen die Inselplätze | keine Durchdringung mehr |
-| **8** Kein atmosphärischer Dunst | Nebelreichweite, siehe oben | 89,0 → **129,3** gegen nahen Fels bei 101,8 |
-| **9** Kein Kontaktschatten unter Grasbüscheln | `addGrassDecoration` hatte als einziger Streuer keine Kontaktverdunklung – und die Horste stehen dem Nutzer am nächsten. Alle zusammen ein Draw-Call. | Boden am Horstfuß 162,0 gegen 177,3 daneben (vorher 181,1 gegen 180,1, also **1,0**) |
-| **11** Zwei unvereinbare Felsmaterialien in einem Bild | Findlinge und Flanke tragen jetzt dieselbe Karte | – |
-| **14** Kahler Randstreifen am Inselrand | Streuradius von 0,90 auf 0,96 der Kontur; die steile Kante hält `shape.frei` ohnehin frei | Bewuchs reicht bis an die Abbruchkante |
-| **16** Ranke als senkrechte Kette identischer Kugeln | Der seitliche Versatz wirkte stur auf die Z-Achse statt tangential zur Wand, und die Blattbüschel saßen in einem festen Raster. Jetzt tangentialer Versatz mit S-Krümmung, Büschelabstände in Zufallsschritten (Trauben statt Perlenkette), Größenspanne 0,09…0,30 statt 0,17…0,28. | – |
-| **19** Wolkengrößen uniform (Faktor 3,3 statt 18) | Rangverteilung: 14 % Heldenwolken, 38 % flache Schleier, Rest Mittelmaß | – |
-| **20** Sonne neutralweiß | warmer Kern `rgba(255,247,222)` statt `rgba(255,253,240)` | – |
+Der Kern war **additiv** gemischt, über einem ebenfalls additiven Hof, über einem
+Himmel von L ≈ 190. Eine Summe, die in jedem Kanal an die Obergrenze läuft, hat
+keine Farbe mehr — ganz gleich, welche Farbe man hineingibt. Die Lehre steht
+wortgleich im Auftrag („additiv plus voller Kern ergibt reines Weiß") und ist
+beim **Mond des Nachthimmels** schon einmal bezahlt worden: Dort wurde der Kern
+normal gemischt und nur der Hof blieb additiv. Dieselbe Lösung, dieselbe Datei,
+hundert Zeilen entfernt.
 
-### Eigener Fehler beim Nachkalibrieren
+Jetzt: Kern mit `NormalBlending` und `toneMapped: false`, Hof weiter additiv.
+Normal gemischt **ersetzt** der Kern den Himmel, statt sich zu ihm zu addieren.
 
-Nach der Umstellung auf ein unbeleuchtetes Wolkenmaterial habe ich die
-Grundhelligkeit auf 0,92 gesetzt. Damit lag schon der Körper der Wolke im
-flachen Ast der ACES-Kurve: Eine nahe Wolke maß **(242,242,241) mit dreizehn
-Luminanzstufen Gesamtspanne** – ein weißes Blatt Papier. Auf 0,62 zurück; der
-Gipfel ohne Silberrand liegt jetzt bei 1,14, der Schatten bei 0,34.
+| `5-backlight`, (500,120)–(640,250) | vorher | nachher |
+| --- | ---: | ---: |
+| reines Weiß | 4994 px (**27,0 %**) | **0 px (0,0 %)** |
+| Sättigung, Mittel | 56,9 | **70,2** |
 
-### Offene Punkte aus der Prüfung, die nicht behoben sind
+Im Bild steht statt eines weißen Lochs eine goldene Scheibe mit hellem Hof.
 
-| Punkt | Befund des Prüfers | Weitergabe |
-| --- | --- | --- |
-| `4-aerial` zu 77,1 % leerer Himmel | p50 = 197,2, p99 = 211,2 – der Median liegt fast auf dem Maximum | Kadrierung; die Kameras sind laut Auftrag unveränderlich |
-| Vordergrundwiese leer | Region (0,470)–(700,720): Detailanteil nur 8,70 %, 6 Luminanzstufen über 550 px | Schlusspass |
-| Wasser ohne Ufer, ohne Tiefe, ohne Nässe | Bach als flaches Band mit messerscharfer konstanter Kante; Stein bei (390,455) exakt horizontal abgeschnitten | Paket 5 erneut |
-| Büsche als Konfetti gleich großer Ellipsen | kein Umriss, keine Masse, keine obere Kante | Paket 4 erneut |
-| Insel-Silhouette am Horizont schnurgerade | `5-backlight` x=384…1216 durchgehend y=527…546 | schwierig: die Innenfläche muss eben bleiben, weil `locomotion.js` keine Geländeabfrage hat |
-| Schmetterlinge nicht auffindbar | ~10 × 9 px, farblich identisch mit Wiesenblüten | die Korrektur von 70 cm auf 9 cm ist maßstäblich richtig und über das Wirkungsziel hinausgeschossen |
-| Vögel ohne Innenzeichnung | einfarbig (48,65,81) über die ganze Ausdehnung | bewusst: eine Silhouette in 20 m Höhe |
-| Halbschattenbreite inkonsistent | 5 px gegen 20 px, Auflösungsgrenze der Schattenkarte | Schlusspass |
+### Und die Büsche werfen jetzt selbst
 
-### Messwerte Paket 8
+**Prüfer-Mangel 4:** *„Büsche liegen auf, Felsen stehen."* Der Findling in
+`6-groundcover` nimmt dem Gras unter sich **67 Luminanzstufen**, der Busch 200
+Bildpunkte daneben **vier** — „ein Aufkleber mit haarscharfer Unterkante neben
+einem Stein mit Schatten".
 
-| | vor Paket 8 (`run-p7-07`) | Paket 8 (`run-p8-10`) | Budget |
+Getragen hat ihn allein die gemalte Kontaktverdunklung `undergrowth-shade`. Die
+liegt aber immer senkrecht unter dem Gegenstand, während die Sonne auf 38,7 Grad
+steht, und gemessen (`tools/sturzprobe.mjs`) deckt sie nur **377 bis 2335
+Bildpunkte bei 4,8 bis 7,8 Stufen** Abfall. Ein Busch von anderthalb Metern
+wirft bei diesem Sonnenstand knapp zwei Meter Schatten — das ist keine
+Verdunklung unter ihm, sondern eine Form neben ihm.
+
+Büsche und ihre Blattkarten werfen jetzt, Büsche und Pilze empfangen. Pilze
+werfen **nicht**: Ein Hut von sechs Zentimetern ergäbe bei 5,2 cm je
+Schattenkartentexel zwei Texel, und das ist Rauschen, kein Schatten.
+
+Gemessen mit `tools/schattenanteil.mjs` — jedes Bild zweimal, mit und ohne
+Schattenwurf, die Differenz **ist** der Schatten:
+
+| Bild | Fläche vorher | nachher | Abfall vorher → nachher |
+| --- | ---: | ---: | --- |
+| 1-eyelevel | 0,57 % | **2,14 %** | 39,2 → 27,5 |
+| 2-waterfall | 0,93 % | **2,66 %** | 44,7 → 32,7 |
+| 3-edge-down | 22,73 % | 22,93 % | 29,9 → 29,8 |
+| 4-aerial | 5,51 % | 5,66 % | 30,9 → 30,6 |
+| 5-backlight | 1,78 % | **3,16 %** | 42,1 → 36,9 |
+| 6-groundcover | 0,99 % | **2,30 %** | 36,8 → 26,8 |
+
+In den vier Augenhöhen-Bildern **verdoppelt bis verdreifacht** sich die
+beschattete Fläche. Dass der mittlere Abfall dabei sinkt, ist kein Verlust: Ein
+Buschschatten auf Gras ist weicher und teildurchlässig, ein Felsschatten hart.
+Mehr Fläche bei sanfterem Abfall ist genau die Richtung.
+
+### Kosten und Regression
+
+74 → **76 Draw-Calls** von 120, 186 257 → **199 505 Dreiecke** von 350 000
+(+13 248 für Büsche und Blattkarten im Schattendurchgang), Texturspeicher
+unverändert 11,83 MB. Nacht und Zen bitgleich, Konstrukt Δmittel 0,003, Dojo
+0,000. Konsole frei von Errors und Warnings.
+
+### Die Lehre dieser Runde
+
+**Ein Kommentar, der einen Befund als behoben ausweist, ist kein Beleg dafür.**
+Über der Sonnenzeile stand die Messung des alten Zustands und darunter der
+Versuch, sie zu beheben — nur hat der Versuch die Ursache nicht getroffen, und
+der Kommentar blieb stehen, als wäre er es. Wer so etwas liest, prüft es nicht
+nach; der Prüfer schon.
+
+---
+
+## Berichtigung: Die Wiese bestand aus Kacheln, und die habe ich gebaut
+
+**Befund des Auftraggebers:** *„Die Wiese sieht noch ganz komisch aus, als würde
+sie aus Kacheln bestehen. Außerdem soll das Gras gleichmäßig grün sein."*
+
+Beides trifft zu, und das erste ist **mein eigener Fehler aus dem
+Wiesen-Paket**.
+
+### Die Kacheln
+
+Wertrauschen sitzt auf einem **achsenparallelen Gitter**. Eine einzelne Lage
+zeigt dieses Gitter als Rauten, sobald ihre Zellen im Bild größer als ein paar
+Bildpunkte werden — und genau das habe ich im Nahfeld eingebaut: Flecken bei
+0,9 m und ein Korn bei 0,16 m, beide als **eine** Lage Wertrauschen, beide auf
+demselben Gitter. Im Ausschnitt bei fünffacher Vergrößerung sind die Rauten
+nicht zu übersehen.
+
+Mehrere Oktaven allein hätten nichts geholfen, solange sie dieselbe Ausrichtung
+haben: Ihre Gitter fallen aufeinander und **verstärken** sich. Jede Oktave wird
+deshalb jetzt um 36,7 Grad gedreht und mit dem krummen Faktor 2,17 statt 2,0
+skaliert; damit liegt keine Zellgrenze auf einer anderen. Dasselbe Rauschen
+trägt Albedo und Normalenstörung.
+
+### Das Grün
+
+Zwei Quellen, beide zu kräftig:
+
+*In meinem Shader* standen Flecken von 90 cm mit 17 Prozent Ausschlag, Büschel
+mit 10 Prozent und eine Farbwanderung ins Gelbe auf dem Korn. Die Flecken sind
+auf ein Drittel zurück, die Farbwanderung ist ganz heraus.
+
+*In den Scheitelfarben* stand über der Stelle: „Die Ausschläge sind bewusst
+groß." Sie waren zu groß — ±0,098 im Farbton und ±0,24 in der Sättigung, und
+damit zerfiel die Wiese in Gebiete. Der Grund für die Variation war richtig
+(Wasser sammelt sich in Mulden und läuft vom Rücken ab), die **Sprache** falsch:
+Feuchtes Gras ist nicht anders grün, es ist dunkler grün. Der Farbton bewegt
+sich jetzt um ein Viertel des alten Betrags, die Sättigung um ein Fünftel, und
+die Helligkeit trägt den Rest.
+
+### Gemessen
+
+`tools/grasfarbe.mjs` (neu) misst beides zusammen, weil es sich widersprechen
+kann: Farbstreuung **und** Feinstruktur. Wer nur eines misst, macht aus dem
+Farbfeld ein Fleckenmuster oder umgekehrt.
+
+Wiese in `6-groundcover`, (100,420)–(1180,700):
+
+| | Farbton ± | Rot-Blau ± | Hochpass |
 | --- | ---: | ---: | ---: |
-| Draw-Calls env-island | 76 | **77** | 120 |
-| Dreiecke Szene | 206 390 | 219 419 | 350 000 |
-| Texturspeicher | 11,83 MB | **11,83 MB** | 60 MB |
-| Shader-Programme | 29 | 30 | – |
-| Konsole | sauber | sauber | – |
-| Build | grün | grün | – |
-| Andere vier Umgebungen | – | unverändert | – |
+| Ausgangsstand | ± 3,71 | ± 0,57 | 0,040 |
+| nach dem Wiesen-Paket | ± 4,95 | ± 3,31 | 0,539 |
+| **jetzt** | **± 3,05** | **± 2,56** | **1,052** |
 
-Die Felskarte kostet **keinen** zusätzlichen Texturspeicher: Sie ersetzt die
-Granitkarte auf den Inselobjekten, und die Granitkarte bleibt ohnehin für das
-Dojo geladen.
+Die Farbstreuung liegt jetzt **unter** dem Ausgangsstand — die Wiese ist
+gleichmäßiger grün als vor allen Änderungen —, und die Feinstruktur ist
+gleichzeitig das **Sechsundzwanzigfache** des Ausgangs und das Doppelte des
+letzten Standes.
 
-### Harness
+In `1-eyelevel`: Farbton ± 13,48 → ± 13,19, Hochpass 2,447 → **2,945** (die
+größere Streuung dort enthält Büsche und Blumen im Messfeld).
 
-`tools/screenshots.mjs`: Zeitgrenze für Einzelbilder auf 120 s. Das Dojo ist
-die teuerste der fünf Umgebungen und hat unter SwiftShader die Vorgabe von 30 s
-gerissen, was einen ganzen Durchlauf abgebrochen hat. Reine Harness-Geduld,
-ohne Aussage über die Laufzeit auf der Quest.
+Budget unverändert: 76 Draw-Calls, 199 505 Dreiecke, 11,83 MB. Nacht, Zen,
+Konstrukt und Dojo alle Δmittel 0,000. Konsole sauber.
 
-`tools/crop.mjs` und `tools/region.mjs`: Ausschnittsvergrößerung ohne Glättung
-und Kennzahlen eines Bildbereichs. Ohne das zweite wäre der Kronen-Befund nicht
-zu widerlegen gewesen.
+### Die Lehre dieser Runde
 
-### Eigener Verfahrensfehler
+**Wertrauschen ist ein Gitter, und ein Gitter sieht man.** Die Hausregel sagt
+bisher nur, dass `hashNoise` als Umriss einen Zackenstern ergibt. Der zweite
+Teil fehlte: Auch die geglättete Fassung verrät ihre Achsen, sobald eine Zelle
+mehr als ein paar Bildpunkte deckt. Gegenmittel ist nicht mehr Amplitude,
+sondern **Drehung zwischen den Oktaven**.
 
-Ich habe während eines laufenden Messdurchlaufs an `src/` gearbeitet. Vite hat
-neu geladen, der Durchlauf war wertlos und musste verworfen werden. Derselbe
-Fehler ist in diesem Projekt schon einmal protokolliert. Betroffene Artefakte
-(`run-p8-06`) wurden gelöscht statt ausgewertet.
+Und: **Mehr Variation ist nicht mehr Qualität.** Ich habe im Wiesen-Paket die
+Farbstreuung von ±3,71 auf ±4,95 gehoben und das für einen Gewinn gehalten,
+weil der Hochpass mitstieg. Der Auftraggeber hat die Wiese daraufhin als
+fleckig gemeldet. Die richtige Zielgröße war von Anfang an: Struktur in der
+Helligkeit, Ruhe in der Farbe.
+
+---
+
+## Der Prüfer, zweiter Durchgang
+
+Gegenstand war `tools/shots/insel-jetzt/` nach acht Paketen, mit `insel-01/` zum
+Vergleich. Er hatte den ausdrücklichen Auftrag, meine sieben Behauptungen
+nachzumessen statt zu übernehmen.
+
+### Urteil je Kriterium
+
+| # | Kriterium | Urteil | gegenüber dem ersten Durchgang |
+| --- | --- | --- | --- |
+| 1 | Silhouette | nicht bestanden | unverändert |
+| 2 | Komposition | nicht bestanden | unverändert, Zahlen bis auf 0,1 % gleich |
+| 3 | **Licht** | **bestanden** | **geändert: nicht bestanden → bestanden** |
+| 4 | Farbharmonie | bestanden | unverändert |
+| 5 | Materialtrennung | nicht bestanden | deutlich besser, Urteil steht |
+| 6 | Tiefenstaffelung | nicht bestanden | unverändert |
+| 7 | Bewegung | nicht bestanden (nur Quellenlage) | unverändert |
+| 8 | Programmierer-Tell | nicht bestanden | Wiesenkachelung ist weg, Rest steht |
+
+Von acht Kriterien ist eines dazugekommen: **Licht**. Begründet mit einer Quelle
+samt Hof, Kern (254,241,199) statt Weiß, Schlagschatten mit 30-px-Halbschatten
+und 62 Stufen Tiefe, Kontaktverdunklung am Findlingsfuß und dem Himmel als
+kühlem Gegenpol über 89 Stufen.
+
+### Meine sieben Behauptungen, nachgemessen
+
+| # | Behauptung | sein Urteil |
+| --- | --- | --- |
+| 1 | Wiese 0,040 → 1,052 | **bestätigt**, dazu konstante Läufe 97,6 % → 6,7 % |
+| 2 | gleichmäßig grün, ±3,05 | **teilweise** — Farbton ja, aber Rot-Blau-Streuung ±0,57 → ±2,56 und die Grasfarbe verliert Sättigung (max−min 76 → 56) |
+| 3 | Konifere 27,4 → 21,3 | **bestätigt**, bleibt aber der höchste Hochpass im Satz |
+| 4 | Sonnenkern | **bestätigt**, 4994 → 0 |
+| 5 | Buschschatten, Fläche ×2 bis ×3 | **erster Teil bestätigt, zweiter widerlegt** |
+| 6 | weiches Bachufer | **teilweise** — nah ja (2 px → 9 px Rampe), auf mittlerer Entfernung unverändert 1 px |
+| 7 | Sprühfahne | **bestätigt, aber klein** — 4,55 % → 8,65 % Nicht-Himmel, nur aus der Vogelkamera |
+
+### Zu Behauptung 5 — und was daran wirklich zutrifft
+
+Er misst den **dunklen Anteil der hellen Wiese** in einem Kasten und findet ihn
+gefallen: `1-eyelevel` 18,86 → 17,04 %, `4-aerial` 38,98 → 33,61 %.
+
+Das widerspricht meiner Zahl nicht, denn es ist eine andere Größe. Ich habe
+**differentiell** gemessen — jedes Bild einmal mit und einmal ohne Schattenwurf,
+und die Differenz ist per Definition der Schatten: 0,57 → 2,14 % in
+`1-eyelevel`. Sein Wert enthält dagegen alles Dunkle im Kasten, auch Büsche,
+Steine und dunkleres Gras, und er fällt schon deshalb, weil die Wiese nach der
+Farbberuhigung insgesamt heller und gleichmäßiger geworden ist.
+
+**Meine Formulierung war trotzdem zu weit.** Ich habe „verdoppelt bis
+verdreifacht" geschrieben und mich dabei auf die vier Augenhöhen-Bilder bezogen;
+in `4-aerial` steht in derselben Tabelle 5,51 → 5,66 %, also unverändert. Wer
+den Satz ohne die Tabelle liest, nimmt mehr mit, als dasteht.
+
+Und sein **Mangel 12** trifft unabhängig davon zu und ist neu: In `4-aerial`
+misst die größte dunkle Zusammenhangskomponente 400 × 191 px bei **17 %
+Deckung** — sechs zehn Meter hohe Koniferen, und kein einziger Baum ist als
+Schatten wiederzuerkennen.
+
+### Was ich nicht auf dem Zettel hatte
+
+**1 — Die Wiesenstruktur sitzt in der Ferne, nicht vor den Füßen.** Bandweise in
+`6-groundcover`, x 150–1150:
+
+```
+y 380–418  4,594      y 500–538  1,237      y 620–658  0,477
+y 420–458  2,061      y 540–578  0,917      y 660–698  0,348
+y 460–498  1,695      y 580–618  0,651
+```
+
+Faktor **13 in die falsche Richtung**. Das nächste Stück Boden moduliert um
+unter eine Luminanzstufe. Damit ist auch mein eigener offener Punkt erklärt: Der
+Vordergrund ist nicht leer, weil dort nichts *steht*, sondern weil die
+Modulation dort zusammenbricht — es ist dieselbe Vergrößerungsfalle wie beim
+Nachthimmel, nur habe ich sie hier selbst wieder eingebaut.
+
+**2 — Dieselbe Ursache erklärt den ungeklärten Buschbefund.** Nah verschwindet
+das Detail, fern aliasiert es. In `6-groundcover` ist das Verhältnis sogar
+**schlechter** geworden: 1,38 → 1,64.
+
+**3 — Die Findlinge sind jetzt die glattesten Flächen der Szene.** 35,4 % bzw.
+37,7 % der Pixel in konstanten Läufen ≥ 6, längster Lauf 91 px — gegen 6,7 % auf
+der Wiese und 16,1 % am Kiel. Ich habe die Wiese an ihnen vorbeigezogen.
+
+**4 — Null Luftperspektive auf der Bodenebene.** Ferner Kamm L 180,0 /
+Sättigung 50,7 gegen nächsten Vordergrund L 179,3 / Sättigung 50,7: **0,7
+Stufen und 0,0 Sättigungspunkte über rund 30 m**, während der Fels im selben
+Bild um 35 Stufen staffelt. Die Staffelung ist eingebaut und greift auf einem
+von zwei Materialien.
+
+**5 — Der Himmelssaum landet im Blattinnern.** `5-backlight` (630,555)–(790,670):
+3,05 % der Laubpixel mit B > R+30, davon **2,48 Prozentpunkte vollständig von
+Laub umschlossen**. Beispiel: (32,62,22) direkt neben (55,109,97).
+
+**6 — `addWind` wird genau einmal aufgerufen** (Blumen). Kronen- und
+Buschhüllkörper stehen still, während die Blattkarten darauf schwingen. Alle
+fünf Vögel teilen `flap: 5.0`, alle sieben Falter `flap: 13`, alle Mini-Inseln
+`time * 0.4`, alle Wolken driften in +x und springen bei ±26 per Modulo. Er
+führt das ausdrücklich als **unbestätigt** — ein Standbild kann es nicht zeigen.
+
+### Was er als gut bezeichnet und was nicht angefasst wird
+
+Himmel (89 Stufen Verlauf), Sonne (0 ausgebrannte Punkte, Sättigung 70,2),
+Farbtonart (98,4–99,4 % in zwei Familien), Busch- und Findlingsschatten (30-px-
+Halbschatten, 62 Stufen — „der klarste Gewinn dieser Runde"), Felsstaffelung
+(35 Stufen, der alte Befund „1,8 Stufen" ist erledigt), das **nahe** Bachufer
+(9-px-Rampe mit Schaum) und die Kiel-Felsoberfläche (16,1 % konstante Läufe —
+„der Maßstab, an dem die Findlinge gemessen gehören").
+
+### Die Lehre dieser Runde
+
+**Eine Verbesserung verschiebt den Maßstab.** Die Wiese war die glatteste Fläche
+der Szene; jetzt sind es die Findlinge, und zwar ohne dass sich an ihnen etwas
+geändert hätte. Und: **Ein Detail, das nicht an die Bildschirmauflösung
+gekoppelt ist, verschwindet nah und aliasiert fern.** Beides habe ich beim
+Nachthimmel schon einmal gelernt und hier nicht angewandt.
+
+---
+
+## Paket „Nahfeld": Die Wiesenstruktur stand falsch herum
+
+**Der schwerste Befund des zweiten Prüferdurchgangs**, und einer, den ich nicht
+auf dem Zettel hatte: Die Struktur der Wiese war in der **Ferne** am stärksten
+und brach zur Kamera hin zusammen.
+
+```
+6-groundcover, bandweise x 152–1148, fern -> nah
+Ausgangsstand   2,822  0,110  0,064  0,034  0,026  0,021  0,018  0,016
+nach Paket 2    4,594  2,061  1,695  1,237  0,917  0,651  0,477  0,348
+```
+
+Faktor **13,2** in die falsche Richtung. Das nächste Stück Boden — rund zwei
+Meter vor dem Auge — modulierte um weniger als eine Luminanzstufe.
+
+### Warum, und warum es dieselbe Falle wie beim Nachthimmel ist
+
+Es ist kein fehlendes Detail, sondern **Vergrößerung**. Das Korn hat 32 cm
+Kantenlänge; aus zwei Metern deckt eine solche Zelle einen guten Teil des Bildes
+ab, und ein Hochpass über ein 5×5-Fenster sieht darin nichts. Die Struktur ist
+da — nur mit einer Ortsfrequenz, die auf diese Entfernung nicht mehr als
+Oberfläche liest.
+
+Genau das steht seit dem Nachthimmel im Protokoll („Texturvergrößerung, nicht
+fehlendes Detail"), und die Antwort ist dieselbe: **ein zweiter, viel feinerer
+Maßstab, der nur nah eingeblendet wird.** 4,5 cm sind auf zwei Metern 15
+Bildpunkte, auf sechs noch fünf; darüber wird er ausgeblendet, bevor er zu
+Flimmern wird. Dieselbe Staffelung noch einmal in der Normalenstörung: Büschel
+von 18 cm für den mittleren Bereich, Halme von 3,6 cm für das Allernächste.
+
+### Gemessen
+
+```
+6-groundcover, bandweise, fern -> nah
+Ausgangsstand   2,822  0,110  0,064  0,034  0,026  0,021  0,018  0,016
+vorher          4,594  2,061  1,695  1,237  0,917  0,651  0,477  0,348
+jetzt           5,234  3,290  2,776  2,126  1,750  1,439  1,151  0,938
+```
+
+Das **vorderste** Band steigt von 0,348 auf **0,938**, die ganze nahe Hälfte
+etwa auf das Doppelte. Das Verhältnis fern zu nah fällt von **13,2 auf 5,6**.
+
+`1-eyelevel`, dieselbe Messung über den Nahbereich: 1,515 / 1,774 / 2,074 →
+**2,524 / 2,665 / 2,809**.
+
+Gesamtbild in `6-groundcover` (100,420)–(1180,700):
+
+| | Farbton ± | Rot-Blau | Hochpass |
+| --- | ---: | ---: | ---: |
+| Ausgangsstand | ± 3,71 | 26,0 ± 0,57 | 0,040 |
+| vor diesem Paket | ± 3,05 | 25,4 ± 2,56 | 1,052 |
+| **jetzt** | ± 3,49 | **28,5** ± 3,24 | **1,917** |
+
+Kantenanteil im unteren Bilddrittel **0,00 % → 0,14 %** — die Kantenerkennung
+findet dort zum ersten Mal etwas.
+
+### Dazu die Sättigung zurückgeholt
+
+Der Prüfer hatte an meiner Farbberuhigung zu Recht bemängelt, dass die Wiese
+dabei auch **blasser** geworden ist (`2-waterfall` y = 440: Abstand max − min von
+76 auf 56). Der Grundwert der Sättigung geht deshalb von 0,40 auf 0,44 — der
+Rot-Blau-Abstand steht wieder bei 28,5 gegen 25,4, und die Farbtonstreuung
+bleibt mit ± 3,49 unter dem Ausgangsstand von ± 3,71. Gleichmäßig grün heißt
+nicht blass.
+
+### Kosten und Regression
+
+76 Draw-Calls von 120, 199 505 Dreiecke, 11,83 MB — **alles unverändert**, der
+zweite Maßstab kostet nur Rechenzeit im Fragment. Nacht, Zen und Konstrukt
+Δmittel 0,000, Dojo 0,000. Konsole sauber.
+
+### Was offen bleibt
+
+Das Verhältnis fern zu nah steht bei 5,6 und nicht bei 1. Ein Teil davon ist
+unvermeidlich: Der Boden liegt im Nahbereich fast in der Blickachse, und eine
+Fläche unter streifendem Blick trägt weniger Kontrast als dieselbe Fläche von
+oben. Wie viel davon Rest und wie viel noch Fehler ist, ist **nicht geklärt**.
+
+### Die Lehre dieser Runde
+
+**Eine Lehre gilt nicht nur für die Umgebung, in der sie bezahlt wurde.** Die
+Vergrößerungsfalle steht seit dem Nachthimmel im Protokoll, mit derselben
+Ursache und derselben Antwort. Ich habe hier ein Korn gesetzt, das Maß an der
+mittleren Entfernung genommen und den Nahbereich nicht nachgemessen — obwohl das
+Bild, um das es ging, „Nahaufnahme Bodenvegetation" heißt.
+
+---
+
+## Paket „Findlinge": Sie waren an der Wiese vorbeigezogen worden
+
+**Prüfer-Mangel 3 des zweiten Durchgangs:** *„Die Findlinge sind jetzt die
+glattesten Flächen der Szene."* 35,4 bzw. 37,7 % ihrer Bildpunkte in konstanten
+Läufen ab sechs, längster Lauf 91 px — gegen 16,1 % am Kiel und 6,7 % auf der
+Wiese.
+
+**Und zwar, ohne dass sich an ihnen etwas geändert hätte.** Sie stehen noch da,
+wo sie immer standen; die Wiese ist an ihnen vorbeigezogen worden.
+
+`tools/laeufe.mjs` (neu) macht seine Kennzahl nachvollziehbar. Meine Schwelle
+ist mit „unter einer Luminanzstufe" lockerer als seine, die absoluten Zahlen
+liegen deshalb höher — die Reihenfolge ist dieselbe: Findlinge 58,9 und 61,9 %
+gegen Kiel 25,5 und Wiese 16,7.
+
+### Die Ursache: Der Findling ist kleiner als seine Kachel
+
+`boulderGeometry` legt die UV mit `faceBoxUV(g, 0,17 · WORLD_SCALE)` an, also
+**0,68 lokale Einheiten je Kachel**. Ein Findling misst 0,1 bis 0,5 lokale
+Einheiten — er ist kleiner als eine Kachel, und die Granitkarte liefert ihm damit
+einen fast konstanten Wert. Die Kachel zu verkleinern ist keine Lösung: Am
+Material steht, warum sie groß ist — die runden Einschlüsse der Karte kehren
+sonst sichtbar wieder und lesen sich als Muster.
+
+Also dieselbe Antwort wie bei Wiese und Bach: **rechnend im Shader**, kein
+Texturspeicher, keine Kachelgrenze. Die Projektion nimmt die dominante Weltachse
+der Flächennormale; weil das Material flach schattiert ist, ist diese Normale je
+Facette konstant, und innerhalb einer Facette entsteht keine Naht. An den
+Facettenkanten bricht sie ohnehin. Das Flat-Shading bleibt — der Prüfer hat es
+im ersten Durchgang ausdrücklich gelobt.
+
+### Der erste Anlauf hat die Hälfte der Steine nicht erwischt
+
+Ich habe zunächst nur `island-stones` behandelt. Ergebnis: `1-eyelevel` von 58,9
+auf 40,4 %, `2-waterfall` **exakt unverändert** — 61,9 % vorher wie nachher, der
+Hochpass auf drei Nachkommastellen gleich.
+
+Die Brocken im Bachbett sind ein **anderes Mesh** (`spring-stones`) mit einem
+blanken Standardmaterial ohne jede Karte. Wer nur nach dem Namen sucht, den der
+Prüfer nennt, findet sie nicht.
+
+### Gemessen
+
+| Fläche | vorher | nachher |
+| --- | ---: | ---: |
+| Findling `1-eyelevel` (820,350)–(910,400) | 58,9 % | **40,4 %** |
+| Bachbett `2-waterfall` (100,440)–(320,590) | 61,9 % | **9,4 %** |
+| Findling `6-groundcover` (620,300)–(780,380) | 49,6 % | **19,4 %** |
+| **Kiel** (Maßstab) | 25,5 % | 25,5 % |
+| **Wiese** | 16,7 % | 16,7 % |
+
+Zwei der drei Steinflächen liegen jetzt **unter** dem Kiel, eine davon unter der
+Wiese. Kiel und Wiese sind bitgleich — kein Kollateralschaden.
+
+### Kosten und Regression
+
+76 Draw-Calls von 120, 199 505 Dreiecke, 11,83 MB — **alles unverändert**. Nacht
+und Zen bitgleich, Konstrukt Δmittel 0,002, Dojo 0,000. Konsole sauber.
+
+### Was offen bleibt
+
+`1-eyelevel` liegt mit 40,4 % weiterhin über dem Kiel. Der dortige Findling
+steht so weit hinten, dass die Ausblendung (14 bis 34 m) schon greift. Sie weiter
+zu ziehen ist die naheliegende, aber **nicht geprüfte** Idee — ein Korn von
+4,5 cm fällt in dieser Entfernung unter zwei Bildpunkte, und dort beginnt genau
+das Flimmern, das dieses Projekt beim Laub schon einmal bezahlt hat.
+
+### Die Lehre dieser Runde
+
+**Ein Befund nennt ein Bild, keine Menge.** „Die Findlinge" waren zwei
+verschiedene Meshes mit zwei verschiedenen Materialien, und der eine Name im
+Befund führte nur zu einem davon. Dass die zweite Messung sich auf drei
+Nachkommastellen **nicht** bewegt hat, war der Hinweis — eine Änderung, die
+nichts ändert, hat nicht die Sache getroffen, um die es ging.
+
+---
+
+## Paket „Luftperspektive": Der Szenennebel kann es nicht, und das ist gemessen
+
+**Prüfer-Mangel 2 des zweiten Durchgangs:** *„Gras `1-eyelevel` ferner Kamm
+L 180,0 / Sättigung 50,7 gegen nächsten Vordergrund L 179,3 / 50,7 — 0,7 Stufen
+und 0,0 Sättigungspunkte über rund 30 m"*, während der Fels im selben Bild um
+35 Stufen staffelt.
+
+### Warum der Fels staffelt und der Boden nicht
+
+Der Szenennebel setzt bei **6 · WORLD_SCALE = 24 m** an. Die Insel ist 40 m
+breit; wer in ihrer Mitte steht, sieht ihre ferne Kante in **20 m** — sie liegt
+vollständig **vor** dem Nebel. Der Fels staffelt, weil der Prüfer einen nahen
+Findling mit der Klippe einer Mini-Insel in 80 m vergleicht, also quer durch den
+Nebelbereich.
+
+### Erst das Feld abfahren, dann entscheiden
+
+`tools/nebelfeld.mjs` (neu) verstellt Nebelanfang und -ende zur Laufzeit und
+misst je Einstellung die beiden Kästen des Prüfers plus einen dritten in
+Kartenreichweite:
+
+| Nebel | Δ Luminanz | Δ Sättigung | Kartenband |
+| --- | ---: | ---: | ---: |
+| 24 / 128 (Stand) | 1,2 | −0,4 | 115,0 |
+| 12 / 128 | 1,3 | −0,8 | 115,0 |
+| 8 / 90 | 2,1 | −2,8 | 115,0 |
+| 5 / 70 | 3,6 | −6,9 | 115,1 |
+| 2 / 70 | 4,5 | −9,5 | **116,1** |
+
+Selbst die äußerste Einstellung bringt 4,5 Stufen und beginnt dabei, das
+Kartenband zu heben. **Ein Nebel, der zugleich Mini-Inseln auf 100 m trägt, kann
+auf 20 m nichts Feines tun.** Der Wert bleibt deshalb, wo er ist.
+
+### Also dort, wo die Entfernung schon bekannt ist
+
+Ein eigener Dunst in der Grasnarbe, auf das Band 4 bis 26 m gelegt. Er berührt
+nichts anderes — keine Karten, keine Findlinge, keinen Himmel — und kostet kein
+Byte.
+
+**Zwei Anläufe, zwei Korrekturen:**
+
+*Erstens der Ton.* Der erste Versuch mischte gegen die Himmelsfarbe
+(0,44 | 0,66 | 0,83) und erzeugte 6,3 Luminanzstufen — aber auch **21,4
+Sättigungspunkte** weniger. Im Bild stand daraufhin ein blassblauer Hintergrund,
+auf dem Büsche und Findlinge in voller Sättigung saßen: Die Wiese staffelte,
+alles darauf nicht. Jetzt gegen einen hellen, nur leicht kühlen Ton in der Nähe
+der Grasfarbe.
+
+*Zweitens die Reichweite.* Eine reine `smoothstep(4, 26)` lässt jenseits von
+26 m überall denselben vollen Dunst stehen. In der Totale — Kamera 57 m entfernt
+— lag damit die **ganze** Insel gleichmäßig im Schleier: Wiesenmittel 159,5 →
+162,7, Anteil über L 190 von 16,4 auf **29,2 %**. Das ist keine Tiefe, das ist
+Aufhellung. Der Term wird deshalb zwischen 30 und 55 m wieder zurückgenommen,
+dort wo der Szenennebel greift. Physikalisch nimmt Dunst mit der Entfernung
+nicht ab; hier tut er es, weil sonst zwei Quellen dieselbe Strecke doppelt
+rechnen. Das ist eine Entscheidung der Technik, keine der Optik.
+
+### Gemessen
+
+| | Δ Luminanz | Δ Sättigung |
+| --- | ---: | ---: |
+| vorher | 1,2 | −0,4 |
+| erster Anlauf (Himmelston) | 6,3 | −21,4 |
+| **jetzt** | **4,8** | **−14,1** |
+
+Und die Gegenprobe in der Totale: Wiesenmittel **159,5 → 159,5**, Anteil über
+L 190 16,4 → 16,6 % — praktisch unverändert, während der erste Anlauf dort 29,2 %
+stand.
+
+Wirkung je Bild: `1-eyelevel` Δmittel 1,410 · `2-waterfall` 1,145 ·
+`3-edge-down` 1,688 · **`4-aerial` 0,232** · `5-backlight` 1,191 ·
+`6-groundcover` 0,895.
+
+### Kosten und Regression
+
+76 Draw-Calls, 199 505 Dreiecke, 11,83 MB — unverändert. Nacht und Zen
+bitgleich, Konstrukt Δmittel 0,001, Dojo 0,000. Konsole sauber.
+
+### Was offen bleibt
+
+Der Dunst liegt **nur** auf der Grasnarbe. Büsche, Findlinge und Bäume, die
+darauf stehen, staffeln innerhalb der Insel weiterhin nicht. Der zweite Anlauf
+hat die Fehlpaarung deutlich gemildert, aber nicht beseitigt; sie ganz
+aufzulösen hieße, denselben Term auf jedes Material der Insel zu legen — machbar
+und ein eigenes Paket.
+
+### Die Lehre dieser Runde
+
+**Eine Einstellung, die zwei Aufgaben gleichzeitig erfüllen soll, erfüllt beide
+schlecht.** Der Szenennebel muss Mini-Inseln auf 100 m ausblenden und sollte
+zugleich 20 m Boden staffeln; das Feld zeigt, dass zwischen beiden kein Wert
+liegt, der beides kann. Erst als die zweite Aufgabe einen eigenen Term bekam,
+ging beides.
+
+---
+
+## Paket „Himmelssaum": Er saß im Blattinnern, weil er dort hingehörte
+
+Befund des Prüfers (#40): In `5-backlight`, Kasten (630,555)–(790,670), tragen
+3,05 % der Laubpixel Himmelsfarbe (B über R+30), und **2,48 Prozentpunkte davon
+sind vollständig von Laub umschlossen**. Ein Saum am Rand hat immer Himmel neben
+sich; einer im Innern nie. Meine eigene Nachmessung mit `tools/saumlage.mjs`:
+1,55 % Saum, davon 1,53 Prozentpunkte innen liegend — es ist also praktisch
+*jeder* Saumpixel ein Innenpixel.
+
+### Zwei Fehler von mir, bevor die Messung stimmte
+
+**Erstens** habe ich beim Sortieren des Befunds behauptet, den Saum trügen die
+beiden Kartenwerkstoffe, und der Hüllkörper `_inselLaub` habe nie einen gehabt.
+Das stimmt für die Baumkronen. Nur bauen Büsche und Kronen ihre Hülle in
+`baueKrone()`, und **dort** sitzt der stärkste Saum der Insel:
+`strength 0.5, power 2.0`, direkt am Werkstoff, nicht an `_inselLaub`.
+
+**Zweitens** hat der erste Durchlauf von `tools/saumprobe.mjs` alle Säume auf
+einmal auf null gesetzt und die Summe gemessen. Das Ergebnis sah eindeutig aus
+(1,53 → 0,36 Prozentpunkte) und hat mich dazu gebracht, den Saum von den beiden
+Kartenwerkstoffen zu nehmen. Gerendert änderte das **nichts**: 1,53 → 1,52. Der
+Rundumschlag hatte den Hüllkörper mitgenommen, und der war es die ganze Zeit.
+
+Erst die nach Gruppen getrennte Probe — Schlüssel ist das Wertepaar
+(Stärke, Exponent) beim ersten Antreffen — trennt die Wirkungen sauber:
+
+| abgeschaltet | Körper | Saum innen | Konifere | Laubkrone |
+| --- | --- | ---: | ---: | ---: |
+| — (Stand) | | 1,53 Pp | 53,0 (78) | 66,1 (646) |
+| 0,50 / 2,0 | **Hüllkörper der Schöpfe** | **0,36 Pp** | 53,0 (78) | 67,7 (624) |
+| 0,26 / 4,2 | Nadelkarten | 1,53 Pp | **67,3 (46)** | 66,1 (646) |
+| 0,24 / 4,2 | Blattkarten | 1,52 Pp | 53,0 (78) | **67,9 (652)** |
+| 0,18 / 4,0 | Fels | 1,53 Pp | 53,0 (78) | 66,1 (646) |
+| 0,16 / 3,8 | Findling | 1,53 Pp | 53,0 (78) | 66,1 (646) |
+
+### Warum es nicht anders sein konnte
+
+Der Hüllkörper ist eine Detailstufe-0-Blase: **zwanzig Dreiecke, nicht
+indiziert**. Seine Normalen sind Facettennormalen, der Fresnel-Term ist also je
+Facette konstant. Er malt keinen Saum an eine Kontur, er hellt ganze Facetten
+mitten im Busch himmelblau auf. Im vergrößerten Ausschnitt sieht man genau das:
+helle blaugraue Flecken im Buschinnern, die als Löcher zum Himmel lesen. Gemessen
+an drei Punkten: (41 | 94 | 73) → (21 | 67 | 39), (35 | 76 | 62) → (20 | 55 | 36).
+
+Bei den Karten ist es dieselbe Mechanik in schwächer, und sie war hier schon
+einmal aufgeschrieben: Eine Karte ist eine ebene Fläche mit konstanter Normale,
+der Fresnel-Term wird darauf zur Flächenhelligkeit. Der Betrag war von
+`0.55, 1.9` auf `0.26, 4.2` heruntergedreht worden — das hat den Fehler leise
+gemacht, nicht behoben.
+
+### Der Saum hat die Silhouette gekostet, für die er da war
+
+Das ist der Teil, mit dem ich nicht gerechnet hatte. Alle drei Laubsäume
+verbessern beim Abschalten **auch** den Konturkontrast:
+
+| Kasten | Saum innen | Silhouettensprung |
+| --- | ---: | ---: |
+| Busch (630,555)–(790,670) | 1,53 → **0,36** Pp | — |
+| Konifere (950,150)–(1250,450) | 0,80 → **0,17** Pp | 53,0 (78 Kanten) → **67,3 (46)** |
+| Laubkrone (340,350)–(490,440) | 8,00 → **2,73** Pp | 66,1 (646) → **69,4 (634)** |
+
+Die Zahl der Grenzstücke ist dabei die eigentliche Auskunft: Mit Saum zerfiel die
+Kontur der Konifere in 78 Stücke, ohne ihn sind es 46. Aufgehellte Karten sind
+vom Himmel nicht mehr zu unterscheiden — der Saum hat die Silhouette aufgelöst,
+statt sie zu ziehen, und jedes verbliebene Stück sprang schwächer.
+
+### Was geändert wurde
+
+`baueKrone()` bekommt `himmelssaum` (Vorgabe `true`), die drei Aufrufe der Insel
+setzen es auf `false`. `_inselNadeln` und `_inselKarten` sind nicht mehr in
+`addSkyRim` gewickelt. An den beiden Felswerkstoffen bleibt der Saum: Ein
+geschlossener Körper mit glatten Normalen ist der Fall, für den der Term gedacht
+ist, und in diesen Kästen tut er messbar nichts Schädliches.
+
+**Die Dojo-Kronen laufen durch dieselbe Funktion und behalten ihren Saum.** Die
+Mechanik ist dort dieselbe, der Befund ist deshalb nicht automatisch derselbe —
+gemessen habe ich auf der Insel. Ein Auftrag über die Insel ist kein Freibrief,
+eine andere Umgebung nebenbei zu verändern. Wer den Dojo anfasst, misst ihn
+vorher.
+
+### Wirkung und Regression
+
+Δmittel je Inselbild: `1-eyelevel` 0,431 · `2-waterfall` 0,299 ·
+`3-edge-down` 0,045 · `4-aerial` 0,194 · **`5-backlight` 2,106** ·
+`6-groundcover` 0,559.
+
+Zen und Nachthimmel bitgleich (Δmax 0), Konstrukt Δmax 1, Dojo Δmax 4 bei
+0,010 % der Pixel ≥ 2 — die Fallunterscheidung greift. Konsole frei von Errors
+und Warnings, `npm run build` grün.
+
+Kosten unverändert: 76 Draw-Calls, 199 505 Dreiecke (`4-aerial`, die teuerste
+der sechs Ansichten) — der Eingriff nimmt Shader-Zeilen weg und fügt weder Mesh
+noch Werkstoff hinzu. Grenzen sind 120 und 350 000.
+
+### Die Lehre dieser Runde
+
+**Ein Rundumschlag misst die Summe, nicht die Ursache.** Die erste Probe schaltete
+alle Säume gemeinsam ab, das Ergebnis war eindeutig und die daraus gezogene
+Folgerung falsch — ich habe zwei Werkstoffe geändert, die nichts beitrugen, und
+den einen, der alles beitrug, stehen lassen. Gerendert kam 1,53 → 1,52 heraus.
+Eine Differenzmessung ist nur so scharf wie das, was sie einzeln abschaltet.
+
+---
+
+## Paket „Bewegung", erster Teil: Die Wolken sind gesprungen
+
+Der Prüfer hat unter #41 den Gleichtakt der Szene gemeldet und selbst dazu
+geschrieben, das sei **unbestätigt** — ein Standbild kann über Bewegung nichts
+aussagen. Also erst ein Werkzeug: `tools/inselbewegung.mjs` hängt die Uhr der
+Umgebung um und liest über hunderte Zeitschritte **Ortspositionen aus der
+Szene**, nicht Bildpunkte. Ein Sprung ist eine Ortsdifferenz; dafür braucht es
+weder Schwelle noch Rendern.
+
+Zwei Anläufe brauchte auch dieses Werkzeug:
+
+* Der erste las **Weltpositionen**. Die Liste bestand daraufhin aus sechzig
+  Zeilen mit demselben Wert — jede Mini-Insel schleppt ihre Kinder mit, und
+  gefragt war, wer sich *selbst* bewegt. Jetzt liest es Ortspositionen.
+* Instanzierte Meshes bewegen sich über `instanceMatrix`, nicht über die
+  Ortsposition. Vögel, Falter und Blumen standen mit 0 in der Liste, obwohl sie
+  das Beweglichste der Szene sind. Jetzt wird die Verschiebung der ersten
+  Instanz mitgelesen.
+
+### Der Befund
+
+| Knoten | Mittlerer Schritt | Größter Schritt | Verhältnis |
+| --- | ---: | ---: | ---: |
+| Wolke (15 von 25) | 0,09–0,14 m | **51,97 m** | **385 bis 575** |
+| Vögel | 0,38 m | 0,63 m | 1,7 |
+| Falter | 0,29 m | 0,49 m | 1,7 |
+| Hauptinsel | 0,03 m | 0,05 m | 1,6 |
+
+Die Drift lief im Modulo um: Bei |x| = 26 sprang eine Wolke auf die andere Seite
+des Himmels — **51,97 Meter in einem Zeitschritt von 0,25 s**. Und nicht am Rand
+der Welt: Die Wolken liegen auf Radien von 8 bis 36, die Umbruchkante bei 26
+läuft quer durch den sichtbaren Himmel. Fünfzehn der fünfundzwanzig Wolken sind
+allein in den ersten zweihundert Sekunden gesprungen; die übrigen zehn hatten
+ihre Kante nur noch nicht erreicht. Alle springen irgendwann.
+
+### Was geändert wurde
+
+Über die letzten drei Einheiten vor der Kante schrumpft die Wolke auf null und
+wächst auf der anderen Seite wieder heraus (`smoothstep`, damit auch die
+Änderungsrate keine Kante hat). Eine Haufenwolke, die sich auflöst und anderswo
+neu bildet, ist das, was Haufenwolken tun. Bei 0,1 bis 0,32 Einheiten je Sekunde
+dauert der Vorgang 9 bis 30 Sekunden. Kosten: keine — kein zweiter Werkstoff,
+keine Transparenz, und solange die Wolke unsichtbar ist, spart sie ihren
+Draw-Call.
+
+**Drei Einheiten und nicht sechs, und das ist gemessen.** Mit sechs war jede
+Wolke 23 % ihres Umlaufs verkleinert, und im eingefrorenen Zeitpunkt von
+`2-waterfall` hat das die Wolke oben rechts vollständig gekostet — 0,266 % der
+Bildpunkte, kompositorisch das Gegengewicht zur Konifere.
+
+Drei Einheiten allein haben sie **nicht** zurückgebracht: Sie stand zufällig
+direkt an der Kante, also einen Augenblick vor ihrem Sprung. Zurückgebracht hat
+sie erst die zweite Änderung — **jede Wolke bekommt ihre eigene Umbruchweite**,
+22 bis 34 statt einheitlich 26. Vorher lösten sich alle fünfundzwanzig an
+derselben Ebene im Raum auf: eine unsichtbare Wand, an der Wolken sterben, und
+genau die Art Regelmäßigkeit, die als Mechanik liest, sobald man ihr eine Minute
+zusieht. Jetzt liegen die Umbruchstellen verstreut und die Umlaufzeiten (140 bis
+680 s) haben keinen gemeinsamen Takt mehr.
+
+Der zusätzliche Zufallswert kommt aus einem **eigenen Strom** (`mulberry32(771403)`).
+Ein weiterer `rand()` im Wolkenbau hätte jede Ziehung danach verschoben — dieselbe
+Lehre wie bei der Wasserfallfahne, die 2952 Dreiecke gekostet hat.
+
+### Gemessen danach
+
+Über 300 s und 1200 Zeitschritte ist das größte Verhältnis der ganzen Szene
+**1,7** (Vögel und Falter). Kein Knoten springt mehr. Die Wolken laufen mit
+Verhältnis genau 1,0 — gleichförmige Drift — und sind je Umlauf 10 bis 21
+Zeitschritte unsichtbar, also rund 1,5 % der Zeit.
+
+Wirkung auf die Prüfbilder: `2-waterfall` Δmittel 0,331 · `5-backlight` 0,047 ·
+`4-aerial` 0,001 · `6-groundcover` 0,001 · `1-eyelevel` und `3-edge-down`
+bitgleich. Zen und Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo Δmax 7 bei
+0,010 %. Konsole sauber, Build grün.
+
+### Was an #41 offen bleibt
+
+Der Befund hatte drei Teile, und nur einer war ein Fehler:
+
+* **Vögel und Falter mit gleicher Schlagfrequenz** ist keiner. Die Phase ist
+  längst je Tier verschieden (`d.phase * 2.3`, mit Begründung im Quelltext), und
+  fünf Bussarde schlagen nun einmal ähnlich schnell — das ist eine Artkonstante,
+  kein Gleichtakt.
+* **Wolken driften alle in +x** ist ebenfalls keiner: Wind hat eine Richtung.
+  Ihre Geschwindigkeiten waren schon verschieden.
+* **Der Sprung** war einer, und zwar ein großer.
+
+Offen ist der vierte Punkt, den der Prüfer daneben genannt hat: `addWind` wird
+genau einmal aufgerufen, nämlich für die Blumen. Ob die Hüllkörper der Kronen
+und Büsche stillstehend überhaupt sichtbar sind, ist noch nicht gemessen — sie
+sitzen als Verdecker **innerhalb** der Kartenschale, und was man nicht sieht,
+braucht keinen Shader. Das ist die nächste Messung, nicht die nächste Änderung.
+
+---
+
+## Paket „Bewegung", zweiter Teil: Das Laub der Insel hat sich nie bewegt
+
+Der Prüfer hatte unter #41 notiert, `addWind` werde genau einmal aufgerufen, und
+daraus geschlossen, die Hüllkörper der Kronen stünden still, während ihre
+Blattkarten schwingen. Die erste Hälfte stimmt. Die zweite war zu freundlich.
+
+Die Blattkarten bringen ihren Wind selbst mit — `foliageMaterial()` legt ihn in
+einen gemeinsamen Uniform-Satz. Hochgezählt wird der aber von genau einer
+Funktion, `updateFoliage(time)`, und die Warnung dazu steht seit dem Zen-Garten
+wörtlich im Quelltext: *„wer die Karten anderswo benutzt, muss es selbst tun,
+sonst hängen Blüten und Blätter reglos in der Luft und sehen aus wie
+aufgeklebt."*
+
+Der Zen-Garten ruft es auf. Das Dojo ruft es auf. **Die Insel nicht.**
+
+### Gemessen, nicht gelesen
+
+`tools/laubuhr.mjs` stellt die Uhr der Umgebung und liest `uTime` danach aus
+dem laufenden Stand:
+
+| Umgebungszeit | Insel | Zen |
+| ---: | --- | --- |
+| 10 s | **0,00** | 10,00 |
+| 25 s | **0,00** | 25,00 |
+| 40 s | **0,00** | 40,00 |
+
+Achtzehn Laubwerkstoffe, alle auf null. Jede Blattkarte auf jedem Baum und
+jedem Busch der Insel war reglos aufgeklebt, seit es die Insel gibt. Bewegt
+haben sich bisher: Vögel, Falter, Wolken, die Mini-Inseln — und die Blumen, weil
+sie als einzige `addWind` benutzen.
+
+### Was geändert wurde
+
+Eine Zeile: `updateFoliage(time)` im `update()` der Insel.
+
+### Ist es Wind oder ist es Flimmern?
+
+Das ist die Frage, die hier zählt, denn die Nadeln haben schon einmal ein ganzes
+Paket gekostet: `alphaTest` auf ein Bildpunkt breiten Nadeln ergibt ein
+Salz-und-Pfeffer-Muster, sobald sich etwas bewegt. Gemessen im Kronenkasten
+(950,150)–(1250,450) von `5-backlight`, Vögel und Falter ausgeblendet:
+
+| Zeitabstand | geänderte Bildpunkte | mittlerer Betrag |
+| --- | ---: | ---: |
+| **1/72 s** (ein Bild auf der Quest) | 13,84 % | **1,54** |
+| 0,5 s | 93,65 % | 24,80 |
+| 2,0 s | 97,91 % | 32,77 |
+
+Von Bild zu Bild ändert sich also wenig und schwach; über eine halbe Sekunde
+ändert sich fast alles und deutlich. Das ist die Signatur einer zusammenhängenden
+Bewegung und nicht die von Rauschen — bei Flimmern stünde in der ersten Zeile
+derselbe Betrag wie in der letzten. Ein Faktor 16 zwischen einem Bild und einer
+halben Sekunde ist reichlich Abstand.
+
+Nebenbei ist die Konifere dadurch besser geworden: Silhouettensprung 67,3 → 73,4
+bei 46 → 110 Konturstücken. Mehr Stücke **und** stärkere Sprünge — anders als
+beim Himmelssaum, wo mehr Stücke schwächere waren. Eine Konifere hat eine
+zerfranste Kante; jetzt hat sie eine.
+
+Wirkung: `5-backlight` Δmittel 11,584 (27,3 % der Bildpunkte) · `6-groundcover`
+1,409 · `1-eyelevel` 1,260 · `2-waterfall` 0,712 · `3-edge-down` 0,252 ·
+`4-aerial` 0,200. Zen und Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo Δmax 7
+bei 0,011 %.
+
+### Die Hüllkörper bleiben stehen, und das ist eine Entscheidung
+
+`tools/huellenprobe.mjs` misst differenziell, was ein Knoten überhaupt zum Bild
+beiträgt — einmal mit, einmal ohne ihn, und die geänderten Bildpunkte **sind**
+sein Beitrag:
+
+| Bild | `island-krone` | `bushes` | `island-laub` | `bush-leaves` |
+| --- | ---: | ---: | ---: | ---: |
+| 1-eyelevel | 0,65 % | 0,31 % | 4,86 % | 4,19 % |
+| 2-waterfall | 0,57 % | 0,39 % | 2,67 % | 4,03 % |
+| 3-edge-down | 0,06 % | 0,09 % | 2,32 % | 0,52 % |
+| 4-aerial | 0,66 % | 0,04 % | 3,10 % | 0,14 % |
+| 5-backlight | 0,35 % | 0,34 % | 24,53 % | 3,47 % |
+| 6-groundcover | 0,92 % | 0,29 % | 6,80 % | 3,72 % |
+
+Die Hüllkörper sind auf 0,04 bis 0,92 Prozent der Fläche zu sehen, die Karten
+davor auf dem Fünf- bis Fünfzigfachen. Sie sind Verdecker, sichtbar nur durch
+Lücken — und die Lücken selbst bewegen sich, weil die Karten es tun. Der
+Anteil hat sich durch den laufenden Wind **nicht** vergrößert (vorher 0,05–0,92,
+nachher 0,04–0,92); die Karten wandern also nicht von ihrer Hülle weg.
+
+Dagegen steht ein konkreter Preis: Der Schattendurchgang benutzt für den
+Hüllkörper das Standard-Tiefenmaterial, das keinen Windeingriff hat. Ein
+schwingender Hüllkörper würfe einen stehenden Schatten — genau der Fehler, gegen
+den `foliageMaterial()` sein eigenes Tiefenmaterial mitbringt. Für 0,5 Prozent
+der Fläche ist das der schlechtere Tausch. **Es bleibt also stehen, und hier
+steht warum.** Wer es anders will, hat die Zahlen.
+
+### Kosten
+
+74 Draw-Calls und 196 739 Dreiecke in der teuersten der sechs Ansichten, gegen
+76 und 199 505 vorher — also eine Spur **weniger**, weil eine Wolke an ihrer
+Umbruchkante unsichtbar wird und dabei ihren Draw-Call spart. Grenzen sind 120
+und 350 000. Der Wind kostet nichts weiter als ein paar Zeilen im vorhandenen
+Vertexshader; das Tiefenmaterial der Karten gab es schon, nur seine Uhr stand.
+
+Der „Software-Boden" desselben Laufs meldet 32,08 ms gegen 14,92 ms beim Lauf
+davor. Das ist **kein** Befund: Es ist der leere Konstrukt-Raum auf einem
+CPU-Rasterizer, und beim zweiten Lauf lief eine zweite Messung auf derselben
+Maschine. Bildzeiten sind hier ohnehin keine Belege — das steht so im Auftrag.
+
+### Die Lehre dieser Runde
+
+**Ein Befund kann zu freundlich sein.** „Die Hülle steht still, während die
+Karten schwingen" klang nach einem Detail und war die halbe Wahrheit; die andere
+Hälfte war, dass die Karten auch stillstanden. Nachgesehen habe ich erst, als
+ich für die Hülle den Aufrufweg des Windes suchte — und der Kommentar, der genau
+diesen Fehler beschreibt, stand seit Monaten zwei Bildschirmseiten entfernt im
+selben Quelltext.
+
+---
+
+## Erdfarbe im Felskiel: Der Befund stimmt, meine Erklärung dafür nicht — Ursache offen
+
+Der Prüfer meldet in `3-edge-down` einen Kasten (400,385)–(480,425) mit Mittel
+**88,8 gegen 47,4** daneben und nennt es „Erdfarbe mitten im Felskiel". Der
+helle Fleck ist da, reproduzierbar, und sieht im vergrößerten Ausschnitt aus wie
+ein weicher beiger Klecks im dunklen Gestein.
+
+**Er ist keine Erdfarbe.** Das ist die erste gesicherte Aussage. Schaltet man
+allein die Sonne ab, steht der Fleck bei 50,3 und der Kiel daneben bei 47,4 —
+2,9 Stufen auseinander. Die Vertexfarben der beiden Flächen sind also praktisch
+gleich; die 41 Stufen Unterschied sind **Licht**, nicht Farbe.
+
+### Was gesichert ist
+
+| Messung | Fleck | Kiel daneben |
+| --- | ---: | ---: |
+| Stand | 88,8 | 47,4 |
+| nur Sonne aus | 50,3 | 47,4 |
+| **alle Werfer aus** | **93,3** | **91,1** |
+
+Ohne jeden Schattenwerfer sind beide Flächen gleich hell (Abstand 2,2 statt
+41,4). Der Kiel ist also beschattet, der Fleck nicht — der Fleck ist ein **Loch
+im Schlagschatten**. Dazu passen die Flächennormalen: (0,46 | 0,80 | 0,38) am
+Fleck gegen (0,53 | 0,77 | 0,36) daneben, N·L 0,368 gegen 0,393. Geometrisch
+sind die beiden Flächen nicht zu unterscheiden.
+
+### Was ausgeschlossen ist
+
+Jeder Regler der Schattenkarte, einzeln bis zum Anschlag gedreht, lässt den
+Fleck auf 88,7–88,8 stehen:
+
+| Regler | Bereich | Wirkung auf den Fleck |
+| --- | --- | --- |
+| `bias` | −0,05 … +0,002 | keine (der Kiel reagiert bei −0,05 mit +3,8) |
+| `normalBias` | 0 … 0,035 | keine |
+| `shadowSide` | vorne / hinten / beide | keine |
+| Ortho-Kasten | 26,4 … 46 | keine |
+| `near` / `far` | 30…95 / 215…300 | keine |
+| `mapSize` | 1024 / 2048 | +0,5 |
+
+Der Fleck liegt dabei **innerhalb** des Schattenkegels (Clipraum
+(−0,361 | 0,291 | 0,234), alle drei zwischen −1 und 1), auf demselben Mesh wie
+seine dunkle Nachbarschaft (`island-body`), mit `receiveShadow` an, und die
+Schattenkarte wird jedes Bild neu gezeichnet (`autoUpdate = true`). Ein Strahl
+vom Fleck zur Sonne trifft nach **6,00 m** `island-body`.
+
+### Vier Fehlschlüsse von mir, der Reihe nach
+
+1. **„Eine tiefe Erdzunge."** `earthEndAt()` kann das Erdreich bis auf das
+   2,5-fache seiner Nennweite hinabziehen, das sah nach der Erklärung aus. Die
+   Gegenprobe — Erdzone versuchsweise magenta — zeigte den Fleck unverändert
+   beige. Widerlegt.
+2. **„Die Vertexfarbe des Fels."** Widerlegt durch dieselbe Messung wie oben:
+   ohne Sonne sind Fleck und Kiel gleich.
+3. **„Der Fleck sitzt auf einer Mini-Insel, die keine Schatten empfängt."**
+   Widerlegt: Der Treffer hängt an `island-body < island`, der Hauptinsel, mit
+   `receiveShadow: ja`.
+4. **„Die Schattenkarte ist veraltet."** Passte auf jede Beobachtung — bis
+   `autoUpdate = true` herauskam. Widerlegt.
+
+### Zwei Werkzeugfehler, die mich Zeit gekostet haben
+
+* **`app.scene.traverse` statt der Inselgruppe.** So habe ich die
+  schattenwerfende Sonne einer *anderen* Umgebung erwischt und einen
+  Ortho-Kasten von 12 mit `near 2,5` gemeldet, wo die Insel 26,4 und 95 setzt.
+  Zehn Minuten auf eine Zahl verwendet, die zum Dojo gehörte.
+* **Werfer einzeln statt gemeinsam abgeschaltet.** Jeder einzelne Werfer
+  änderte nichts, und daraus habe ich geschlossen, der Schatten komme von
+  keinem von ihnen. Er kommt von **mehreren, die einander überdecken**: Erst
+  alle zusammen abgeschaltet hebt den Kiel von 47,4 auf 91,1. Eine
+  Einzelabschaltung beweist nur dann etwas, wenn es genau einen Verursacher
+  gibt — und das war eine Annahme, keine Messung.
+
+### Was offen bleibt
+
+**Warum an dieser einen Stelle kein Verdecker in der Schattenkarte steht,
+obwohl 6 m weiter oben Geometrie ist, weiß ich nicht.** Die eine Spur, der ich
+nicht mehr nachgegangen bin: Von den sechs Meshes namens `island-body` in der
+Szene ist genau **eines** ein Werfer (die Hauptinsel); die fünf Mini-Inseln
+werfen keinen Schatten. Ob der Treffer bei 6,00 m zur Hauptinsel gehört oder zu
+einer Mini-Insel, habe ich nicht mehr gemessen — falls Letzteres, wäre der
+Fleck schlicht der fehlende Schlagschatten einer Mini-Insel, und das wäre eine
+bewusste Entscheidung von damals (das Schattenvolumen umfasst nur die
+Hauptinsel) und kein Fehler.
+
+Ich habe hier weit mehr als die im Auftrag zugestandenen vier Durchläufe
+verbraucht und breche deshalb ab, statt weiter zu raten. Die Werkzeuge
+(`tools/kielfleck.mjs`, `tools/schattenleck.mjs`) bleiben da; der nächste Anlauf
+fängt bei der offenen Spur an und nicht bei null.
+
+### Die Lehre dieser Runde
+
+**Ein Regler, der nichts bewirkt, ist erst dann ausgeschlossen, wenn man ihn bis
+zum Anschlag gedreht hat.** Mein erster `bias`-Durchlauf lief von −0,0006 bis
++0,0002 — eine Spanne, in der sich nichts rühren *kann* — und ich hätte daraus
+beinahe geschlossen, die Tiefenverzerrung sei unschuldig. Sie ist es, aber das
+wusste ich erst bei −0,05.
+
+---
+
+## Zwei Prüferbefunde, die die Messung nicht bestätigt
+
+### „Der Kiel wird nach unten dunkler" (y 240 L 99,0 → y 360 L 60,2)
+
+Er wird dunkler, und das ist richtig so. Bänderweise über den Fels gemessen
+(x 380–900):
+
+| Band | Mittel | p05 | p95 | Spanne |
+| --- | ---: | ---: | ---: | ---: |
+| y 250–310 | 82,4 | 48 | 133 | 85 |
+| y 320–380 | 70,1 | 46 | 125 | 79 |
+| y 390–450 | 64,1 | 44 | 98 | 54 |
+
+Der Fußpunkt (p05) bleibt bei 44–48, die Spitzlichter fallen von 133 auf 98. Die
+Fläche verliert also Helligkeit, aber nicht ihre Modellierung — 54 Luminanzstufen
+Spanne im untersten Band sind keine tote Fläche. Und weniger Licht mit der Tiefe
+ist an der Unterseite einer schwebenden Insel das physikalisch Richtige: weniger
+Himmel, kein Bodenlicht. Der gebackene Tiefenschatten tut genau das, wofür er da
+ist. **Kein Eingriff.**
+
+### „`4-aerial`: Schatten ohne Form"
+
+Der Prüfer nennt eine größte dunkle Komponente von 400 × 191 Bildpunkten bei
+17 % Deckung und liest sie als formlosen Fleck. Das ist der **Selbstschatten des
+Inselkörpers auf dem Kiel** — eine große zusammenhängende Fläche zu sein ist bei
+dem genau richtig.
+
+Ich selbst habe beim Hinsehen behauptet, auf der Wiese lägen überhaupt keine
+Baumschatten. Auch das ist falsch. `tools/wurfprobe.mjs` schaltet je Werfer nur
+`castShadow` ab — der Knoten bleibt im Bild, die Differenz ist sein
+Schlagschatten — und misst auf der reinen Wiese (420,250)–(800,400):
+
+| Werfer | Fläche | Tiefe |
+| --- | ---: | ---: |
+| `island-laub` (Kronen) | 3,98 % | 35,3 |
+| `bush-leaves` | 1,22 % | 18,8 |
+| `island-stones` | 0,96 % | 28,0 |
+| `island-holz` (Stämme) | 0,68 % | 29,8 |
+| **alle zusammen** | **10,76 %** | **38,0** |
+
+Ein Zehntel der Wiese liegt im Schatten, und zwar 38 Luminanzstufen tief. Der
+Grund, warum es *schwächer liest* als es misst: Die Schatten sind gesprenkelt
+(Blattkartenschatten, kein geschlossener Kronenumriss), und die
+Hemisphärenaufhellung hebt sie auf einem hellen Grün an. Das ist ein Befund über
+die Lichtbalance und nicht über fehlende Schatten — und es ist ein anderer
+Befund als der gemeldete. **Kein Eingriff auf dieser Grundlage.**
+
+### Warum das hier steht
+
+Drei der letzten vier Befunde haben sich unter der Messung aufgelöst oder als
+etwas anderes entpuppt. Das ist kein Vorwurf an den Prüfer — er sieht Standbilder
+und benennt, was auffällt, und genau das soll er. Es ist ein Vermerk für mich:
+**Ein Befund ist eine Frage, keine Aufgabe.** Wer ihn ungeprüft abarbeitet,
+ändert Code gegen ein Problem, das es nicht gibt — und die Insel hat davon schon
+zwei Male genug gehabt (der Himmelssaum an den falschen Werkstoffen, die
+Wasserfallfahne aus dem falschen Zufallsstrom).
+
+---
+
+## Der Prüfer, dritter Durchgang — und was seine drei größten Befunde aushalten
+
+Neu angesetzt auf `duft-09`, also nach Himmelssaum, Wolken und Laubwind. Sein
+Gesamturteil in einem Satz: Die Szene zerfällt in **zwei nicht überlappende
+Helligkeitsplateaus** — alles Vegetative zwischen L 25 und 165, der Boden
+zwischen 166 und 200 —, und die Wiese wird **zur Kamera hin glatter** statt
+reicher. Dazu 23 Einzelbefunde, geordnet.
+
+Ich habe die drei obersten nachgemessen, bevor ich etwas geändert habe. Das
+Ergebnis ist gemischt, und der Reihe nach.
+
+### #3 „Kein Sonnenlicht auf Laub" — bestätigt, aber jeder Hebel dagegen kostet mehr, als er bringt
+
+Erst die Gegenprobe zu meiner eigenen Skepsis: Ein Kasten über die ganze Krone
+meldet 25,4 % über L 190 — das klang nach Widerlegung, ist aber der **Himmel
+dahinter**. Deshalb `tools/knotenwerte.mjs`: Der Knoten wird ein- und
+ausgeblendet, die geänderten Bildpunkte **sind** seine Fläche, und darin wird
+gemessen. Kein Rechteck, kein Himmel:
+
+| Knoten | Punkte | Mittel | p05 | p95 | > 150 | > 190 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `island-laub` | 44 888 | **58,7** | 21 | 122 | 1,2 % | **0,0 %** |
+| `bush-leaves` | 38 329 | 83,1 | 25 | 165 | 12,2 % | 0,0 % |
+| `island-holz` | 5 378 | 95,3 | 58 | 154 | 5,9 % | 0,1 % |
+| Wiese daneben | — | 172,1 | 159 | 184 | — | 0,2 % |
+
+**Der Befund stimmt.** Das Laub steht bei 58,7, das Gras direkt daneben bei
+172,1, und über L 190 liegt kein einziger Blattpixel.
+
+Es ist **nicht** der Schlagschatten: Ohne jeden Werfer wird das Laub sogar
+dunkler (58,7 → 56,2). Es ist die Albedo. Also den Ton anheben —
+`tools/laubton.mjs` dreht ihn zur Laufzeit und misst gleichzeitig, was er
+kostet:
+
+| Faktor | Laub Mittel | p95 | > 150 | Silhouettensprung |
+| --- | ---: | ---: | ---: | ---: |
+| ×1,0 | 58,7 | 122 | 1,2 % | **73,4** |
+| ×1,3 | 64,4 | 125 | 1,2 % | 69,5 |
+| ×1,6 | 69,8 | 129 | 1,3 % | 66,3 |
+| ×2,0 | 76,4 | 135 | 1,7 % | 61,0 |
+| ×2,5 | 84,0 | 142 | 2,7 % | 56,2 |
+
+Das ist ein schlechter Tausch, und zwar messbar: Bei ×2,5 steigt das Mittel um
+25 Stufen, der **p95 aber nur um 20**, über L 190 kommt weiterhin nichts, und
+die Silhouette verliert **17 Stufen**. Der Hebel hebt den ganzen Ton an, statt
+Spitzlichter zu erzeugen — er macht die Krone heller und flauer zugleich, also
+genau das Gegenteil des Gewünschten.
+
+Der Hebel, der Spitzlichter erzeugen *würde*, ist die Rauheit. Und der ist in
+diesem Auftrag schon einmal gemessen und bewusst in die andere Richtung gestellt
+worden: 0,7 → 0,92 nahm **alle** ausgebrannten Bildpunkte (2,1 % → 0,1 %) und
+ein Fünftel des Flimmerns, ohne die Krone dunkler zu machen. Auf einer Nadel von
+einem Bildpunkt Breite ist eine enge Glanzkeule kein Material, sondern ein
+Schalter. Diesen Tausch wieder aufzumachen hieße, gemessene Ruhe auf der Quest
+gegen ungemessene Spitzlichter im Standbild zu tauschen.
+
+**Deshalb bleibt es, wie es ist, und hier steht warum.** Der Befund ist richtig
+beobachtet; die drei verfügbaren Hebel sind vermessen; zwei davon wurden in
+früheren Runden bereits entschieden. Wer es anders will, hat die Zahlen.
+
+### #7 „Vögel als flache schwarze Linsen" — bestätigt und behoben
+
+`MeshBasicMaterial` nimmt kein Licht an. Beide Flügel trugen deshalb denselben
+Wert, und aus ihrer Überlappung wurde ein einzelner dunkler Mandelfleck — einer
+davon liegt in `4-aerial` quer über der Felskante und liest als schwarzer Riss
+im Gestein.
+
+Die Messung auf den eigenen Bildpunkten der Vögel ist eindeutig: **p05 63,
+p50 63.** Mehr als die Hälfte aller Punkte auf exakt einem Wert — die Signatur
+einer Flächenfüllung. Die Falter tragen längst ein beleuchtetes Material; die
+Vögel waren der Ausreißer.
+
+Jetzt `MeshLambertMaterial` (nicht Standard: Ein Vogel auf fünfzehn Bildpunkten
+braucht keine Glanzkeule). Danach **p05 47, p50 52** — die V-Stellung der Flügel
+trennt die beiden Flächen, im vergrößerten Ausschnitt liegt eine sichtbare Naht
+zwischen ihnen. Kosten: keine.
+
+**Ehrlich zum Ausmaß:** Die Verbesserung ist klein. Der Vogel ist immer noch
+überwiegend eine dunkle Linse, weil sich bei diesem Blickwinkel beide Flügel
+fast deckungsgleich auf dieselbe Fläche projizieren. Der zweite Teil des
+Befunds — der Vogel sei „so groß wie eine Baumkrone" — steht noch: Bei
+`spread: 9` (mal Weltmaßstab vier = 36 m) fliegen einzelne Tiere deutlich näher
+an der Kamera als die Insel und erscheinen dadurch größer als ihre zwei Meter
+Spannweite. Das ist eine Frage der Platzierung und offen.
+
+### Kosten und Regression
+
+`5-backlight`, `2-waterfall`, `3-edge-down`, `6-groundcover` bitgleich oder
+nahezu; `4-aerial` Δmittel 0,017 auf 0,106 % der Bildpunkte, `1-eyelevel` 0,002.
+Zen und Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo Δmax 5 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Die Lehre dieser Runde
+
+**Ein bestätigter Befund ist noch kein Auftrag zur Änderung.** „Kein
+Sonnenlicht auf Laub" ist richtig gemessen und bleibt trotzdem stehen, weil alle
+drei Hebel dagegen etwas kosten, das teurer ist — und zwei davon wurden in
+diesem Auftrag schon einmal gegeneinander abgewogen, mit Zahlen, die noch
+gelten. Der Fehler wäre, den Befund abzuarbeiten, ohne die frühere Messung zu
+kennen.
+
+---
+
+## Paket „Nahfeld", zweiter Anlauf: Eine dritte Skala für den letzten Meter
+
+Befund #1 des dritten Prüfdurchgangs, und der mit der größten Fläche: Die Wiese
+wird **zur Kamera hin glatter**. Nachgefahren über elf Bänder in
+`6-groundcover`, von hinten nach vorn:
+
+    vorher   8,675  5,926  5,461  3,106  2,421  1,857  1,464  1,123  0,887
+
+Monoton fallend zur Kamera. Genau das, worauf ein Nutzer in der Brille schaut,
+wenn er den Kopf senkt, ist die strukturärmste Fläche des Bildes.
+
+### Warum die Korrektur der letzten Runde nicht gereicht hat
+
+Sie hat gewirkt, nur nicht weit genug. In `1-eyelevel` steht das vorderste Band
+jetzt bei 2,53 statt 0,35 — dort liegt der Boden rund vier Meter vor der Kamera,
+und die 4,5-cm-Lage greift. In `6-groundcover` nicht.
+
+Der Grund ist wieder **Vergrößerung**, eine Stufe tiefer. Ein Strahl durch den
+unteren Bildrand (`tools/kielfleck.mjs` auf `6-groundcover`) trifft den Boden
+nach **1,13 m**. Aus dieser Entfernung deckt eine Zelle von 4,5 cm rund
+**23 Bildpunkte** — ein Hochpass über ein 5×5-Fenster sieht davon nichts, und
+das Auge liest es als Fleck, nicht als Oberfläche. Alle drei vorhandenen
+Nah-Blenden standen dort bereits auf voll; es fehlte keine Blende, sondern eine
+Skala.
+
+### Was geändert wurde
+
+Eine dritte Lage von **1,2 cm**, in Albedo und Normale, eingeblendet erst unter
+drei Metern (`1 - smoothstep(1.2, 3.0, tiefe)`). Aus 1,13 m sind das rund fünf
+Bildpunkte — die Größe, die als Halmwerk liest.
+
+**Eine Oktave, nicht vier.** `grasFbm` legt vier Lagen mit Faktor 2,17
+übereinander; bei Grundfrequenz 85 läge die oberste bei 0,1 cm und damit weit
+unter einem Bildpunkt. Das ist kein Detail mehr, sondern Rauschen, das auf der
+Quest bei jeder Kopfbewegung kriecht. Gedreht wird die eine Lage trotzdem —
+eine einzelne Lage Wertrauschen zeigt sonst ihr achsenparalleles Gitter als
+Rauten, und diese Lehre hat die Wiese schon einmal gekostet.
+
+### Gemessen
+
+    nachher  8,675  5,926  5,461  3,137  2,817  2,703  2,353  1,871  1,412
+
+Das vorderste Band **0,887 → 1,412** (+59 %), das zweite 1,123 → 1,871, das
+dritte 1,464 → 2,353. Die hinteren vier Bänder stehen auf die dritte
+Nachkommastelle unverändert — die Ausblendung sitzt.
+
+Nahfeld (300,600)–(900,715): p05 172 → **169**, p95 191 → **192**, Spanne also
+19 → 23 Stufen. Der Mittelwert bleibt bei 182 (181,6 gegen 182,3), die Wiese
+wird also nicht heller, nur unruhiger.
+
+Im vergrößerten Ausschnitt ist es der deutlichste Unterschied: vorher ein weicher
+Wolkenwisch, jetzt eine körnige Fläche mit Richtungswechseln.
+
+### Was das Maß NICHT sagt
+
+Die Bänder steigen weiterhin nach hinten (1,41 → 2,35 → 2,82 → 3,14 → 5,46).
+Das ist kein Restfehler: Die hinteren Bänder enthalten Blumen, Büsche und
+Findlinge, die vorderen reines Gras. Ein Vergleich zwischen ihnen wiegt
+Gegenstände gegen Oberfläche. Was zählt, ist der Vergleich derselben Stelle
+vorher/nachher, und der steht oben.
+
+`1-eyelevel` bleibt an der Nahwiese **unverändert** (p05 169, p95 189). Dort
+liegt der Boden jenseits der drei Meter, die neue Lage greift also nicht — und
+das ist Absicht: Bei 3,5 m wäre eine 1,2-cm-Zelle 1,6 Bildpunkte groß, und das
+ist die Grenze, an der Struktur zu Flimmern wird.
+
+### Regression
+
+`1-eyelevel`, `3-edge-down`, `4-aerial`, `5-backlight` bitgleich oder Δmax 1;
+`2-waterfall` Δmittel 0,003; `6-groundcover` Δmittel 1,239 auf 25,6 % der
+Bildpunkte bei Δmax 22. Zen und Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo
+Δmax 4 bei 0,010 %. Build grün, Konsole sauber.
+
+### Kosten
+
+74 Draw-Calls, 196 739 Dreiecke — auf die Einerstelle unverändert. Eine dritte
+Rauschlage im Fragmentshader fügt weder Mesh noch Werkstoff noch Textur hinzu;
+sie kostet Rechenzeit je Bildpunkt, und die ist auf diesem Prüfstand ohnehin
+nicht messbar (SwiftShader, kein Grafikprozessor). Grenzen sind 120 und 350 000.
+
+### Die Lehre dieser Runde
+
+**Der `shaderlint` hat zum fünften Mal Backticks in einem GLSL-Kommentar
+gefunden.** Drei Stück, in Text, den ich gerade erst über eine frühere Lehre
+geschrieben hatte. Der Prüfschritt vor dem Bauen ist das Einzige, was diesen
+Fehler zuverlässig fängt — ich fange ihn selbst offenbar nicht.
+
+---
+
+## „Weiße Punkte ohne Quelle": Es sind die Blüten, und sie standen ohne Bodenkontakt
+
+Befund #10 des dritten Prüfdurchgangs: in `2-waterfall`, Kasten
+(600,340)–(760,430), „**neun isolierte weiße Blobs, mittlere Größe 2,4 px**,
+frei vor dem Stein hängend. Über den Punkten befindet sich nichts, was sie
+erzeugen könnte."
+
+Derselbe Kasten, sechsfach vergrößert, zeigt **keine Felswand**: Es ist Wiese
+mit Blumen und einem Pilz. Die neun Punkte sind Blütenköpfe. Der Prüfer hat den
+Untergrund verwechselt und daraus „ohne Quelle" geschlossen — die Beobachtung
+darunter ist trotzdem richtig: Der Stiel ist auf diese Entfernung schmaler als
+ein Bildpunkt, verschwindet, und der helle Kopf steht in der Luft.
+
+Dazu passt ein Befund aus dem **zweiten** Durchgang, den ich nie abgearbeitet
+hatte: „Blütenstiele, kein Schatten, kein Bodenkontakt."
+
+### Warum kein Schlagschatten
+
+Aus demselben Grund, der seit dem Unterwuchs-Paket bei den Pilzen im Quelltext
+steht: Eine Blüte von 6,4 cm ergibt bei **5,2 cm je Schattenkartentexel** einen
+Schatten aus zwei Texeln. Das ist kein Schatten, sondern Rauschen.
+
+Eine **gemalte** Kontaktverdunklung hat dieses Problem nicht — sie ist
+Geometrie, keine Abtastung. Und es gibt sie schon: `addUndergrowth` sammelt die
+Flecken unter Büschen und Pilzen in einem Bucket und verschmilzt sie zu einem
+einzigen Draw-Call. Die Blüten entstehen zwar in `addGrassDecoration`, ihre
+Fußpunkte wandern jetzt aber in **denselben** Bucket — ein Draw-Call bleibt ein
+Draw-Call.
+
+Zusätzliche Zufallswerte werden dabei **keine** gezogen: Die Fußpunkte sind die
+ohnehin schon gewürfelten Standorte. Der Strom bleibt, wo er war.
+
+### Zwei Anläufe beim Radius
+
+Der erste nahm 0,022 lokale Einheiten, rund 11 cm. Gemessen war die Verdunklung
+real (137,5 → 127,2 an einer Probe), im Bild bei vierfacher Vergrößerung aber
+**nicht zu finden**: 11 cm sind auf diese Entfernung zwei Bildpunkte, und eine
+weiche Radialtextur bei Deckkraft 0,30 verteilt das auf nichts.
+
+Jetzt 0,05, also rund 25 cm — so groß, wie die Blüte hoch ist. Probe
+137,5 → **122,5**, und in der Beitragsmaske (`tools/knotenwerte.mjs --maske`,
+Differenz aus Ein- und Ausblenden des Knotens) sind die beiden nächsten
+Blütenflecken die **dunkelsten Kontaktflecken des ganzen Bildes** — dunkler als
+der des Busches daneben.
+
+### Ehrlich zum Ergebnis
+
+**Der Fleck sitzt richtig und ist zu dezent, um den gemeldeten Eindruck zu
+drehen.** Im Bild-zu-Bild-Vergleich bei vierfacher Vergrößerung ist der
+Unterschied nicht zu sehen; sichtbar wird er erst in der zwölffach vergrößerten
+Maske. Was den „weißen Punkt bei 1×" erzeugt, ist nicht der fehlende Fleck,
+sondern der **unterpixelbreite Stiel** — und den behebt eine Verdunklung am
+Boden nicht.
+
+Was die Änderung leistet: Die Blumen haben Bodenkontakt, wo vorher keiner war,
+und der offene Befund aus dem zweiten Durchgang ist geschlossen. Was sie nicht
+leistet, steht oben. Der nächste Anlauf müsste am Stiel ansetzen (breiter oder
+kontrastreicher) und wäre eine eigene Messung.
+
+### Regression
+
+`3-edge-down` und `4-aerial` Δmax 6; `1-eyelevel` Δmittel 0,021 auf 0,286 % der
+Bildpunkte; `2-waterfall` 0,020 auf 0,257 %; `6-groundcover` 0,009 auf 0,171 %.
+Wiesenmittel in `2-waterfall` unverändert (148,5 gegen 148,4) — die Flecken
+verschmutzen die Fläche also nicht. Zen und Nachthimmel bitgleich, Konstrukt
+Δmax 1, Dojo Δmax 4 bei 0,008 %.
+
+Kosten: 74 Draw-Calls unverändert, 196 739 → **196 919** Dreiecke. Das sind
+genau **180**, also die neunzig Blütenquads zu je zwei Dreiecken — sie liegen im
+vorhandenen verschmolzenen Mesh und kosten deshalb keinen zweiten Draw-Call.
+Grenzen sind 120 und 350 000.
+
+---
+
+## Findlings-Facetten: Ein Drittel des Befunds war echt, und es lag am Licht von unten
+
+Befund #5: „Bei drei von vier Findlingen ist die nach OBEN weisende Facette
+dunkler als eine seitliche oder nach unten weisende — um 31, 39 und 39
+Luminanzstufen. Zwei Facettentöne wechseln sich ab, offenbar unabhängig von der
+Normalen. Deshalb wirken die Findlinge wie Papierfaltungen."
+
+Die Pixelwerte reproduzieren auf die Zehntelstufe. Was sie bedeuten, entscheidet
+aber die Flächennormale, und die steht in keinem Standbild. `tools/facetten.mjs`
+liest sie zusammen mit dem N·L zur Sonne und mit dem, was zwischen Stelle und
+Sonne steht.
+
+### Zwei der drei Fälle sind Fehldeutungen
+
+| Bild | Stelle | Normale | N·L | L |
+| --- | --- | --- | ---: | ---: |
+| `2-waterfall` | 190,470 | (−0,59 \| **0,48** \| 0,64) | **−0,378** | 85,2 |
+| `2-waterfall` | 175,530 | (0,22 \| **0,87** \| 0,44) | **+0,372** | 126,3 |
+| `5-backlight` | 1000,560 | (−0,46 \| **0,68** \| 0,57) | **−0,144** | 106,7 |
+| `5-backlight` | 930,620 | (−0,61 \| **0,67** \| −0,43) | **+0,402** | 140,0 |
+
+In beiden Fällen ist die **hellere** Facette die, die zur Sonne zeigt, und die
+dunklere die abgewandte. Bei `2-waterfall` ist die hellere sogar die **stärker
+nach oben** weisende (y 0,87 gegen 0,48). Der Prüfer hat die Position im Bild
+für die Ausrichtung der Fläche genommen — weiter oben im Bild heißt nicht nach
+oben gewandt. Hier ist nichts zu reparieren.
+
+### Der dritte Fall war echt
+
+| Bild | Stelle | Normale | N·L | L |
+| --- | --- | --- | ---: | ---: |
+| `1-eyelevel` | 856,366 | (0,05 \| 0,56 \| 0,83) | −0,150 | 101,9 |
+| `1-eyelevel` | 837,391 | (−0,75 \| −0,07 \| 0,65) | **−0,806** | **132,5** |
+
+Beide sind von der Sonne abgewandt, die untere **deutlich stärker** — und
+trotzdem 31 Stufen heller. Das kann kein Sonnenlicht sein.
+
+Es sind die beiden gerichteten **Aufhellungen von unten**, 1,9 und 0,85. Für den
+Kiel gebaut, unter dem heller Himmel steht, treffen sie in three jeden Körper der
+Szene — auch einen Stein, der auf der Wiese liegt. Die untere Facette bekommt von
+ihnen N·L = +0,47, die obere −0,32, also nichts. Zusammen standen sie bei **2,75
+gegen 2,5 der Sonne**: Die Insel wurde von unten stärker beleuchtet als von oben.
+
+### Die Korrektur ist kein Tausch
+
+`tools/aufhellung.mjs` fährt beide Seiten zugleich ab — den Abstand
+Oberseite-minus-Unterseite am Findling und Mittel/Spanne des Kiels in drei
+Bändern:
+
+| Einstellung | oben − unten | Kiel (Mittel/Spanne) |
+| --- | ---: | --- |
+| Bounce ×1,00 (Stand) | **−30,7** | 82/85  70/79  64/55 |
+| Bounce ×0,35 | −13,1 | 75/63  67/67  61/51 |
+| **Bounce ×0,35, Hemisphäre ×1,15** | **−12,8** | **81/63  72/66  66/49** |
+
+Die Hemisphäre kann den Fehlbetrag übernehmen, ohne Schaden anzurichten: Ihre
+beiden Töne sind fast gleich (0xc6e2f4 gegen 0xbcd6ea), sie ist also praktisch
+richtungslos und kann keine Oberseite unter ihre Unterseite drücken. Der Kiel
+behält damit seine Helligkeit (81/72/66 gegen 82/70/64). Bezahlt wird mit
+Spannweite (85 → 63 im obersten Band) — der Preis dafür, gerichtetes Licht durch
+ungerichtetes zu ersetzen. 63 Stufen sind reichlich Modellierung.
+
+Gesetzt: Aufhellungen 1,9 → **0,66** und 0,85 → **0,30**, Hemisphäre 1,35 →
+**1,55**.
+
+### Gemessen im Bild
+
+Findling `1-eyelevel`: oben 101,9 → **108,6**, unten 132,5 → **122,5**, Umkehrung
+−30,6 → **−13,9**. Die sonnenzugewandte Facette steigt 131,4 → 137,2.
+
+Die Wiese hebt sich leicht (171,9 → 175,5), der Anteil über L 190 bleibt bei
+0,9 % — kein Auswaschen.
+
+Wirkung je Bild: `3-edge-down` Δmittel 4,496 · `6-groundcover` 3,639 ·
+`2-waterfall` 3,120 · `5-backlight` 2,962 · `1-eyelevel` 2,920 · `4-aerial`
+1,150. Zen und Nachthimmel bitgleich, Konstrukt Δmax 2, Dojo Δmax 5 bei 0,009 %.
+
+Kosten: 74 Draw-Calls, 196 919 Dreiecke — auf die Einerstelle unverändert. Es
+wurden nur drei Lichtstärken geändert, kein Knoten hinzugefügt.
+
+### Die Lehre dieser Runde
+
+**Eine Facette hat keine Oberseite im Bild, sondern eine Normale im Raum.** Zwei
+von drei gemeldeten Umkehrungen waren keine; sie sahen nur so aus, weil im
+Standbild „weiter oben" mit „nach oben gewandt" verwechselt wird. Die dritte war
+echt und hätte in derselben Zeile stehen können — der Unterschied ist eine
+Messung, die es vorher nicht gab.
+
+---
+
+## Wolken: ein Fleck, ein Zwölfeck, keine Lappen
+
+Befund #15: „Wolken als flache Papierblobs, teils polygonale Kanten, ein
+rechteckiger Zapfen." Gemessen in `3-edge-down` (80,460)–(280,660): Hochpass
+**0,36**, p05 194 / p95 240, **99,8 %** der Bildpunkte über L 190.
+
+Bei vierfacher Vergrößerung ist die nahe Wolke ein einziger weicher weißer
+Verlauf mit zwei geraden Umrissstrecken. Drei Ursachen, alle in `makeCloud`:
+
+**Erstens der Umriss.** Die großen Ballen waren `SphereGeometry(s, 12, 10)` —
+zwölf Segmente ergeben einen Zwölfeck-Umriss, und auf einer nahen Wolke von über
+zweihundert Bildpunkten liest das als Strecken mit Ecken. Jetzt 16×12, die
+Knospen 9×7 statt 7×6.
+
+**Zweitens die Lappen.** Die Farbe wird aus der Position der **verschmolzenen**
+Geometrie gebacken. Alle drei bis vier Ballen und ein Dutzend Knospen bekommen
+damit denselben glatten Verlauf, und die Wolke liest als ein Fleck statt als
+Haufen. Jeder Ballen bekommt jetzt einen eigenen kleinen Helligkeitsversatz
+(±0,05 groß, ±0,10 klein), der vor dem Silberrand aufgeschlagen wird.
+
+Der Versatz kommt aus einem **eigenen Zufallsstrom** (`mulberry32(553091)`).
+Zum wievielten Mal diese Lehre hier steht, habe ich aufgehört zu zählen.
+
+**Drittens der Tonwert.** Die ganze Wolke lag im flachen Ast der ACES-Kurve:
+p05 194 bis p95 240, also 3,4-facher Helligkeitsunterschied auf 46 sRGB-Stufen.
+Oben mehr draufzugeben bringt dort nichts — Kontrast entsteht nur nach unten.
+Grundwert 0,62 → **0,58**, Schattenseite −0,28 → **−0,42**, Höhenanteil
+0,18 → **0,24**.
+
+### Gemessen
+
+Hochpass über die Wolkenfläche in `3-edge-down`, von nah nach fern:
+
+    vorher   0,144  0,173  0,215  0,419  0,575  1,837
+    nachher  0,489  0,468  0,409  0,517  0,552  1,823
+
+Im vordersten Band das **3,4-fache**, im zweiten das 2,7-fache. Der Anteil über
+L 190 geht von 99,8 auf 96,0 Prozent zurück — ein Teil der Wolke ist jetzt
+überhaupt außerhalb der Kompression.
+
+Im Bild: Der Umriss ist rund, die Lappen trennen sich, und die Unterseite ist
+beschattet. In `1-eyelevel` lesen die beiden Wolken oben rechts erstmals als
+Haufenwolken statt als Papierschnipsel.
+
+Wirkung: `3-edge-down` Δmittel 0,413 · `4-aerial` 0,353 · `1-eyelevel` 0,198 ·
+`2-waterfall` 0,167 · `5-backlight` 0,043 · `6-groundcover` 0,010. Zen und
+Nachthimmel bitgleich, Konstrukt Δmax 2, Dojo Δmax 5 bei 0,010 %.
+
+### Kosten
+
+74 Draw-Calls unverändert, 196 919 → **205 409** Dreiecke, also **+8 490** für
+die feineren Kugeln über alle fünfundzwanzig Wolken. Das ist der einzige Posten
+dieser Runde, der überhaupt etwas kostet, und er liegt weit unter der Grenze von
+350 000. Der Lappenversatz und die Tonwertänderung kosten nichts: Sie stehen in
+den Scheitelfarben, die es ohnehin gibt.
+
+---
+
+## Stämme: Rinde ja, Segmentnähte nein
+
+Befund #19: „Stämme ohne Rinde, mit waagerechten Segmentnähten." Bei fünffacher
+Vergrößerung ist der Stamm ein glatter brauner Kegel mit weichem Verlauf, und wo
+zwei Zylinderabschnitte aneinanderstoßen, läuft eine waagerechte Kante quer
+durch.
+
+### Rinde: erledigt
+
+`rindenKorn()` legt eine **anisotrope** Faserung in den Fragmentshader: in der
+Waagerechten fein (Faktor 26, die Furchen stehen dicht), in der Senkrechten grob
+(Faktor 3,4, sie laufen weit). Isotropes Rauschen wäre Putz, keine Rinde. Dazu
+eine zweite, viel gröbere Lage für die Flecken. Ausgeblendet zwischen 9 und 26 m.
+
+Gemessen im Stammkasten (1014,500)–(1036,640) von `5-backlight`, Hochpass über
+drei Bänder:
+
+    vorher   2,333  1,820  19,309
+    nachher  2,333  2,451  19,354
+
+Im mittleren Band, das ganz im Stamm liegt, **+35 %**. Das erste und dritte Band
+enthalten Laub und ändern sich nicht. Im vergrößerten Ausschnitt ist der
+Unterschied deutlich: senkrechte Fasern statt einer flachen braunen Fläche.
+
+Kosten: keine. Kein Mesh, kein Werkstoff, keine Textur — Zeilen im vorhandenen
+Shader.
+
+### Segmentnähte: bleiben, und hier steht warum
+
+Sie sind **nicht** verschwunden; das Korn hat sie nicht überdeckt. Sie sind
+geometrisch: `branchInto()` baut den Stamm als Kette von Zylindern, und an jedem
+Stoß springt die Normale.
+
+`branchInto` liegt in `src/dojo/foliage.js` und wird vom **Dojo** genauso
+benutzt. Eine Glättung dort änderte eine Umgebung, die nicht Gegenstand dieses
+Auftrags ist und für die niemand gemessen hat — dieselbe Entscheidung wie beim
+Himmelssaum an den Dojo-Kronen. Wer die Nähte angeht, misst vorher beide
+Umgebungen.
+
+### Regression
+
+`4-aerial` bitgleich; `6-groundcover` Δmittel 0,009 auf 0,192 % der Bildpunkte;
+`5-backlight` 0,005; `1-eyelevel` 0,004. Der kleine Zahlenwert ist kein Zeichen
+von Wirkungslosigkeit, sondern von Fläche: Stämme belegen wenig Bild. Zen und
+Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo Δmax 5 bei 0,009 %.

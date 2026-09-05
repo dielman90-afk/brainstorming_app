@@ -22,7 +22,12 @@ import { startServer, launchBrowser, openApp, selectEnv } from './harness-common
 
 const AUGE_MIN = 0.4;
 const AUGE_MAX = 2.6;
-const SCHRITT = 0.34; // 3,4 m/s bei gedeckeltem dt = 0,1 s
+const SCHRITT = 0.34;
+// Der Freiraum um die Polachse aus `makePlanetWalk`. Ein Totband in der Position
+// muss bei jeder Richtungsumkehr einmal ganz durchlaufen werden; 25 cm sind der
+// gemessene Kompromiss zwischen „Vorbeugen dreht die Welt" und „der Stick tut
+// eine halbe Sekunde nichts".
+const FREIRAUM = 0.25;
 
 let fehler = 0;
 const pruefe = (ok, text) => {
@@ -167,8 +172,74 @@ try {
     pruefe(oben <= 2.7, 'die Decke hält (Dojo maxY bzw. Höhenband)');
   }
 
+  // --- Der Planet ------------------------------------------------------------
+  //
+  // Der 🌌 Nachthimmel war einmal eine unbegrenzte Ebene und ist seit dem Umbau
+  // eine Kugel mit 25 m Halbmesser. Die Sperre beantwortet dort eine andere
+  // Frage: Sie hält den Spieler am Nordpol und rechnet seine Abdrift in eine
+  // Drehung der Welt um. Die alte Prüfung („von (300, −220) aus bleibt er bei
+  // (300, −220)") würde hier zu Recht scheitern.
+  //
+  // Der eigentliche Rundgang wird in `tools/rundgang.mjs` gemessen; hier steht
+  // nur, was in diese Datei gehört: dass die Sperre greift und dass der Boden
+  // dort liegt, wo das Höhenfeld ihn hinlegt.
+  await selectEnv(page, 'night');
+  console.log('\n=== 🌌 Nachthimmel (Planet) ===');
+  {
+    // FREIRAUM muss uebergeben werden: `page.evaluate` laeuft im Browser, die
+    // Konstante steht in Node.
+    const planet = await page.evaluate((FREIRAUM) => {
+      // Gegenprobe: Diese Datei traegt den Wert doppelt. Weicht er von dem der
+      // App ab, misst das Werkzeug eine Uebersetzung, die es nicht gibt —
+      // `tools/rundgang.mjs` ist genau daran einmal aufgelaufen.
+      const w0 = window.__app.env.walk();
+      if (w0.istPlanet && Math.abs(w0.freiraum - FREIRAUM) > 1e-6) {
+        throw new Error(`Freiraum: Werkzeug ${FREIRAUM} m, App ${w0.freiraum} m`);
+      }
+      const app = window.__app;
+      const w = app.env.walk();
+      const welt = app.scene.getObjectByName('nacht-welt');
+      const start = welt.quaternion.clone();
+      const out = { x: 0, z: 0 };
+      // Weit hinausgesetzt: Die Sperre muss auf den Freiraum zurückholen.
+      w.limit(300, -220, out);
+      const weit = { x: out.x, z: out.z, r: Math.hypot(out.x, out.z) };
+      welt.quaternion.copy(start);
+
+      // Ein Schritt von 34 cm über den Freiraum hinaus — das echte Maximum je
+      // Bild — muss die Welt um genau 34 cm Bogen drehen, also um 0,34/25 rad.
+      w.limit(0, FREIRAUM + 0.34, out);
+      const winkel = 2 * Math.acos(Math.min(1, Math.abs(welt.quaternion.clone().multiply(start.clone().invert()).w)));
+      welt.quaternion.copy(start);
+
+      return {
+        weit,
+        bogen: winkel * 25,
+        polBoden: w.floorAt(0, 0),
+        istPlanet: Boolean(w.istPlanet),
+      };
+    }, FREIRAUM);
+    console.log(
+      `  von (300, −220) aus: geklemmt auf (${planet.weit.x.toFixed(2)}, ${planet.weit.z.toFixed(
+        2
+      )}), Abstand vom Pol ${planet.weit.r.toFixed(2)} m`
+    );
+    pruefe(planet.istPlanet, 'die Umgebung meldet einen Planeten');
+    pruefe(
+      Math.abs(planet.weit.r - FREIRAUM) < 0.01,
+      `die Sperre hält den Spieler im Freiraum von ${(FREIRAUM * 100).toFixed(0)} cm`
+    );
+    console.log(`  ein Schritt von 34 cm dreht die Welt um ${(planet.bogen * 100).toFixed(2)} cm Bogen`);
+    pruefe(Math.abs(planet.bogen - 0.34) < 0.005, 'die Übersetzung ist 1:1 in Bogenmetern');
+    console.log(`  Standhöhe am Nordpol ${planet.polBoden.toFixed(3)} m (Sollradius 25 m)`);
+    pruefe(
+      planet.polBoden > 25 && planet.polBoden < 26,
+      'der Spieler steht auf der Kugelschale, nicht auf y = 0'
+    );
+  }
+
   // --- Unbegrenzte Welten ---------------------------------------------------
-  for (const id of ['night', 'zen', 'matrix']) {
+  for (const id of ['zen', 'matrix']) {
     await selectEnv(page, id);
     console.log(`\n=== ${id} ===`);
     const p = await setzeUndLies(page, 300, -220);
@@ -176,17 +247,7 @@ try {
     pruefe(Math.hypot(p.x - 300, p.z + 220) < 0.01, 'horizontal unbegrenzt');
     const ueber = p.y - p.floorY;
     pruefe(ueber >= AUGE_MIN - 0.02 && ueber <= AUGE_MAX + 0.02, `Kamera steht ${ueber.toFixed(2)} m über dem Boden`);
-    if (id === 'night') {
-      // Krater bei (15, 9) im Gitter-Koordinatensystem = Welt (15, −9).
-      const proben = await page.evaluate(() => {
-        const w = window.__app.env.walk();
-        return { krater: w.floorAt(15, -9), gespiegelt: w.floorAt(15, 9), mitte: w.floorAt(0, 0) };
-      });
-      console.log(`  Boden: Mitte ${proben.mitte.toFixed(2)} m, Krater (15,−9) ${proben.krater.toFixed(2)} m, gespiegelt (15,9) ${proben.gespiegelt.toFixed(2)} m`);
-      pruefe(proben.krater < proben.gespiegelt - 0.3, 'der Krater liegt an der richtigen Stelle (Achsen stimmen)');
-    } else {
-      pruefe(Math.abs(p.floorY) < 0.01, 'ebener Boden auf y = 0');
-    }
+    pruefe(Math.abs(p.floorY) < 0.01, 'ebener Boden auf y = 0');
   }
 
   // --- Tasten ---------------------------------------------------------------

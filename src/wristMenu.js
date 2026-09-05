@@ -36,6 +36,7 @@ export const PAGES = [
       { id: 'zone', label: 'Zone', icon: 'zone' },
       { id: 'timer', label: 'Timer', icon: 'timer' },
       { id: 'whiteboard', label: 'Whiteboard', icon: 'whiteboard' },
+      { id: 'tools-order', label: 'Alles ordnen', icon: 'layout' },
       { id: 'environment', label: 'Umgebung', icon: 'environment' },
       // Der Regler für die Bildqualität gehört in die Brille und nicht nur ins
       // Desktop-Overlay: Ob die Quest die volle Fassung trägt, entscheidet sich
@@ -125,8 +126,18 @@ export function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1
   canvas.width = w;
   canvas.height = h;
   const ctx = canvas.getContext('2d');
-  const r = 34;
-  const inset = 6;
+  // **Die Formkonstanten hängen an der Auflösung, nicht am Weltmaß.**
+  //
+  // 34 px Eckradius bei 1400 px/m sind 2,4 cm. Wer die Auflösung senkt, um
+  // Speicher zu sparen, bekäme sonst rundere Ecken und einen dickeren Rand —
+  // dasselbe Panel sähe anders aus. Mit dem Maßstab davor bleibt die
+  // **Weltgestalt** gleich, und nur die Schärfe der Kante ändert sich.
+  //
+  // Bei der Vorgabe 1400 ist der Faktor genau 1: Alle bisherigen Aufrufer
+  // bekommen bitgleich dieselbe Textur wie vorher.
+  const s = pxPerMeter / 1400;
+  const r = 34 * s;
+  const inset = 6 * s;
   const rr = (x, y, ww, hh, rad) => {
     ctx.beginPath();
     ctx.moveTo(x + rad, y);
@@ -139,7 +150,7 @@ export function makeRoundedPanel(width, height, { fill, border }, pxPerMeter = 1
   rr(inset, inset, w - inset * 2, h - inset * 2, r);
   ctx.fillStyle = fill;
   ctx.fill();
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 4 * s;
   ctx.strokeStyle = border;
   ctx.stroke();
 

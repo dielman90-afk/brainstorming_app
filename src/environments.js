@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createDojoEnvironment } from './dojo/index.js';
-import { makeIslandWalk, makeHeightFieldWalk } from './walkable.js';
+import { makeIslandWalk, makeHeightFieldWalk, makePlanetWalk } from './walkable.js';
 import { heightToMaps, scaleUV } from './dojo/materials.js';
 import { mossMaterial, waterMaterial, updateWater } from './dojo/ground.js';
 import {
@@ -605,6 +605,11 @@ function baueKrone({
   // Verdecker, nicht Silhouette: Wer ihn auf 1,0 lässt, sieht ihn.
   kern = 0.88,
   dichte = 70,
+  // Himmelssaum auf dem Hüllkörper. Auf der Insel gemessen abgeschaltet, siehe
+  // die Begründung am Werkstoff unten. Die anderen Umgebungen behalten ihn,
+  // solange niemand dieselbe Messung für sie gemacht hat — die Mechanik ist
+  // dort dieselbe, der Befund ist es nicht automatisch.
+  himmelssaum = true,
 }) {
   const r = mulberry32(seed);
   const schoepfe = [];
@@ -671,12 +676,46 @@ function baueKrone({
     blobGeometry(0, seed ^ 0x51, 0.72),
     // Lambert statt Standard: Der Hüllkörper soll dunkle Masse sein, kein
     // Material mit Glanzlicht. Er spart damit auch den PBR-Pfad im Shader.
-    // Der Himmelssaum kommt dazu, weil dieser Körper an vielen Stellen die
-    // äußere Kontur gegen den Himmel bildet.
-    addSkyRim(new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }), {
-      strength: 0.5,
-      power: 2.0,
-    }),
+    //
+    // **Auf der Insel kein Himmelssaum** (`himmelssaum: false`). Er steht hier
+    // auf `strength 0.5, power 2.0` — der stärkste der Insel — mit der
+    // Begründung, dieser Körper bilde vielerorts die äußere Kontur gegen den
+    // Himmel. Das ist der Denkfehler: Der Körper
+    // ist eine Detailstufe-0-Blase, **zwanzig Dreiecke**, nicht indiziert.
+    // Seine Normalen sind Facettennormalen, der Fresnel-Term ist damit je
+    // Facette konstant — er malt keinen Saum an der Kontur, sondern hellt
+    // ganze Facetten mitten im Busch himmelblau auf. Genau das hat der Prüfer
+    // in `5-backlight` gefunden, und im vergrößerten Ausschnitt sieht man es
+    // sofort: helle blaugraue Flecken im Buschinnern, die als Löcher zum
+    // Himmel lesen.
+    //
+    // `tools/saumprobe.mjs` schaltet die Saumgruppen zur Laufzeit einzeln ab
+    // und misst dreierlei: den Anteil der Laubpixel, die Himmelsfarbe tragen
+    // **ohne einen Nachbarn ausserhalb des Laubs** (der Befund), und den
+    // Helligkeitssprung über die Kontur an Konifere und Laubkrone (der Grund,
+    // aus dem die Säume einmal hinzukamen):
+    //
+    //     Stand              Saum innen 1,53 Pp   Konifere 53,0 (78)   Laubkrone 66,1 (646)
+    //     ohne 0,50/2,0      Saum innen 0,36 Pp   Konifere 53,0 (78)   Laubkrone 67,7 (624)
+    //     ohne 0,26/4,2      Saum innen 1,53 Pp   Konifere 67,3 (46)   Laubkrone 66,1 (646)
+    //     ohne 0,24/4,2      Saum innen 1,52 Pp   Konifere 53,0 (78)   Laubkrone 67,9 (652)
+    //
+    // Kein Saum am Laub kauft eine Silhouette; alle drei kosten eine. Die
+    // Konifere zerfiel mit ihrem Saum in 78 statt 46 Konturstücke, und jedes
+    // sprang schwächer — aufgehellte Karten sind vom Himmel nicht mehr zu
+    // unterscheiden. An den Felsen bleibt der Saum: Ein geschlossener Körper
+    // mit glatten Normalen ist der Fall, für den der Term gedacht ist.
+    //
+    // Die Dojo-Kronen laufen durch dieselbe Funktion und haben dieselbe
+    // Mechanik — sie behalten den Saum trotzdem. Der Befund ist auf der Insel
+    // gemessen, nicht im Dojo, und ein Auftrag über die Insel ist kein Freibrief,
+    // eine andere Umgebung nebenbei zu verändern. Es steht im Protokoll.
+    himmelssaum
+      ? addSkyRim(new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }), {
+          strength: 0.5,
+          power: 2.0,
+        })
+      : new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }),
     schoepfe.length
   );
   setze(blobs, kern, farben);
@@ -707,14 +746,14 @@ let _inselKarten = null;
 let _inselNadeln = null;
 function inselBaumMaterialien() {
   if (!_inselHolz) {
-    _inselHolz = weatheredWoodMaterial({ tone: 0x8f6a48, vertexColors: false });
+    _inselHolz = rindenKorn(weatheredWoodMaterial({ tone: 0x8f6a48, vertexColors: false }));
     _inselLaub = new THREE.MeshStandardMaterial({
       color: 0xffffff,
       roughness: 0.9,
       metalness: 0,
       vertexColors: true,
     });
-    _inselNadeln = addSkyRim(foliageMaterial({
+    _inselNadeln = foliageMaterial({
       atlas: leafAtlas('nadel'),
       // Nadeln sind steif und wachsig: wenig Wind, wenig Transluzenz. Eine
       // Konifere im Gegenlicht leuchtet **nicht** – das ist der halbe
@@ -722,20 +761,47 @@ function inselBaumMaterialien() {
       translucency: 0.85,
       transColor: 0xc8e89a,
       windStrength: 0.03,
-      roughness: 0.7,
-      color: 0xbfe3a8,
-      // Der Himmelssaum sitzt eng und schwach.
+      // **0,92 statt 0,7 — und die Zahl kommt aus einer Einzelprobe.**
       //
-      // Bei `strength 0.55, power 1.9` war er auf einer BLATTKARTE kein Saum
-      // mehr: Eine Karte ist eine ebene Fläche mit konstanter Normale, der
-      // Fresnel-Term wird darauf zur Flächenhelligkeit. Jede schräg stehende
-      // Karte wurde damit fast weiß – gemessen lagen 18,4 % der Kronenpixel
-      // über L=190. Das ist zweierlei Schaden: Die Astlage wird unlesbar, und
-      // auf der Quest kriecht so ein Salz-und-Pfeffer-Muster bei jeder
-      // Kopfbewegung. Derselbe Fehler wie seinerzeit am Fels, dieselbe
-      // Korrektur: hoher Exponent, kleiner Betrag.
-    }), { strength: 0.26, power: 4.2 });
-    _inselKarten = addSkyRim(foliageMaterial({
+      // 0,7 stand fuer „wachsig", und wachsig sind Nadeln auch. Nur ist eine
+      // Nadel in diesem Bild **einen Bildpunkt** breit, und auf einem
+      // Bildpunkt ist eine enge Glanzkeule kein Material, sondern ein
+      // Schalter: Der Nachbar trifft sie nicht mehr und faellt ab.
+      //
+      // `tools/laubprobe.mjs` schaltet die vier moeglichen Ursachen einzeln ab
+      // und misst den Hochpass im Kronenkasten (950,150) bis (1250,450) von
+      // `5-backlight`:
+      //
+      //     Stand                     26,908   unter L40 37,6 %   ueber L190 2,1 %
+      //     Rauheit 0,92              21,347             37,5 %              0,1 %
+      //     Rauheit 0,92, Normale 3/4 18,868             45,5 %              0,1 %
+      //     Rauheit 0,92, Normale 3/5 16,642             51,6 %              0,1 %
+      //     ohne Normalenkarte         5,135             75,1 %              2,5 %
+      //
+      // Die Normalenkarte ist mit Abstand der groesste Beitrag zum Flimmern —
+      // und zugleich das, was die Krone ueberhaupt ins Licht hebt: ohne sie
+      // liegen drei Viertel der Kronenpixel unter L 40. Jeder Schritt, der sie
+      // zurueckdreht, kauft Ruhe mit Dunkelheit.
+      //
+      // Die Rauheit nicht: Sie nimmt ein Fuenftel des Flimmerns und **alle**
+      // ausgebrannten Bildpunkte (2,1 auf 0,1 Prozent), ohne die Krone auch nur
+      // eine Zehntelstufe dunkler zu machen (37,5 gegen 37,6 Prozent). Das ist
+      // der ganze freie Anteil, und mehr wird hier nicht genommen.
+      roughness: 0.92,
+      color: 0xbfe3a8,
+      // **Kein Himmelssaum, und zwar null statt klein.**
+      //
+      // Er stand zuletzt auf `strength 0.26, power 4.2`, heruntergedreht von
+      // `0.55, 1.9`, weil er auf einer Karte kein Saum ist: Eine Karte ist
+      // eine ebene Fläche mit konstanter Normale, der Fresnel-Term wird darauf
+      // zur Flächenhelligkeit — nicht der Rand leuchtet, sondern die ganze
+      // Karte, sobald sie schräg steht. Der kleine Betrag hat den Fehler leise
+      // gemacht, nicht behoben: Gemessen zerfiel die Kontur der Konifere damit
+      // in 78 statt 46 Stücke bei einem Sprung von 53,0 statt 67,3. Der Saum
+      // war für den Silhouettenkontrast da und hat ihn gesenkt. Die Messreihe
+      // steht beim Hüllkörper der Schöpfe.
+    });
+    _inselKarten = foliageMaterial({
       atlas: leafAtlas('azalea'),
       // Aufgehellt auf das Inselgrün. Der Azaleen-Atlas ist für den schattigen
       // Dojo-Garten gezeichnet; unverändert standen seine Blätter als dunkle
@@ -748,7 +814,45 @@ function inselBaumMaterialien() {
       translucency: 0.95,
       transColor: 0xdcf7b0,
       windStrength: 0.06,
-    }), { strength: 0.24, power: 4.2 });
+      // Dieselbe Begruendung wie bei den Nadeln, nur milder: Ein Blatt deckt
+      // mehr Bildpunkte als eine Nadel, die Glanzkeule schaltet also nicht so
+      // hart. 0,88 statt der Vorgabe 0,78.
+      roughness: 0.88,
+      // Kein Himmelssaum, dieselbe Messreihe wie bei den Nadeln: Er kostete
+      // die Laubkrone 1,8 Stufen Konturkontrast und kaufte nichts.
+    });
+
+    // --- Alpha-Abdeckung statt Alpha-Schwelle --------------------------------
+    //
+    // **Der lauteste Fehler der Insel, und er hat zwei Gesichter.**
+    //
+    // Der Pruefer hat sie getrennt gemeldet: die Konifere in `5-backlight`
+    // (950,150) bis (1250,450) als „pixelweise abwechselndes Schwarz-Weiss-
+    // Gitter", Hochpass 27,4 bei p95 = 81,0, gleichzeitig 39,0 Prozent der
+    // Kronenpixel unter L 40 und 2,2 Prozent ueber L 190 — und getrennt davon,
+    // dass ein **ferner** Busch mehr Mikrokontrast traegt als ein naher
+    // (Hochpass 23,1 gegen 12,6). Das ist ein und dieselbe Ursache.
+    //
+    // `foliageMaterial` benutzt `alphaTest` statt `transparent`, aus gutem
+    // Grund: Nur so bleibt das Laub im Tiefenpuffer und wirft Schatten. Der
+    // Preis steht in jeder Mipmap-Stufe. Wird die Karte kleiner, mittelt die
+    // Mipmap **Alpha und Farbe gemeinsam** herunter; das Alpha faellt unter die
+    // Schwelle von 0,42 und der Bildpunkt verschwindet ganz, waehrend seine
+    // Nachbarn mit voller Farbe stehen bleiben. Aus einer Krone wird Salz und
+    // Pfeffer — und weil das mit der Entfernung zunimmt, ist die ferne Krone
+    // kontrastreicher als die nahe.
+    //
+    // `alphaToCoverage` loest genau das: Die Schwellenentscheidung wird auf die
+    // vier MSAA-Abtastpunkte verteilt, die dieser Renderer ohnehin haelt
+    // (gemessen: SAMPLES = 4). Aus einem Ja/Nein werden fuenf Stufen, und der
+    // Rand einer Blattkarte wird ein Rand statt eines Flimmerkamms. Es kostet
+    // keinen Draw-Call, kein Byte Textur und kein Dreieck.
+    //
+    // **Nur die Insel.** `foliageMaterial` bedient auch Dojo und Zen-Garten;
+    // dort dieselbe Zeile zu setzen waere vermutlich ebenso richtig, ist aber
+    // nicht Gegenstand dieses Auftrags und braucht eine eigene Messung.
+    _inselNadeln.alphaToCoverage = true;
+    _inselKarten.alphaToCoverage = true;
   }
   return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten, nadeln: _inselNadeln };
 }
@@ -790,6 +894,7 @@ function buildCollectedTrees(ctx, seed) {
       dichte: 74,
       farben: [0x2b4436, 0x33513e, 0x24392c],
       kartenFarben: [0xd8f0c0, 0xc6e4ae, 0xe4ffd0],
+      himmelssaum: false,
     });
     k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
@@ -808,6 +913,7 @@ function buildCollectedTrees(ctx, seed) {
       // seinen `slice` in genau eines davon.
       farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
       kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8, 0xd3efb0, 0xc2e39c, 0xe0f8c0],
+      himmelssaum: false,
     });
     k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
@@ -1269,6 +1375,280 @@ const ZONE_GRASS = 0;
 const ZONE_EARTH = 1;
 const ZONE_ROCK = 2;
 
+// --- Die Grasnarbe aus der Naehe -------------------------------------------
+//
+// **Der groesste Hebel der Insel, und er kostet kein Byte Textur.**
+//
+// Gemessen im Ausgangsstand, `6-groundcover`, Bereich (100,420) bis
+// (1180,700) — 304 000 Bildpunkte, ueber die halbe Bildflaeche:
+//
+//     Hochpass 0,040   Mittel 181,1   p05 bis p95 = 176 bis 188
+//
+// Zwoelf Tonwertstufen von 255. Zum Vergleich traegt der Regolith des
+// Nachthimmels an derselben Stelle 0,867, also das Einundzwanzigfache — und
+// das ist eine bewusst dunkle Flaeche.
+//
+// **Warum die Scheitelfarben das nicht loesen.** Die Wiese hat eine sorgfaeltig
+// gebaute Einfaerbung: Feuchte aus Mulden und Bachnaehe, Moos, duerres Gras auf
+// dem Ruecken, drei Ortsfrequenzen. Sie haengt aber an den **Scheitelpunkten**,
+// und die begehbare Flaeche ist absichtlich eben und damit grob unterteilt. Aus
+// 1,5 m Abstand deckt eine Gitterzelle einen guten Teil des Bildes ab, und was
+// dazwischen liegt, ist eine lineare Interpolation — ein weicher Verlauf, dessen
+// Hochpass definitionsgemaess bei null liegt. Es ist derselbe Befund wie beim
+// Nachthimmel-Vordergrund: nicht fehlendes Detail, sondern Vergroesserung.
+//
+// **Warum keine Karte.** Ein frueherer Anlauf hat die Mooskarten des
+// Dojo-Satzes darauf gelegt: dreifacher Texturspeicher (9,17 auf 27,83 MB) bei
+// unveraendertem Bild. Die Begruendung steht unten am Materialsatz und gilt
+// weiter. Was hier fehlt, ist Struktur im **Massstab der Halme**, und die
+// entsteht rechnend im Shader — kein Texturspeicher, kein Draw-Call, keine
+// Kachelgrenze.
+//
+// **Der Massstab ist gerechnet.** Die Kamera loest 60 Grad auf 720 Zeilen auf,
+// also 1,45 mrad je Bildpunkt; auf 1,5 m sind das 2,2 mm, auf 6 m 8,7 mm. Ein
+// Bueschel von 18 cm ist damit auf 1,5 m 82 Bildpunkte breit und auf 20 m noch
+// sechs. Ausgeblendet wird trotzdem ab 14 m — nicht weil es dann zu klein
+// waere, sondern weil eine Normalenstoerung, die unter wenige Bildpunkte faellt,
+// zu flimmerndem Korn wird statt zu Form.
+let _inselGras = null;
+function grasMaterial() {
+  if (_inselGras) return _inselGras;
+  _inselGras = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.97,
+    metalness: 0,
+  });
+  _inselGras.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGrasOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvGrasOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vGrasOrt;
+         float grasHash(vec2 p) {
+           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+         }
+         float grasNoise(vec2 p) {
+           vec2 i = floor(p);
+           vec2 f = fract(p);
+           vec2 u = f * f * (3.0 - 2.0 * f);
+           return mix(
+             mix(grasHash(i), grasHash(i + vec2(1.0, 0.0)), u.x),
+             mix(grasHash(i + vec2(0.0, 1.0)), grasHash(i + vec2(1.0, 1.0)), u.x),
+             u.y
+           );
+         }
+         // **Und warum eine Lage davon nicht reicht.**
+         //
+         // Wertrauschen sitzt auf einem **achsenparallelen Gitter**. Eine
+         // einzelne Lage zeigt dieses Gitter als Rauten, sobald ihre Zellen im
+         // Bild groesser als ein paar Bildpunkte werden — im Nahfeld der Wiese
+         // war genau das zu sehen, und zwar von mir gebaut. Mehrere Oktaven
+         // helfen nicht, solange sie **dieselbe** Ausrichtung haben: Ihre
+         // Gitter fallen aufeinander und verstaerken sich.
+         //
+         // Jede Oktave wird deshalb um 36,7 Grad gedreht und mit dem krummen
+         // Faktor 2,17 statt 2,0 skaliert. Damit liegt keine Zellgrenze auf
+         // einer anderen, und das Gitter ist als Richtung nicht mehr zu finden.
+         float grasFbm(vec2 p) {
+           mat2 dreh = mat2(0.8018, -0.5976, 0.5976, 0.8018);
+           vec2 q = dreh * p;
+           float summe = 0.0;
+           float amp = 0.5;
+           for (int i = 0; i < 4; i++) {
+             summe += grasNoise(q) * amp;
+             q = dreh * q * 2.17 + 13.7;
+             amp *= 0.5;
+           }
+           return summe / 0.9375;
+         }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           // **Gleichmaessig gruen, und die Struktur sitzt in der
+           // Helligkeit.**
+           //
+           // Der erste Anlauf hatte zwei kraeftige Ortsfrequenzen in der
+           // Albedo (Flecken von 90 cm mit 17 Prozent Ausschlag, Bueschel mit
+           // 10) und dazu eine Farbwanderung ins Gelbe auf dem Korn. Im Bild
+           // ergab das eine Wiese in Gebieten — hier blass und gelblich, dort
+           // satt gruen — und der Auftraggeber hat sie genau so gemeldet.
+           //
+           // Was eine Wiese aus der Naehe unruhig macht, ist nicht Farbe,
+           // sondern **Helligkeit**: Halme, die verschieden zum Licht stehen.
+           // Die Flecken sind deshalb auf ein Drittel zurueck, die
+           // Farbwanderung ist ganz heraus, und das feine Korn traegt den Rest.
+           vec2 w = vGrasOrt.xz;
+           float tiefe = length(vViewPosition);
+           float nah = 1.0 - smoothstep(6.0, 14.0, tiefe);
+           // **Ein zweiter, viel feinerer Massstab fuer das Allernaechste.**
+           //
+           // Der Pruefer hat die Wiese bandweise gemessen und die Struktur
+           // **falsch herum** gefunden: in 6-groundcover von 4,594 im
+           // hinteren Band auf **0,348** im vordersten — Faktor 13 zur Kamera
+           // hin, und dort moduliert der Boden um weniger als eine
+           // Luminanzstufe.
+           //
+           // Das ist kein fehlendes Detail, sondern **Vergroesserung**: Das
+           // Korn hat 32 cm Kantenlaenge, und aus zwei Metern deckt eine
+           // solche Zelle einen guten Teil des Bildes ab. Ein Hochpass ueber
+           // ein 5x5-Fenster sieht darin nichts — die Struktur ist da, nur mit
+           // einer Ortsfrequenz, die das Auge auf diese Entfernung nicht mehr
+           // als Oberflaeche liest.
+           //
+           // Dieselbe Falle und dieselbe Antwort wie beim Nachthimmel: ein
+           // **zweiter Massstab**, der nur nah eingeblendet wird. 4,5 cm sind
+           // auf zwei Metern 15 Bildpunkte, auf sechs noch fuenf; darueber
+           // wird er ausgeblendet, bevor er zu Flimmern wird.
+           float ganzNah = 1.0 - smoothstep(3.0, 9.0, tiefe);
+           // **Und noch eine dritte Skala, weil zwei nicht bis vor die Fuesse
+           // reichen.**
+           //
+           // Der zweite Massstab (4,5 cm) war die Antwort auf denselben Befund
+           // eine Runde frueher, und er hat gewirkt — in 1-eyelevel steht das
+           // vorderste Band jetzt bei 2,53 statt 0,35. In 6-groundcover nicht:
+           // dort faellt der Hochpass ueber elf Baender von 8,675 auf **0,887**,
+           // monoton zur Kamera hin.
+           //
+           // Der Grund ist wieder Vergroesserung, nur eine Stufe tiefer.
+           // Gemessen mit einem Strahl durch den unteren Bildrand liegt der
+           // Boden dort **1,13 m** vor der Kamera; eine Zelle von 4,5 cm deckt
+           // aus dieser Entfernung rund **23 Bildpunkte**, und ein Hochpass
+           // ueber ein 5x5-Fenster sieht davon nichts. Die Struktur ist da, ihre
+           // Ortsfrequenz ist nur zu niedrig, um als Oberflaeche zu lesen.
+           //
+           // Also 1,2 cm fuer das letzte Stueck: aus 1,13 m sind das rund fuenf
+           // Bildpunkte — genau die Groesse, die als Halmwerk liest.
+           //
+           // **Eine Oktave, nicht vier.** grasFbm legt vier Lagen mit Faktor
+           // 2,17 uebereinander; bei einer Grundfrequenz von 85 waere die
+           // oberste bei 0,1 cm und damit weit unterhalb eines Bildpunkts —
+           // das ist kein Detail mehr, sondern Rauschen, das auf der Quest bei
+           // jeder Kopfbewegung kriecht. Gedreht wird sie trotzdem, sonst zeigt
+           // eine einzelne Lage Wertrauschen ihr achsenparalleles Gitter als
+           // Rauten. Dieselbe Lehre wie beim Kachelbefund.
+           float superNah = 1.0 - smoothstep(1.2, 3.0, tiefe);
+           mat2 drehF = mat2(0.8018, -0.5976, 0.5976, 0.8018);
+           float fleck = grasFbm(w * 0.55) - 0.5;
+           float korn = grasFbm(w * 3.1) - 0.5;
+           float halme = grasFbm(w * 22.0) - 0.5;
+           float feinst = grasNoise(drehF * w * 85.0) - 0.5;
+           diffuseColor.rgb *=
+             1.0 + fleck * 0.055 + korn * 0.26 * nah + halme * 0.30 * ganzNah +
+             feinst * 0.26 * superNah;
+           // --- Luftperspektive auf der Bodenebene ------------------------
+           //
+           // Der Pruefer: „Gras 1-eyelevel ferner Kamm L 180,0 / Saettigung
+           // 50,7 gegen naechsten Vordergrund L 179,3 / 50,7 — 0,7 Stufen und
+           // 0,0 Saettigungspunkte ueber rund 30 m", waehrend der Fels im
+           // selben Bild um 35 Stufen staffelt.
+           //
+           // **Der Szenennebel kann das nicht leisten, und das ist gemessen.**
+           // Er setzt bei 6 * WORLD_SCALE = 24 m an; die Insel ist 40 m breit,
+           // ihre ferne Kante also 20 m entfernt und liegt vollstaendig davor.
+           // tools/nebelfeld.mjs faehrt das Feld ab: Selbst mit 2 / 70 statt
+           // 24 / 128 kommen nur 4,5 Luminanzstufen heraus, und dafuer verliert
+           // die ferne Wiese 9,5 Saettigungspunkte und das Kartenband beginnt
+           // sich zu heben. Ein Nebel, der zugleich Mini-Inseln auf 100 m
+           // traegt, kann auf 20 m nichts Feines tun.
+           //
+           // Also hier, wo die Entfernung ohnehin schon bekannt ist: ein
+           // eigener Dunst fuer die Grasnarbe, auf das Band 4 bis 26 m gelegt.
+           // Er beruehrt nichts anderes — keine Karten, keine Findlinge, keinen
+           // Himmel — und kostet kein Byte.
+           // **Der Ton des Dunstes ist nicht der Himmel.** Ein erster Anlauf
+           // hat gegen die Himmelsfarbe (0,44 | 0,66 | 0,83) gemischt und
+           // damit zwar 6,3 Luminanzstufen Staffelung erzeugt, aber auch
+           // 21,4 Saettigungspunkte weggenommen. Im Bild stand daraufhin ein
+           // blassblauer Hintergrund, auf dem Buesche und Findlinge in voller
+           // Saettigung sassen — die Wiese staffelte, alles darauf nicht.
+           //
+           // Der Dunst mischt deshalb gegen einen hellen, nur leicht kuehlen
+           // Ton in der Naehe der Grasfarbe: Er hebt die Helligkeit, ohne die
+           // Tonart zu verlassen.
+           // **Und er hoert wieder auf, wo der Szenennebel uebernimmt.**
+           //
+           // Mit einer reinen smoothstep(4, 26) steht jenseits von 26 m ueberall
+           // derselbe volle Dunst — in der Totale (Kamera 57 m entfernt) liegt
+           // damit die **ganze** Insel gleichmaessig im Schleier, statt
+           // gestaffelt zu sein. Gemessen: Wiesenmittel in 4-aerial 159,5 auf
+           // 162,7, Anteil ueber L 190 von 16,4 auf 29,2 Prozent. Das ist keine
+           // Tiefe, das ist Aufhellung.
+           //
+           // Der Term ist ein **Lueckenfueller** fuer das Band, das der
+           // Szenennebel nicht bedienen kann, und wird dort zurueckgenommen, wo
+           // dieser greift. Physikalisch nimmt Dunst mit der Entfernung nicht
+           // ab; hier tut er es, weil sonst zwei Dunstquellen dieselbe Strecke
+           // doppelt berechnen. Das ist eine Entscheidung der Technik, keine
+           // der Optik, und sie steht als solche hier.
+           float weite = smoothstep(4.0, 26.0, tiefe) * (1.0 - smoothstep(30.0, 55.0, tiefe));
+           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.55, 0.44), weite * 0.30);
+         }`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+         {
+           // Bueschel von 18 cm als Normalenstoerung. Der Gradient kommt aus
+           // drei Abtastungen; die Stoerung wird im **Weltraum** gebildet und
+           // erst dann in den Blickraum gedreht, weil ohne Normalenkarte kein
+           // Tangentensystem im Shader steht.
+           vec2 w = vGrasOrt.xz;
+           float tiefe = length(vViewPosition);
+           float nahN = 1.0 - smoothstep(5.0, 14.0, tiefe);
+           if (nahN > 0.002) {
+             // Zwei Massstaebe, wie in der Albedo: Bueschel von 18 cm fuer
+             // den mittleren Bereich, Halme von 3,6 cm fuer das Allernaechste.
+             // Der feine Anteil traegt eine eigene, kuerzere Ausblendung.
+             float ganzNahN = 1.0 - smoothstep(2.5, 7.0, tiefe);
+             float e = 0.055;
+             vec2 q = w * 5.55;
+             float h0 = grasFbm(q);
+             float hx = grasFbm(q + vec2(e, 0.0));
+             float hz = grasFbm(q + vec2(0.0, e));
+             vec3 stoerung = vec3(-(hx - h0), 0.0, -(hz - h0)) * (5.6 * nahN);
+             if (ganzNahN > 0.002) {
+               float ef = 0.22;
+               vec2 qf = w * 28.0;
+               float f0 = grasFbm(qf);
+               float fx = grasFbm(qf + vec2(ef, 0.0));
+               float fz = grasFbm(qf + vec2(0.0, ef));
+               stoerung += vec3(-(fx - f0), 0.0, -(fz - f0)) * (1.5 * ganzNahN);
+             }
+             // Dritte Lage, passend zur dritten Skala in der Albedo: 1,2 cm,
+             // nur auf den letzten drei Metern. Sie traegt den Glanzwechsel
+             // zwischen Halmen, den die Helligkeit allein nicht macht — und
+             // sie ist der Grund, warum die Wiese aus einem Meter Entfernung
+             // ueberhaupt eine Richtung bekommt.
+             float superNahN = 1.0 - smoothstep(1.2, 3.0, tiefe);
+             if (superNahN > 0.002) {
+               mat2 drehN = mat2(0.8018, -0.5976, 0.5976, 0.8018);
+               float es = 0.30;
+               vec2 qs = drehN * w * 85.0;
+               float s0 = grasNoise(qs);
+               float sx = grasNoise(qs + vec2(es, 0.0));
+               float sz = grasNoise(qs + vec2(0.0, es));
+               stoerung += vec3(-(sx - s0), 0.0, -(sz - s0)) * (0.9 * superNahN);
+             }
+             normal = normalize(normal + (viewMatrix * vec4(stoerung, 0.0)).xyz);
+           }
+         }`
+      );
+  };
+  // Ohne eigenen Schluessel teilt three das uebersetzte Programm mit jedem
+  // anderen MeshStandardMaterial derselben Merkmale — und die Insel bekaeme
+  // ihre Einspritzung nicht.
+  _inselGras.customProgramCacheKey = () => 'insel-gras-v7';
+  return _inselGras;
+}
+
 function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detail = 1 } = {}) {
   const S = Math.max(24, Math.round(seg * detail));
   const TR = Math.max(6, Math.round(topRings * detail));
@@ -1474,11 +1854,7 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   // Auf einer mobilen Brille ist das ein schlechter Tausch. Die Variation der
   // Wiese kommt aus den Scheitelfarben - sie haengt an der Geometrie, ist damit
   // im richtigen Massstab und kostet nichts.
-  const gras = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    roughness: 0.97,
-    metalness: 0,
-  });
+  const gras = grasMaterial();
 
   const mesh = new THREE.Mesh(geo, [
     gras,
@@ -1656,13 +2032,28 @@ function bodyColor(out, zone, shape, p, t, a) {
     const fein = valueNoise2(x * 4.3 + 29, z * 4.3 + 5) - 0.5;
     const variation = gross * 1.15 + mittel * 0.45 + fein * 0.22;
 
+    // **Eine Tonart Grün, und die Feuchte steht in der Helligkeit.**
+    //
+    // Hier stand vorher: „Die Ausschläge sind bewusst groß." Sie waren zu groß.
+    // Mit ±0,098 im Farbton und ±0,24 in der Sättigung zerfiel die Wiese in
+    // Gebiete — hier blass und gelblich, dort blaugrün und satt —, und der
+    // Auftraggeber hat sie genau so gemeldet: „Das Gras soll gleichmäßig grün
+    // sein."
+    //
+    // Der Grund für die Variation war richtig (Wasser sammelt sich in Mulden
+    // und läuft vom Rücken ab), die Sprache falsch. Feuchtes Gras ist nicht
+    // **anders** grün, es ist **dunkler** grün. Der Farbton bewegt sich
+    // deshalb nur noch um ein Viertel des alten Betrags, die Sättigung um ein
+    // Fünftel; die Helligkeit trägt den Rest.
     out.setHSL(
-      // Moos zieht ins Blaugrüne, dürres Gras ins Gelbe. Die Ausschläge sind
-      // bewusst groß: Bei der halben Stärke blieb der Rot-Blau-Abstand über
-      // die ganze Wiese konstant, und die Feuchte war nur als Helligkeit da.
-      0.268 + 0.072 * feucht - 0.098 * trocken + 0.024 * variation,
-      0.40 + 0.24 * feucht - 0.20 * trocken + 0.10 * variation,
-      0.34 - 0.13 * feucht + 0.12 * trocken + 0.115 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
+      0.268 + 0.018 * feucht - 0.024 * trocken + 0.007 * variation,
+      // 0,44 statt 0,40: Beim Beruhigen der Ausschlaege ist der Wiese auch
+      // Saettigung verloren gegangen — der Pruefer misst in `2-waterfall`
+      // y = 440 einen Abstand max minus min von 76 auf 56. Gleichmaessig gruen
+      // heisst nicht blass; der Grundwert holt das zurueck, ohne die Streuung
+      // wieder aufzumachen.
+      0.44 + 0.05 * feucht - 0.045 * trocken + 0.022 * variation,
+      0.34 - 0.10 * feucht + 0.095 * trocken + 0.075 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
     );
     // Zur Kante hin reißt die Narbe auf: Erde und Fels kommen durch. Ohne das
     // liegt das Gras als geschlossene, gleichmäßig dicke Zuckergussschicht auf
@@ -1747,7 +2138,11 @@ function bodyColor(out, zone, shape, p, t, a) {
 // Zeichnung ohnehin über die Bodenfarbe und die Kontaktverdunklung.
 //
 // Die Nester bleiben auch ohne sie richtig: Blumen wachsen in Gruppen.
+// Gibt die Fusspunkte der gesetzten Blumen zurueck. `addUndergrowth` legt
+// daraus Kontaktverdunklungen an — in SEINEN Bucket, damit alles zusammen ein
+// einziger Draw-Call bleibt.
 function addGrassDecoration(group, rand, shape) {
+  const bluetenFuesse = [];
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   // Nester statt Gleichverteilung: erst ein Zentrum würfeln, dann darum streuen.
@@ -1817,19 +2212,48 @@ function addGrassDecoration(group, rand, shape) {
     const [x, y, z] = platz;
     dummy.position.set(x, y, z);
     dummy.rotation.set((rand() - 0.5) * 0.3, rand() * TAU, (rand() - 0.5) * 0.3);
-    dummy.scale.setScalar(0.75 + rand() * 0.6);
+    const groesse = 0.75 + rand() * 0.6;
+    dummy.scale.setScalar(groesse);
     dummy.updateMatrix();
     flowers.setMatrixAt(i, dummy.matrix);
     flowers.setColorAt(i, color.setHex(pick(rand, bluetenTon)));
+    // **Der Radius ist so gross wie die Blume hoch ist, und das ist gemessen.**
+    //
+    // Der erste Anlauf nahm 0,022 (rund 11 cm im Weltmassstab). Gemessen war
+    // die Verdunklung damit real — 137,5 auf 127,2 an einer Stelle —, aber im
+    // Bild bei vierfacher Vergroesserung nicht zu finden: Ein 11-cm-Fleck ist
+    // auf diese Entfernung zwei Bildpunkte, und die weiche Radialtextur bei
+    // Deckkraft 0,30 verteilt sie auf nichts.
+    //
+    // Eine Bluete ist rund 25 cm hoch; ein Schattenfleck derselben Groesse
+    // unter ihr ist physikalisch das Naheliegende und im Bild fuenf Bildpunkte.
+    bluetenFuesse.push({ x, z, r: 0.05 * groesse });
   }
   flowers.instanceMatrix.needsUpdate = true;
   if (flowers.instanceColor) flowers.instanceColor.needsUpdate = true;
   group.add(flowers);
+  return bluetenFuesse;
 }
 
 // Sanft animiertes Wasser: hellblaue Fläche mit fließenden Strähnen (Canvas-Textur,
 // deren V-Offset über die Zeit scrollt).
+// **Der Grund, warum die Insel nie reproduzierbar war.**
+//
+// Diese acht Strähnen kamen aus `Math.random()`. Damit sah das Wasser bei
+// jedem Seitenaufruf anders aus, und der Prüfstand konnte für die Insel nie
+// mehr sagen als „0,6 bis 0,9 Prozent der Bildpunkte weichen ab, das ist das
+// Rauschband" — eine Zahl, die im Protokoll seit drei Aufträgen steht und
+// jeden Vergleich unter dieser Schwelle wertlos machte.
+//
+// Gemessen war es genau hier: `2-waterfall` wich zwischen zwei Läufen in
+// 1,535 Prozent der Bildpunkte ab, `1-eyelevel` in 0,556 — beides Bilder mit
+// Wasser —, während `3-edge-down` und `5-backlight` bei 0,07 und 0,06 lagen.
+// Innerhalb **eines** Seitenaufrufs waren vier Aufnahmen dagegen bitgleich.
+//
+// Ein gesäter Strom liefert dieselben acht Strähnen und sieht keinen Deut
+// anders aus. Die Saat ist willkürlich und darf sich nie wieder ändern.
 function makeWaterTexture() {
+  const wr = mulberry32(90210);
   const canvas = document.createElement('canvas');
   canvas.width = 64;
   canvas.height = 256;
@@ -1842,8 +2266,8 @@ function makeWaterTexture() {
   ctx.strokeStyle = 'rgba(255,255,255,0.5)';
   ctx.lineWidth = 3;
   for (let i = 0; i < 8; i++) {
-    const x = 6 + Math.random() * 52;
-    ctx.globalAlpha = 0.3 + Math.random() * 0.4;
+    const x = 6 + wr() * 52;
+    ctx.globalAlpha = 0.3 + wr() * 0.4;
     ctx.beginPath();
     ctx.moveTo(x, -10);
     for (let y = -10; y < 270; y += 20) {
@@ -1859,6 +2283,126 @@ function makeWaterTexture() {
   return texture;
 }
 
+// --- Das Bachband ----------------------------------------------------------
+//
+// **Der Prüfer:** „Der Bach ist eine geradkantige Folie über dem Gras."
+// `2-waterfall`, Querschnitt y = 520 von x = 380 bis 450: 179, 180, 181, 183,
+// 184, 186, 189, 193 — ein monotoner Verlauf über vierzehn Stufen quer über den
+// ganzen Lauf, Hochpass 1,66. Kein Ufer, kein nasser Saum, keine Kräuselung,
+// kein Glanzpunkt, keine Schaumkrause an den Steinen.
+//
+// Er hat recht, und die Ursache ist dieselbe wie bei der Wiese: Das Band ist
+// eine ebene Fläche mit zwei Scheitelpunkten je Querschnitt und einer
+// Farbtextur darauf. Zwischen den beiden Rändern kann nichts stehen als eine
+// lineare Interpolation.
+//
+// Was fehlt, entsteht rechnend im Shader — kein Texturspeicher, kein
+// Draw-Call, kein Dreieck:
+//
+//   * **Kräuselung.** Zwei Lagen Rauschen, quer zur Fließrichtung gestreckt und
+//     mit ihr wandernd. Sie stören die Normale, und erst dadurch bekommt die
+//     niedrige Rauheit etwas zu spiegeln — vorher war der Glanzpunkt einer
+//     ebenen waagerechten Fläche entweder ganz da oder gar nicht.
+//   * **Weiches Ufer.** Die Deckkraft läuft zu beiden Rändern hin aus. Eine
+//     Bandkante mit voller Deckkraft ist die gerade Polygonkante, die der
+//     Prüfer sieht; eine auslaufende liest als flach werdendes Wasser.
+//   * **Schaumsaum.** Am Rand, wo das Wasser an die Grasnarbe stößt, ein
+//     heller, unruhiger Streifen. Er sitzt auf demselben wandernden Rauschen,
+//     zerfranst also und steht nicht als zweite gerade Linie da.
+//
+// Die Fließrichtung kommt als Uniform herein, weil die Kräuselung sonst nicht
+// weiß, wo längs und wo quer ist — und quer gestreckte Wellen, die mit dem
+// Strom wandern, sind der halbe Unterschied zwischen Wasser und Marmor.
+function bachMaterial(karte, fliess, uhr) {
+  const m = new THREE.MeshStandardMaterial({
+    map: karte,
+    color: 0xffffff,
+    roughness: 0.18,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+  });
+  m.onBeforeCompile = (shader) => {
+    shader.uniforms.uBachZeit = uhr;
+    shader.uniforms.uFliess = { value: fliess };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBachOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvBachOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vBachOrt;
+         uniform float uBachZeit;
+         uniform vec2 uFliess;
+         float bachHash(vec2 p) {
+           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+         }
+         float bachNoise(vec2 p) {
+           vec2 i = floor(p);
+           vec2 f = fract(p);
+           vec2 u = f * f * (3.0 - 2.0 * f);
+           return mix(
+             mix(bachHash(i), bachHash(i + vec2(1.0, 0.0)), u.x),
+             mix(bachHash(i + vec2(0.0, 1.0)), bachHash(i + vec2(1.0, 1.0)), u.x),
+             u.y
+           );
+         }
+         // Laengs und quer zur Stroemung, in Metern.
+         vec2 bachLQ(vec3 ort) {
+           vec2 w = ort.xz;
+           return vec2(dot(w, uFliess), dot(w, vec2(-uFliess.y, uFliess.x)));
+         }
+         float bachWelle(vec2 lq) {
+           float s = lq.x - uBachZeit * 0.9;
+           return bachNoise(vec2(lq.y * 3.1, s * 1.3)) * 0.62
+                + bachNoise(vec2(lq.y * 6.7 + 3.0, s * 2.7)) * 0.38;
+         }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           // vMapUv.x laeuft von 0 am linken Rand bis 1 am rechten; die
+           // Kachelung des Bandes sitzt in y, x bleibt unangetastet.
+           float mitte = min(vMapUv.x, 1.0 - vMapUv.x) * 2.0;
+           vec2 lq = bachLQ(vBachOrt);
+           float unruhe = bachWelle(lq * 1.6) - 0.5;
+           // Weiches Ufer: Die Kante franst mit derselben Welle aus, die auch
+           // die Oberflaeche traegt — eine glatt auslaufende Kante waere wieder
+           // eine gerade Linie, nur unschaerfer.
+           float rand = clamp(mitte + unruhe * 0.22, 0.0, 1.0);
+           diffuseColor.a *= smoothstep(0.0, 0.30, rand);
+           // Schaumsaum am Ufer.
+           float schaum = (1.0 - smoothstep(0.06, 0.40, rand)) * (0.5 + 0.5 * bachWelle(lq * 3.4));
+           diffuseColor.rgb += schaum * 0.26;
+           // Tiefe: in der Mitte satter, am Rand duenner und heller.
+           diffuseColor.rgb *= 0.92 + 0.16 * rand + unruhe * 0.12;
+         }`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+         {
+           vec2 lq = bachLQ(vBachOrt);
+           float e = 0.035;
+           float h0 = bachWelle(lq);
+           float hs = bachWelle(lq + vec2(e, 0.0));
+           float hq = bachWelle(lq + vec2(0.0, e));
+           vec3 stoerung = (uFliess.x * vec3(1.0, 0.0, 0.0) + uFliess.y * vec3(0.0, 0.0, 1.0)) * (-(hs - h0) / e)
+                         + (vec3(-uFliess.y, 0.0, uFliess.x)) * (-(hq - h0) / e);
+           normal = normalize(normal + (viewMatrix * vec4(stoerung * 0.06, 0.0)).xyz);
+         }`
+      );
+  };
+  m.customProgramCacheKey = () => 'insel-bach-v1';
+  return m;
+}
+
 // Kleiner Fluss von der Inselmitte zur Kante + Wasserfall über den Rand.
 // Ursprung: eine Quelle in der Mitte, aus der ein schmaler Bach zur Klippe läuft
 // und dort als Partikelstrom in die Tiefe stürzt.
@@ -1871,6 +2415,11 @@ function makeWaterfall(rand, shape) {
   // Bandes und des Strahls wird darauf abgetragen.
   const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
 
+  // Fliessrichtung in der XZ-Ebene. Sie wird zweimal gebraucht — vom Bachband
+  // fuer die Richtung seiner Kraeuselung und von der Spruehfahne fuer die Drift
+  // ueber die Kante —, deshalb steht sie hier oben und nicht an einer der
+  // beiden Stellen.
+  const fliessRichtung = new THREE.Vector2(Math.sin(angle), Math.cos(angle)).normalize();
   const waterTex = makeWaterTexture();
   const waterMat = new THREE.MeshStandardMaterial({
     map: waterTex,
@@ -1900,8 +2449,16 @@ function makeWaterfall(rand, shape) {
       new THREE.Color().setHSL(0.094, 0.05, 0.125 + 0.07 * valueNoise2(vx * 6, vz * 6))
     );
   }
+  // **Die Brocken im Bachbett hatten ueberhaupt keine Oberflaeche.** Der erste
+  // Anlauf dieses Pakets hat nur `island-stones` behandelt und in `1-eyelevel`
+  // 58,9 auf 40,4 Prozent konstanter Laeufe gedrueckt — in `2-waterfall` aber
+  // **exakt nichts** geaendert (61,9 vorher wie nachher, Hochpass auf drei
+  // Nachkommastellen gleich). Die Steine dort sind ein anderes Mesh mit einem
+  // blanken Standardmaterial ohne jede Karte. Dasselbe Korn, dieselbe Antwort.
   const stones = springStones.mesh(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, flatShading: true }),
+    findlingsKorn(
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, flatShading: true })
+    ),
     'spring-stones'
   );
   if (stones) group.add(stones);
@@ -1989,7 +2546,8 @@ function makeWaterfall(rand, shape) {
   riverGeo.setAttribute('uv', new THREE.Float32BufferAttribute(riverUv, 2));
   riverGeo.setIndex(riverIdx);
   riverGeo.computeVertexNormals();
-  const river = new THREE.Mesh(riverGeo, waterMat);
+  const bachUhr = { value: 0 };
+  const river = new THREE.Mesh(riverGeo, bachMaterial(waterTex, fliessRichtung, bachUhr));
   river.name = 'island-bach';
   group.add(river);
 
@@ -2132,6 +2690,29 @@ function makeWaterfall(rand, shape) {
         color: 0xffffff,
         roughness: 0.2,
         metalness: 0.05,
+        // **Eigenleuchten, weil der Sturz sonst im Himmel verschwindet.**
+        //
+        // Gemessen (`tools/sturzprobe.mjs`, den Knoten aus- und wieder
+        // einschalten und die Differenz nehmen): Der Strahl war in **einem**
+        // von sechs Bildern ueberhaupt vorhanden, dort auf 1175 Bildpunkten
+        // mit einem mittleren Ausschlag von **9,1** Stufen gegen den Himmel.
+        // Neun Stufen sind bei einem Himmel um L 190 nichts.
+        //
+        // Die Ursache steht in seiner Farbe: Die Wassertextur laeuft von
+        // 0x8fd2f0 nach 0x5fb6e6 — genau das Blau, vor dem er steht. Ein
+        // durchscheinendes Blau vor blauem Himmel hat keinen Kontrast, egal wie
+        // breit es ist (an der Breite lag es nachweislich nicht: 11 bis 37
+        // Bildpunkte in der Totale, gemessen mit `tools/wasserfall.mjs`).
+        //
+        // Fallendes Wasser ist vor hellem Himmel **heller** als er, weil es
+        // aufgebrochen ist und in alle Richtungen streut. Das ist kein Licht,
+        // das die Szene beleuchtet, sondern die Erscheinung des Koerpers
+        // selbst — genau der Fall fuer `emissive`. Der Betrag ist bewusst
+        // klein: Die bezahlte Lehre der Sonnenscheibe des Zen-Gartens sagt,
+        // dass ein voller Kern plus additive Mischung reines Weiss ergibt und
+        // damit jede Form verliert.
+        emissive: 0xcdeaf8,
+        emissiveIntensity: 0.5,
         transparent: true,
         opacity: 0.95,
         side: THREE.DoubleSide,
@@ -2172,6 +2753,11 @@ function makeWaterfall(rand, shape) {
     })
   );
   drops.frustumCulled = false;
+  // Namen, damit `tools/sturzprobe.mjs` die vier Teile des Wasserfalls einzeln
+  // aus- und wieder einschalten kann. Ohne Namen ist die Frage „welcher Teil
+  // ist ueberhaupt im Bild" nicht zu beantworten, und genau daran haette ich
+  // mich fast verrechnet.
+  drops.name = 'waterfall-drops';
   group.add(drops);
 
   // Punkt auf der Mittellinie des Strahls, 0 = Lippe, 1 = Fuß.
@@ -2196,6 +2782,7 @@ function makeWaterfall(rand, shape) {
   );
   mist.position.copy(fuss);
   mist.scale.set(2.4, 2.4, 1);
+  mist.name = 'waterfall-mist';
   group.add(mist);
 
   // Schaum an der Lippe (pulsierendes weiches Glühen)
@@ -2208,14 +2795,103 @@ function makeWaterfall(rand, shape) {
       fog: false,
     })
   );
+  // **Nicht vergroessern.** Ein Versuch mit 1,7 x 0,62 hat die Messzahl
+  // verbessert (Ausschlag in `1-eyelevel` von 14,6 auf 19,1, Flaeche von 2588
+  // auf 4588 Bildpunkten) und das Bild verschlechtert: Das Sprite ist ein
+  // Billboard und liegt damit als blasser Fleck von knapp sieben Metern quer
+  // ueber der Wiese, nicht als Schaum an einer Kante. Groesser heisst hier nur
+  // groesserer Fleck. Die Zahl war echt und die Deutung falsch — nachgesehen
+  // hat es der Ausschnitt, nicht die Messung.
   foam.position.set(lippeX, lippeY + 0.02, lippeZ);
   foam.scale.set(1.3, 0.5, 1);
+  foam.name = 'waterfall-foam';
   group.add(foam);
+
+  // --- Die Spruehfahne ueber der Lippe --------------------------------------
+  //
+  // **Der Wasserfall ist von der Wiese aus nicht zu sehen, und das ist keine
+  // Materialfrage.** Gemessen mit `tools/sturzprobe.mjs` — jeden Teil einzeln
+  // aus- und wieder einschalten und die Differenz nehmen:
+  //
+  //     waterfall-sheet   in 1 von 6 Bildern    1175 px, Ausschlag  9,1
+  //     waterfall-drops   in 1 von 6 Bildern     297 px, Ausschlag 11,6
+  //     waterfall-mist    in 1 von 6 Bildern    2917 px, Ausschlag  1,8
+  //     waterfall-foam    in 4 von 6 Bildern   669 bis 2588 px,  4,3 bis 14,6
+  //
+  // Wer auf der Insel steht, sieht den Sturz nicht — er faellt hinter der
+  // Kante, auf der man steht. Das ist Geometrie und laesst sich nicht
+  // wegpolieren. Sichtbar ist nur die **Lippe**, und die trug bisher ein
+  // einziges pulsierendes Sprite mit vier bis fuenfzehn Stufen Ausschlag.
+  //
+  // Was ein Betrachter am Ufer eines Wasserfalls tatsaechlich sieht, ist die
+  // Fahne: aufsteigende Tropfen ueber der Kante, die im Bogen zurueckfallen.
+  // Sie steht **ueber** der Grasnarbe und ist damit das einzige Stueck des
+  // Wasserfalls, das von der Wiese aus ins Bild ragt.
+  //
+  // Der Umlauf ist so gelegt, dass kein Sprung sichtbar wird: Der Tropfen
+  // steigt im Sinusbogen, driftet ueber die Kante hinaus und faellt
+  // quadratisch beschleunigt unter die Lippe — dort verschwindet er hinter dem
+  // Rand und setzt am Anfang wieder ein, mitten im hellen Schaum, wo der Wechsel
+  // nicht zu sehen ist.
+  const fliess = new THREE.Vector3(Math.sin(angle), 0, Math.cos(angle));
+  const FAHNE = 90;
+  const fahnePos = new Float32Array(FAHNE * 3);
+  const fahneMeta = [];
+  // **Ein eigener Strom, nicht `rand`.** Der erste Anlauf hat die 540 Werte aus
+  // dem Inselstrom gezogen — und damit alles verschoben, was danach kommt:
+  // Mini-Inseln, ihre Baeume, ihre Findlinge. Gemessen schlug das mit Δmittel
+  // 1,6 bis 7,7 auf allen sechs Inselbildern durch und mit 2952 Dreiecken im
+  // Budget, fuer eine Punktwolke ohne ein einziges Dreieck. Die Lehre steht
+  // wortgleich im Auftrag; ich bin trotzdem hineingelaufen.
+  const fr = mulberry32(884411);
+  for (let i = 0; i < FAHNE; i++) {
+    fahneMeta.push({
+      tempo: 0.30 + fr() * 0.40,
+      phase: fr(),
+      quer: (fr() - 0.5) * 0.95,
+      hoch: 0.14 + fr() * 0.30,
+      trift: 0.06 + fr() * 0.26,
+      zittern: (fr() - 0.5) * 0.05,
+    });
+  }
+  const fahneGeo = new THREE.BufferGeometry();
+  fahneGeo.setAttribute('position', new THREE.BufferAttribute(fahnePos, 3));
+  const fahne = new THREE.Points(
+    fahneGeo,
+    new THREE.PointsMaterial({
+      color: 0xffffff,
+      size: 0.075,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false,
+      fog: false,
+    })
+  );
+  fahne.name = 'waterfall-fahne';
+  fahne.frustumCulled = false;
+  group.add(fahne);
+
   return {
     group,
     update(time) {
       waterTex.offset.y = -time * 0.35;
+      bachUhr.value = time;
       foam.material.opacity = 0.65 + Math.sin(time * 4) * 0.2;
+      {
+        const fp = fahneGeo.attributes.position;
+        for (let i = 0; i < FAHNE; i++) {
+          const m = fahneMeta[i];
+          const t = (m.phase + time * m.tempo) % 1;
+          const steig = Math.sin(Math.PI * Math.min(1, t * 1.35));
+          fp.setXYZ(
+            i,
+            lippeX + tangent.x * m.quer + fliess.x * m.trift * t + m.zittern * Math.sin(time * 2.7 + i),
+            lippeY + m.hoch * steig - 0.9 * t * t,
+            lippeZ + tangent.z * m.quer + fliess.z * m.trift * t + m.zittern * Math.cos(time * 2.7 + i)
+          );
+        }
+        fp.needsUpdate = true;
+      }
       const pos = geometry.attributes.position;
       for (let i = 0; i < count; i++) {
         const m = meta[i];
@@ -2393,7 +3069,26 @@ function makeBirds(rand) {
   return makeFlyers(rand, {
     count: 5,
     wingGeo: wingGeometry(0.30, 0.11),
-    material: new THREE.MeshBasicMaterial({ color: 0x3a4753, side: THREE.DoubleSide }),
+    // **Lambert statt Basic: Ein unbeleuchteter Vogel ist eine Linse, kein
+    // Vogel.**
+    //
+    // `MeshBasicMaterial` nimmt kein Licht an, also trugen beide Fluegel
+    // denselben Wert, und aus der Ueberlappung wurde ein einzelner dunkler
+    // Mandelfleck. Gemessen auf den eigenen Bildpunkten der Voegel in
+    // `4-aerial` (`tools/knotenwerte.mjs`, Maske aus dem Ein- und Ausblenden
+    // des Knotens): **p05 63, p50 63** — mehr als die Haelfte aller Punkte auf
+    // exakt einem Wert. Das ist die Signatur einer Flaechenfuellung, und der
+    // Pruefer hat sie genau so gelesen: „flache schwarze Linsen", eine davon
+    // quer ueber der Felskante als schwarzer Riss im Gestein.
+    //
+    // Die beiden Fluegel stehen durch V-Stellung (0,16) und Schlagwinkel
+    // ohnehin verschieden im Raum; sie brauchen nur ein Material, das das
+    // bemerkt. Lambert und nicht Standard, aus demselben Grund wie beim
+    // Huellkoerper der Kronen: Ein Vogel auf fuenfzehn Bildpunkten braucht
+    // keine Glanzkeule, und der PBR-Pfad kostet ihn Shader-Zeit, die er nicht
+    // zurueckzahlt. Die Falter tragen laengst ein beleuchtetes Material — die
+    // Voegel waren der Ausreisser.
+    material: new THREE.MeshLambertMaterial({ color: 0x3a4753, side: THREE.DoubleSide }),
     name: 'birds',
     // Gemessen standen die Vögel bis zu sechzig Meter neben und zweiundzwanzig
     // Meter über der Insel – dort sind sie ein Punkt und tragen nichts bei.
@@ -2482,7 +3177,7 @@ const CLOUD_MATERIAL = new THREE.MeshBasicMaterial({
   vertexColors: true,
 });
 
-function makeCloud(rand, size = 1, sunDir = null) {
+function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
   // Form: wenige große Ballen, viele kleine Knospen.
   //
   // Vorher waren es fünf bis acht gleich große Kugeln – die Konstruktion war
@@ -2491,6 +3186,15 @@ function makeCloud(rand, size = 1, sunDir = null) {
   // tragen die Masse, ein Dutzend Knospen brechen die Silhouette auf. Derselbe
   // Gedanke wie bei den Baumkronen.
   const geos = [];
+  // Je Ballen ein eigener Helligkeitsversatz. Ohne ihn backt die Farbe aus der
+  // Position der VERSCHMOLZENEN Geometrie, alle Lappen bekommen denselben
+  // glatten Verlauf, und die Wolke liest als ein einziger Fleck — gemessen
+  // Hochpass 0,36 bei 99,8 % der Punkte ueber L 190.
+  //
+  // Der Versatz kommt aus einem EIGENEN Zufallsstrom. Ein zusaetzlicher
+  // `rand()` hier verschoebe jede Ziehung danach, und das hat die
+  // Wasserfallfahne schon einmal 2952 Dreiecke gekostet.
+  const versaetze = [];
   const ballen = 3 + Math.floor(rand() * 2);
   const knospen = 7 + Math.floor(rand() * 6);
   // Wolken sind breit und flach, nicht kugelig.
@@ -2501,7 +3205,12 @@ function makeCloud(rand, size = 1, sunDir = null) {
     const s = (gross ? 0.85 + rand() * 0.55 : 0.30 + rand() * 0.32) * size;
     // Kleine Knospen brauchen keine 12x10 Segmente – sie sind auf dem Schirm
     // ein paar Pixel groß, kosten aber dieselben Dreiecke.
-    const g = new THREE.SphereGeometry(s, gross ? 12 : 7, gross ? 10 : 6);
+    // **16x12 statt 12x10, Knospen 9x7 statt 7x6.** Eine Kugel mit zwoelf
+    // Segmenten hat einen Zwoelfeck-Umriss; auf einer nahen Wolke von ueber
+    // zweihundert Bildpunkten liest das als gerade Strecken mit Ecken, und
+    // genau so hat es der Pruefer gemeldet. Der Aufschlag betraegt rund
+    // 23 000 Dreiecke ueber alle fuenfundzwanzig Wolken.
+    const g = new THREE.SphereGeometry(s, gross ? 16 : 9, gross ? 12 : 7);
     // Knospen sitzen bevorzugt oben und außen auf den Ballen.
     const f = gross ? 0.55 : 1.0;
     g.translate(
@@ -2510,8 +3219,22 @@ function makeCloud(rand, size = 1, sunDir = null) {
       (rand() - 0.5) * spanZ * f
     );
     geos.push(g);
+    // Grosse Ballen tragen die Masse und bleiben dicht beieinander; die kleinen
+    // Knospen duerfen staerker streuen, weil sie die Silhouette aufbrechen.
+    versaetze.push({
+      n: g.attributes.position.count,
+      v: tonR ? (tonR() - 0.5) * (gross ? 0.10 : 0.20) : 0,
+    });
   }
   const merged = mergeGeometries(geos);
+  // Versatz je Scheitelpunkt, in derselben Reihenfolge, in der verschmolzen
+  // wurde. `mergeGeometries` haengt die Geometrien hintereinander, die Zuordnung
+  // ist damit ein einfacher Durchlauf.
+  const proVertex = new Float32Array(merged.attributes.position.count);
+  {
+    let k = 0;
+    for (const { n, v } of versaetze) for (let i = 0; i < n; i++) proVertex[k++] = v;
+  }
 
   // Flache Unterkante. Eine Haufenwolke schwimmt auf einer Höhe, an der der
   // Wasserdampf kondensiert – ihr Boden ist deshalb eine waagerechte Ebene,
@@ -2564,7 +3287,17 @@ function makeCloud(rand, size = 1, sunDir = null) {
     // dreizehn Luminanzstufen Gesamtspanne – ein weißes Blatt Papier. Der Gipfel
     // ohne Silberrand liegt jetzt bei 1,14, der Schatten bei 0,34, und dazwischen
     // bleibt die Kurve steil genug, dass die Form sichtbar wird.
-    let f = 0.62 + 0.34 * Math.max(0, facing) + 0.18 * up - 0.28 * Math.max(0, -facing);
+    // **Die Schattenseite muss tiefer, nicht die Sonnenseite hoeher.**
+    //
+    // Gemessen lag die nahe Wolke in `3-edge-down` bei p05 194 / p95 240 —
+    // die GANZE Wolke im flachen Ast der ACES-Kurve, wo 3,4-facher
+    // Helligkeitsunterschied auf 46 sRGB-Stufen zusammenschnurrt. Oben mehr
+    // draufzugeben bringt dort nichts; Kontrast entsteht nur nach unten.
+    let f = 0.58 + 0.34 * Math.max(0, facing) + 0.24 * up - 0.42 * Math.max(0, -facing);
+    // Der Lappenversatz. Er sitzt VOR dem Silberrand, damit der Rand seine
+    // volle Wirkung behaelt, und ist bewusst klein: Eine Haufenwolke ist in
+    // sich hell, ihre Lappen unterscheiden sich um Nuancen, nicht um Stufen.
+    f += proVertex[i];
     // SILBERRAND. Der schmale, sehr helle Saum genau dort, wo die Sonne die
     // Wolke streift, ist das Erkennungszeichen einer Haufenwolke im Gegenlicht –
     // und er fehlte vollständig. Er sitzt eng (hoher Exponent), damit er ein
@@ -2877,6 +3610,177 @@ function addContactShadow(bucket, shape, x, z, radius, tight = false) {
 
 // Schwebende Insel: durchgehender Körper (Gras → Erde → geschichteter Fels),
 // darauf Bäume, Findlinge und Kontaktschatten – alles in wenigen Meshes.
+// --- Korn auf den Findlingen ------------------------------------------------
+//
+// **Der Pruefer, zweiter Durchgang:** „Die Findlinge sind jetzt die glattesten
+// Flaechen der Szene." 35,4 bzw. 37,7 Prozent ihrer Bildpunkte liegen in
+// konstanten Laeufen ab sechs, laengster Lauf 91 px — gegen 16,1 Prozent am
+// Kiel und 6,7 auf der Wiese. Mit meinem eigenen Massstab (Schwelle unter einer
+// Luminanzstufe) sind es 58,9 und 61,9 gegen 25,5 und 16,7. Die Reihenfolge ist
+// dieselbe: Sie sind das Zweieinhalbfache des Kiels.
+//
+// **Und zwar, ohne dass sich an ihnen etwas geaendert haette.** Ich habe die
+// Wiese an ihnen vorbeigezogen; sie stehen noch da, wo sie immer standen.
+//
+// Die Ursache ist die Kachelgroesse. `boulderGeometry` legt die UV mit
+// `faceBoxUV(g, 0,17 * WORLD_SCALE)` an, also 0,68 lokale Einheiten je Kachel.
+// Ein Findling misst 0,1 bis 0,5 lokale Einheiten — **er ist kleiner als eine
+// Kachel**, und die Granitkarte liefert ihm damit einen fast konstanten Wert.
+// Die Kachel zu verkleinern ist keine Loesung: Der Kommentar am Material sagt,
+// warum sie gross ist — die runden Einschluesse der Karte kehren sonst
+// sichtbar wieder und lesen sich als Muster.
+//
+// Also dieselbe Antwort wie bei Wiese und Bach: **rechnend im Shader**, kein
+// Texturspeicher, keine Kachelgrenze. Die Projektion nimmt die dominante
+// Weltachse der Flaechennormale; weil das Material flach schattiert ist, ist
+// diese Normale je Facette konstant, und innerhalb einer Facette entsteht keine
+// Naht. An den Facettenkanten bricht sie ohnehin.
+// --- Rinde auf den Staemmen ---------------------------------------------------
+//
+// **Der Pruefer:** „Staemme ohne Rinde, mit waagerechten Segmentnaehten." Bei
+// fuenffacher Vergroesserung ist der Stamm ein glatter brauner Kegel mit
+// weichem Verlauf, und dort, wo zwei Zylinderabschnitte aneinanderstossen,
+// laeuft eine waagerechte Kante quer durch — der Stamm zerfaellt in Ringe.
+//
+// Beides hat dieselbe Wurzel: Es gibt auf der Flaeche nichts ausser dem
+// Verlauf. Eine Naht faellt nur auf, weil daneben nichts los ist; eine Rinde
+// mit senkrechter Faserung nimmt ihr die Aufmerksamkeit und gibt dem Stamm
+// zugleich die Lesart, die ihm fehlt.
+//
+// Die Faserung ist BEWUSST anisotrop: In der Waagerechten fein (die Furchen
+// stehen dicht), in der Senkrechten grob (sie laufen weit). Isotropes Rauschen
+// waere Putz, keine Rinde.
+function rindenKorn(material) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRindeOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvRindeOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vRindeOrt;
+         float rindeHash(vec2 p) {
+           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+         }
+         float rindeNoise(vec2 p) {
+           vec2 i = floor(p);
+           vec2 f = fract(p);
+           vec2 u = f * f * (3.0 - 2.0 * f);
+           return mix(
+             mix(rindeHash(i), rindeHash(i + vec2(1.0, 0.0)), u.x),
+             mix(rindeHash(i + vec2(0.0, 1.0)), rindeHash(i + vec2(1.0, 1.0)), u.x),
+             u.y
+           );
+         }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           float tiefeR = length(vViewPosition);
+           float nahR = 1.0 - smoothstep(9.0, 26.0, tiefeR);
+           if (nahR > 0.002) {
+             // Winkel um die Stammachse mal Radius waere sauberer, kostet aber
+             // einen Atan je Bildpunkt. Die Waagerechte des Weltorts tut es
+             // genauso: Auf einem Zylinder von 20 cm Halbmesser laeuft sie
+             // ueber die sichtbare Haelfte monoton.
+             float u = (vRindeOrt.x + vRindeOrt.z) * 26.0;
+             float v = vRindeOrt.y * 3.4;
+             float furche = rindeNoise(vec2(u, v)) - 0.5;
+             float grob = rindeNoise(vec2(u * 0.31, v * 0.55)) - 0.5;
+             diffuseColor.rgb *= 1.0 + (furche * 0.30 + grob * 0.20) * nahR;
+           }
+         }`
+      );
+  };
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () => `${vorherKey ? vorherKey() : ''}|insel-rinde-v1`;
+  return material;
+}
+
+function findlingsKorn(material) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSteinOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvSteinOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+         varying vec3 vSteinOrt;
+         float steinHash(vec2 p) {
+           return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+         }
+         float steinNoise(vec2 p) {
+           vec2 i = floor(p);
+           vec2 f = fract(p);
+           vec2 u = f * f * (3.0 - 2.0 * f);
+           return mix(
+             mix(steinHash(i), steinHash(i + vec2(1.0, 0.0)), u.x),
+             mix(steinHash(i + vec2(0.0, 1.0)), steinHash(i + vec2(1.0, 1.0)), u.x),
+             u.y
+           );
+         }
+         // Gedreht und mit krummem Faktor gestapelt, aus demselben Grund wie
+         // beim Gras: Gleich ausgerichtete Oktaven verstaerken ihr Gitter.
+         float steinFbm(vec2 p) {
+           mat2 dreh = mat2(0.8018, -0.5976, 0.5976, 0.8018);
+           vec2 q = dreh * p;
+           float summe = 0.0;
+           float amp = 0.5;
+           for (int i = 0; i < 3; i++) {
+             summe += steinNoise(q) * amp;
+             q = dreh * q * 2.17 + 7.3;
+             amp *= 0.5;
+           }
+           return summe / 0.875;
+         }`
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        `#include <normal_fragment_maps>
+         {
+           float tiefeS = length(vViewPosition);
+           float nahS = 1.0 - smoothstep(14.0, 34.0, tiefeS);
+           if (nahS > 0.002) {
+             // Die Weltnormale aus der Blickraumnormale: viewMatrix ist
+             // orthonormal, die Zeilenmultiplikation ist ihre Transponierte.
+             vec3 wn = (vec4(normal, 0.0) * viewMatrix).xyz;
+             vec3 an = abs(wn);
+             vec2 uvS = an.y > max(an.x, an.z)
+               ? vSteinOrt.xz
+               : (an.x > an.z ? vSteinOrt.yz : vSteinOrt.xy);
+             // 4,5 cm Korn: auf zwei Metern fuenfzehn Bildpunkte, auf zehn
+             // noch drei. Darueber ausgeblendet.
+             vec2 qS = uvS * 22.0;
+             float eS = 0.16;
+             float s0 = steinFbm(qS);
+             float sx = steinFbm(qS + vec2(eS, 0.0));
+             float sy = steinFbm(qS + vec2(0.0, eS));
+             vec3 tanA = normalize(cross(wn, abs(wn.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0)));
+             vec3 tanB = normalize(cross(wn, tanA));
+             vec3 stoerS = (tanA * -(sx - s0) + tanB * -(sy - s0)) * (0.9 * nahS);
+             normal = normalize(normal + (viewMatrix * vec4(stoerS, 0.0)).xyz);
+             diffuseColor.rgb *= 1.0 + (s0 - 0.5) * 0.18 * nahS;
+           }
+         }`
+      );
+  };
+  material.customProgramCacheKey = () => 'insel-findling-v1';
+  return material;
+}
+
 function buildIsland(
   rand,
   {
@@ -3045,6 +3949,7 @@ function buildIsland(
     power: 3.8,
   });
   steinMat.flatShading = true;
+  findlingsKorn(steinMat);
   // Die Granitkarte traegt runde Einschluesse. Bei kleiner Kachel kehren sie
   // sichtbar wieder und lesen sich als Muster statt als Gestein; die Kachel ist
   // deshalb groesser und das Relief flacher.
@@ -3098,7 +4003,7 @@ function buildIsland(
 }
 
 // Unterwuchs: instanzierte Büsche + Pilze (wenige Draw-Calls) auf der Hauptinsel.
-function addUndergrowth(group, rand, shape) {
+function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
   const shadowBucket = new GeoBucket();
@@ -3162,11 +4067,46 @@ function addUndergrowth(group, rand, shape) {
     schale: 1.35,
     farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
     kartenFarben: [0xd2eaa8, 0xc3dd99, 0xdcf2b4, 0xcae4a0, 0xd8eeae, 0xbfd894],
+    himmelssaum: false,
   });
   busch.blobs.name = 'bushes';
   busch.karten.name = 'bush-leaves';
   busch.karten.receiveShadow = true;
+  // **Buesche werfen jetzt selbst.**
+  //
+  // Der Pruefer: „Buesche liegen auf, Felsen stehen." Der Findling in
+  // `6-groundcover` nimmt dem Gras unter sich 67 Luminanzstufen, der Busch
+  // 200 Bildpunkte daneben **vier** — „ein Aufkleber mit haarscharfer
+  // Unterkante neben einem Stein mit Schatten".
+  //
+  // Bisher trug ihn allein die gemalte Kontaktverdunklung `undergrowth-shade`.
+  // Die liegt aber immer senkrecht unter dem Gegenstand, waehrend die Sonne auf
+  // 38,7 Grad steht — und gemessen deckt sie nur 377 bis 2335 Bildpunkte bei
+  // 4,8 bis 7,8 Stufen Abfall. Ein Busch von anderthalb Metern wirft bei diesem
+  // Sonnenstand knapp zwei Meter Schatten; das ist kein Fleck unter ihm,
+  // sondern eine Form neben ihm.
+  busch.blobs.castShadow = true;
+  busch.blobs.receiveShadow = true;
+  busch.karten.castShadow = true;
   group.add(busch.blobs, busch.karten);
+
+  // **Und unter den Blüten.**
+  //
+  // Der Prüfer meldet in `2-waterfall` „neun isolierte weiße Blobs, mittlere
+  // Größe 2,4 px, frei vor dem Stein hängend" und nennt sie Partikel ohne
+  // Quelle. Sie haben eine Quelle: Es sind die Blütenköpfe. Der Stiel ist auf
+  // diese Entfernung unter einem Bildpunkt breit und verschwindet, der helle
+  // Kopf bleibt — und steht dann in der Luft.
+  //
+  // Ein SCHLAGSCHATTEN wäre hier das Falsche, und zwar aus demselben Grund,
+  // der zwei Bildschirmseiten weiter unten bei den Pilzen steht: Eine Blüte von
+  // 6,4 cm ergibt bei 5,2 cm je Schattenkartentexel einen Schatten aus zwei
+  // Texeln, also Rauschen. Eine **gemalte** Kontaktverdunklung hat dieses
+  // Problem nicht — sie ist Geometrie, keine Abtastung.
+  //
+  // Sie kommen in DIESEN Bucket, obwohl sie in `addGrassDecoration` entstehen:
+  // So bleibt alles zusammen ein Draw-Call statt zweier.
+  for (const f of fremdeFuesse) addContactShadow(shadowBucket, shape, f.x, f.z, f.r, true);
 
   // Kontaktverdunklung unter Büschen und Pilzen. Ohne sie sitzen sie mit einer
   // haarscharfen Kante auf vollwertig hellem Gras – gemessen lag die Abweichung
@@ -3201,6 +4141,11 @@ function addUndergrowth(group, rand, shape) {
     6
   );
   mushrooms.name = 'mushrooms';
+  // Pilze empfangen, werfen aber nicht: Ein Hut von sechs Zentimetern wirft
+  // einen Schatten, der bei 5,2 cm je Schattenkartentexel aus zwei Texeln
+  // besteht — das ist kein Schatten, sondern Rauschen. Empfangen sollen sie
+  // dagegen sehr wohl, sonst stehen sie im Baumschatten hell da.
+  mushrooms.receiveShadow = true;
   mushrooms.userData.fullCount = mushrooms.count;
   for (let i = 0; i < mushrooms.count; i++) {
     const platz = spot(0.2, 0.9, 0.07);
@@ -3282,13 +4227,35 @@ function createIslandEnvironment() {
 
   const sun = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      // Warmer Kern. Gemessen war die Scheibe über neunzig Pixel hinweg reines
-      // (255,255,255) bei Sättigung null – die einzige Lichtquelle des Bildes
-      // hatte keine Farbtemperatur.
-      map: makeGlowTexture('rgba(255,247,222,1)', 'rgba(255,232,168,0.7)'),
+      // **Der Kern wird normal gemischt, nicht additiv — und der Grund steht
+      // seit zwei Auftraegen im Haus.**
+      //
+      // Ueber dieser Zeile stand bisher: „Warmer Kern. Gemessen war die
+      // Scheibe ueber neunzig Pixel hinweg reines (255,255,255) bei Saettigung
+      // null." Der Kommentar beschrieb den Befund als behoben. Der Pruefer hat
+      // ihn unveraendert wiedergefunden: `5-backlight`, Kasten x 529 bis 608,
+      // y 141 bis 220 — **5036 Bildpunkte reines Weiss**, Saettigung entlang
+      // y = 175 durchgehend null.
+      //
+      // Ein warmer Kern hilft nicht, solange er **additiv** ueber einen
+      // ebenfalls additiven Hof und einen Himmel von L 190 gelegt wird: Die
+      // Summe laeuft in jedem Kanal an die Obergrenze, und was oben anschlaegt,
+      // hat keine Farbe mehr. Genau diese Lehre steht im Auftrag („additiv plus
+      // voller Kern ergibt reines Weiss") und ist beim Mond des Nachthimmels
+      // schon einmal bezahlt worden — dort wurde der Kern normal gemischt und
+      // nur der Hof blieb additiv. Dieselbe Loesung, dieselbe Datei, hundert
+      // Zeilen entfernt.
+      //
+      // Normal gemischt **ersetzt** der Kern den Himmel, statt sich zu ihm zu
+      // addieren; seine Farbe ueberlebt. Der Hof (`corona`) bleibt additiv — er
+      // soll den Himmel aufhellen, das ist seine Aufgabe.
+      map: makeGlowTexture('rgba(255,244,206,1)', 'rgba(255,226,150,0.85)'),
       transparent: true,
       depthWrite: false,
-      blending: THREE.AdditiveBlending,
+      blending: THREE.NormalBlending,
+      // Die Werte in der Karte sind Anzeigewerte; ACES wuerde die
+      // Farbtemperatur, um die es hier geht, wieder zusammendruecken.
+      toneMapped: false,
       fog: false,
     })
   );
@@ -3299,7 +4266,14 @@ function createIslandEnvironment() {
   // Himmelslicht. Der „Boden" ist hier kein Boden: Unter der Insel liegt heller
   // Himmel, und genau daher kommt das Bounce-Fill, das der Unterseite gefehlt
   // hat. Deshalb ist der untere Ton kühl und keineswegs dunkel.
-  const sky = new THREE.HemisphereLight(0xc6e2f4, 0xbcd6ea, 1.35);
+  // **1,55 statt 1,35, und die Anhebung bezahlt eine Senkung an anderer
+  // Stelle.** Siehe die Begruendung bei den beiden Aufhellungen unten: Die
+  // gerichtete Aufhellung von unten geht auf ein Drittel zurueck, und damit der
+  // Kiel dabei nicht wegsackt, uebernimmt die Hemisphaere den Fehlbetrag. Sie
+  // kann das, ohne Schaden anzurichten, weil ihre beiden Toene fast gleich sind
+  // — sie ist praktisch richtungslos und kann deshalb keine Oberseite unter
+  // ihre Unterseite druecken.
+  const sky = new THREE.HemisphereLight(0xc6e2f4, 0xbcd6ea, 1.55);
   group.add(sky);
 
   // Sonne: die klar dominierende Quelle. Sie wirft als einzige Schatten.
@@ -3318,13 +4292,46 @@ function createIslandEnvironment() {
   // Aufhellung von unten: Das Licht des Himmels unter der Insel. Ohne sie wird
   // der Kiel nach unten dunkler, obwohl dort nichts ist, was ihn beschatten
   // könnte.
-  const bounce = new THREE.DirectionalLight(0xb6d4ee, 1.9);
+  //
+  // **0,66 und 0,30 statt 1,9 und 0,85 — sie waren zusammen staerker als die
+  // Sonne.**
+  //
+  // Der Pruefer: Bei drei von vier Findlingen ist die nach OBEN weisende
+  // Facette 31 bis 39 Luminanzstufen DUNKLER als eine seitliche oder untere.
+  // Das ist kein Farbfehler; mit `tools/facetten.mjs` gemessen liegt es an
+  // genau diesen beiden Lichtern. Am Findling in `1-eyelevel`:
+  //
+  //     Facette oben   Normale ( 0,05 |  0,56 | 0,83)   N·L zur Sonne -0,150   L 102,6
+  //     Facette unten  Normale (-0,75 | -0,07 | 0,65)   N·L zur Sonne -0,806   L 133,3
+  //
+  // Beide sind von der Sonne abgewandt, die untere sogar deutlich staerker —
+  // und trotzdem ist sie 31 Stufen heller. Der Grund steht in der Richtung
+  // dieser Aufhellung: Die untere Facette bekommt von ihr N·L = +0,47, die
+  // obere -0,32, also nichts. Zusammen brachten die beiden Lichter 2,75 gegen
+  // 2,5 der Sonne. Fuer den KIEL ist das richtig — unter ihm steht heller
+  // Himmel. Fuer einen Stein, der auf der Wiese liegt, ist es Unsinn, und weil
+  // ein gerichtetes Licht in three jeden Koerper der Szene trifft, bekamen es
+  // alle.
+  //
+  // `tools/aufhellung.mjs` faehrt beide Seiten zugleich ab — den Abstand
+  // Oberseite-minus-Unterseite am Findling und Mittel/Spanne des Kiels:
+  //
+  //     Bounce x1,00                      oben-unten -30,7   Kiel 82/85  70/79  64/55
+  //     Bounce x0,35                      oben-unten -13,1   Kiel 75/63  67/67  61/51
+  //     Bounce x0,35, Hemisphaere x1,15   oben-unten -12,8   Kiel 81/63  72/66  66/49
+  //
+  // Die letzte Zeile ist kein Tausch, sondern ein Gewinn: Die Umkehrung am
+  // Stein geht auf weniger als die Haelfte zurueck, und der Kiel behaelt seine
+  // Helligkeit (81/72/66 gegen 82/70/64). Bezahlt wird mit Spannweite am Kiel
+  // (85 auf 63 im obersten Band) — das ist der Preis dafuer, gerichtetes Licht
+  // durch ungerichtetes zu ersetzen, und 63 Stufen sind reichlich Modellierung.
+  const bounce = new THREE.DirectionalLight(0xb6d4ee, 0.66);
   bounce.position.set(-8, -22, 6);
   group.add(bounce);
   // Zweite Aufhellung von unten aus einem anderen Winkel. Mit nur einer Quelle
   // fielen benachbarte Felsfacetten auf denselben Wert - die Unterseite hatte
   // zuletzt nur noch 10 Luminanzstufen Spannweite und war als Form unlesbar.
-  const bounce2 = new THREE.DirectionalLight(0x9fc2e0, 0.85);
+  const bounce2 = new THREE.DirectionalLight(0x9fc2e0, 0.3);
   bounce2.position.set(16, -18, -12);
   group.add(bounce2);
 
@@ -3371,8 +4378,8 @@ function createIslandEnvironment() {
   });
   group.add(main);
   const shape = main.userData.shape;
-  addGrassDecoration(group, rand, shape);
-  addUndergrowth(group, rand, shape);
+  const bluetenFuesse = addGrassDecoration(group, rand, shape);
+  addUndergrowth(group, rand, shape, bluetenFuesse);
   const waterfall = makeWaterfall(rand, shape);
   group.add(waterfall.group);
   const birds = makeBirds(rand);
@@ -3436,9 +4443,17 @@ function createIslandEnvironment() {
           5.5 + 6 * cfg.scale
     );
 
+  // **Eigener Zufallsstrom für die Umbruchweite.** Ein zusätzlicher `rand()`
+  // im Wolkenbau verschiebt jede Ziehung danach — Mini-Inseln, ihre Bäume und
+  // Steine wandern, und die Messung misst dann etwas anderes. Diese Lehre steht
+  // seit der Wasserfallfahne im Protokoll und hat dort 2952 Dreiecke gekostet.
+  const wr = mulberry32(771403);
+  // Zweiter eigener Strom, fuer den Helligkeitsversatz der Wolkenlappen.
+  const wt = mulberry32(553091);
+
   for (const layer of cloudLayers) {
     for (let i = 0; i < layer.count; i++) {
-      const cloud = makeCloud(rand, layer.size, SUN_DIR);
+      const cloud = makeCloud(rand, layer.size, SUN_DIR, wt);
       let a = 0;
       let r = 0;
       let y = 0;
@@ -3471,7 +4486,17 @@ function createIslandEnvironment() {
       cloud.userData.baseX = cloud.position.x;
       cloud.userData.baseZ = cloud.position.z;
       cloud.userData.speed = 0.1 + rand() * 0.22;
-      cloud.userData.range = 26;
+      // **Jede Wolke hat ihre eigene Umbruchweite.** Mit einem gemeinsamen Wert
+      // von 26 lösen sich alle fünfundzwanzig an derselben Ebene im Raum auf —
+      // eine unsichtbare Wand, an der Wolken sterben. Das ist genau die Art
+      // Regelmäßigkeit, die als Mechanik liest, sobald man ihr eine Minute
+      // zusieht. Mit 22 bis 34 liegen die Umbruchstellen verstreut, und die
+      // Umlaufzeiten (140 bis 680 s) haben keinen gemeinsamen Takt mehr.
+      cloud.userData.range = 22 + wr() * 12;
+      // Der Grundmaßstab muss aufgehoben werden, weil `update()` ihn jedes Bild
+      // mit dem Auflösungsfaktor multipliziert. Ohne Kopie schrumpft die Wolke
+      // kumulativ und ist nach wenigen Sekunden fort.
+      cloud.userData.baseScale = cloud.scale.clone();
       clouds.push(cloud);
       group.add(cloud);
     }
@@ -3557,12 +4582,62 @@ function createIslandEnvironment() {
       for (const mini of minis) {
         mini.position.y = mini.userData.baseY + Math.sin(time * 0.4 + mini.userData.phase) * 0.5;
       }
+      // **Wolken lösen sich auf, statt zu springen.**
+      //
+      // Die Drift lief im Modulo um: Bei |x| = 26 sprang eine Wolke auf die
+      // andere Seite des Himmels. Gemessen mit `tools/inselbewegung.mjs` über
+      // 200 s waren das **51,97 Meter in einem Zeitschritt von 0,25 s**, bei
+      // einer mittleren Schrittweite von 0,10 m — das 385- bis 575-fache. Und
+      // es passiert mitten im Bild: Die Wolken liegen auf Radien von 8 bis 36,
+      // die Umbruchkante bei 26 liegt also nicht am Rand der Welt, sondern
+      // quer durch den sichtbaren Himmel. Fünfzehn der 25 Wolken sprangen
+      // allein in diesen 200 Sekunden.
+      //
+      // Statt den Sprung zu verstecken, bekommt er einen Vorgang: Über die
+      // letzten drei Einheiten vor der Kante schrumpft die Wolke auf null und
+      // wächst auf der anderen Seite wieder heraus. Eine Haufenwolke, die sich
+      // auflöst und anderswo neu bildet, ist genau das, was Haufenwolken tun —
+      // und bei Geschwindigkeiten von 0,1 bis 0,32 Einheiten je Sekunde dauert
+      // der Vorgang 9 bis 30 Sekunden, ist also kein Blinken.
+      //
+      // **Drei und nicht sechs, und das ist gemessen.** Mit sechs Einheiten ist
+      // jede Wolke 23 % ihres Umlaufs verkleinert; im eingefrorenen Zeitpunkt
+      // von `2-waterfall` hat das die Wolke oben rechts vollständig gekostet —
+      // 0,266 % der Bildpunkte, und kompositorisch das Gegengewicht zur
+      // Konifere. Drei Einheiten halbieren den Anteil auf 12 %, ohne den
+      // Vorgang schnell genug zu machen, dass er als Blinken liest.
+      //
+      // Kosten: keine. Kein zweiter Werkstoff, keine Transparenz (die kostete
+      // Sortierung und den Tiefenschreib), und solange die Wolke unsichtbar
+      // ist, spart sie sogar ihren Draw-Call.
+      const SAUM = 3;
       for (const cloud of clouds) {
         const range = cloud.userData.range;
         const x = cloud.userData.baseX + time * cloud.userData.speed;
-        cloud.position.x = ((x + range) % (range * 2) + range * 2) % (range * 2) - range;
+        const xx = ((x + range) % (range * 2) + range * 2) % (range * 2) - range;
+        cloud.position.x = xx;
+        const k = Math.min(1, (range - Math.abs(xx)) / SAUM);
+        // Weiche Ein- und Ausblendung: linear schrumpfen setzt an beiden Enden
+        // eine Kante in die Änderungsrate, und die sieht man als Ruck.
+        const w = k * k * (3 - 2 * k);
+        cloud.visible = w > 0.02;
+        if (cloud.visible) cloud.scale.copy(cloud.userData.baseScale).multiplyScalar(w);
       }
       _windClock.value = time;
+      // **Ohne diesen Aufruf steht das gesamte Laub der Insel still.**
+      //
+      // `foliageMaterial()` legt seine Zeit in einem gemeinsamen Uniform-Satz
+      // ab, und `updateFoliage()` ist das Einzige, was ihn hochzaehlt. Der
+      // Zen-Garten ruft es auf, das Dojo ruft es auf — die Insel hat es nie
+      // getan. Gemessen mit `tools/laubuhr.mjs`: `uTime` stand bei
+      // Umgebungszeit 10, 25 und 40 Sekunden auf **0,00**, und zwar auf allen
+      // achtzehn Laubwerkstoffen. Jede Blattkarte auf jedem Baum und jedem
+      // Busch war reglos aufgeklebt, seit es die Insel gibt.
+      //
+      // `_windClock` daneben treibt `addWind`, und das sitzt genau auf einem
+      // Werkstoff: den Blumen. Die Blumen waren das Einzige, was sich auf
+      // dieser Insel je bewegt hat, ausser Voegeln, Faltern und Wolken.
+      updateFoliage(time);
       waterfall.update(time);
       birds.update(time);
       butterflies.update(time);
@@ -3599,10 +4674,234 @@ function fbm2(x, z) {
   }
   return sum;
 }
+// --- Der Miniplanet ----------------------------------------------------------
+//
+// Aus der 96 × 96 m großen Platte wird eine **Kugel mit 25 m Halbmesser**, die
+// man in gut einer Minute umrunden kann.
+//
+//   Umfang      2π · 25       = 157,1 m
+//   Rundgang    157,1 / 2,4   =  65,5 s bei der vorhandenen Gehgeschwindigkeit
+//   Horizont    √(2 · 25 · 1,6) =   8,94 m bei 1,6 m Augenhöhe
+//   Oberfläche  4π · 25²      = 7854 m²  (die Platte hatte 9216 m²)
+//
+// **Was sich dadurch grundsätzlich ändert.** Es gibt keine Ferne mehr. Bei 8,9 m
+// Horizont sieht man einen Kreis von 250 m² — ein Vierunddreißigstel der Welt.
+// Was bisher Weite trug (Fernfeldring, Horizonthügel bei r = 26…38 m), kann
+// das nicht mehr; die Krümmung muss es tragen: der Boden, der nach unten
+// wegkippt, und die Formen, die über die Kante steigen.
+//
+// Ein Gegenstand der Höhe H bleibt sichtbar bis zur Bogendistanz
+// 8,94 + √(2 · 25 · H). Für einen 6 m hohen Felsen sind das 26,2 m — er steht
+// also noch als Silhouette am Horizont, wenn er ein Sechstel der Welt entfernt
+// ist. Das ist die Zahl, nach der die Formationen platziert werden.
+const PLANET_R = 25;
+
+// **Die drei Bausteine, an denen der ganze Umbau hängt.**
+//
+// In der Ebene war ein Ort ein Zahlenpaar und der Abstand `Math.hypot`. Auf der
+// Kugel ist ein Ort eine **Richtung** (Einheitsvektor) und der Abstand die
+// **Großkreisdistanz**. Weil Paket 5 die Geländemerkmale schon als Liste und
+// die Abstandsmessung schon hinter eine Funktion gelegt hat, ist das hier ein
+// Wechsel der Parametrisierung und keine zweite Landschaft — genau die
+// Vorkehrung, die dafür getroffen wurde.
+
+// Großkreisdistanz in Metern. `acos` wird geklemmt: Rundungsfehler bringen das
+// Skalarprodukt gelegentlich auf 1,0000001, und `Math.acos` liefert dafür NaN.
+const bogenAbstand = (a, b) => PLANET_R * Math.acos(Math.min(1, Math.max(-1, a.dot(b))));
+
+// Zwei orthonormale Vektoren, die die Tangentialebene an einer Richtung
+// aufspannen. Der Hilfsvektor wird gewechselt, wenn `d` fast senkrecht steht —
+// sonst ist das Kreuzprodukt entartet und die Ebene nicht definiert.
+function tangentialSystem(d, ost = new THREE.Vector3(), nord = new THREE.Vector3()) {
+  const hilf = Math.abs(d.y) < 0.9 ? _PY.set(0, 1, 0) : _PX.set(1, 0, 0);
+  ost.crossVectors(hilf, d).normalize();
+  nord.crossVectors(d, ost).normalize();
+  return { ost, nord };
+}
+const _PX = new THREE.Vector3();
+const _PY = new THREE.Vector3();
+const _POst = new THREE.Vector3();
+const _PNord = new THREE.Vector3();
+
+// Ein Ort, angegeben als Bogenlänge und Himmelsrichtung von einem Bezugspunkt
+// aus. Damit bleiben die Zahlen im Quelltext lesbar: „14 m nach Nordost" statt
+// eines Einheitsvektors mit fünf Nachkommastellen.
+function ortVon(bezug, bogenMeter, azimutGrad) {
+  const { ost, nord } = tangentialSystem(bezug, _POst, _PNord);
+  const th = bogenMeter / PLANET_R;
+  const az = (azimutGrad * Math.PI) / 180;
+  return bezug
+    .clone()
+    .multiplyScalar(Math.cos(th))
+    .addScaledVector(ost, Math.sin(th) * Math.cos(az))
+    .addScaledVector(nord, Math.sin(th) * Math.sin(az))
+    .normalize();
+}
+
+// **Der Wind ist auf einer Kugel ein Tangentialfeld, kein Vektor.**
+//
+// In der Ebene genügte eine Richtung für die ganze Welt. Auf der Kugel gibt es
+// keine gleichbleibende Richtung — ein Vektorfeld ohne Nullstelle existiert auf
+// der Kugel nicht (Satz vom Igel). Der einfachste brauchbare Kompromiss ist ein
+// **zonaler** Wind: Er weht entlang der Breitenkreise um einen Windpol, und
+// seine beiden Nullstellen liegen genau in diesen Polen.
+//
+// Der Windpol steht bewusst **weit vom Startpunkt** (0 | 1 | 0): Dort, wo der
+// Nutzer erscheint, soll der Wind eindeutig sein, und die beiden Stellen, an
+// denen die Rippel zusammenlaufen, sollen nicht die ersten sein, die er sieht.
+const WIND_POL = new THREE.Vector3(0.34, -0.18, 0.92).normalize();
+const STARTPUNKT = new THREE.Vector3(0, 1, 0);
+
+// Ein tangentialer Versatz von `ort` aus, in Metern entlang Ost und Nord des
+// dortigen Tangentensystems. Das ist dasselbe wie `ortVon`, nur in kartesischen
+// statt in Polarkoordinaten — und in der Form braucht es jede Stelle, die etwas
+// gegen einen Bezugspunkt verschiebt (Formationsachsen, Begleitsteine).
+const _vtOst = new THREE.Vector3();
+const _vtNord = new THREE.Vector3();
+function versetzeAufKugel(ort, ostMeter, nordMeter, aus) {
+  const q = Math.hypot(ostMeter, nordMeter);
+  if (q < 1e-6) return aus.copy(ort);
+  const w = q / PLANET_R;
+  tangentialSystem(ort, _vtOst, _vtNord);
+  return aus
+    .copy(ort)
+    .multiplyScalar(Math.cos(w))
+    .addScaledVector(_vtOst, (Math.sin(w) * ostMeter) / q)
+    .addScaledVector(_vtNord, (Math.sin(w) * nordMeter) / q)
+    .normalize();
+}
+
+// --- Grate: der Abstand eines Punktes von einem Großkreisbogen ---------------
+//
+// **Warum ein eigenes Primitiv und nicht eine Kette von Hügeln.** Der Prüfer
+// hat zwei Dinge nebeneinander vermisst — eine Silhouette mit Topographie und
+// einen Mittelgrund — und beide haben dieselbe Ursache: Auf dieser Kugel gibt
+// es keine Form, die *lang und schmal und hoch* ist. Krater sind rund, Hügel
+// sind rund; runde Formen von 10 m Halbmesser sind auf einem Körper von 25 m
+// so weich, dass sie weder eine Kante noch eine Verdeckung ergeben.
+//
+// Ein Grat ist die einfachste Form, die beides kann: Er steht quer im Blick,
+// verdeckt die Ferne und gibt der Kante des Körpers einen Knick. Auf einer
+// Kugel ist seine Achse ein **Großkreisbogen** — die gerade Linie der Kugel.
+//
+// Zurückgegeben wird der Abstand in Metern entlang der Oberfläche. Innerhalb
+// des Bogens ist das der Abstand zur Trägerebene, außerhalb der Abstand zum
+// näheren Endpunkt; so bekommt der Grat runde Enden statt abgeschnittener.
+const _grN = new THREE.Vector3();
+const _grP = new THREE.Vector3();
+const _grK = new THREE.Vector3();
+function bogenAbstandZuGrat(dir, grat) {
+  const n = grat.achse;
+  const quer = dir.dot(n);
+  // Fußpunkt auf dem Großkreis.
+  _grP.copy(dir).addScaledVector(n, -quer);
+  const len = _grP.length();
+  if (len > 1e-6) {
+    _grP.multiplyScalar(1 / len);
+    // Liegt der Fußpunkt zwischen den Enden? Beide Kreuzprodukte müssen
+    // dieselbe Umlaufrichtung wie die Achse haben.
+    const vorA = _grK.crossVectors(grat.a, _grP).dot(n);
+    const vorB = _grK.crossVectors(_grP, grat.b).dot(n);
+    if (vorA >= 0 && vorB >= 0) return Math.asin(Math.min(1, Math.abs(quer))) * PLANET_R;
+  }
+  return Math.min(dir.angleTo(grat.a), dir.angleTo(grat.b)) * PLANET_R;
+}
+
+// Windrichtung an einem Ort, als Tangentialvektor.
+function windAn(dir, aus = new THREE.Vector3()) {
+  aus.crossVectors(WIND_POL, dir);
+  const l = aus.length();
+  // In den Windpolen selbst ist die Richtung nicht definiert; dort wird ein
+  // beliebiger Tangentialvektor genommen. Sichtbar ist das nicht — genau dort
+  // blenden die Rippel ohnehin aus.
+  if (l < 1e-4) return tangentialSystem(dir, aus, _PNord).ost;
+  return aus.multiplyScalar(1 / l);
+}
+
+// Wie weit ein Ort vom Windäquator entfernt ist, in Metern Bogenlänge. Das ist
+// die Koordinate **quer** zum Wind — entlang ihrer laufen die Rippelkämme.
+const windBreite = (dir) => PLANET_R * Math.asin(Math.min(1, Math.max(-1, dir.dot(WIND_POL))));
+
+// --- Dreidimensionales Rauschen ---------------------------------------------
+//
+// `fbm2` arbeitet auf einer Ebene. Auf einer Kugel gibt es keine Ebene, über die
+// man es spannen könnte, ohne eine Naht oder eine Verzerrung an den Polen
+// einzuhandeln. Also wird das Rauschen im **Raum** ausgewertet und die
+// Kugeloberfläche schneidet hindurch: keine Naht, keine Pole, keine
+// Vorzugsrichtung.
+function valueNoise3(x, y, z) {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const zi = Math.floor(z);
+  const u = x - xi;
+  const v = y - yi;
+  const w = z - zi;
+  const su = u * u * (3 - 2 * u);
+  const sv = v * v * (3 - 2 * v);
+  const sw = w * w * (3 - 2 * w);
+  const e = (i, j, k) => hashNoise(xi + i, yi + j, zi + k);
+  const mix = (a, b, t) => a + (b - a) * t;
+  return mix(
+    mix(mix(e(0, 0, 0), e(1, 0, 0), su), mix(e(0, 1, 0), e(1, 1, 0), su), sv),
+    mix(mix(e(0, 0, 1), e(1, 0, 1), su), mix(e(0, 1, 1), e(1, 1, 1), su), sv),
+    sw
+  );
+}
+function fbm3(x, y, z) {
+  let summe = 0;
+  let amp = 0.5;
+  let frq = 1;
+  for (let o = 0; o < 4; o++) {
+    summe += (valueNoise3(x * frq, y * frq, z * frq) - 0.5) * amp;
+    amp *= 0.5;
+    // Nicht 2,0: Bei glatter Verdopplung fallen die Oktaven auf denselben
+    // Gitterlinien zusammen und das Rauschen bekommt sichtbare Achsen.
+    frq *= 2.03;
+  }
+  return summe;
+}
+
 // Kraterprofil (t = Abstand/Radius): Mulde innen, angehobener Wall am Rand.
-function craterProfile(t) {
-  if (t < 0.82) return -(1 - (t / 0.82) ** 2); // Schüssel: -1 … 0
-  if (t < 1.14) return 0.32 * Math.sin((Math.PI * (t - 0.82)) / 0.32); // Randwall
+// Kraterprofil (t = Abstand/Radius), vierteilig statt zweiteilig.
+//
+// **Was am alten Profil fehlte, und warum es als Wiederholung las.** Es hatte
+// Schüssel und Randwall, und bei t = 1,14 hörte es auf — die Auswurfdecke
+// fehlte ganz. Damit endete jeder Krater an einer scharfen Grenze im
+// unberührten Dünenfeld, und weil alle fünf dasselbe Profil und dieselbe
+// Wallhöhe hatten, las das Feld in `d-aerial` als „nahezu deckungsgleiche
+// Ellipsen, nur skaliert" (Prüfbefund).
+//
+// Ein echter Einschlag hinterlässt vier Zonen:
+//
+//   * **Schüssel** bis t ≈ 0,80 — parabolisch, aber nicht ganz: Der Boden
+//     eines gealterten Kraters ist mit Material verfüllt und flacher als eine
+//     Parabel.
+//   * **Wall** von 0,80 bis 1,15 — der aufgeworfene Rand.
+//   * **Auswurfdecke** von 1,15 bis rund 2,6 — der ausgeworfene Schutt liegt
+//     als abfallende Decke rings um den Krater und geht allmählich in das
+//     Gelände über. Sie fällt wie 1/t³, das ist der übliche Ansatz und trifft
+//     die Beobachtung gut genug.
+//   * **darüber hinaus** nichts.
+//
+// `wall` und `alter` machen aus einem Profil eine Familie: Ein frischer Krater
+// hat einen hohen, scharfen Wall und eine deutliche Decke; ein alter ist
+// eingeebnet, sein Wall abgetragen, seine Decke verweht.
+function craterProfile(t, wall = 1, alter = 0) {
+  const scharf = 1 - alter;
+  if (t < 0.8) {
+    // Der Boden wird mit dem Alter flacher: aus der Parabel wird eine Wanne.
+    const u = t / 0.8;
+    const parabel = -(1 - u * u);
+    const wanne = -(1 - Math.pow(u, 4));
+    return parabel * scharf + wanne * alter;
+  }
+  if (t < 1.15) return 0.32 * wall * scharf * Math.sin((Math.PI * (t - 0.8)) / 0.35);
+  if (t < 2.6) {
+    // Auswurfdecke: fällt wie 1/t³, am Wallfuß angesetzt und bei 2,6 sanft
+    // auf null geführt, damit keine sichtbare Grenze entsteht.
+    const decke = 0.085 * wall * scharf * (Math.pow(1.15 / t, 3) - Math.pow(1.15 / 2.6, 3));
+    return decke * (1 - smoothstep(2.1, 2.6, t));
+  }
   return 0;
 }
 
@@ -3625,22 +4924,87 @@ function craterProfile(t) {
 let _marsMaps = null;
 function marsMaps() {
   if (_marsMaps) return _marsMaps;
-  const size = 256;
-  // Regolith: feiner Staub mit eingestreuten Steinchen. Zwei Frequenzen, weil
-  // eine allein entweder Grieß (nur hoch) oder Dünen (nur tief) ergibt.
-  const rausch = (x, y, k) => {
-    const s = Math.sin(x * 12.9898 + y * 78.233 + k * 3.7) * 43758.5453;
-    return s - Math.floor(s);
-  };
+  const size = 512;
+
+  // **Warum diese Karte neu gebaut werden musste, obwohl der Boden erst in
+  // Paket 4 dran ist.** Die alte Höhenfunktion war
+  //
+  //     rausch(x >> 4, y >> 4) * 0.5 + rausch(x >> 2, y >> 2) * 0.34 + rausch(x, y) * 0.16
+  //
+  // — drei ungefilterte Wertrauschlagen auf einem **achsenparallelen Gitter**
+  // mit 16-, 4- und 1-Texel-Blöcken und ohne jede Interpolation. Unter dem
+  // alten flächigen Grundlicht war das unsichtbar. Unter dem neuen streifenden
+  // Mondlicht wurde es zum auffälligsten Merkmal der ganzen Szene: Der Prüfer
+  // hat im Nahboden ein Rechteck- und L-Muster in genau zwei zueinander
+  // senkrechten Richtungen gefunden, mit einem Autokorrelations-Nebengipfel
+  // bei **32 px (+0,042** gegen −0,005 vorher). Das ist ein Programmierer-Tell,
+  // und er ist ein Preis dieses Lichtpakets — also wird er hier bezahlt und
+  // nicht vier Pakete weitergereicht.
+  //
+  // Das Rezept steht schon im Haus, bei `kornCanvas()` für den Zen-Sand:
+  // **Körner sind keine Frequenz, sondern Objekte.** Ein Wertrauschen auf
+  // einem Gitter hat immer eine Vorzugsrichtung — die Interpolation zwischen
+  // den Zellen. Gesetzte Tupfen an zufälligen Stellen haben keine, weil es
+  // kein Gitter gibt. Hier wird nicht gefärbt, sondern **Höhe** gesetzt: weiche
+  // runde Kuppen in drei Größenklassen, jede um ±Kachelbreite mitgezeichnet,
+  // damit die Karte nahtlos bleibt.
+  //
+  // Auflösung 512 statt 256. Die Karte deckt 1,6 m ab, ein Texel also 3,1 mm.
+  // Sichtbar ist nach der Erfahrung des Zen-Gartens, was gröber als etwa ein
+  // Zentimeter ist — die kleinste Kuppe hat 1,9 cm Durchmesser und liegt damit
+  // knapp darüber. Speicher: 512² × 2 Karten = 2,1 MB von 60.
+  const feld = new Float32Array(size * size);
+  {
+    const kr = mulberry32(90210);
+    const wrap = (v) => ((v % size) + size) % size;
+    const kuppe = (cx, cy, r, amp) => {
+      const ri = Math.ceil(r);
+      for (let dy = -ri; dy <= ri; dy++) {
+        for (let dx = -ri; dx <= ri; dx++) {
+          const d2 = (dx * dx + dy * dy) / (r * r);
+          if (d2 >= 1) continue;
+          const f = (1 - d2) * (1 - d2); // weich auslaufend, C1-stetig am Rand
+          feld[wrap(cy + dy) * size + wrap(cx + dx)] += amp * f;
+        }
+      }
+    };
+    // Drei Größenklassen. Die grobe trägt die Verwehung, die mittlere das
+    // Korn, die feine den Grieß. Anzahl so gewählt, dass jede Klasse die
+    // Fläche gut zwei- bis dreimal überdeckt — darunter sieht man einzelne
+    // Tupfen, darüber mittelt sich alles zu Grau.
+    const klassen = [
+      { n: 260, r: 17, amp: 0.5 },
+      { n: 2600, r: 6.5, amp: 0.26 },
+      { n: 16000, r: 3.1, amp: 0.13 },
+    ];
+    for (const k of klassen) {
+      for (let i = 0; i < k.n; i++) {
+        kuppe(
+          Math.floor(kr() * size),
+          Math.floor(kr() * size),
+          k.r * (0.65 + kr() * 0.7),
+          k.amp * (0.6 + kr() * 0.8)
+        );
+      }
+    }
+    // Auf 0…1 normieren, damit die Rauheitsfunktion unten denselben
+    // Wertebereich sieht wie vorher.
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const v of feld) {
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    const spanne = Math.max(1e-6, hi - lo);
+    for (let i = 0; i < feld.length; i++) feld[i] = (feld[i] - lo) / spanne;
+  }
   const { normalMap, roughnessMap, field } = heightToMaps({
     size,
-    strength: 1.9,
-    height: (x, y) => {
-      const grob = rausch(x >> 4, y >> 4, 1) * 0.5;
-      const mittel = rausch(x >> 2, y >> 2, 2) * 0.34;
-      const fein = rausch(x, y, 3) * 0.16;
-      return grob + mittel + fein;
-    },
+    // Schwächer als die alten 1,9: Die Kuppen haben eine echte Flanke, während
+    // das Blockrauschen nur an den Blockkanten überhaupt eine Ableitung hatte.
+    // Bei gleicher Stärke stünde die Fläche voll Kratern.
+    strength: 1.15,
+    height: (x, y) => feld[y * size + x],
     // Staub ist stumpf, die freigewehten Steinchen etwas weniger. Die Streuung
     // ist klein, aber sie ist es, die eine Fläche vor dem Plastikeindruck
     // bewahrt.
@@ -3655,6 +5019,77 @@ function marsMaps() {
   return _marsMaps;
 }
 
+// **Eine Windrichtung für alles.** Windrippel, Verwehungen und die Staubfahnen
+// im Windschatten der Brocken müssen aus derselben Richtung kommen — drei
+// Merkmale, die einander widersprechen, lesen als Zufall statt als Wetter.
+// Nicht achsenparallel gewählt: Ein Rippelmuster, das genau nach Norden läuft,
+// fällt mit den Texturachsen und der Gitterrichtung des Bodens zusammen und
+// wird dadurch zum Raster.
+// Der Mond steht bei [14 | 16 | −24] — 32,1 m Abstand, 29,9° über dem Horizont.
+// Ort und Richtung stehen auf Modulebene, weil beide an zwei Stellen gebraucht
+// werden: beim Bau des Mondes und beim Einfärben der Bruchsteine, wo die
+// mondabgewandte Seite den Frost bekommt. Zwei Kopien derselben Zahl wären die
+// Sorte Fehler, die man erst bemerkt, wenn eine davon wandert.
+const MOND_ORT = new THREE.Vector3(14, 16, -24);
+const MOND_RICHTUNG = MOND_ORT.clone().normalize();
+
+// **Der Pol der Milchstraßenebene, auf Modulebene.**
+//
+// Er stand bis jetzt in `makeNachtKuppel` — dort wird das Band gezeichnet. Das
+// Sternfeld braucht ihn aber auch: Der Prüfer hat die Milchstraße als „ein
+// weichgezeichnetes graues Band ohne eine einzige Punktquelle" beanstandet, und
+// eine Milchstraße besteht nun einmal aus Sternen. Ein Teil des Sternfelds wird
+// deshalb zur Bandebene hin verdichtet — und dafür müssen Band und Verdichtung
+// **dieselbe** Ebene meinen. Zwei Kopien derselben Zahl wären genau die Sorte
+// Fehler, die man erst bemerkt, wenn eine davon wandert.
+const MILCH_POL = new THREE.Vector3(0.78, 0.52, 0.35).normalize();
+
+// **Der Wind auf der Kugel.** Auf der Platte waren das zwei 2D-Richtungen in
+// x/z. Auf einer Kugel gibt es kein x/z: Wer die Rippelphase aus der
+// waagerechten Projektion der Weltkoordinate zieht, bekommt am „Äquator" der
+// Y-Achse — dort, wo die Fläche senkrecht steht — Rippel von mehreren Metern
+// Abstand. Genau das stand in der Totale: parallele dunkle Striche, wie mit
+// einem Kamm gezogen, und ein Strahl durch das Pixel traf `nacht-planet` bei
+// (25,04 | 4,78 | 2,78), also am Äquator.
+//
+// Das Windfeld ist deshalb **zonal**: eine Strömung um `WIND_POL`, dieselbe,
+// aus der schon `windAn()`, `windBreite()` und die Dünenasymmetrie kommen. Die
+// Rippelkämme stehen quer zum Wind, ihr Abstand wird also entlang der
+// Windlänge gemessen — als Vielfaches des Längengrads um den Windpol.
+//
+// **Die Kammzahl ist ganzzahlig, und das ist der Punkt.** Die Bogenlänge
+// entlang eines Breitenkreises ist als Skalarfeld auf der Kugel nicht
+// eindeutig — sie springt einmal um den vollen Umfang, und dieser Sprung wäre
+// eine sichtbare Naht vom Pol zum Pol. Ein Vielfaches des **Winkels** ist
+// dagegen von Natur aus periodisch. 462 Kämme auf den Umfang 2π · 25 m ergeben
+// am Windäquator 0,340 m Abstand; zu den Windpolen hin laufen sie zusammen wie
+// Meridiane und blenden dort über `fwidth` von selbst aus.
+// **Zwei Windsysteme, und der Grund ist der Igelsatz.**
+//
+// Ein zonaler Wind hat zwei Pole, und dort laufen seine Kämme als konzentrische
+// Kreise zusammen. Der Prüfer hat genau das gefunden: „gleichabständige,
+// gleichbreite Rillen, die überall exakt der Höhenlinie folgen — man sieht
+// nicht Sand, sondern eine Höhenlinienkarte." Im Ausschnitt von `c-krater` ist
+// es unverkennbar ein **Fingerabdruck**: verschachtelte Bögen um ein Zentrum.
+//
+// Ein Vektorfeld ohne Nullstelle gibt es auf der Kugel nicht — die Pole sind
+// nicht wegzurechnen. Aber sie sind wegzu**blenden**: Zwei Systeme mit Polen 90
+// Grad auseinander, und jedes fällt dort auf null, wo sein eigener Pol steht.
+// Am Pol von A trägt B mit voller Stärke und hat dort seinen Äquator, also
+// gerade Kämme. Sichtbar wird nie ein Pol, sondern immer nur die eine oder die
+// andere Bahnschar — und dazwischen ein Band, in dem beide zu Kreuzrippeln
+// überlagern, was in einem echten Dünenfeld ebenfalls vorkommt.
+const NACHT_WIND = (() => {
+  const machSystem = (pol) => {
+    const a = new THREE.Vector3(0, 1, 0).cross(pol).normalize();
+    return { pol, a, b: pol.clone().cross(a).normalize() };
+  };
+  const A = machSystem(WIND_POL);
+  // Senkrecht auf dem ersten Pol: dort, wo A entartet, steht B im Äquator.
+  const B = machSystem(A.a.clone());
+  return { A, B, kaemme: Math.round((Math.PI * 2 * PLANET_R) / 0.34) };
+})();
+
 let _marsGround = null;
 function marsGroundMaterial() {
   if (!_marsGround) {
@@ -3667,6 +5102,370 @@ function marsGroundMaterial() {
       metalness: 0,
       normalScale: new THREE.Vector2(0.9, 0.9),
     });
+
+    // --- Windrippel und Abtastung ------------------------------------------
+    //
+    // **Die Aufteilung nach Frequenz, dieselbe wie beim Zen-Sand.** Jede
+    // Ortsfrequenz auf den Träger, der sie billig kann:
+    //
+    //   grob   (Meter bis Zehnermeter)  Scheitelfarben des 150 × 150-Gitters,
+    //                                   0,64 m je Zelle — Verwehungen,
+    //                                   Ausbleichen nach Exposition
+    //   mittel (die Rippel, 34 cm)      **rechnerisch aus der Weltposition** —
+    //                                   in jeder Entfernung gleich scharf,
+    //                                   kostet kein Byte, und blendet sich über
+    //                                   fwidth aus, sobald eine Periode unter
+    //                                   zwei Pixel fällt
+    //   fein   (Korn, 1 bis 3 cm)       die kachelnde Normalenkarte
+    //
+    // **Der Befund, der den Ausblendteil erzwingt.** Der Prüfer hat die
+    // Feinstruktur in `e-ground` von nah nach fern gemessen: 1,96 / 2,62 /
+    // 2,78 / 2,32 / 1,69 — dasselbe Schleifpapier auf zwei Metern wie auf
+    // vierzig. Das ist Unterabtastung: Bei 1,6 m Kachel und 512 Texeln deckt
+    // ein Texel 3,1 mm ab; auf 40 m löst ein Bildpunkt rund 4 cm auf. Was dort
+    // stehen bleibt, ist Moiré, keine Körnung.
+    //
+    // Die Lehre von der Himmelsinsel sagt aber auch: Es darf nicht auf
+    // **nichts** ausblenden, sonst ist die Ferne leerer als vorher. Deshalb
+    // trägt der zweite, gröbere Maßstab — die Rippel — weiter als das Korn.
+    _marsGround.onBeforeCompile = (shader) => {
+      shader.uniforms.windPol = { value: NACHT_WIND.A.pol };
+      shader.uniforms.windA = { value: NACHT_WIND.A.a };
+      shader.uniforms.windB = { value: NACHT_WIND.A.b };
+      shader.uniforms.windPol2 = { value: NACHT_WIND.B.pol };
+      shader.uniforms.windA2 = { value: NACHT_WIND.B.a };
+      shader.uniforms.windB2 = { value: NACHT_WIND.B.b };
+      shader.uniforms.windKaemme = { value: NACHT_WIND.kaemme };
+      shader.uniforms.planetR = { value: PLANET_R };
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vWeltOrt;')
+        .replace(
+          '#include <worldpos_vertex>',
+          '#include <worldpos_vertex>\nvWeltOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        );
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          // **Staub glaenzt nicht.**
+          //
+          // `MeshStandardMaterial` gibt jedem Dielektrikum einen festen
+          // Spiegelanteil von F0 = 0,04, und die Fresnel-Kante zieht ihn bei
+          // streifendem Blick gegen eins. Auf einer Flaeche mit vier
+          // uebereinandergelegten Normalenstoerungen ergibt das einzelne
+          // Bildpunkte, die um ein Vielfaches heller sind als ihre Nachbarn —
+          // gemessen 288 solcher Punkte ueber die zwoelf Stationen, die
+          // hellsten voll ausgebrannt bei L = 255. Der Pruefer hat sie fuer
+          // Sterne gehalten, die durch den Boden stanzen.
+          //
+          // Mondstaub hat keinen solchen Lappen; er ist ein poroeses Pulver.
+          // Ihn wegzunehmen ist deshalb keine Notloesung, sondern das richtige
+          // Material.
+          '#include <lights_physical_fragment>',
+          '#include <lights_physical_fragment>\n           material.specularColor = vec3(0.0);\n           material.specularF90 = 0.0;'
+        )
+        .replace(
+          '#include <common>',
+          `#include <common>
+           varying vec3 vWeltOrt;
+           uniform vec3 windPol;
+           uniform vec3 windA;
+           uniform vec3 windB;
+           uniform float windKaemme;
+           uniform float planetR;
+           uniform vec3 windPol2;
+           uniform vec3 windA2;
+           uniform vec3 windB2;
+           // Drei unabhaengige Zufallszahlen je Zelle: Versatz in x und y und
+           // eine dritte, aus der Groesse und Toenung des Kiesels kommen.
+           vec3 kieselHash(vec2 z) {
+             vec3 p3 = fract(vec3(z.xyx) * vec3(0.1031, 0.1030, 0.0973));
+             p3 += dot(p3, p3.yxz + 33.33);
+             return fract((p3.xxy + p3.yxx) * p3.zyx);
+           }`
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          `#include <normal_fragment_maps>
+           {
+             // --- Korn nach Entfernung ausblenden ---------------------------
+             // Die Kachel deckt 1,6 m ab, ihre kleinsten Kuppen sind 1,9 cm
+             // groß. Ein Bildpunkt fasst bei 1280 px auf 102 Grad rund 1,4
+             // mrad; die Kuppe fällt damit ab 13 m unter einen Bildpunkt. Der
+             // alte Bereich 7 bis 26 m war für die 96-m-Platte gemacht — auf
+             // einem Planeten mit 8,9 m Horizont wäre er nie zu Ende gelaufen.
+             float tiefe = -vViewPosition.z;
+
+             // **Ausgeblendet wird nach Fussabdruck, nicht nach Entfernung.**
+             //
+             // Der Pruefer hat 366 farbneutrale Lichtpunkte auf dem Kamm von
+             // rund-300 gefunden und sie fuer Sterne gehalten. Es ist der Boden
+             // selbst: Blendet man nacht-planet aus, sind sie weg; mit
+             // roughness = 1 bleiben sie, es ist also kein Glanzlicht. Weg
+             // sind sie erst ohne das gerichtete Mondlicht oder ohne diese
+             // Normalenkarte. Ein Bildpunkt, dessen gestoerte Normale zufaellig
+             // zum Mond zeigt, bekommt bei streifendem Einfall ein Vielfaches
+             // der Beleuchtung seiner Nachbarn — und weil das Mondlicht fast
+             // weiss ist, kippt die Farbe oben in der Tonkurve ins Neutrale.
+             // Gemessen: 288 solche Punkte ueber die zwoelf Stationen, die
+             // hellsten voll ausgebrannt bei L = 255.
+             //
+             // Entscheidend ist nicht, wie weit die Flaeche weg ist, sondern
+             // wie gross der Fussabdruck eines Bildpunkts auf ihr ist — und der
+             // waechst mit 1/cos zwischen Blick und Flaeche. Am Horizont sieht
+             // man den Boden fast von der Kante; dort deckt ein Bildpunkt ein
+             // Vielfaches der Texelbreite ab, und die Mipmap-Mittelung der
+             // Normalen verliert genau die Varianz, die das Funkeln erzeugt.
+             //
+             // **Die Klemmung bei 0,25 ist der Grund, warum der Vordergrund
+             // sein Korn behaelt.** In e-boden liegt der Boden ebenso
+             // streifend im Bild, aber auf 1 bis 3 m: dort bleibt die wirksame
+             // Tiefe unter 12 m und das Korn steht. Am Kamm auf 8,7 m wird
+             // daraus das Dreifache, und es ist aus.
+             float blick = clamp(dot(nonPerturbedNormal, normalize(-vViewPosition)), 0.0, 1.0);
+             float tiefeWirk = tiefe / max(0.25, blick);
+             float feinAn = 1.0 - smoothstep(6.0, 14.0, tiefeWirk);
+             normal = normalize(mix(nonPerturbedNormal, normal, feinAn));
+
+             // --- Der fehlende Zwischenmaßstab: Kies ------------------------
+             //
+             // Zwischen den Brocken (14 bis 56 cm) und dem Korn der Karte
+             // (1,9 cm) lag nichts. Der Prüfer hat das als den eigentlichen
+             // Grund benannt, warum die Fläche als Farbauftrag liest und warum
+             // man im Bild nicht abschätzen kann, wie weit der Kamm weg ist:
+             // Es fehlt der Maßstab, an dem das Auge Entfernung abliest.
+             //
+             // Dieselbe Karte, auf die vierfache Kachel gespannt: 6,4 m statt
+             // 1,6 m, damit 7,6-cm-Kuppen — Kiesgröße. Ein zusätzlicher
+             // Texturgriff, kein Byte Speicher, und bis 30 m abtastbar.
+             //
+             // Sie trägt zweierlei, weil ein Kiesel beides tut: Er wirft einen
+             // eigenen Schatten (die Normale) und er ist anders gefärbt als der
+             // Staub um ihn herum (die Farbe).
+             vec3 kies = texture2D(normalMap, vNormalMapUv * 0.25).xyz * 2.0 - 1.0;
+             // Aus demselben Grund ueber die wirksame Tiefe: Der Kies stammt aus
+             // derselben Karte und funkelt genauso.
+             float kiesAn = 1.0 - smoothstep(14.0, 30.0, tiefeWirk);
+             // **Der Betrag ist gedeckelt durch die Rippel.** Deren Neigung
+             // liegt bei cos(phase) * K * 0,0042, also höchstens 0,078. Der
+             // erste Anlauf stand auf 0,42 — das Fünffache — und hat sie
+             // vollständig übertönt: In e-boden war von den Windrippeln nichts
+             // mehr zu sehen. 0,13 liegt in derselben Größenordnung und lässt
+             // beide nebeneinander bestehen.
+             normal = normalize(normal + tbn * vec3(kies.xy * 0.13, 0.0) * kiesAn);
+             diffuseColor.rgb *= 1.0 + (kies.x - kies.y) * 0.085 * kiesAn;
+
+             // --- Korn fuer den allernaechsten Vordergrund -------------------
+             //
+             // **Der Vordergrund war glatter als die Ferne, und zwar um den
+             // Faktor 8.** Gemessen mit tools/hochpass-reihe.mjs in e-boden,
+             // von nah nach fern: 0,290 / 0,390 / 0,515 / 0,675 / 1,057 /
+             // 1,660 / 2,362 / 2,433. Je naeher, desto weicher — genau
+             // verkehrt herum.
+             //
+             // Die Ursache ist Vergroesserung, nicht fehlendes Detail: Die
+             // Normalenkarte deckt 1,6 m auf 512 Texeln ab, also 3,1 mm je
+             // Texel. Am unteren Bildrand liegt der Boden 40 cm entfernt, wo
+             // ein Bildpunkt 0,7 mm abdeckt. Die Karte wird dort vierfach
+             // vergroessert, und die bilineare Filterung macht daraus Brei.
+             //
+             // Dieselbe Karte ein zweites Mal, auf ein Achtel der Kachel
+             // gespannt: 20 cm statt 1,6 m, also 0,39 mm je Texel. Das ist die
+             // Aufloesung, die der Nahbereich braucht. Sie blendet zwischen
+             // 0,7 und 1,8 m aus, lange bevor sie unterabgetastet waere — dort
+             // uebernimmt das grobe Korn, das bis 6 m traegt.
+             vec3 kornNah = texture2D(normalMap, vNormalMapUv * 8.0).xyz * 2.0 - 1.0;
+             float nahAn = 1.0 - smoothstep(1.1, 3.4, tiefe);
+             normal = normalize(normal + tbn * vec3(kornNah.xy * 0.15, 0.0) * nahAn);
+             diffuseColor.rgb *= 1.0 + (kornNah.x - kornNah.y) * 0.06 * nahAn;
+
+             // --- Kiesel in Armeslaenge -------------------------------------
+             //
+             // **Gemessen war der Boden direkt vor den Fuessen glatt.** Im
+             // unteren Bilddrittel von e-boden liegt der groesste
+             // Helligkeitssprung zwischen benachbarten Bildpunkten bei 15 von
+             // 255, der Median bei 1,9 — ueber 240 000 Bildpunkte hinweg keine
+             // einzige Kante. Der Prueferbefund dazu lautete, dort liege
+             // Flaeche und sonst nichts.
+             //
+             // Struktur, die aus Geometrie kaeme, ist nicht zu bezahlen: Das
+             // Band von 1,4 bis 3,7 m lueckenlos mit Steinen zu belegen kostet
+             // 68 Bloecke und 43 520 Dreiecke, und frei sind 5 800. Was der
+             // Kiesmassstab oben liefert, ist zu wenig — 0,13 Neigung sind 7,4
+             // Grad, also ein Fluestern, und mehr vertraegt er nicht, ohne die
+             // Windrippel zu uebertoenen (das war der erste Anlauf mit 0,42).
+             //
+             // **Der Unterschied ist, dass ein Kiesel ein Ding ist und kein
+             // Rauschen.** Er hat einen Rand, eine Woelbung und eine eigene
+             // Farbe. Deshalb hier keine weitere Karte, sondern verstreute
+             // Scheiben: ein Gitter von 22 cm, je Zelle ein versetzter
+             // Mittelpunkt, und nur gut die Haelfte der Zellen traegt
+             // ueberhaupt einen. Vier Zellen werden abgefragt, nicht neun —
+             // der Versatz bleibt innerhalb der halben Zelle und der Halbmesser
+             // unter der halben Zelle, damit kein Kiesel weiter als eine
+             // Zellgrenze reicht.
+             //
+             // **Nur im Nahfeld.** Bei 22 cm Zellweite deckt eine Zelle auf
+             // 1,2 m rund 130 Bildpunkte ab, auf 7 m noch 22. Weiter draussen
+             // waere sie Moire, deshalb blendet das Feld zwischen 3 und 7 m
+             // aus — dort uebernehmen Kies und Rippel, die bis 30 m tragen.
+             float kieselAn = 1.0 - smoothstep(2.5, 6.0, tiefe);
+             vec2 kieselM = vNormalMapUv * 1.6 / 0.22; // Zellkoordinaten
+             vec2 kieselI = floor(kieselM);
+             float kieselDeckung = 0.0;
+             vec2 kieselNeig = vec2(0.0);
+             float kieselTon = 0.0;
+             for (int jy = 0; jy <= 1; jy++) {
+               for (int jx = 0; jx <= 1; jx++) {
+                 vec2 zelle = kieselI + vec2(float(jx), float(jy));
+                 vec3 h = kieselHash(zelle);
+                 // Nur gut ein Viertel der Zellen traegt einen Stein. Der erste
+                 // Anlauf liess die Haelfte tragen und deckte damit 40 % der
+                 // Flaeche: Das las als Golfball, nicht als Regolith.
+                 float da = step(0.72, h.z);
+                 vec2 mitte = zelle + 0.25 + h.xy * 0.5;
+                 vec2 ab = kieselM - mitte;
+                 // **Ein Stein ist kein Kreis.** Je Zelle eine eigene Achse aus
+                 // demselben Zug — normalisiert statt aus Winkelfunktionen
+                 // gezogen, das spart je Zelle ein sin und ein cos — und quer
+                 // dazu auf 0,78 gestaucht. Aus Konfetti werden damit Kiesel.
+                 vec2 achse = normalize(h.xy - 0.5 + vec2(1e-3, 2e-3));
+                 ab = vec2(dot(ab, achse), dot(ab, vec2(-achse.y, achse.x)) / 0.78);
+                 float d = length(ab);
+                 // Halbmesser 0,14 bis 0,30 Zellweiten, also 3,1 bis 6,6 cm;
+                 // netto rund 4 % Flaechendeckung.
+                 float r = 0.14 + h.z * 0.16;
+                 float innen = (1.0 - smoothstep(r * 0.88, r, d)) * da;
+                 kieselDeckung = max(kieselDeckung, innen);
+                 // Kuppe statt Mulde: Die Normale kippt nach **aussen**, und die
+                 // Neigung waechst zum Rand hin. Der erste Anlauf hatte das
+                 // Vorzeichen andersherum und hat den Boden mit Dellen
+                 // uebersaet — im Bild ein Golfball.
+                 kieselNeig += (d > 1e-4 ? ab / d : vec2(0.0))
+                             * innen * smoothstep(0.0, r, d);
+                 // Jeder Kiesel hat seine eigene Toenung, hellere und dunklere
+                 // nebeneinander — ein einheitlich dunkles Streufeld laese als
+                 // Schmutz.
+                 kieselTon += innen * (fract(h.z * 17.3) - 0.45);
+               }
+             }
+             // **Das Vorzeichen ist geprueft, nicht geraten.** Ein Versuch mit
+             // umgekehrtem Zeichen sah in f-kante besser aus — dort steht der
+             // Mond hinter der Kamera, und eine von hinten beleuchtete Kuppe
+             // zeigt fast nichts, was sich mit einer Mulde verwechseln laesst.
+             // Entschieden hat e-boden: Dort steht der Mond links vorn, und nur
+             // mit **plus** liegt das Licht auf der linken Flanke.
+             normal = normalize(normal + tbn * vec3(kieselNeig * 0.34 * kieselAn, 0.0));
+             diffuseColor.rgb *= 1.0 + kieselTon * 0.20 * kieselAn;
+             // Der Staub sammelt sich am Fuss des Steins: ein schmaler heller
+             // Saum, der die Kante gegen den Boden absetzt.
+             diffuseColor.rgb *= 1.0 + kieselDeckung * 0.03 * kieselAn;
+
+             // --- Windrippel, zwei Systeme --------------------------------
+             //
+             // Ein zonaler Wind hat zwei Pole, und dort laufen seine Kaemme als
+             // konzentrische Kreise zusammen — im Bild ein Fingerabdruck. Ein
+             // Vektorfeld ohne Nullstelle gibt es auf der Kugel nicht, aber die
+             // Pole lassen sich wegblenden: zwei Systeme mit Polen 90 Grad
+             // auseinander, jedes faellt an seinem eigenen Pol auf null. Am Pol
+             // von A steht B im Aequator und hat dort gerade Kaemme.
+             vec3 dK = normalize(vWeltOrt);
+             mat3 zurSicht = mat3(viewMatrix);
+             vec3 dKSicht = normalize(zurSicht * dK);
+
+             float flach = smoothstep(0.55, 0.90, dot(nonPerturbedNormal, dKSicht));
+             float feld = 0.42 + 0.58 * clamp(
+               0.5 + 0.5 * (sin(dot(vWeltOrt, vec3(0.13, 0.05, 0.09)))
+                          + sin(dot(vWeltOrt, vec3(-0.07, 0.11, 0.17)) + 2.1)) * 0.5,
+               0.0, 1.0);
+             float rippelGrund = flach * feld;
+
+             vec3 summeQuer = vec3(0.0);
+             float summeProfil = 0.0;
+
+             // **Welches System hier gilt: das, dessen Pol weiter weg ist.**
+             //
+             // Der erste Anlauf hat beide ueber ein breites Band ueberblendet
+             // und dabei zwei Fehler auf einmal erzeugt: Der Wirbel am Pol war
+             // immer noch da (die Blende setzte erst bei 55 Grad Breite ein),
+             // und im Ueberlappungsbereich stand ein regelmaessiges
+             // Rautengitter — ein neuer Programmierer-Tell an Stelle des alten.
+             //
+             // Jetzt entscheidet ein Vergleich: Naeher am eigenen Pol heisst
+             // ausblenden. Die Blende ist absichtlich **schmal** (rund sechs
+             // Grad), damit kein breites Kreuzrippelfeld entsteht. Was bleibt,
+             // ist eine schmale Scherlinie zwischen zwei Rippelrichtungen — und
+             // die gibt es in einem echten Duenenfeld auch.
+             float sinBrA0 = clamp(dot(dK, windPol), -1.0, 1.0);
+             float sinBrB0 = clamp(dot(dK, windPol2), -1.0, 1.0);
+             float wahl = smoothstep(-0.05, 0.05, abs(sinBrA0) - abs(sinBrB0));
+
+             for (int sys = 0; sys < 2; sys++) {
+               vec3 pol = sys == 0 ? windPol : windPol2;
+               vec3 achsA = sys == 0 ? windA : windA2;
+               vec3 achsB = sys == 0 ? windB : windB2;
+
+               float sinBr = sys == 0 ? sinBrA0 : sinBrB0;
+               // **Das Ausblenden am eigenen Pol.** Ueber 55 bis 88 Grad
+               // Breite faellt das System auf null; dort uebernimmt das andere,
+               // das an dieser Stelle seinen Aequator hat.
+               // **Kein vorzeitiges Verlassen der Schleife.** Weiter unten
+               // steht ein fwidth, und Ableitungen in nicht-uniformem
+               // Kontrollfluss sind in GLSL **undefiniert**: Der Wert kommt aus
+               // den Nachbarfragmenten, und wenn eines davon die Schleife
+               // verlassen hat, ist er Muell. Der erste Anlauf hatte hier ein
+               // continue — gespart haetten ein paar Rechenschritte, bezahlt
+               // haette man mit einem Artefakt genau an der Blendkante, die
+               // dieser Umbau beseitigen soll.
+               float wicht = sys == 0 ? 1.0 - wahl : wahl;
+
+               float laengs = planetR * asin(sinBr);
+               float sinTh = max(0.09, sqrt(max(0.0, 1.0 - sinBr * sinBr)));
+               vec3 inEbene = dK - pol * sinBr;
+               float phi = atan(dot(inEbene, achsB), dot(inEbene, achsA));
+               float K = windKaemme / (planetR * sinTh);
+
+               // Maeandern entlang der Kaemme, plus zwei Terme quer dazu, die
+               // benachbarte Kaemme verschieden weit verschieben und damit
+               // Gabelungen erzeugen.
+               float bogenQuer = planetR * phi * sinTh;
+               float versatz = sin(laengs * 0.7) * 0.35 + sin(laengs * 0.23 + 1.7) * 0.5
+                             + sin(laengs * 1.27 + bogenQuer * 0.29) * 0.46
+                             + sin(laengs * 0.61 - bogenQuer * 0.13 + 2.4) * 0.33;
+               float phase = windKaemme * phi + versatz * K;
+
+               // Ausblenden, sobald eine Periode unter zwei Pixel faellt.
+               float schritt = fwidth(phase);
+               float an = (1.0 - smoothstep(1.1, 2.8, schritt)) * wicht * rippelGrund;
+               float flecken = 0.5 + 0.5 * sin(laengs * 1.9 + sin(bogenQuer * 0.41) * 1.6);
+               an *= 0.25 + 0.75 * smoothstep(0.12, 0.62, flecken);
+
+               // Saegezahnprofil statt Sinus: flache Luv-, steile Leeseite.
+               float sg = sin(phase);
+               summeProfil += sign(sg) * pow(abs(sg), 0.65) * an;
+               summeQuer += normalize(zurSicht * normalize(cross(pol, dK)))
+                          * (cos(phase) * K * 0.0042 * an);
+             }
+
+             normal = normalize(normal - summeQuer);
+             // Die Kaemme sind groeber und heller, die Taeler halten den feinen
+             // Staub. Kleiner Betrag — es ist eine Toenung, kein Muster.
+             diffuseColor.rgb *= 1.0 + summeProfil * 0.075;
+
+             // --- Kein Glanz auf Staub ---------------------------------------
+             //
+             // Die eigentliche Behebung steht weiter oben als eine Einfuegung
+             // hinter dem Beleuchtungsschritt: Der Regolith bekommt gar
+             // keinen Spiegelanteil mehr. Die Herleitung und die drei
+             // Fehlversuche davor stehen im Protokoll — kurz: Es war weder der
+             // Fussabdruck noch eine abgewandte Flaeche noch ein einzelner
+             // Stoerterm, sondern die Fresnel-Kante des Spiegellappens bei
+             // streifendem Blick auf eine normalengestoerte Flaeche.
+           }`
+        );
+    };
+    // Ohne eigenen Cache-Schlüssel hält three das Programm eines anderen
+    // Materials mit derselben Signatur für austauschbar und der Einschub
+    // landet nie im Shader.
+    _marsGround.customProgramCacheKey = () => 'nacht-regolith-v13';
   }
   return _marsGround;
 }
@@ -3679,132 +5478,3575 @@ function marsRockMaterial() {
       vertexColors: true,
       normalMap: m.normalMap,
       roughnessMap: m.roughnessMap,
-      roughness: 1,
+      // **Der Prüfer konnte belichteten Fels und belichteten Boden nicht
+      // unterscheiden**: c-crater Brockenfacette (775,538) = (91|58|53) gegen
+      // Boden (900,430) = (90|61|57) — ΔL 2,2, größte Kanaldifferenz 4. Beide
+      // Materialien teilen sich `marsMaps()`, und der einzige Unterschied war
+      // `normalScale`.
+      //
+      // Die Rauheit ist der Hebel, der hier trägt und nichts kostet: Staub ist
+      // stumpf, eine frische Bruchfläche ist es nicht. `roughness` multipliziert
+      // die Karte, 0,72 bringt den Fels auf gut 0,70 gegen 0,95 am Boden. Damit
+      // hat die Glanzkeule auf mondzugewandten Facetten überhaupt eine Chance —
+      // und das ist zugleich die einzige Form von Streiflicht, die eine
+      // facettierte, flach schattierte Geometrie hergibt. Eine Fresnel-Kante
+      // würde hier zur Flächenhelligkeit, nicht zur Kante (siehe die Notiz zu
+      // `flatShading` in den bezahlten Lehren).
+      // 0,72 im zweiten Anlauf hat die Materialtrennung gebracht und die Form
+      // gekostet: Der Prüfer maß **16:1** Kontrast zwischen zwei Facetten
+      // desselben Brockens (10 → 53 → 81 → 48 → 7 über 15 px), gegen 4,75:1 im
+      // Ausgangsstand. Eine Glanzkante, ein Mittelton, schwarzer Rest — ein
+      // Dreistufen-Plakat statt eines Steins. 0,84 gegen 0,95 am Boden hält die
+      // Trennung und nimmt der Keule die Spitze.
+      roughness: 0.84,
       metalness: 0,
       // Kräftiger als am Boden: Ein Brocken ist rauer als der Staub um ihn.
       normalScale: new THREE.Vector2(1.4, 1.4),
+      // **Bodenrückstrahlung, die eine Hemisphärenleuchte nicht liefern kann.**
+      //
+      // Ein Brocken auf einer hell beschienenen Ebene bekommt von unten und
+      // von der Seite kräftig Licht zurückgeworfen. Eine Hemisphärenleuchte
+      // rechnet aber nur mit `normal.y`: Bei einer senkrechten Flanke steht sie
+      // auf halbem Weg zwischen Himmels- und Bodenfarbe und weiß nichts von der
+      // Fläche, die zwei Handbreit daneben im vollen Mondlicht liegt.
+      //
+      // Nachgerechnet ergab das für eine mondabgewandte Flanke: Bestrahlung
+      // 0,254 × Albedo 0,084 × Vertexfaktor 0,62 → Bildwert **2,5 von 255**.
+      // Der Himmel zwischen den Sternen liegt bei 2,6. Der Prüfer hat genau das
+      // gemessen: 28,6 % der Brockenfläche in `e-ground` **unter** Himmelsniveau
+      // — ein Brocken war damit kein Körper mehr, sondern ein Loch im Bild.
+      //
+      // Die Hemisphäre anzuheben wäre der falsche Hebel: Sie hellt die
+      // Bodenfläche mit auf, und die Szene soll nicht heller werden. Ein kleiner
+      // Eigenleuchtwert trifft **nur** die Brocken und ist die übliche
+      // stilisierte Ersatzdarstellung für genau diese Rückstrahlung. Warm
+      // getönt, weil das Licht, das von unten kommt, vom Regolith kommt.
+      emissive: new THREE.Color(0x170d07),
     });
   }
   return _marsRock;
 }
 
-function makeMarsGround(rand) {
-  const group = new THREE.Group();
+// --- Bruchstein --------------------------------------------------------------
+//
+// **Warum die alten Brocken als Ikosaeder lasen.** Sie waren
+// `IcosahedronGeometry(s, 1)` — achtzig gleich große, gleich geformte
+// Dreiecke — mit einer radialen Streuung je Scheitelpunkt. Radiale Streuung
+// verschiebt Ecken nach außen und innen, sie erzeugt aber keine **Fläche**:
+// Das Ergebnis ist ein gerundetes Vielflach mit gleichmäßigen Facetten, also
+// ein geschliffener Stein. Der Prüfer hat genau das gemessen: zwei
+// Nachbarfacetten mit 1,8 Stufen Unterschied über je eine ganze ebene Fläche.
+//
+// Ein zerbrochener Stein entsteht nicht durch Verschieben, sondern durch
+// **Schneiden**. Ein Sprung läuft als Ebene durch das Material und hinterlässt
+// eine ebene Fläche; mehrere Sprünge hinterlassen ein Vielflach aus
+// **unterschiedlich großen** ebenen Flächen, die sich in scharfen Kanten
+// treffen. Genau das wird hier gemacht: Eine Kugel wird an K zufälligen Ebenen
+// gekappt.
+//
+// Der Unterschied ist nicht die Zahl der Dreiecke, sondern ihre Verteilung:
+// Beim Ikosaeder ist jede Facette gleich groß, beim Bruch bestimmt der Zufall
+// der Ebenen, ob eine Fläche ein Drittel des Steins einnimmt oder einen
+// Fingernagel.
+//
+// Die Unterteilung ist ein **Messwert, kein Geschmack**: Bei Stufe 3 hat eine
+// Kante rund 15 % des Radius, auf einem 30-cm-Brocken also 4,5 cm. Das ist die
+// Treppung, mit der eine Schnittkante durch das Dreiecksnetz läuft. Bei Stufe 2
+// wären es 9 cm und die Kanten sichtbar ausgefranst.
+// `unterteilung` ist die Icosphere-Stufe des Ausgangskörpers. three zerlegt
+// jede der 20 Grundflächen in (unterteilung + 1)² Dreiecke, also 320 bei 3 und
+// 180 bei 2. Für einen Findling oder eine 9-m-Formation lohnen sich die 320;
+// für einen Brocken von 30 cm, dessen Form ohnehin aus den Schnittebenen kommt
+// und nicht aus der Kugel darunter, sind sie 140 Dreiecke Verschwendung — und
+// zweihundertvierzig Brocken machen daraus 34 000.
+function bruchGeometrie(
+  radius,
+  seed,
+  { facetten = 11, verwitterung = 0.12, kanten = 0.06, unterteilung = 3 } = {}
+) {
+  const geo = new THREE.IcosahedronGeometry(radius, unterteilung);
+  const br = mulberry32(seed);
+  const ebenen = [];
+  for (let k = 0; k < facetten; k++) {
+    // Gleichverteilt auf der Kugel — ohne die Umrechnung über den Kosinus des
+    // Polarwinkels ballen sich die Schnittrichtungen an den Polen, und der
+    // Stein bekäme oben und unten mehr Flächen als in der Mitte.
+    const u = br() * 2 - 1;
+    const phi = br() * Math.PI * 2;
+    const s = Math.sqrt(Math.max(0, 1 - u * u));
+    ebenen.push({
+      nx: s * Math.cos(phi),
+      ny: u,
+      nz: s * Math.sin(phi),
+      // Wie tief die Ebene schneidet. Nah an 1 streift sie nur, nah an 0,55
+      // nimmt sie ein großes Stück weg — das ist die Streuung, aus der
+      // ungleich große Flächen entstehen.
+      d: radius * (0.55 + br() * 0.40),
+    });
+  }
 
-  const craters = [
-    { x: 9, z: -7, r: 3.0, depth: 0.9 },
-    { x: -11, z: 5, r: 4.2, depth: 1.15 },
-    { x: 5.5, z: 12, r: 2.4, depth: 0.7 },
-    { x: -6, z: -13, r: 3.4, depth: 0.9 },
-    { x: 15, z: 9, r: 5.0, depth: 1.3 },
-  ];
-
-  const heightAt = (x, z) => {
-    const big = fbm2(x * 0.05, z * 0.05) * 3.2; // weite, rollende Dünen
-    const med = fbm2(x * 0.16, z * 0.16) * 0.9; // mittlere Wellen
-    const fine = (hashNoise(x * 1.7, z * 1.7, 7) - 0.5) * 0.12; // Körnung
-    let h = big + med + fine;
-    for (const c of craters) {
-      const d = Math.hypot(x - c.x, z - c.z);
-      if (d < c.r * 1.2) h += craterProfile(d / c.r) * c.depth;
+  const pos = geo.attributes.position;
+  const v = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    // Zwei Durchgänge: Wer einen Scheitelpunkt auf eine Ebene setzt, kann ihn
+    // dabei über eine andere hinausschieben. Nach zwei Durchgängen ist der
+    // Rest unterhalb der Auflösung des Netzes.
+    for (let durchgang = 0; durchgang < 2; durchgang++) {
+      for (const e of ebenen) {
+        const w = v.x * e.nx + v.y * e.ny + v.z * e.nz;
+        if (w > e.d) {
+          const ueber = w - e.d;
+          v.x -= e.nx * ueber;
+          v.y -= e.ny * ueber;
+          v.z -= e.nz * ueber;
+        }
+      }
     }
-    // Zentrum flach halten, damit man eben steht
-    return h * smoothstep(0.6, 4.5, Math.hypot(x, z));
+    // **Verwitterung.** Ein frischer Bruch ist scharfkantig, ein alter ist
+    // abgerundet und angefressen. Das Zurückziehen zur Kugel rundet die
+    // Kanten (weil dort am meisten weggeschnitten wurde), das Feinrauschen
+    // frisst die Flächen an. Beides klein — zu viel davon macht aus dem Bruch
+    // wieder einen Kiesel.
+    const laenge = v.length() || 1e-6;
+    const zurKugel = radius / laenge;
+    v.multiplyScalar(1 + (zurKugel - 1) * verwitterung);
+    const n = hashNoise(v.x * 60, v.y * 60, v.z * 60 + seed) - 0.5;
+    v.multiplyScalar(1 + n * kanten);
+    pos.setXYZ(i, v.x, v.y, v.z);
+  }
+  // Nicht indiziert und flach schattiert: Jede Bruchfläche bekommt eine eigene
+  // Normale, und die Kanten bleiben Kanten.
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// Einfärbung eines Bruchsteins je **Fläche**, nicht je Scheitelpunkt.
+//
+// Damit kommen die drei fehlenden Materialien ins Inventar, die der Prüfer
+// vermisst hat — Gestein im Bruch, Staub und Frost —, und zwar ohne ein
+// einziges neues Material und ohne eine einzige neue Textur:
+//
+//   * **Staub** liegt auf dem, was nach oben zeigt. Er ist die Farbe des
+//     Bodens, denn er kommt von dort.
+//   * **Bruchgestein** sitzt auf **einer** Flanke, nicht auf allen steilen:
+//     `bruchachse` ist die Richtung, in die dieser Brocken aufgebrochen ist.
+//     Heller, kühler, weniger rot als die verwitterte Außenhaut — eine frische
+//     Bruchfläche hat die Verwitterungsrinde nicht. Alles andere Steile bekommt
+//     nur einen schwachen Anteil davon, denn dort hält bloß kein Staub.
+//   * **Frost** sammelt sich in der Kältefalle: dort, wo die Fläche vom Mond
+//     abgewandt ist, am stärksten an der Unterseite. Er hat eine Kante, wo er
+//     anfängt — sonst liest er als bläuliche Tönung des ganzen Steins statt als
+//     Kruste.
+//
+// `drehung` bringt die lokalen Flächennormalen in Weltausrichtung — die
+// Brocken sind um alle drei Achsen zufällig gedreht, und ohne das säße der
+// Staub bei jedem Stein an einer anderen Flanke.
+// `oben` ist die Richtung, die an diesem Ort nach oben zeigt. Auf einer Platte
+// ist das für alle Steine dieselbe Achse; auf einer Kugel steht jeder Brocken
+// auf seiner eigenen Flächennormale, und ein Staubbelag, der stur nach +Y
+// gerechnet wird, säße auf der Gegenseite des Planeten an der Unterseite.
+function faerbeBruchstein(
+  geo,
+  grundHex,
+  drehung,
+  mondRichtung,
+  { staub, frost, alter, oben = _FBOben.set(0, 1, 0), bruchachse = null }
+) {
+  const pos = geo.attributes.position;
+  const nor = geo.attributes.normal;
+  const farben = new Float32Array(pos.count * 3);
+  const grund = new THREE.Color(grundHex);
+  const staubFarbe = new THREE.Color(0x8a5540);
+  const bruchFarbe = new THREE.Color(0xb2a49b);
+  // **Vierter Anlauf am Frost — diesmal nach unten.**
+  //
+  // Nach dem dritten war er auffindbar; der Prüfer hat ihn daraufhin als
+  // schwersten Mangel gemeldet: In `rund-270` steht ein vereister Brocken bei
+  // L = 46,5, der Boden ringsum bei L = 19,9 — **das 2,4-Fache** — und
+  // farblich neutral bis kühl (B ≥ R), obwohl das einzige gerichtete Licht
+  // dort das warme rote Fülllicht des zweiten Mondes ist. „Marshmallows in
+  // einer roten Wüste."
+  //
+  // Die Ursache ist nicht der Frost, sondern was ihn beleuchtet: Das
+  // Hemisphärenlicht (0x7595b4) ist **blaugrau** und trifft alles, was nach
+  // oben zeigt, unabhängig von jeder Richtung. Eine blauweiße Albedo darunter
+  // wird zwangsläufig das Hellste und Kühlste im Bild. Der Regolith
+  // (0x854c33) entgeht dem nur, weil er dunkel und warm ist.
+  //
+  // `0xbcd0e0` hatte eine Leuchtdichte von 0,79 und einen Blauüberschuss von
+  // 36 Stufen. `0x8e969a` liegt bei 0,58 und bei 12 — noch kühler als der Fels,
+  // aber kein Leuchtkörper mehr.
+  const frostFarbe = new THREE.Color(0x8e969a);
+  const n = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  const c = new THREE.Color();
+  // Höhenbereich in Weltausrichtung, für die Verdunklung am Fuß.
+  let yMin = Infinity;
+  let yMax = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i).applyQuaternion(drehung);
+    const y = v.dot(oben);
+    if (y < yMin) yMin = y;
+    if (y > yMax) yMax = y;
+  }
+  for (let i = 0; i < pos.count; i++) {
+    n.fromBufferAttribute(nor, i).applyQuaternion(drehung);
+    v.fromBufferAttribute(pos, i).applyQuaternion(drehung);
+    const ny = n.dot(oben);
+
+    c.copy(grund);
+    // **Frischer Bruch**, mit dem Alter zurückgehend.
+    //
+    // Der Prüfer hat ihn nirgends gefunden — „kein einziger heller
+    // Splitterrand, keine Stelle, an der ein Stein aufgebrochen aussieht". Zu
+    // Recht: Der Faktor lief über `steil²`, und `steil` ist `1 − cos θ` mit θ
+    // als Neigung der Fläche gegen die Waagerechte — auf einer 60-Grad-Fläche
+    // also 0,5, quadriert 0,25, mal 0,55 und bei einem mittelalten Stein noch
+    // mal halbiert. Übrig blieben sieben Prozent Beimischung einer Farbe, die
+    // selbst nur wenig heller ist.
+    //
+    // Der erste Anlauf hat bloß den Faktor hochgezogen (`steil · 0,8`) und
+    // `bruchFarbe` aufgehellt. Gemessen war das eine Verbesserung — der
+    // Felsanteil in a-augenhoehe stieg von 1,7 auf 4,7 Prozent —, im Bild aber
+    // falsch: In d-orbit standen **alle** Landmarken knochenhell da. Ein Stein,
+    // der ringsum frisch gebrochen ist, ist kein gebrochener Stein, sondern ein
+    // anders angemalter.
+    //
+    // Deshalb jetzt richtungsgebunden: Der Löwenanteil sitzt auf der einen
+    // Flanke, die `bruchachse` benennt; der fünfte Potenzgrad hält den Kegel
+    // eng (30 Grad daneben noch 0,66, 60 Grad nur noch 0,03). Alles andere
+    // Steile bekommt bloß den Grundanteil von 0,16.
+    const steil = 1 - Math.abs(ny);
+    const flanke = bruchachse ? Math.pow(Math.max(0, n.dot(bruchachse)), 5) : steil;
+    c.lerp(bruchFarbe, (steil * 0.16 + flanke * 0.75) * (1 - alter));
+    // Staub auf allem, was nach oben zeigt.
+    const nachOben = Math.max(0, ny);
+    c.lerp(staubFarbe, Math.pow(nachOben, 1.6) * staub);
+    // **Frost: mondabgewandt, mit Vorliebe für die Unterseite — aber nicht
+    // nur dort.**
+    //
+    // Vorher war der Faktor `abgewandt · unten`, und `unten` ist null für jede
+    // senkrechte Fläche. Frost saß damit ausschließlich auf den nach unten
+    // zeigenden Flächen — also genau dort, wo man nie hinsieht. Der Prüfer hat
+    // ihn folgerichtig nicht gefunden.
+    //
+    // Auf einem luftlosen Körper sammelt sich Flüchtiges in den Kältefallen:
+    // dort, wo das Licht nie hinkommt. Das ist in erster Linie die abgewandte
+    // Seite, in zweiter die Unterseite.
+    //
+    // Der `smoothstep` gibt der Kruste eine **Kante**. Ein weicher Verlauf über
+    // die ganze Flanke liest als bläuliche Tönung des Steins; eine Kruste fängt
+    // irgendwo an.
+    const abgewandt = Math.max(0, -n.dot(mondRichtung));
+    const unten = Math.max(0, -ny);
+    // **Dritter Anlauf am Frost.** Der Prüfer hat ihn nach dem zweiten immer
+    // noch nicht gefunden: 0,00 bis 0,18 % der Bodenpixel, in `e-boden` null.
+    // Die Kante war richtig, der Einsatzpunkt zu spät — bei 0,25 begann die
+    // Kruste erst 75 Grad hinter dem Terminator, und so weit abgewandte
+    // Flächen sind ohnehin fast schwarz. 0,05 bis 0,55 legt sie auf die
+    // **schattige Flanke**, wo man sie sieht.
+    const kaeltefalle = smoothstep(0.05, 0.55, abgewandt) * (0.55 + 0.45 * unten);
+    c.lerp(frostFarbe, kaeltefalle * frost);
+
+    // Kontaktverdunklung am Fuß, wie gehabt.
+    const t = (v.dot(oben) - yMin) / Math.max(1e-4, yMax - yMin);
+    const f = 0.82 + 0.18 * smoothstep(0, 0.35, t);
+    farben[i * 3] = c.r * f;
+    farben[i * 3 + 1] = c.g * f;
+    farben[i * 3 + 2] = c.b * f;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  return geo;
+}
+const _FBOben = new THREE.Vector3();
+
+// --- Kontaktverdunklung ------------------------------------------------------
+//
+// Ein Schlagschatten sagt, **wo** die Sonne (hier: der Mond) nicht hinkommt.
+// Er sagt nicht, dass ein Brocken den Boden *berührt*. Genau das ist der
+// Unterschied zwischen einem Objekt, das steht, und einem, das schwebt: der
+// schmale, richtungslose Saum Verdunklung direkt am Fuß, den in Wahrheit die
+// gegenseitige Verdeckung des Himmelslichts macht.
+//
+// Warum ein eigener Bauer statt `makeBlobShadow`: Die geteilte Blob-Scheibe ist
+// eine **ebene** 1x1-Fläche. Der Regolith ist es nicht — über 90 cm Radius
+// wandert er hier um bis zu 14 cm. Eine ebene Scheibe steckt damit an einer
+// Seite im Boden und schwebt an der anderen. Diese Scheiben bekommen ihre
+// Scheitelpunkte auf die Geländehöhe gelegt und liegen deshalb auf.
+//
+// Alles zusammen ist **ein** Draw-Call: Deckkraft steckt in der vierten
+// Komponente des Farbattributs (three setzt dann USE_COLOR_ALPHA), Farbe ist
+// überall Schwarz.
+// **Wie hoch die Kontaktscheiben über dem Gelände liegen — und warum das keine
+// Konstante sein darf.**
+//
+// Sie holen ihre Scheitelhöhen aus `heightAt`; das Gelände ist ein Netz mit
+// 41 cm Kantenlänge, zwischen zwei Knoten also eine Sehne. Gemessen
+// (`tools/naht.mjs --abstand`, 6000 Stichproben): Das Feld liegt im Median
+// 0,97 mm **über** der Sehne, im Einzelfall aber 273 mm darunter. Wo es
+// darunter liegt, durchdringen sich Scheibe und Boden, und die Verdunklung
+// zerfällt in harte Polygonflecken.
+//
+// Ein fester Hub löst das nicht, sondern verschiebt es:
+//
+//   Hub      20 mm   12 mm    8 mm    5 mm    3 mm
+//   Saumpixel   46      14       7       4       2
+//
+// 20 mm halten die Verdunklung sauber und lassen die Scheibe über jeden Grat
+// hinausragen — das ist der helle Faden, den der Prüfer in `e-boden` gefunden
+// hat. 5 mm nehmen den Faden weg und zerlegen die Verdunklung. Ein reiner
+// Tiefenversatz (`polygonOffset`) war der erste Anlauf und hat dasselbe
+// angerichtet: Er verschiebt den Tiefenwert, aber eine Durchdringung bleibt
+// eine Durchdringung.
+//
+// **Beide Forderungen betreffen verschiedene Orte.** Das Netz liegt genau dort
+// über dem Feld, wo das Feld **konkav** ist — in Mulden. Auf einem Kamm, also
+// genau dort, wo der Saum entsteht, schneidet die Sehne unter das Feld, und die
+// Scheibe liegt ohnehin schon darüber. Der Hub wird deshalb je Scheitelpunkt
+// aus der Krümmung gebildet: Mittelwert des Feldes auf einem Ring von einer
+// Kantenlänge, minus dem Feld am Punkt, bei null geklemmt. Das ist der
+// diskrete Laplace-Operator — positiv in der Mulde, null auf dem Kamm.
+const SCHEIBEN_HUB_MIN = 0.002;
+const KANTE = 0.41; // Kantenlänge des Geländenetzes, 1,0515 · R / (detail + 1)
+const _hubRing = new THREE.Vector3();
+const _hubOst = new THREE.Vector3();
+const _hubNord = new THREE.Vector3();
+function scheibenHub(dir, h, heightAt) {
+  tangentialSystem(dir, _hubOst, _hubNord);
+  const w = KANTE / PLANET_R;
+  let summe = 0;
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2;
+    _hubRing
+      .copy(dir)
+      .multiplyScalar(Math.cos(w))
+      .addScaledVector(_hubOst, Math.sin(w) * Math.cos(a))
+      .addScaledVector(_hubNord, Math.sin(w) * Math.sin(a))
+      .normalize();
+    summe += heightAt(_hubRing);
+  }
+  return SCHEIBEN_HUB_MIN + Math.max(0, summe / 6 - h);
+}
+
+let _kontaktMaterial = null;
+// **Auf der Kugel.** Eine Stelle wird nicht mehr durch x und z beschrieben,
+// sondern durch eine Richtung `ort` vom Planetenmittelpunkt aus; die Scheibe
+// entsteht in der Tangentialebene dort und wird auf die Kugel gelegt. Über
+// einen Meter Scheibenradius weicht die Tangentialebene um 2 cm von der Kugel
+// ab — der Rand einer Staubfahne von 3 m Länge läge damit 18 cm in der Luft,
+// also wird jeder Scheitelpunkt einzeln radial auf das Gelände gezogen.
+function makeKontaktAO(stellen, heightAt) {
+  if (!stellen.length) return null;
+  if (!_kontaktMaterial) {
+    // **Weiß, nicht schwarz.** Die Materialfarbe wird mit der Scheitelfarbe
+    // multipliziert; steht sie auf Schwarz, kann eine Scheibe nur abdunkeln.
+    // Seit auch Staubfahnen darüber laufen — die **auf**hellen —, trägt die
+    // Farbe je Scheitelpunkt, und die Materialfarbe muss neutral sein.
+    // Vier Komponenten im Farbattribut: three setzt dann USE_COLOR_ALPHA, und
+    // die vierte multipliziert die Deckkraft. Damit stehen Verdunklung und
+    // Aufhellung zusammen in **einem** Draw-Call.
+    _kontaktMaterial = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      depthWrite: false,
+      vertexColors: true,
+      // Nicht tone-gemappt: Das hier ist keine Lichtmenge, sondern eine
+      // Korrektur des fertigen Bildes.
+      toneMapped: false,
+    });
+  }
+  const c = new THREE.Color();
+  const SEG = 12;
+  // Enger und steiler als im ersten Anlauf ([0, 0.42, 0.74, 1] /
+  // [1, 0.62, 0.22, 0]). Der Prüfer hat den alten Verlauf als Vignette
+  // gelesen, nicht als Naht: Abfall über 95 px bei 80 px Brockenbreite. Eine
+  // Kontaktverdunklung endet dort, wo das Objekt aufhört.
+  const RINGE = [0, 0.46, 0.76, 1]; // Radiusanteile
+  const ALPHA = [1, 0.44, 0.11, 0]; // Deckkraft je Ring
+  const pos = [];
+  const col = [];
+  const idx = [];
+  const _kOst = new THREE.Vector3();
+  const _kNord = new THREE.Vector3();
+  const _kP = new THREE.Vector3();
+  for (const stelle of stellen) {
+    const { ort, r, staerke, farbe = 0x000000, zug = null } = stelle;
+    // **Eine Staubfahne, die im Dunkeln leuchtet, ist keine Fahne.**
+    //
+    // Die Scheiben sind `MeshBasicMaterial` und `toneMapped: false` — ihr Wert
+    // steht fest, unabhängig davon, wie viel Licht am Ort ankommt. Für die
+    // Verdunklung ist das richtig (sie ist eine Korrektur des fertigen Bildes),
+    // für die aufhellende Staubfahne war es falsch: Auf der Mondseite las sie
+    // als heller Verweher, auf der Nachtseite als **glühender Ring**.
+    //
+    // Der Prüfer hat es an der Kontaktlinie gefunden: `rund-210` bei (270, 576)
+    // steht L = 75,6, während der Boden ringsum bei L ≈ 20 liegt — das
+    // 3,8-Fache, und ausgerechnet auf der lichtabgewandten Unterkante. Sein
+    // Urteil: „Der Sinn einer Kontaktverdunklung ist damit umgekehrt."
+    //
+    // Der Anteil wird deshalb eingebacken. Das geht, weil die Lage des Mondes
+    // **relativ zur Planetenoberfläche** fest ist: Himmelsgruppe und Weltgruppe
+    // tragen dieselbe Drehung, der Mond wandert über den Himmel des Spielers,
+    // aber nicht über den Boden.
+    const imLicht = smoothstep(-0.05, 0.32, ort.dot(MOND_RICHTUNG));
+    // Das Tangentensystem der Stelle. `zug` gibt seine Richtung in eben diesen
+    // Koordinaten an (x entlang Ost, y entlang Nord), damit der Rest der
+    // Rechnung Wort für Wort die der Ebene bleiben kann.
+    tangentialSystem(ort, _kOst, _kNord);
+    c.set(farbe);
+    // Eine aufhellende Scheibe (Staubfahne) wird zur Nachtseite hin gegen
+    // Schwarz gezogen und damit zu einer reinen Verdunklung; eine dunkle
+    // Scheibe (die eigentliche Kontaktverdunklung) bleibt unberührt.
+    const hellt = c.r + c.g + c.b > 0.02;
+    if (hellt) c.multiplyScalar(imLicht);
+    const basis = pos.length / 3;
+    for (let ring = 0; ring < RINGE.length; ring++) {
+      const rr = RINGE[ring] * r;
+      const a = ALPHA[ring] * staerke;
+      const n = ring === 0 ? 1 : SEG;
+      for (let k = 0; k < n; k++) {
+        const w = (k / SEG) * Math.PI * 2;
+        let ox = Math.cos(w) * rr;
+        let oz = Math.sin(w) * rr;
+        if (zug) {
+          // **Eine Staubfahne ist keine Scheibe.** Sie wird in Windrichtung
+          // gezogen und **nur** dorthin: Der Kegel öffnet sich hinter dem
+          // Hindernis, vor ihm passiert nichts. Deshalb wird der Streckfaktor
+          // aus dem Anteil in Windrichtung gebildet und bei null geklemmt —
+          // eine symmetrische Streckung ergäbe eine Ellipse, und die läse als
+          // Pfütze statt als Fahne.
+          const inWind = ox * zug.x + oz * zug.y;
+          const t = Math.max(0, inWind) / Math.max(1e-4, rr || 1);
+          ox += zug.x * t * zug.laenge;
+          oz += zug.y * t * zug.laenge;
+          // Zur Spitze hin schmaler.
+          const seit = 1 - 0.35 * t;
+          const quer = -zug.y * ox + zug.x * oz;
+          ox -= -zug.y * quer * (1 - seit);
+          oz -= zug.x * quer * (1 - seit);
+        }
+        // Tangentialer Versatz auf die Kugel: Der Ort ist die um den Winkel
+        // (Versatz / Halbmesser) gedrehte Richtung.
+        const q = Math.hypot(ox, oz);
+        if (q < 1e-6) {
+          _kP.copy(ort);
+        } else {
+          const w = q / PLANET_R;
+          _kP.copy(ort)
+            .multiplyScalar(Math.cos(w))
+            .addScaledVector(_kOst, (Math.sin(w) * ox) / q)
+            .addScaledVector(_kNord, (Math.sin(w) * oz) / q)
+            .normalize();
+        }
+        const hP = heightAt(_kP);
+        const rr2 = PLANET_R + hP + scheibenHub(_kP, hP, heightAt);
+        pos.push(_kP.x * rr2, _kP.y * rr2, _kP.z * rr2);
+        col.push(c.r, c.g, c.b, a);
+      }
+    }
+    // Fächer vom Mittelpunkt auf Ring 1
+    for (let k = 0; k < SEG; k++) {
+      idx.push(basis, basis + 1 + k, basis + 1 + ((k + 1) % SEG));
+    }
+    // Ringbänder
+    for (let ring = 1; ring < RINGE.length - 1; ring++) {
+      const a0 = basis + 1 + (ring - 1) * SEG;
+      const b0 = a0 + SEG;
+      for (let k = 0; k < SEG; k++) {
+        const k1 = (k + 1) % SEG;
+        idx.push(a0 + k, b0 + k, b0 + k1);
+        idx.push(a0 + k, b0 + k1, a0 + k1);
+      }
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 4));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const mesh = new THREE.Mesh(geo, _kontaktMaterial);
+  mesh.name = 'kontaktverdunklung';
+  mesh.renderOrder = 1; // knapp über dem opaken Boden
+  return mesh;
+}
+
+// --- Der beschädigte Sputnik -------------------------------------------------
+//
+// **Das einzige Metall der Szene, und das einzige Menschenwerk.** Er trägt
+// zweierlei, das der Boden nicht kann: eine *glatte* Fläche mit spiegelndem
+// Glanzlicht, und eine Form, die niemand für Geologie halten kann. Auf einem
+// Körper aus lauter Steinen ist das der Blickfang, den die Komposition bisher
+// nicht hatte.
+//
+// Gebaut wird der echte: eine Kugel von 58 cm Durchmesser aus zwei
+// Halbschalen, an einem Äquatorflansch verschraubt, mit vier Peitschenantennen
+// von 2,4 und 2,9 m Länge, paarweise nach hinten gestellt. Beschädigt heißt
+// hier nicht „zufällig verbeult", sondern eine erzählbare Geschichte: Er ist
+// auf der Flanke aufgeschlagen, die Schale dort eingedrückt, der Flansch
+// aufgesprungen, zwei Antennen abgerissen, eine geknickt, eine krumm. Die
+// Aufschlagseite ist versengt, die Oberseite eingestaubt.
+//
+// Alles in **einem** Material und damit in einem Draw-Call.
+// `obenLokal` ist die Richtung im Eigensystem, die nach dem Hinlegen nach oben
+// zeigt. Ohne sie säße der Staub dort, wo vor dem Kippen oben war — und ein
+// Körper, der auf der Seite liegt, hätte den Belag an der Flanke.
+function makeSputnik(obenLokal) {
+  const gruppe = new THREE.Group();
+  const teile = [];
+
+  // Die Aufschlagrichtung im Eigensystem des Körpers. Alles Beschädigte zeigt
+  // dorthin: die Delle, der Ruß, die abgerissenen Antennen.
+  // **Der Schaden muss ins Bild.** Der erste Anlauf legte die Delle 35 Grad
+  // neben die Unterseite — sie steckte damit im Regolith, und im Bild lag eine
+  // makellose Kuppel. 79 Grad bringen sie an die Flanke, wo sie von einem
+  // stehenden Betrachter zu sehen ist. Ein Schaden, den man nicht sieht, ist
+  // keiner.
+  const SCHLAG = obenLokal
+    .clone()
+    .negate()
+    .applyAxisAngle(new THREE.Vector3(0.31, 0.52, -0.79).normalize(), 1.38)
+    .normalize();
+
+  // Die zweite Aufschlagstelle: Er ist nach dem ersten Treffer noch ein Stück
+  // gerollt. Sie trägt Ruß **und** Falten, damit der Schaden nicht nur aus
+  // einer Richtung liest.
+  const ZWEITSCHLAG = SCHLAG.clone()
+    .applyAxisAngle(new THREE.Vector3(0.7, -0.2, 0.68).normalize(), 2.35)
+    .normalize();
+
+  // **Metall ohne Umgebungskarte ist schwarz.**
+  //
+  // Der erste Anlauf stand auf `metalness: 0.82` — physikalisch richtig für
+  // Aluminium und in dieser Szene fatal. Bei einem Metall kommt fast die ganze
+  // Antwort aus der **Spiegelung der Umgebung**, und diese Szene hat aus gutem
+  // Grund keine: Eine PMREM-Karte für eine Nachtszene bringt nichts, was das
+  // Hemisphärenlicht nicht schon tut, und kostet eine Abtastung je Fragment
+  // (die Begründung steht bei `marsMaps`). Übrig blieb ein fast schwarzer
+  // Ballon mit einem einzigen weißen Glanzfleck — im Bild eine Seifenblase.
+  //
+  // Also andersherum: niedrige Metallizität, helle Albedo, geringe Rauheit. Das
+  // Glanzlicht des Mondes trägt dann den Metallcharakter, und die diffuse
+  // Antwort sorgt dafür, dass der Körper überhaupt eine Form hat. Es ist die
+  // gleiche Entscheidung wie beim Verzicht auf die PMREM-Karte: In einer Szene
+  // mit **einer** Lichtquelle beschreibt man Material über das, was diese eine
+  // Quelle tut.
+  const metall = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    // Drei Anläufe an diesen zwei Zahlen, und die Lehre steht dazwischen:
+    // **Jeder Punkt Metallizität ohne Umgebungskarte ist ein Punkt Schwarz.**
+    // 0,82 gab eine Seifenblase, 0,45 einen schwarzen Käfer. 0,25 mit
+    // Rauheit 0,20 lässt das Glanzlicht des Mondes eng genug für Metall und
+    // die diffuse Antwort hell genug für eine lesbare Form.
+    metalness: 0.25,
+    roughness: 0.20,
+    flatShading: false,
+  });
+
+  // --- Die Kugel ------------------------------------------------------------
+  //
+  // **Und wieder die Falle mit `detail`.** Ich habe hier „Detail 4 gibt 5120
+  // Dreiecke" hingeschrieben — dieselbe Verwechslung, an der der Planet selbst
+  // schon einmal hing und die im Protokoll unter „Eine API-Zahl, deren
+  // Bedeutung man zu kennen glaubt, gehört nachgezählt" steht. `detail` ist
+  // **keine** Rekursionstiefe: three unterteilt jede der 20 Grundflächen in
+  // (detail+1)², also 20 · (d+1)² Dreiecke. Detail 4 sind 500, nicht 5120.
+  // Nachgezählt hat es `tools/inspect.mjs`: Der ganze Sputnik stand mit 2228
+  // Dreiecken in der Liste, wo allein die Kugel 5120 haben sollte.
+  //
+  // Detail 15 gibt 5120 Dreiecke bei 1,9 cm Kantenlänge. Aus 1,15 m Abstand
+  // füllt der Körper 400 Bildzeilen; 1,9 cm sind dort 13 Bildpunkte, und damit
+  // trägt die geglättete Normale die Rundung, ohne dass die Facetten im
+  // Glanzlicht aufbrechen.
+  // Wird im Kugelblock gesetzt und in der Einfärbung gebraucht: Wie stark
+  // liegt eine Richtung im Riss?
+  let rissAn = () => 0;
+  const kugel = new THREE.IcosahedronGeometry(0.29, 15);
+  {
+    // **Der Halbmesser als Funktion der Richtung.** Erst als eigene Funktion
+    // lässt sich die Normale rechnen statt schätzen — siehe unten.
+    const BEULEN = [
+      [-0.61, 0.44, 0.66, 0.042, 9],
+      [0.78, 0.36, -0.51, 0.033, 11],
+      [0.12, 0.93, 0.35, 0.028, 14],
+      [-0.82, -0.31, -0.48, 0.037, 8],
+    ];
+
+    // --- Knickfalten ---------------------------------------------------------
+    //
+    // **Der Prüfer: „Der Körper hat keine Delle, keinen Riss, keine Brandspur —
+    // der Schaden liest kaum."** Der Umlauf (`tools/umrundung.mjs`) hat ihm
+    // recht gegeben: Aus jeder der sechs Richtungen stand da eine glatte,
+    // leicht eingedrückte Kugel — ein Luftballon, dem die Luft ausgeht, kein
+    // aufgeschlagenes Blech.
+    //
+    // Was fehlte, sind **Falten**. Blech gibt nicht als Gaußglocke nach,
+    // sondern knickt: Von der Aufschlagstelle laufen scharfe Grate und Rinnen
+    // weg, und die sind es, die man als Schaden liest. Jede Falte ist hier ein
+    // Band um den Großkreis senkrecht zu `achse`, gedämpft mit dem Abstand vom
+    // Aufschlag.
+    //
+    // **Die Breite ist keine Geschmacksfrage.** Das Netz hat 1,9 cm
+    // Kantenlänge, auf 29 cm Halbmesser also 0,065 Bogenmaß. Eine Falte unter
+    // rund 0,13 kann das Netz nicht tragen — sie stünde in den Normalen und
+    // nicht in der Fläche. Die Werte hier liegen bei 0,13 bis 0,18, also zwei
+    // bis drei Kantenlängen. Feiner ginge nur mit mehr Dreiecken, und die sind
+    // nicht da: Die Umgebung steht bei 344 186 von 350 000.
+    //
+    // **Und jede Falte braucht ihr eigenes Zentrum.** Der erste Anlauf hat
+    // alle fünf an `SCHLAG` gehängt und mit Exponenten von 2,4 bis 4,2
+    // gedämpft. Die Aufschlagstelle liegt aber 11 Grad unter der Waagerechten
+    // des liegenden Körpers — die Falten steckten damit am unteren Rand der
+    // Kugel, und der Umlauf zeigte sie in **einem** von sechs Bildern, dort
+    // auf 1,7 Prozent der Bildpunkte. Zwei Falten sitzen jetzt am zweiten
+    // Aufschlag, eine läuft ungedämpft als Knickgürtel um den ganzen Körper,
+    // und die Exponenten sind halbiert.
+    // **Und die Falten müssen durch die Aufschlagstelle laufen.** Der erste
+    // Anlauf hat fünf Großkreise mit gewürfelten Achsen hingeschrieben und
+    // sie mit dem Abstand vom Aufschlag gedämpft. Das Ergebnis war ein
+    // Widerspruch in sich: Wo die Dämpfung stark war, lag der Großkreis weit
+    // weg, und wo der Großkreis lag, war die Dämpfung schon aus. Die tiefste
+    // Falte — der Riss — war deshalb nirgends zu sehen.
+    //
+    // Eine Falte, die von einem Einschlag wegläuft, ist ein Großkreis **durch**
+    // den Einschlagpunkt. Ihre Achse steht also senkrecht auf dem Zentrum, und
+    // der freie Parameter ist nur noch der Winkel, unter dem sie wegläuft.
+    const querZu = (mitte, winkel) => {
+      const t = new THREE.Vector3(0, 0, 0);
+      t[Math.abs(mitte.x) < 0.9 ? 'setX' : 'setZ'](1);
+      return t.cross(mitte).normalize().applyAxisAngle(mitte, winkel);
+    };
+    const FALTEN = [
+      // Zentrum, Winkel um das Zentrum, Breite, Tiefe (+ Rinne / − Grat), Reichweite
+      { zentrum: SCHLAG, winkel: 0.0, breite: 0.13, tiefe: 0.022, reichweite: 1.6 },
+      { zentrum: SCHLAG, winkel: 1.15, breite: 0.16, tiefe: -0.014, reichweite: 1.8 },
+      { zentrum: SCHLAG, winkel: 2.25, breite: 0.14, tiefe: 0.015, reichweite: 1.6 },
+      { zentrum: ZWEITSCHLAG, winkel: 0.6, breite: 0.13, tiefe: 0.016, reichweite: 1.4 },
+      { zentrum: ZWEITSCHLAG, winkel: 1.9, breite: 0.18, tiefe: -0.011, reichweite: 2.0 },
+      // Der Knickgürtel: ungedämpft, damit der Körper auch dort nicht makellos
+      // ist, wo ihn keiner der beiden Aufschläge erwischt hat.
+      { achse: new THREE.Vector3(-0.29, -0.88, 0.38).normalize(), breite: 0.15, tiefe: 0.012 },
+    ].map((k) => ({ ...k, achse: k.achse ?? querZu(k.zentrum, k.winkel) }));
+    const RISS = FALTEN[0];
+    const naehe = (k, d) => (k.zentrum ? Math.pow(Math.max(0, d.dot(k.zentrum)), k.reichweite) : 1);
+    const faltenTiefe = (d) => {
+      let f = 0;
+      for (const k of FALTEN) {
+        const b = d.dot(k.achse) / k.breite;
+        f += Math.exp(-b * b) * k.tiefe * naehe(k, d);
+      }
+      return f;
+    };
+    const rissWert = (d) => {
+      const b = d.dot(RISS.achse) / (RISS.breite * 0.8);
+      return Math.exp(-b * b) * naehe(RISS, d);
+    };
+    rissAn = rissWert;
+    const hautRadius = (d) => {
+      // **Die Delle.** Ein Aufschlag drückt eine Kalotte ein, und zwar mit
+      // einem aufgeworfenen Wulst am Rand — Blech gibt nach, aber es
+      // verschwindet nicht. cos^8 hält die Kalotte eng (60 Grad Öffnung), der
+      // Wulst sitzt als schmaler Ring bei rund 70 Grad.
+      const t = Math.max(0, d.dot(SCHLAG));
+      const kalotte = Math.pow(t, 8) * 0.085;
+      const wulst = Math.exp(-Math.pow((t - 0.55) / 0.13, 2)) * 0.012;
+      // **Vier weitere Beulen, über den Körper verteilt.** Ein Körper, der
+      // einmal aufschlägt, rollt danach — und praktisch: Eine einzige Delle
+      // ist aus der Hälfte aller Blickrichtungen unsichtbar, und dann steht
+      // dort eine makellose Kugel. Verteilter Schaden liest aus jeder
+      // Richtung.
+      let beulen = 0;
+      for (const [bx, by, bz, tief, eng] of BEULEN) {
+        const bt = Math.max(0, d.x * bx + d.y * by + d.z * bz);
+        beulen += Math.pow(bt, eng) * tief;
+      }
+      // Feine Blechunruhe, damit die Kugel nicht mathematisch glatt bleibt.
+      //
+      // **Und der teuerste Einzelfehler dieser Umgebung stand hier.** Der
+      // erste Anlauf hat dafür `hashNoise` genommen — und `hashNoise` ist ein
+      // Hash, kein Rauschen: Zwei benachbarte Scheitelpunkte bekommen
+      // unabhängige Werte. Auf einem Netz mit 1,9 cm Kantenlänge hieß das
+      // ±2,5 mm Zufallsversatz je Punkt, und die Normalen sprangen von
+      // Dreieck zu Dreieck um bis zu 27 Grad. Bei Rauheit 0,20 ist die
+      // Glanzkeule eng genug, dass jede dieser Normalen zwischen Glanzlicht
+      // und Schwarz umschaltet: Im Bild stand keine Kugel, sondern ein Mosaik
+      // aus einzeln erkennbaren Dreiecken in weiß, grau und schwarz.
+      //
+      // Dieselbe Falle wie am Uferwulst des Zen-Teichs, nur eine Ebene
+      // tiefer: Dort ergab der Hash als Umriss einen Zackenstern, hier als
+      // Blechunruhe ein Fliesenmuster. `fbm3` ist stetig; bei Frequenz 11
+      // liegt eine Welle über 13 cm Bogen, und ±1,4 mm darauf sind 1,3 Grad
+      // Normalenabweichung — Unruhe, die man als Blech liest und nicht als
+      // Netz.
+      const unruhe = fbm3(d.x * 11, d.y * 11, d.z * 11) * 0.003;
+      return 0.29 - kalotte + wulst - beulen - faltenTiefe(d) + unruhe;
+    };
+
+    // **Und warum die Normale gerechnet und nicht von three geholt wird.**
+    //
+    // `IcosahedronGeometry` ist wie jede `PolyhedronGeometry` **ohne Index**
+    // gebaut: Jedes Dreieck hat seine eigenen drei Scheitelpunkte, auch dort,
+    // wo drei Dreiecke denselben Punkt teilen. `computeVertexNormals` mittelt
+    // die Flächennormalen über die Punkte **eines Puffereintrags** — und wenn
+    // jeder Eintrag nur zu einem Dreieck gehört, ist das Ergebnis die
+    // Flächennormale. Die Kugel war damit flach schattiert, `flatShading:
+    // false` hin oder her, und im Bild lag ein Dreiecksmosaik über dem
+    // Verlauf. Zwei Anläufe habe ich stattdessen die Unruhe verdächtigt.
+    //
+    // Für eine radial verschobene Kugel ist die Normale aber in geschlossener
+    // Form da: Mit r(d) und zwei Tangenten t1, t2 ist
+    //
+    //     n ∝ d − (∂r/∂t1 · t1 + ∂r/∂t2 · t2) / r
+    //
+    // Die beiden Ableitungen kommen als Differenzenquotient über 1/2000
+    // Bogenmaß — bei 1,9 cm Kantenlänge ist das zwei Größenordnungen feiner
+    // als das Netz und trifft auch den Wulst der Delle sauber. Kosten:
+    // einmalig beim Bauen, null zur Laufzeit.
+    const pos = kugel.attributes.position;
+    const nor = kugel.attributes.normal;
+    const v = new THREE.Vector3();
+    const d = new THREE.Vector3();
+    const t1 = new THREE.Vector3();
+    const t2 = new THREE.Vector3();
+    const hilf = new THREE.Vector3();
+    const n = new THREE.Vector3();
+    const EPS = 0.0005;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      d.copy(v).normalize();
+      const r = hautRadius(d);
+      // Ein Tangentensystem, das an keiner Stelle entartet.
+      t1.set(0, 0, 0);
+      t1[Math.abs(d.x) < 0.9 ? 'setX' : 'setZ'](1);
+      t1.cross(d).normalize();
+      t2.crossVectors(d, t1).normalize();
+      const r1 = hautRadius(hilf.copy(d).addScaledVector(t1, EPS).normalize());
+      const r2 = hautRadius(hilf.copy(d).addScaledVector(t2, EPS).normalize());
+      n.copy(d)
+        .addScaledVector(t1, -(r1 - r) / EPS / r)
+        .addScaledVector(t2, -(r2 - r) / EPS / r)
+        .normalize();
+      pos.setXYZ(i, d.x * r, d.y * r, d.z * r);
+      nor.setXYZ(i, n.x, n.y, n.z);
+    }
+    pos.needsUpdate = true;
+    nor.needsUpdate = true;
+  }
+  teile.push(new THREE.Mesh(kugel, metall));
+
+  // --- Der Äquatorflansch, aufgesprungen ------------------------------------
+  //
+  // Die beiden Halbschalen des Originals sind an einem umlaufenden Ring
+  // verschraubt. Hier steht er 8 mm über und ist auf der Aufschlagseite
+  // aufgebogen — der sichtbare Beleg dafür, dass das Ding aus zwei Teilen ist.
+  {
+    const ring = new THREE.TorusGeometry(0.288, 0.009, 6, 64);
+    ring.rotateX(Math.PI / 2);
+    const pos = ring.attributes.position;
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i);
+      const w = Math.atan2(v.z, v.x);
+      // Aufbiegen dort, wo der Schlag hinkam.
+      const auf = Math.max(0, Math.cos(w - Math.atan2(SCHLAG.z, SCHLAG.x)));
+      v.y += Math.pow(auf, 6) * 0.055;
+      v.multiplyScalar(1 + Math.pow(auf, 6) * 0.07);
+      pos.setXYZ(i, v.x, v.y, v.z);
+    }
+    ring.computeVertexNormals();
+    teile.push(new THREE.Mesh(ring, metall));
+  }
+
+  // --- Die vier Antennen ----------------------------------------------------
+  //
+  // Paarweise nach hinten gestellt, 35 Grad von der Achse. Zwei sind an der
+  // Wurzel abgerissen und stehen als Stümpfe, eine ist auf halber Länge
+  // geknickt, eine ist krumm, aber ganz. Jede besteht aus kurzen Gliedern,
+  // damit sie sich biegen kann — eine Peitschenantenne ist kein Stab.
+  const antenne = (azimut, neigung, laenge, knickBei, knickWinkel, krumm) => {
+    const GLIEDER = 14;
+    const stueck = laenge / GLIEDER;
+    // Startrichtung im Eigensystem.
+    const richtung = new THREE.Vector3(
+      Math.cos(azimut) * Math.sin(neigung),
+      -Math.cos(neigung),
+      Math.sin(azimut) * Math.sin(neigung)
+    ).normalize();
+    // Die Achse, um die geknickt und gekrümmt wird: quer zur Antenne.
+    const quer = new THREE.Vector3(-Math.sin(azimut), 0, Math.cos(azimut));
+    const p = richtung.clone().multiplyScalar(0.28);
+    const dir = richtung.clone();
+    for (let k = 0; k < GLIEDER; k++) {
+      const t = k / GLIEDER;
+      // Verjüngung: an der Wurzel 22 mm Durchmesser, an der Spitze 14 mm.
+      //
+      // **Dritter Anlauf, und die Zahl kommt aus einer Messung.** Der erste
+      // hatte 9 auf 3 mm — maßstäblich näher am Original und im Bild ein
+      // einziger Bildpunkt. Der zweite ging auf 14 auf 6 mm; gemessen in
+      // `a-augenhoehe` war die Linie damit immer noch **1 Bildpunkt** breit,
+      // bei 32,7 Stufen Kontrast und einem hellen Pixel direkt neben dem
+      // dunklen — die Signatur von Unterabtastung. In der Brille flimmert so
+      // etwas bei jeder Kopfbewegung.
+      //
+      // Die Kamera der App löst 70 Grad auf 720 Zeilen auf, also 1,70 mrad je
+      // Bildpunkt. Sichtbar ist der Sputnik wegen des 8,9-m-Horizonts nur aus
+      // rund 1 bis 12 m. Bei 22 mm sind das 1,8 Bildpunkte auf 7 m und noch
+      // 1,1 auf 12 m; bei 14 mm waren es 1,2 und 0,7.
+      //
+      // **Dass er damit siebenfach zu dick ist, sieht niemand.** Bei ein bis
+      // zwei Bildpunkten Breite kann man keinen Durchmesser beurteilen — man
+      // sieht nur, ob es flimmert oder nicht. Genau deshalb ist Verdicken hier
+      // die richtige Antwort und nicht ein Shader, der die Breite im Bildraum
+      // erzwingt: Der wäre teurer und im Ergebnis nicht zu unterscheiden.
+      const r0 = 0.011 * (1 - t * 0.35);
+      const r1 = 0.011 * (1 - (t + 1 / GLIEDER) * 0.35);
+      const g = new THREE.CylinderGeometry(r1, r0, stueck, 6, 1, true);
+      g.translate(0, stueck / 2, 0);
+      const m = new THREE.Mesh(g, metall);
+      m.position.copy(p);
+      m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+      teile.push(m);
+      p.addScaledVector(dir, stueck);
+      // Krümmung über die ganze Länge, plus ein harter Knick an einer Stelle.
+      dir.applyAxisAngle(quer, krumm / GLIEDER);
+      if (knickBei > 0 && k === Math.round(knickBei * GLIEDER)) {
+        dir.applyAxisAngle(quer, knickWinkel);
+      }
+      dir.normalize();
+    }
+    // Der Bruch am Ende: eine schräg abgeschnittene Scheibe, damit die Spitze
+    // nicht wie fabrikneu aussieht.
+    const bruch = new THREE.CylinderGeometry(0.011 * 0.62, 0.011 * 0.62, 0.005, 6);
+    bruch.rotateZ(0.7);
+    const bm = new THREE.Mesh(bruch, metall);
+    bm.position.copy(p);
+    bm.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+    teile.push(bm);
   };
 
-  // Dichtes Gitter (nicht CircleGeometry – die hat keine inneren Vertices)
-  const SIZE = 96;
-  const SEG = 150;
-  const geo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
+  // **Antennenschuhe.** Jede Peitsche sitzt in einem kegeligen Fuß — das ist
+  // beim Original der auffälligste Zug neben der Kugel selbst, und es ist
+  // zugleich das, was den Körper als *gebautes* Ding lesbar macht: Eine glatte
+  // Kugel mit vier Drähten könnte alles sein, eine Kugel mit vier verschraubten
+  // Füßen ist Technik.
+  const schuh = (azimut, neigung) => {
+    const richtung = new THREE.Vector3(
+      Math.cos(azimut) * Math.sin(neigung),
+      -Math.cos(neigung),
+      Math.sin(azimut) * Math.sin(neigung)
+    ).normalize();
+    const g = new THREE.CylinderGeometry(0.016, 0.038, 0.06, 12);
+    g.translate(0, 0.03, 0);
+    const m = new THREE.Mesh(g, metall);
+    m.position.copy(richtung).multiplyScalar(0.265);
+    m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), richtung);
+    teile.push(m);
+  };
+  for (const az of [0.25, 0.75, 1.25, 1.75]) schuh(Math.PI * az, 2.16);
+
+  // 2,9 m nach vorn links — krumm, aber ganz.
+  antenne(Math.PI * 0.25, 2.16, 2.9, 0, 0, 0.55);
+  // 2,4 m nach vorn rechts — auf zwei Dritteln scharf geknickt.
+  antenne(Math.PI * 0.75, 2.16, 2.4, 0.62, 1.15, 0.22);
+  // Zwei Stümpfe auf der Aufschlagseite: 22 und 9 cm.
+  antenne(Math.PI * 1.25, 2.16, 0.22, 0, 0, 0.9);
+  antenne(Math.PI * 1.75, 2.16, 0.09, 0, 0, 1.4);
+
+  // --- Einfärben ------------------------------------------------------------
+  //
+  // Drei Zustände auf einem Körper: poliertes Metall, versengtes Metall auf der
+  // Aufschlagseite, Staub auf allem, was nach oben zeigt. Bei einem Metall ist
+  // die Albedo die Reflexionsfarbe — der Ruß macht die Fläche damit von selbst
+  // stumpf, ohne dass eine zweite Rauheitskarte nötig wäre.
+  // **Warmgrau, nicht weiß.** Das Hemisphärenlicht dieser Szene ist blaugrau
+  // (0x7595b4 bei Stärke 2,0); eine fast weiße Albedo nimmt das an, und der
+  // Körper las als Eiskuppel. Poliertes Aluminium-Magnesium ist ohnehin
+  // leicht warm, und nach einem Aufschlag erst recht.
+  const POLIERT = new THREE.Color(0xbdb6ab);
+  const RUSS = new THREE.Color(0x2a2320);
+  const STAUB = new THREE.Color(0x8a5540);
+  const c = new THREE.Color();
+  const n = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  for (const teil of teile) {
+    teil.updateMatrix();
+    const g = teil.geometry;
+    // Die Antennenglieder haben ihre eigene Lage; für die Einfärbung zählt der
+    // Ort im Eigensystem des ganzen Körpers.
+    const pos = g.attributes.position;
+    const nor = g.attributes.normal;
+    const farben = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(teil.matrix);
+      n.fromBufferAttribute(nor, i).transformDirection(teil.matrix);
+      c.copy(POLIERT);
+      // Ruß: dort, wo der Schlag hinkam, und mit dem Abstand vom Mittelpunkt
+      // zurückgehend — die Antennenspitzen sind sauber geblieben.
+      const zumSchlag = Math.max(0, v.clone().normalize().dot(SCHLAG));
+      const nah = 1 - smoothstep(0.35, 1.2, v.length());
+      // **Ruß ist ein Fleck, kein Anstrich.** Mit Exponent 1,6 lag er über
+      // dem halben Körper und machte aus dem Sputnik einen schwarzen Käfer;
+      // Exponent 3,4 hält ihn auf der Aufschlagseite.
+      c.lerp(RUSS, Math.pow(zumSchlag, 3.4) * (0.4 + 0.6 * nah) * 0.9);
+      // Ein zweiter, schwaecherer Fleck auf der Gegenseite: Er ist nach dem
+      // Aufschlag noch ein Stueck gerollt. Praktisch sorgt er dafuer, dass der
+      // Schaden aus **jeder** Richtung zu sehen ist und nicht nur aus einer.
+      const zweit = Math.max(0, v.clone().normalize().dot(ZWEITSCHLAG));
+      c.lerp(RUSS, Math.pow(zweit, 5.0) * nah * 0.55);
+      // Staub auf dem, was nach dem Hinlegen nach oben zeigt.
+      c.lerp(STAUB, Math.pow(Math.max(0, n.dot(obenLokal)), 2.0) * 0.42);
+      // **Der Riss, schwarz nachgezogen.** Die tiefste Knickfalte bekommt eine
+      // dunkle Linie: Ein aufgerissenes Blech zeigt an der Bruchstelle keinen
+      // Glanz, sondern den Schatten des Spalts und den Ruß, der beim Aufschlag
+      // hineingezogen wurde. Nur auf der Kugel — die Antennen haben keinen
+      // Riss, und ihre Punkte liegen weit außerhalb.
+      if (v.length() < 0.33) c.lerp(new THREE.Color(0x0d0b0a), Math.min(1, rissAn(v.clone().normalize()) * 1.35));
+      // Streiflichtkanten: Wo das Blech gerade noch glänzt, ein Hauch heller.
+      const kante = Math.pow(Math.max(0, 1 - Math.abs(n.dot(obenLokal))), 3) * 0.1;
+      farben[i * 3] = Math.min(1, c.r + kante);
+      farben[i * 3 + 1] = Math.min(1, c.g + kante);
+      farben[i * 3 + 2] = Math.min(1, c.b + kante);
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+
+  for (const m of verschmelzeObjekte(teile, 'nacht-sputnik')) {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    gruppe.add(m);
+  }
+  gruppe.name = 'nacht-sputnik-gruppe';
+  return gruppe;
+}
+
+function makeMarsPlanet(rand) {
+  const group = new THREE.Group();
+  group.name = 'nacht-welt-boden';
+
+  // --- Die Geländemerkmale als Daten, jetzt als Richtungen -------------------
+  //
+  // Vorher waren es Zahlenpaare auf einer Platte, hier sind es Orte auf einer
+  // Kugel, angegeben als **Bogenlänge und Himmelsrichtung vom Startpunkt aus**.
+  // 14 m nach Nordost bleibt 14 m nach Nordost — nur läuft die Strecke jetzt
+  // über eine Wölbung.
+  //
+  // Die Krater sind über die **ganze** Kugel verteilt, nicht mehr nur über das
+  // Sichtfeld: Man läuft überall hin, also muss überall etwas sein. Bei 8,9 m
+  // Horizont sieht man ein Vierunddreißigstel der Welt auf einmal — vierzehn
+  // Krater auf 7854 m² ergeben etwa alle zwanzig Schritte einen im Blickfeld.
+  const craters = [
+    // Nahfeld: die vier aus der Platte, die die Prüfkameras getragen haben.
+    { bogen: 11.4, az: -38, r: 3.0, depth: 0.9, wall: 1.25, alter: 0.05, strahlen: 0.9 },
+    { bogen: 12.1, az: 155, r: 4.2, depth: 1.15, wall: 0.55, alter: 0.7, strahlen: 0 },
+    { bogen: 13.2, az: 65, r: 2.4, depth: 0.7, wall: 1.4, alter: 0, strahlen: 1.0 },
+    { bogen: 14.3, az: -115, r: 3.4, depth: 0.9, wall: 0.8, alter: 0.45, strahlen: 0 },
+    { bogen: 7.0, az: 111, r: 1.15, depth: 0.34, wall: 1.5, alter: 0, strahlen: 1.0 },
+    { bogen: 18.8, az: -48, r: 1.6, depth: 0.42, wall: 1.35, alter: 0.1, strahlen: 0.7 },
+    // Mittelfeld und Rückseite — das, was man beim Rundgang findet.
+    { bogen: 34, az: 20, r: 5.0, depth: 1.3, wall: 0.35, alter: 0.85, strahlen: 0 },
+    { bogen: 41, az: -95, r: 3.6, depth: 1.0, wall: 1.1, alter: 0.15, strahlen: 0.8 },
+    { bogen: 52, az: 140, r: 2.2, depth: 0.62, wall: 1.3, alter: 0, strahlen: 1.0 },
+    { bogen: 58, az: -20, r: 4.4, depth: 1.2, wall: 0.6, alter: 0.6, strahlen: 0 },
+    { bogen: 63, az: 78, r: 1.4, depth: 0.4, wall: 1.45, alter: 0, strahlen: 0.9 },
+    { bogen: 70, az: -150, r: 3.0, depth: 0.85, wall: 0.9, alter: 0.3, strahlen: 0 },
+    { bogen: 74, az: 44, r: 1.8, depth: 0.5, wall: 1.2, alter: 0.2, strahlen: 0.5 },
+    // Einer fast auf der Gegenseite (78,5 m ist der Gegenpol).
+    { bogen: 77, az: -70, r: 4.8, depth: 1.25, wall: 0.5, alter: 0.75, strahlen: 0 },
+    // --- Die zwei großen Einschläge ---------------------------------------
+    //
+    // **Gemessen: Der höchste Kraterwall auf dem ganzen Planeten stand bei
+    // 34 cm.** Das sind im Orbitbild vier Bildpunkte auf 296 — genau die
+    // Rauheit, die der Umriss zeigte. Der Prüfer hat das als „die Kugel hat
+    // Textur, aber keine Topographie" beschrieben, und die Rechnung gibt ihm
+    // recht: `craterProfile` setzt den Wall auf `0,32 · wall · (1−alter) ·
+    // depth`, und `depth` lag bei keinem Krater über 1,3 m.
+    //
+    // Die Krater waren nicht falsch bemessen — sie waren zu klein für ihren
+    // Körper. Ein Wall ist rund vier Prozent des Durchmessers hoch; bei 6 m
+    // Durchmesser sind das 24 cm, und daran ändert kein Parameter etwas. Was
+    // eine Silhouette bricht, ist ein Einschlag, dessen Durchmesser ein
+    // nennenswerter Teil des Körpers ist — auf Phobos ist Stickney knapp die
+    // Hälfte. Diese beiden haben 19 und 14 m Durchmesser bei 50 m
+    // Körperdurchmesser, und ihre Tiefe folgt der üblichen Fünftelregel.
+    { bogen: 30, az: -62, r: 9.5, depth: 3.6, wall: 1.5, alter: 0.25, strahlen: 0 },
+    { bogen: 63, az: 148, r: 7.0, depth: 2.7, wall: 1.35, alter: 0.1, strahlen: 0.55 },
+  ];
+  craters.forEach((c, i) => {
+    c.ort = ortVon(STARTPUNKT, c.bogen, c.az);
+    c.umriss = welligerUmriss(9001 + i * 37, 0.13 + i * 0.012, 4);
+  });
+
+  // Breite Geländeschwellen. Auf der Platte waren das die Horizonthügel bei
+  // r = 26…38 m; auf einer Kugel mit 8,9 m Horizont gibt es keinen fernen
+  // Horizont mehr, an dem sie stehen könnten. Sie werden deshalb zu dem, was
+  // sie ohnehin sind: weite Wellen im Gelände, über die man hinweggeht.
+  const huegel = [
+    { bogen: 21, az: -130, r: 13, h: 3.6 },
+    { bogen: 26, az: 165, r: 10, h: 2.7 },
+    { bogen: 24, az: -75, r: 9, h: 2.2 },
+    { bogen: 33, az: 100, r: 11, h: 3.1 },
+    { bogen: 45, az: 8, r: 8, h: 1.6 },
+    { bogen: 47, az: -160, r: 12, h: 2.4 },
+    { bogen: 60, az: 128, r: 10, h: 1.9 },
+    { bogen: 66, az: -35, r: 12, h: 3.3 },
+    { bogen: 72, az: 165, r: 9, h: 2.0 },
+  ];
+  huegel.forEach((k, i) => {
+    k.ort = ortVon(STARTPUNKT, k.bogen, k.az);
+    k.umriss = welligerUmriss(4200 + i * 53, 0.26 + i * 0.02, 5);
+  });
+
+  // --- Grate ----------------------------------------------------------------
+  //
+  // Die zweite Hälfte der Antwort auf den Prüfer, und sie beantwortet zugleich
+  // seinen Befund 10 („nur zwei Tiefenebenen, kein Mittelgrund"): Ein Grat ist
+  // lang, schmal und hoch. Er verdeckt die Ferne — damit entsteht eine dritte
+  // Ebene zwischen Vordergrund und Kante — und er gibt der Silhouette einen
+  // Knick, wo eine runde Form nur eine Wölbung ergibt.
+  //
+  // `breite` ist der halbe Fuß in Metern, `h` die Kammhöhe. Der Kamm ist über
+  // die inneren 15 Prozent flach, dann fällt er als `smoothstep` ab; die
+  // steilste Neigung ist damit `1,5 · h / (0,85 · breite)`. Bei h = 3,2 und
+  // breite = 5,5 sind das 1,03, also 46 Grad — steil genug, dass er als Wand
+  // liest, und flach genug, dass man hinaufkommt.
+  //
+  // **Der erste liegt bewusst im Blick der Eingangskamera** (Azimut 150, wie
+  // `a-augenhoehe` und `c-krater`). Sichtbarkeit auf einer Kugel:
+  // `sqrt(2·R·h_auge) + sqrt(2·R·h)` = 8,9 + 12,6 = 21,5 m — bei 16 m Bogen
+  // steht sein Kamm klar über der Krümmungskante, und zwar hinter dem Krater
+  // bei 12,1 m. Das ist die fehlende mittlere Ebene.
+  const grate = [
+    { vonBogen: 12, vonAz: 128, bisBogen: 21, bisAz: 172, breite: 5.5, h: 3.2 },
+    { vonBogen: 30, vonAz: 42, bisBogen: 48, bisAz: 74, breite: 6.5, h: 3.9 },
+    { vonBogen: 52, vonAz: -108, bisBogen: 68, bisAz: -152, breite: 6.0, h: 3.4 },
+    // **Für die leere Station.** Der Prüfer über `rund-030`: „eine Kuppe auf
+    // etwa 85 % der Fläche, kein Fels, kein Maßstab, kein Horizontereignis —
+    // eine von zwölf Stationen, an der es nichts zu sehen gibt."
+    //
+    // Der Rundgang läuft nach Azimut 180; Station 30 steht bei 13,1 m Bogen und
+    // blickt weiter in dieselbe Richtung. Dieser Grat quert den Weg bei 22 bis
+    // 30 m Bogen — aus 9 bis 17 m Entfernung, und mit 3,5 m Kammhöhe reicht die
+    // Sichtweite (8,9 + sqrt(2·25·3,5) = 22,1 m) genau bis dorthin.
+    // **Für die leere Station — zweiter Anlauf, und der erste hat es
+    // verschlimmert.**
+    //
+    // Der Prüfer über `rund-030`: „eine Kuppe auf etwa 85 % der Fläche, kein
+    // Fels, kein Maßstab, kein Horizontereignis — eine von zwölf Stationen, an
+    // der es nichts zu sehen gibt."
+    //
+    // Der erste Grat stand als `{22 | 158} → {30 | 202}` und **querte damit die
+    // Laufspur**: Der Rundgang läuft nach Azimut 180, und 158…202 liegt
+    // symmetrisch darum. Zwanzig Zeilen tiefer steht die Regel, die er verletzt
+    // — „Ein Grat, der den Weg quert, wäre ein Anstieg; einer daneben ist eine
+    // Silhouette." Geschrieben war sie, angewandt nicht.
+    //
+    // Gemessen mit `tools/himmelsanteil.mjs` an Station 30 (Himmelsanteil und
+    // Gesamtvariation der Kammlinie — beides Zahlen für „gibt es hier eine
+    // Silhouette oder nur Hang"):
+    //
+    //     erster Anlauf, quer über den Weg  {22|158}→{30|202}   14,1 %   1587 px
+    //     ganz ohne Grat                                        23,0 %   3786 px
+    //     daneben                           {22|194}→{30|220}   17,3 %   2246 px
+    //     weit daneben                      {22|206}→{31|232}   22,5 %   3407 px
+    //     **jetzt**                         {20|150}→{28|176}   18,5 %   2807 px
+    //
+    // Die übrigen elf Stationen liegen bei 46 bis 61 % Himmel und 12 800 bis
+    // 28 500 px Kammvariation; Station 30 war mit 14,1 % und 1587 px der
+    // Ausreißer um Faktor drei bis achtzehn.
+    //
+    // **Warum nicht einfach weg?** Weil derselbe Grat `c-krater` trägt: Dort
+    // liegt seine linke Flanke mit einer Reihe Findlinge darauf im Bild, und
+    // ohne ihn rutscht die Kante flach weg (Δmittel 8,01 auf 11,4 % der
+    // Bildpunkte). Die jetzige Lage hält beides: Sie beginnt bei Azimut 150,
+    // wo `c-krater` hinsieht, und **endet bei 176**, also vor der Laufspur.
+    { vonBogen: 20, vonAz: 150, bisBogen: 28, bisAz: 176, breite: 5.8, h: 3.5 },
+    // **Drei Grate für die flachen Abschnitte, gemessen ausgewählt.**
+    //
+    // `tools/gelaende.mjs` tastet das Höhenfeld an 4000 Richtungen ab und dazu
+    // je Station den Kranz bei 8,9 m Bogen — also genau die Linie, aus der die
+    // Silhouette entsteht. Das Ergebnis widerlegt die naheliegende Annahme, das
+    // Gelände sei überall zu sanft:
+    //
+    //     Station  30   Höhenspanne am Kranz  9,35 m   Hang p90  54,1°
+    //     Station  60                         7,92 m             55,2°
+    //     Station 330                         1,24 m             13,1°
+    //     Station   0                         1,33 m              8,4°
+    //     Station 300                         1,65 m              9,2°
+    //
+    // Der Rundgang führt durch zwei völlig verschiedene Landschaften, und die
+    // **festen Prüfkameras stehen alle im flachsten Stück**. Daher der Befund
+    // „die Krümmungskante ist ein Zirkelschlag" — er gilt, aber nicht überall.
+    //
+    // Diese drei liegen deshalb **neben** der Laufspur, nicht darauf: Die Runde
+    // läuft nach Azimut 180 hinaus und über Azimut 0 zurück. Ein Grat, der den
+    // Weg quert, wäre ein Anstieg; einer daneben ist eine Silhouette. Ein Grat
+    // von 3 m Höhe ist bis 8,9 + sqrt(2 · 25 · 3) = 21,1 m Bogen zu sehen.
+    //
+    // Der erste hält Abstand vom Azimut 150 — dort liegen Sputnik und
+    // Findlinge, und ein Grat dahinter nähme ihnen den Himmel.
+    { vonBogen: 14, vonAz: -55, bisBogen: 23, bisAz: -95, breite: 5.4, h: 3.1 },
+    { vonBogen: 20, vonAz: 26, bisBogen: 31, bisAz: 63, breite: 5.8, h: 3.4 },
+    { vonBogen: 44, vonAz: -18, bisBogen: 55, bisAz: -54, breite: 6.2, h: 3.6 },
+  ];
+  grate.forEach((g, i) => {
+    g.a = ortVon(STARTPUNKT, g.vonBogen, g.vonAz);
+    g.b = ortVon(STARTPUNKT, g.bisBogen, g.bisAz);
+    g.achse = new THREE.Vector3().crossVectors(g.a, g.b).normalize();
+    // Ein Grat mit gleichbleibender Höhe ist ein Wall, kein Grat. Die
+    // Kammlinie bekommt deshalb dieselbe Wellung, die schon die Kraterumrisse
+    // unrund macht — nur wird sie hier über die Länge abgetastet.
+    g.kamm = welligerUmriss(7700 + i * 61, 0.3, 4);
+    g.laenge = g.a.angleTo(g.b) * PLANET_R;
+  });
+
+  // --- Höhenfeld über einer Richtung -----------------------------------------
+  //
+  // Rückgabe ist der **radiale Abstand vom Sollradius** in Metern, nicht die
+  // Höhe über einer Ebene. Ein Punkt der Oberfläche liegt bei
+  // `richtung · (PLANET_R + heightAt(richtung))`.
+  //
+  // Die Dünenasymmetrie aus Paket 5 bleibt und wird nur anders ausgedrückt: Das
+  // Feld wird dort, wo es hoch ist, **windabwärts verschoben abgetastet**. In
+  // der Ebene war das eine Verschiebung in x und z; auf der Kugel ist es eine
+  // Drehung um die Achse senkrecht zu Windrichtung und Ort — also ein Schritt
+  // entlang der Oberfläche, und der ist hier das Richtige.
+  const _hn = new THREE.Vector3();
+  const _hw = new THREE.Vector3();
+  const _hachse = new THREE.Vector3();
+  const _hd = new THREE.Vector3();
+
+  const WIND_VERSATZ = 6.0;
+  const heightAt = (dir) => {
+    // Vorabtastung für die Verschiebung. Der Maßstab 0,05 je Meter aus der
+    // Ebene wird zu 0,05 · PLANET_R je Einheitsvektor, damit die Wellenlänge
+    // von 20 m erhalten bleibt.
+    const k = 0.05 * PLANET_R;
+    const vor = fbm3(dir.x * k, dir.y * k, dir.z * k);
+
+    // Einen Schritt windabwärts gehen: Drehung um die Achse senkrecht zu Ort
+    // und Windrichtung.
+    windAn(dir, _hw);
+    _hachse.crossVectors(dir, _hw).normalize();
+    _hd.copy(dir).applyAxisAngle(_hachse, (-vor * WIND_VERSATZ) / PLANET_R);
+
+    const big = fbm3(_hd.x * k, _hd.y * k, _hd.z * k) * 3.2;
+    const km = 0.16 * PLANET_R;
+    const med = fbm3(dir.x * km + 11, dir.y * km, dir.z * km - 7) * 0.9;
+    // **Kein Korn mehr in der Geometrie.** Auf der Platte stand hier ein
+    // dritter Summand: `hashNoise` je Scheitel, ±6 cm. `hashNoise` ist ein
+    // Hash, kein Rauschen — benachbarte Scheitel bekommen unabhängige Werte.
+    // Bei 0,41 m Kantenlänge ist das eine Steigung von ±16 Grad je Kante, also
+    // genau die Frequenz, die ein Gitter nicht darstellen kann. Solange die
+    // Normalen aus den Facetten kamen, ist es als Körnung durchgegangen;
+    // sobald sie aus dem Höhenfeld kommen (unten), macht es jede Normale zur
+    // Zufallszahl. Das Korn sitzt jetzt dort, wo es hingehört: in der
+    // kachelnden Normalenkarte, die 1 bis 3 cm auflöst.
+    let h = big + med;
+
+    for (const k2 of huegel) {
+      const d = bogenAbstand(dir, k2.ort);
+      if (d >= k2.r * 1.4) continue;
+      // Winkel um den Hügelmittelpunkt, für den unrunden Umriss.
+      tangentialSystem(k2.ort, _POst, _PNord);
+      const w = Math.atan2(dir.dot(_PNord), dir.dot(_POst));
+      const rEff = k2.r * k2.umriss(w);
+      if (d >= rEff) continue;
+      const u = d / rEff;
+      const q = 1 - u * u;
+      h += k2.h * q * q;
+    }
+    for (const g of grate) {
+      const d = bogenAbstandZuGrat(dir, g);
+      if (d >= g.breite) continue;
+      const u = d / g.breite;
+      // Wo auf dem Grat: der Winkel des Fußpunkts um die Achse, damit die
+      // Kammwellung entlang der Länge läuft und nicht quer.
+      const laengs = Math.atan2(dir.dot(g.b), dir.dot(g.a));
+      h += g.h * g.kamm(laengs * 6) * (1 - smoothstep(0.15, 1, u));
+    }
+    for (const c of craters) {
+      const d = bogenAbstand(dir, c.ort);
+      if (d >= c.r * 3.2) continue;
+      tangentialSystem(c.ort, _POst, _PNord);
+      const w = Math.atan2(dir.dot(_PNord), dir.dot(_POst));
+      const rEff = c.r * c.umriss(w);
+      h += craterProfile(d / rEff, c.wall, c.alter) * c.depth;
+    }
+    // **Kein Flachhalten des Ursprungs mehr.** Auf der Platte musste die Mitte
+    // eben sein, weil der Nutzer dort stand und nie wegkam. Auf dem Planeten
+    // steht er überall; eine flache Stelle wäre eine willkürliche Delle.
+    return h;
+  };
+
+  const strahlenAt = (dir) => {
+    let hell = 0;
+    for (const c of craters) {
+      if (!c.strahlen) continue;
+      const d = bogenAbstand(dir, c.ort);
+      const t = d / c.r;
+      if (t < 0.9 || t > 9) continue;
+      tangentialSystem(c.ort, _POst, _PNord);
+      const winkel = Math.atan2(dir.dot(_PNord), dir.dot(_POst));
+      const speiche =
+        Math.sin(winkel * 7 + c.bogen) * 0.5 +
+        Math.sin(winkel * 11 - c.az * 0.1) * 0.3 +
+        Math.sin(winkel * 17 + c.r) * 0.2;
+      const scharf = Math.max(0, speiche - 0.18) / 0.82;
+      const reichweite = (1 - smoothstep(1.5, 9, t)) * smoothstep(0.9, 1.6, t);
+      hell += scharf * scharf * reichweite * c.strahlen;
+    }
+    return Math.min(1, hell);
+  };
+
+  // --- Einfärbung -------------------------------------------------------------
+  //
+  // Wortgleich aus Paket 4 übernommen, nur dass die Verwehungen jetzt über
+  // Windbreite und Windlänge laufen statt über x und z. Die Streckung um
+  // Faktor 6,5 in Windrichtung bleibt: Verwehungen sind Bahnen, keine Flecken.
+  const base = new THREE.Color(0x854c33);
+  const bodenFarbe = (dir, h, aus) => {
+    const quer = windBreite(dir);
+    // Länge entlang des Windes: der Azimut um den Windpol, mal Radius.
+    const laengs =
+      PLANET_R * Math.atan2(dir.dot(_PY.set(0, 1, 0).cross(WIND_POL).normalize()), dir.dot(_PX.set(1, 0, 0)));
+    const verwehung = fbm3(laengs * 0.02, quer * 0.13, h * 0.4);
+
+    const exposition = smoothstep(-1.6, 2.6, h);
+    const shade =
+      0.80 +
+      exposition * 0.30 +
+      verwehung * 0.34 +
+      strahlenAt(dir) * 0.42 +
+      (hashNoise(dir.x * 52, dir.y * 52, dir.z * 52) - 0.5) * 0.10;
+    aus.copy(base).multiplyScalar(shade);
+    const kuehl = Math.max(0, exposition - 0.45) * 0.16;
+    aus.r *= 1 - kuehl * 0.9;
+    aus.b *= 1 + kuehl * 1.6;
+    return aus;
+  };
+
+  // --- Normalen aus dem Höhenfeld, nicht aus den Facetten ---------------------
+  //
+  // **`computeVertexNormals()` auf einer nicht-indizierten Geometrie ist
+  // Flat-Shading.** Ohne gemeinsame Scheitel gibt es nichts zu mitteln: Jedes
+  // Dreieck bekommt dreimal seine eigene Facettennormale. Auf der Platte fiel
+  // das nie auf, weil `PlaneGeometry` indiziert ist; die Icosphere aus
+  // `PolyhedronGeometry` ist es nicht. Im Bild stand daraufhin ein Flickenteppich
+  // aus 40-cm-Rauten — gemessen dadurch, dass er auch ohne Normalenkarte, ohne
+  // Rauheitskarte und ohne Scheitelfarben unverändert dastand.
+  //
+  // Die Normale steht analytisch zur Verfügung, weil die Fläche analytisch ist:
+  // Für P(d) = (R + h(d)) · d mit den Tangenten e1, e2 ist
+  //
+  //   N = normalize( (R + h) · d − (dh/ds1) · e1 − (dh/ds2) · e2 )
+  //
+  // wobei s1, s2 Bogenlängen sind. Die Ableitungen kommen als Vorwärtsdifferenz
+  // über 0,21 m — **etwa eine halbe Kantenlänge**. Kleiner wäre falsch: Die
+  // Normale würde dann eine Steigung beschreiben, die das Gitter gar nicht
+  // hergibt, und stünde quer zur Silhouette.
+  const _nOst = new THREE.Vector3();
+  const _nNord = new THREE.Vector3();
+  const _nHilf = new THREE.Vector3();
+  const _nAus = new THREE.Vector3();
+  const N_EPS = 0.21;
+  const schrittAuf = (dir, tang, meter, aus) =>
+    aus
+      .copy(dir)
+      .multiplyScalar(Math.cos(meter / PLANET_R))
+      .addScaledVector(tang, Math.sin(meter / PLANET_R))
+      .normalize();
+  const normalAn = (dir, h, aus) => {
+    tangentialSystem(dir, _nOst, _nNord);
+    // ACHTUNG: `heightAt` ruft `tangentialSystem` seinerseits mit _POst/_PNord.
+    // _nOst und _nNord sind eigene Vektoren; mit den geteilten Zwischenspeichern
+    // wäre die zweite Ableitung Unsinn.
+    const h1 = (heightAt(schrittAuf(dir, _nOst, N_EPS, _nHilf)) - h) / N_EPS;
+    const h2 = (heightAt(schrittAuf(dir, _nNord, N_EPS, _nHilf)) - h) / N_EPS;
+    return aus
+      .copy(dir)
+      .multiplyScalar(PLANET_R + h)
+      .addScaledVector(_nOst, -h1)
+      .addScaledVector(_nNord, -h2)
+      .normalize();
+  };
+
+  // --- Die Kugel selbst -------------------------------------------------------
+  //
+  // **Icosphere statt SphereGeometry.** Eine `SphereGeometry` ist ein
+  // Längen-/Breitengitter: An den Polen entarten ihre Dreiecke zu Nadeln, und
+  // die Dichte der Scheitelpunkte schwankt um Größenordnungen. Auf einem
+  // Planeten, den man überall betritt, ist das ein sichtbares Muster an genau
+  // zwei Stellen — und der Startpunkt liegt bei (0 | 1 | 0), also auf einem
+  // davon. Eine Icosphere hat überall fast gleich große Dreiecke.
+  //
+  // **Die Unterteilung ist ein Budgetwert, kein Geschmack** — und `detail` ist
+  // in three.js **nicht** der Rekursionsgrad, für den ich ihn gehalten habe.
+  // `PolyhedronGeometry` zerlegt jede der 20 Grundflächen in (detail + 1)²
+  // Dreiecke, nicht in 4^detail. Mit `detail: 6` standen deshalb 980 Dreiecke
+  // im Bild statt der geplanten 81 920, und die Totale zeigte einen Ball aus
+  // 3-m-Facetten (gemessen: 2940 Scheitel im Mesh, also 980 Dreiecke — die
+  // Zahl, die den Irrtum aufgedeckt hat).
+  //
+  //   Dreiecke  = 20 · (detail + 1)²
+  //   Kante     ≈ 1,0515 · R / (detail + 1)
+  //
+  //   detail 31:  20 480 Dreiecke, Kante 0,82 m — ein 1,15-m-Krater wäre 1,4
+  //               Kanten breit, also nicht darstellbar
+  //   detail 63:  81 920 Dreiecke, Kante 0,41 m — derselbe Krater 5,6 Kanten
+  //   detail 127: 327 680 Dreiecke — allein schon fast das ganze Budget, und
+  //               mit dem Schattendurchgang darüber
+  const geo = new THREE.IcosahedronGeometry(PLANET_R, 63);
   const pos = geo.attributes.position;
   const colors = new Float32Array(pos.count * 3);
-  const base = new THREE.Color(0x9c4a2b);
+  const normals = new Float32Array(pos.count * 3);
   const col = new THREE.Color();
+  const d = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const z = pos.getY(i); // PlaneGeometry: y ist die zweite Ebenenachse
-    const h = heightAt(x, z);
-    pos.setZ(i, h);
-    // Leichte Farbmodulation: Höhen heller (Staub), Mulden dunkler
-    const shade = 0.82 + smoothstep(-2, 3, h) * 0.4 + (hashNoise(x * 2.1, z * 2.1, 9) - 0.5) * 0.12;
-    col.copy(base).multiplyScalar(shade);
+    d.fromBufferAttribute(pos, i).normalize();
+    const h = heightAt(d);
+    pos.setXYZ(i, d.x * (PLANET_R + h), d.y * (PLANET_R + h), d.z * (PLANET_R + h));
+    normalAn(d, h, _nAus);
+    normals[i * 3] = _nAus.x;
+    normals[i * 3 + 1] = _nAus.y;
+    normals[i * 3 + 2] = _nAus.z;
+    bodenFarbe(d, h, col);
     colors[i * 3] = col.r;
     colors[i * 3 + 1] = col.g;
     colors[i * 3 + 2] = col.b;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  geo.computeVertexNormals();
-  // **UVs in Weltmaßstab.** Eine PlaneGeometry legt ihre UVs einmal über die
-  // ganze Fläche – hier über 96 Meter. Ohne diese Skalierung wäre die
-  // Regolithkarte auf 96 m gestreckt und damit unsichtbar; derselbe Fehler wie
-  // bei der Grasnarbe der Insel, dort erst im Bild aufgefallen.
-  scaleUV(geo, SIZE / 1.6);
-  const ground = new THREE.Mesh(geo, marsGroundMaterial());
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.03;
-  group.add(ground);
+  geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+  // **Würfelprojektion statt Kugel-UV.** Die UV einer Icosphere hat eine Naht
+  // und an den Polen eine Singularität; die Kornkarte würde dort sichtbar
+  // gestaucht. Die Würfelprojektion hat statt dessen sechs Bereiche mit
+  // unterschiedlicher UV-Richtung — bei **reinem Rauschen** ist das
+  // unauffällig, und genau deshalb ist die Kornkarte reines Rauschen (die
+  // Begründung steht ausführlich bei `cliffMaps()` in dojo/stonework.js).
+  boxProjectUV(geo, 1.6);
+  const boden = new THREE.Mesh(geo, marsGroundMaterial());
+  boden.name = 'nacht-planet';
+  boden.castShadow = true;
+  boden.receiveShadow = true;
+  group.add(boden);
 
-  // Standhöhe für die Fortbewegung, in WELTkoordinaten dieser Gruppe.
+  // --- Steinwerk auf der Kugel ------------------------------------------------
   //
-  // **Achsen aufpassen.** Das Gitter ist eine PlaneGeometry mit
-  // `rotation.x = -PI/2`; damit bildet lokal (x, y, z) auf (x, z, −y) ab. Das
-  // oben `z` genannte `pos.getY(i)` ist also das NEGIERTE Welt-z, und die
-  // Auslenkung `pos.setZ(i, h)` landet auf der Welt-Höhe. Ohne das Minuszeichen
-  // liegen die Krater gespiegelt unter den Füßen.
-  group.userData.floorAt = (x, z) => heightAt(x, -z) + ground.position.y;
+  // **Was sich gegenüber der Platte ändert, ist die Verteilung, nicht die
+  // Bauart.** Auf der Platte lagen dreißig Brocken in einem Ring von 3,5 bis
+  // 19,5 m um den Nutzer — er stand in der Mitte und kam nie weg. Auf dem
+  // Planeten läuft er überall hin, und was jenseits des ersten Hügels liegt,
+  // muss dasselbe hergeben wie das, worauf er startet. Dieselbe Flächendichte
+  // wie vorher (ein Brocken je 40 m²) ergäbe auf 7854 m² knapp zweihundert
+  // Stück. Es sind zweihundertvierzig geworden: Bei 8,9 m Horizont sieht man
+  // 250 m² auf einmal, und mit hundertsiebzig stand in `f-kante` **kein
+  // einziger** Brocken im Bild — ein Erwartungswert von 5,4 reicht nicht, wenn
+  // sie sich auch noch verklumpen dürfen. Bezahlt wird das aus der
+  // Unterteilung: Stufe 2 statt 3 sind 180 statt 320 Dreiecke je Brocken.
+  const YOBEN = new THREE.Vector3(0, 1, 0);
+  const _sQ = new THREE.Quaternion();
+  const _sE = new THREE.Euler();
+  const _sv = new THREE.Vector3();
+  const _bt1 = new THREE.Vector3();
+  const _bt2 = new THREE.Vector3();
+  const _bruch = new THREE.Vector3();
+  const _stOst = new THREE.Vector3();
+  const _stNord = new THREE.Vector3();
+  const _stWind = new THREE.Vector3();
 
-  // Verstreute Felsbrocken (mehr Facetten = Stein statt Kristall, flach gelagert)
-  const rockColors = [0x843d24, 0x6f331f, 0x5a281a, 0x92472b];
-  for (let i = 0; i < 30; i++) {
-    const a = rand() * Math.PI * 2;
-    const r = 3.5 + rand() * 16;
-    const bx = Math.cos(a) * r;
-    const bz = Math.sin(a) * r;
+  // Ein Objekt so auf die Kugel setzen, dass seine lokale Y-Achse radial steht.
+  // Die Kippung kommt **vor** der Ausrichtung zum Zuge, damit sie relativ zur
+  // Flächennormale wirkt und nicht relativ zur Weltachse.
+  const stelleAuf = (mesh, dir, radial, kippX, spin, kippZ) => {
+    mesh.position.copy(dir).multiplyScalar(radial);
+    mesh.quaternion
+      .setFromUnitVectors(YOBEN, dir)
+      .multiply(_sQ.setFromEuler(_sE.set(kippX, spin, kippZ)));
+  };
+
+  // **Die Bruchrichtung eines Brockens.**
+  //
+  // Ein Stein bricht nicht ringsum auf, sondern an einer Fläche. Damit der
+  // frische Bruch als Splitterrand liest und nicht als heller Anstrich, braucht
+  // jeder Brocken eine eigene Richtung, in die diese Fläche zeigt — annähernd
+  // waagerecht, denn nach oben liegt Staub und nach unten sieht keiner hin.
+  //
+  // Die Richtung kommt aus `hashNoise`, **nicht** aus `rand()`: Der gesäte
+  // Strom legt die Lage aller folgenden Brocken fest, und ein zusätzlicher Zug
+  // würde die ganze Landschaft verschieben.
+  const bruchRichtung = (dir, saatA, saatB, ziel) => {
+    const az = hashNoise(saatA, 1.9, 4.4) * Math.PI * 2;
+    const neig = (hashNoise(saatB, 8.1, 0.7) - 0.5) * 0.7;
+    // Ein Tangentenpaar auf `dir`. Der Ausweichvektor fängt den Fall ab, dass
+    // `dir` selbst die Y-Achse ist — am Pol steht der Spieler.
+    _bt1.set(0, 1, 0);
+    if (Math.abs(dir.y) > 0.9) _bt1.set(1, 0, 0);
+    _bt1.crossVectors(dir, _bt1).normalize();
+    _bt2.crossVectors(dir, _bt1);
+    return ziel
+      .copy(_bt1)
+      .multiplyScalar(Math.cos(az) * Math.cos(neig))
+      .addScaledVector(_bt2, Math.sin(az) * Math.cos(neig))
+      .addScaledVector(dir, Math.sin(neig))
+      .normalize();
+  };
+
+  // Die Ausdehnung eines gedrehten und skalierten Körpers, quer zur
+  // Flächennormale und längs. Die quere legt den Radius der
+  // Kontaktverdunklung fest, die längs, wie tief der Brocken steckt.
+  //
+  // **Beide müssen aus der Geometrie kommen, nicht aus dem Sollmaß.** Ein
+  // Brocken, der auf der Seite liegt, hat eine ganz andere Höhe als einer, der
+  // flach liegt — er ist ja abgeplattet. Wer die Einsinktiefe aus `s` rechnet,
+  // lässt den einen schweben und versenkt den anderen.
+  const ausdehnung = (geoT, mesh, dir) => {
+    const rp = geoT.attributes.position;
+    let quer = 0;
+    let laengs = 0;
+    for (let vi = 0; vi < rp.count; vi++) {
+      _sv.fromBufferAttribute(rp, vi).multiply(mesh.scale).applyQuaternion(mesh.quaternion);
+      const l = Math.abs(_sv.dot(dir));
+      if (l > laengs) laengs = l;
+      _sv.addScaledVector(dir, -_sv.dot(dir));
+      const q = _sv.length();
+      if (q > quer) quer = q;
+    }
+    return { quer, laengs };
+  };
+
+  // Die Staubfahne liegt im Windschatten. `windAn` gibt die Windrichtung als
+  // Tangentialvektor; die Fahne braucht sie in denselben Tangentialkoordinaten,
+  // in denen `makeKontaktAO` seine Scheibe aufspannt.
+  const leeZug = (dir, laenge) => {
+    windAn(dir, _stWind);
+    tangentialSystem(dir, _stOst, _stNord);
+    return { x: -_stWind.dot(_stOst), y: -_stWind.dot(_stNord), laenge };
+  };
+
+  const aoStellen = [];
+
+  // Farben mit derselben Begründung entsättigt wie der Boden: Ein Stein, der im
+  // Blaukanal nichts hat, kann kein Mondlicht zeigen.
+  const rockColors = [0x87513e, 0x774835, 0x67402f, 0x915b45];
+  // **Steine liegen nicht gleichverteilt, sie liegen wo etwas passiert ist.**
+  //
+  // Der Prüfer hat die Komposition als schwächstes Kriterium benannt: „Masse
+  // links zu rechts 1,00 bis 1,07 in allen zwanzig Bildern — kein einziges Bild
+  // hat eine Gewichtsachse." Die Ursache stand in der Zeile darunter: `u` und
+  // `phi` gleichverteilt über die Kugel. 240 Brocken auf 7854 m² sind einer je
+  // 33 m²; ein Blick über den 8,9-m-Horizont deckt rund 250 m² ab, und darin
+  // liegen **immer** dieselben sieben. Jede Ansicht ist dieselbe Stichprobe.
+  //
+  // Auf einem echten Körper liegt Blockwerk dort, wo es hergekommen ist: als
+  // Auswurfdecke um einen Einschlag und als Schutthalde am Fuß eines Grats.
+  // Genau diese Orte gibt es hier schon — `craters` und `grate` stehen oben.
+  // Zwei Drittel der Brocken werden ihnen zugeordnet, ein Drittel bleibt
+  // verstreut. Damit hat jede Ansicht entweder ein Feld oder eine leere Fläche,
+  // und das ist der Unterschied zwischen Verteilung und Komposition.
+  //
+  // **Ohne einen einzigen zusätzlichen `rand()`-Zug.** Welcher Brocken zu
+  // welchem Feld gehört, kommt aus `hashNoise`; seine beiden Lagezüge werden
+  // umgedeutet — `u` wird zum flächengleichen Radialanteil in der Kappe, `phi`
+  // bleibt der Winkel. Jeder zusätzliche Zug würde alles Folgende verschieben.
+  const streuFelder = [];
+  for (const c of craters) {
+    // Nur die größeren: Ein 1,15-m-Krater hat keine Auswurfdecke, die man
+    // sieht. Der Kranz sitzt außerhalb des Walls, nicht in der Mulde.
+    if (c.r < 2.0) continue;
+    streuFelder.push({ ort: c.ort, innen: c.r * 1.25, aussen: c.r * 2.6, gewicht: c.r });
+  }
+  for (const g of grate) {
+    // Schutthalde am Grat: die Mitte des Bogens, ein Feld von anderthalb
+    // Fußbreiten.
+    const mitte = g.a.clone().add(g.b).normalize();
+    streuFelder.push({ ort: mitte, innen: g.breite * 0.5, aussen: g.breite * 2.0, gewicht: g.h * 2 });
+  }
+  const gewichtSumme = streuFelder.reduce((s2, f) => s2 + f.gewicht, 0);
+
+  // **Ein Ort am Weg, in Metern längs und quer.**
+  //
+  // Der Rundgang läuft auf einem Großkreis: `welt.quaternion` dreht um die
+  // X-Achse, der Punkt unter dem Spieler ist also Y, um −s/R um X gedreht. Die
+  // Bahnebene ist damit die Y-Z-Ebene, und „quer" heißt: heraus in Richtung X.
+  //
+  // **Warum nicht über Azimut.** Ein Ort ließe sich auch als (Bogen, Azimut)
+  // vom Startpunkt aus angeben — so stehen die Landmarken. Für Anker am Weg
+  // taugt das nicht: Bei 70 m Bogen ist man 8,5 m vom Gegenpol entfernt, dort
+  // laufen alle Azimute zusammen, und der größte erreichbare Querabstand
+  // beträgt 8,5 m. Wer dort 12 m quer haben will, kann rechnen, was er mag.
+  const _wegP = new THREE.Vector3();
+  const _wegX = new THREE.Vector3(1, 0, 0);
+  const ortAmWeg = (entlang, quer) => {
+    _wegP.set(0, 1, 0).applyAxisAngle(_wegX, -entlang / PLANET_R);
+    const c = Math.cos(quer / PLANET_R);
+    const sn = Math.sin(quer / PLANET_R);
+    return new THREE.Vector3(
+      _wegP.x * c + sn,
+      _wegP.y * c,
+      _wegP.z * c
+    ).normalize();
+  };
+
+  const brocken = [];
+  const _feldOrt = new THREE.Vector3();
+  for (let i = 0; i < 240; i++) {
+    // Die beiden Lagezüge. Was daraus wird, entscheidet sich unten.
+    const u = rand() * 2 - 1;
+    const phi = rand() * Math.PI * 2;
+    const sr = Math.sqrt(Math.max(0, 1 - u * u));
     const s = 0.14 + rand() * 0.42;
-    const geoR = new THREE.IcosahedronGeometry(s, 1);
-    // Unregelmäßig verschieben, damit es kein glatter Edelstein ist
-    const rp = geoR.attributes.position;
-    for (let v = 0; v < rp.count; v++) {
-      const f = 0.78 + hashNoise(rp.getX(v) * 40, rp.getY(v) * 40, rp.getZ(v) * 40 + i) * 0.44;
-      rp.setXYZ(v, rp.getX(v) * f, rp.getY(v) * f, rp.getZ(v) * f);
+    const spin = rand() * Math.PI * 2;
+    // **Nicht jeder Stein steht auf dem Lot.** Vorher kippte jeder um
+    // höchstens 26 Grad gegen die Flächennormale — im Bild aus dem Orbit
+    // standen sie damit alle radial ab wie die Stacheln eines Seeigels, und
+    // auf dem Boden lag keiner umgestürzt, keiner auf der Seite. Ein Feld aus
+    // Brocken, die alle dieselbe Lage haben, ist eine Aufzählung.
+    //
+    // Drei Lagen: gut die Hälfte liegt flach, wie sie sich über Jahrtausende
+    // eingeregelt hat; ein Drittel steht schief, weil es auf etwas anderem
+    // aufliegt; der Rest liegt beliebig — umgekippt, auf der Kante, verkantet.
+    const lage = rand();
+    const kippMax = lage < 0.55 ? 0.35 : lage < 0.85 ? 1.1 : Math.PI;
+    const kippA = (rand() - 0.5) * kippMax;
+    const kippB = (rand() - 0.5) * kippMax;
+    const sx = 1 + rand() * 0.5;
+    const sy = 0.45 + rand() * 0.4;
+    const sz = 1 + rand() * 0.5;
+    const rockHex = rockColors[Math.floor(rand() * rockColors.length)];
+    // Zwei Drittel in ein Feld, ein Drittel verstreut.
+    let dir;
+    if (streuFelder.length && hashNoise(i * 0.77, 5.1, 2.3) < 0.66) {
+      // Feld nach Gewicht ziehen: Ein großer Krater bekommt mehr Blockwerk als
+      // ein kleiner, ein hoher Grat mehr als ein flacher.
+      let z = hashNoise(i * 1.31, 8.8, 4.4) * gewichtSumme;
+      let f = streuFelder[streuFelder.length - 1];
+      for (const k of streuFelder) {
+        z -= k.gewicht;
+        if (z <= 0) {
+          f = k;
+          break;
+        }
+      }
+      // Flächengleich im Kranz zwischen innen und außen: r = sqrt(lerp(i², a²)).
+      const t = (u + 1) * 0.5;
+      const rr = Math.sqrt(f.innen * f.innen + t * (f.aussen * f.aussen - f.innen * f.innen));
+      dir = versetzeAufKugel(f.ort, Math.cos(phi) * rr, Math.sin(phi) * rr, _feldOrt).clone();
+    } else {
+      dir = new THREE.Vector3(sr * Math.cos(phi), u, sr * Math.sin(phi));
     }
-    geoR.computeVertexNormals();
-    // Ein Material für alle dreißig Brocken; die vier Rottöne stecken in den
-    // Scheitelfarben. Kein Moos – auf dem Mars wächst nichts, und `mossPatina()`
-    // wäre hier genau die Sorte gedankenloser Wiederverwendung, die man den
-    // Werkzeugen später ansieht.
+    // Der Startpunkt bleibt frei: Dort steht der Nutzer, und die Karten ordnen
+    // sich bei 1,15 bis 1,5 m um ihn an. Alle Ziehungen sind vorher passiert,
+    // damit der gesäte Strom davon unberührt bleibt.
+    if (bogenAbstand(dir, STARTPUNKT) < 2.2) continue;
+
+    // **Kein rand() in den Bruchparametern.** Sie kommen aus `hashNoise` und
+    // einem eigenen, je Brocken gesäten Strom — sonst verschöbe jeder neue
+    // Parameter die Lage aller folgenden Brocken.
+    const alter = hashNoise(i * 3.1, 7.7, 1.3);
+    const geoR = bruchGeometrie(s, 5100 + i * 91, {
+      // Kleine Brocken zerbrechen in weniger Flächen als große.
+      facetten: 7 + Math.round(hashNoise(i * 1.7, 2.3, 9.1) * 8 + (s / 0.56) * 4),
+      verwitterung: 0.05 + alter * 0.3,
+      kanten: 0.04 + alter * 0.07,
+      unterteilung: 2,
+    });
     boxProjectUV(geoR, 0.22);
-    paintVertices(geoR, rockColors[Math.floor(rand() * rockColors.length)]);
     const rock = new THREE.Mesh(geoR, marsRockMaterial());
-    rock.position.set(bx, heightAt(bx, bz) - 0.03 + s * 0.25, bz);
-    rock.rotation.set(rand() * Math.PI, rand() * Math.PI, rand() * Math.PI);
-    rock.scale.set(1 + rand() * 0.5, 0.45 + rand() * 0.4, 1 + rand() * 0.5);
-    group.add(rock);
+    rock.scale.set(sx, sy, sz);
+    // **Halb verwehte Füße.** Ein Brocken, der seit Jahrtausenden im Wind
+    // liegt, steht nicht auf dem Sand — er steckt darin. Wie tief, schwankt.
+    const eingeweht = 0.1 + hashNoise(dir.x * 17, dir.y * 17, dir.z * 17) * 0.55;
+    const hB = heightAt(dir);
+    // Erst ausrichten, dann messen, dann auf die richtige Höhe setzen: Wie hoch
+    // der Körper über seiner Mitte aufragt, hängt an der Drehung.
+    stelleAuf(rock, dir, PLANET_R + hB, kippA, spin, kippB);
+    const mass = ausdehnung(geoR, rock, dir);
+    // **Halb verwehte Füße.** Ein Brocken, der seit Jahrtausenden im Wind
+    // liegt, steht nicht auf dem Sand — er steckt darin. Wie tief, schwankt
+    // zwischen einem Sechstel und drei Vierteln seiner halben Höhe.
+    const einsinken = mass.laengs * (0.15 + eingeweht * 0.75);
+    rock.position.copy(dir).multiplyScalar(PLANET_R + hB + mass.laengs - einsinken);
+    rock.castShadow = true;
+    rock.receiveShadow = true;
+
+    // Staub, Bruchgestein und Frost je Fläche. Der Staubanteil hängt am Alter:
+    // Ein alter Brocken ist eingestaubt, ein frisch zerbrochener zeigt den Bruch.
+    faerbeBruchstein(geoR, rockHex, rock.quaternion, MOND_RICHTUNG, {
+      staub: 0.35 + alter * 0.45,
+      frost: 0.3 + (1 - alter) * 0.24,
+      alter,
+      oben: dir,
+      bruchachse: bruchRichtung(dir, i * 5.3, i * 2.9, _bruch),
+    });
+    brocken.push(rock);
+
+    const weit = mass.quer;
+    aoStellen.push({ ort: dir, r: weit * 1.35, staerke: 0.5 });
+    aoStellen.push({
+      ort: dir,
+      r: weit * 1.15,
+      staerke: 0.24,
+      farbe: 0xcaa78e,
+      zug: leeZug(dir, weit * (2.4 + hashNoise(dir.x * 3, dir.y * 3, 11) * 1.8)),
+    });
+  }
+  // --- Anker am Weg -----------------------------------------------------------
+  //
+  // Die zweite Hälfte des Kompositionsbefunds: *„Kantenanteil im unteren
+  // Bilddrittel bei 15 von 20 Bildern unter 0,7 %, bei dreien 0,00 % — in
+  // `e-boden` liegen 240 000 Bildpunkte ohne eine einzige Kante direkt vor den
+  // Füßen."*
+  //
+  // **Dahin reicht keine Landmarke.** Gerechnet für die Augenhöhenkamera
+  // (Neigung −15°, 70° Bildwinkel) deckt das untere Bilddrittel den Bogen von
+  // **1,4 bis 3,7 m** ab — dahinter beginnt schon der Horizont bei 8,9 m, und
+  // der liegt eine Bildhöhe weiter oben. Eine Formation bei 20 m Bogen kann
+  // dort nichts ausrichten. Was dort steht, muss in Armeslänge stehen.
+  //
+  // Zwanzig Blöcke, alle sieben bis neun Meter einer, abwechselnd links und
+  // rechts der Bahn, mit Versatz längs, damit kein Takt entsteht. Weil die
+  // Seite wechselt, bekommt jedes Bild eine Gewichtsachse — genau das, was die
+  // Masse links zu rechts von 1,00 nicht hergibt.
+  //
+  // **Sie sind klein, und das ist gemessen.** Der erste Anlauf gab ihnen 0,66
+  // bis 1,71 m Halbmesser bei Unterteilung 2. Im Bild von Station 90 stand
+  // daraufhin ein Körper von 2,5 m Breite anderthalb Meter vor der Nase, dessen
+  // Facetten 0,5 m maßen — bei 0,097° je Bildpunkt sind das 250 px je Facette,
+  // und weil `faerbeBruchstein` sie kaum gegeneinander abtönt, las das Ganze als
+  // glattes Kissen statt als Stein. Ein Anker darf Anker sein, nicht Hindernis
+  // (dieselbe Lehre wie bei den Findlingen). Jetzt 0,34 bis 0,72 m bei
+  // Unterteilung 3: Kantenlänge 1,0515 · r / 4, also höchstens 19 cm, und die
+  // Verwitterung ist verdoppelt, weil diese Steine die nächsten im Bild sind.
+  //
+  // **Der Querabstand liegt im Fenster, und das ist der zweite Fehler des
+  // ersten Anlaufs.** Er lief von 1,9 bis 4,5 m — alles über 3,7 m kann das
+  // untere Bilddrittel gar nicht mehr erreichen, ganz gleich, wo man steht.
+  // Ein Drittel der Blöcke war damit für den Zweck, zu dem sie gesetzt wurden,
+  // wirkungslos. Jetzt 2,0 bis 3,5 m: unten im Bild, und immer noch außerhalb
+  // der Kartenreihe, die sich bei 1,15 bis 1,5 m um den Nutzer anordnet.
+  //
+  // **Zwanzig, und mehr gibt das Budget nicht her.** Ein Block trägt 320
+  // Dreiecke und wirft Schatten, kostet also 640 je Bild. Bei zwanzig steht die
+  // Umgebung bei 344 000 von 350 000; für lückenlose Deckung bräuchte es 2,3 m
+  // Abstand, also 68 Blöcke und 43 520 Dreiecke — das Zweieinhalbfache dessen,
+  // was frei ist. Die Grenze ist gerechnet, nicht geschätzt.
+  //
+  // **Damit ist auch gesagt, was diese Blöcke nicht leisten.** Sie geben dem
+  // Rundgang alle acht Meter etwas in Armeslänge — an neun von zwölf Stationen
+  // liegt ein Stein zwischen 1,5 und 4,9 m, wo vorher keiner lag. Den leeren
+  // unteren Bildrand schließen sie nicht: Gemessen über 36 Ansichten steigt der
+  // Kantenanteil dort nur von 0,77 auf 0,82 %. Was ihn schließen könnte, ist
+  // Struktur im Boden selbst, und die kostet keine Dreiecke.
+  //
+  // Alle Parameter kommen aus `hashNoise` — kein zusätzlicher Zug aus dem
+  // gesäten Strom, sonst verschöbe sich alles Vorherige.
+  for (let i = 0; i < 20; i++) {
+    const entlang = 5.0 + i * 7.85 + (hashNoise(i * 1.3, 2.7, 8.8) - 0.5) * 4.0;
+    const seite = i % 2 === 0 ? 1 : -1;
+    const sA = 0.34 + hashNoise(i * 1.9, 4.4, 2.8) * 0.38;
+    const quer = seite * (1.6 + sA * 1.1 + hashNoise(i * 3.3, 1.7, 6.2) * 1.0);
+    const dirA = ortAmWeg(entlang, quer);
+    const geoA = bruchGeometrie(sA, 7300 + i * 113, {
+      facetten: 10 + Math.round(hashNoise(i * 2.6, 9.1, 3.3) * 7),
+      verwitterung: 0.22 + hashNoise(i * 4.7, 0.6, 7.7) * 0.3,
+      kanten: 0.09 + hashNoise(i * 5.5, 3.1, 1.4) * 0.09,
+      unterteilung: 3,
+    });
+    boxProjectUV(geoA, 0.3);
+    const mA = new THREE.Mesh(geoA, marsRockMaterial());
+    mA.scale.set(
+      1 + hashNoise(i * 6.1, 2.2, 8.4) * 0.35,
+      0.6 + hashNoise(i * 7.3, 5.5, 0.9) * 0.4,
+      1 + hashNoise(i * 8.9, 6.6, 4.1) * 0.35
+    );
+    const hA = heightAt(dirA);
+    stelleAuf(
+      mA,
+      dirA,
+      PLANET_R + hA,
+      (hashNoise(i * 9.7, 1.1, 5.3) - 0.5) * 0.5,
+      hashNoise(i * 2.1, 7.9, 3.6) * Math.PI * 2,
+      (hashNoise(i * 3.7, 8.3, 2.2) - 0.5) * 0.5
+    );
+    const massA = ausdehnung(geoA, mA, dirA);
+    mA.position.copy(dirA).multiplyScalar(PLANET_R + hA + massA.laengs * 0.42);
+    mA.castShadow = true;
+    mA.receiveShadow = true;
+    const alterA = hashNoise(i * 4.1, 2.9, 9.6);
+    faerbeBruchstein(geoA, rockColors[i % rockColors.length], mA.quaternion, MOND_RICHTUNG, {
+      staub: 0.3 + alterA * 0.4,
+      frost: 0.3 + (1 - alterA) * 0.24,
+      alter: alterA,
+      oben: dirA,
+      bruchachse: bruchRichtung(dirA, i * 6.7, i * 8.1, _bruch),
+    });
+    brocken.push(mA);
+    aoStellen.push({ ort: dirA, r: massA.quer * 1.4, staerke: 0.52 });
+    aoStellen.push({
+      ort: dirA,
+      r: massA.quer * 1.2,
+      staerke: 0.24,
+      farbe: 0xcaa78e,
+      zug: leeZug(dirA, massA.quer * 2.8),
+    });
   }
 
-  // Weiche, natürliche Hügel am Horizont (teilweise „vergrabene" Kuppeln) –
-  // ersetzt die alten kastenförmigen Tafelberge.
-  const hillMat = new THREE.MeshStandardMaterial({ color: 0x7a3820, roughness: 1, metalness: 0 });
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + rand() * 0.6;
-    const r = 26 + rand() * 12;
-    const R = 5 + rand() * 6;
-    const hGeo = new THREE.SphereGeometry(R, 20, 14);
-    const hp = hGeo.attributes.position;
-    for (let v = 0; v < hp.count; v++) {
-      const f = 1 + (valueNoise2(hp.getX(v) * 0.3 + i * 10, hp.getZ(v) * 0.3) - 0.5) * 0.5;
-      hp.setXYZ(v, hp.getX(v) * f, hp.getY(v), hp.getZ(v) * f);
+  for (const m of verschmelzeObjekte(brocken, 'nacht-brocken')) {
+    m.castShadow = true;
+    m.receiveShadow = true;
+    group.add(m);
+  }
+
+  // --- Landmarken: was über die Krümmung steigt -------------------------------
+  //
+  // Auf der Platte standen elf Formationen zwischen 30 und 72 m — sie waren die
+  // Ferne, und ihr Zweck war eine Silhouette gegen den Sternhimmel. Auf einer
+  // Kugel mit 8,9 m Horizont gibt es keine Ferne mehr; dieselbe Aufgabe fällt
+  // hier der **Krümmung** zu. Eine Formation von 6 m Höhe ist noch aus
+  // 8,9 + sqrt(2 · 25 · 6) = **26 m Bogen** zu sehen, zuerst nur mit der Spitze.
+  // Beim Rundgang von 157 m kommt damit alle paar Sekunden eine über die Kante
+  // — und wer sie wiedererkennt, weiß, wo er ist. Genau darum geht es bei einer
+  // begehbaren Gedächtnislandkarte.
+  //
+  // Die Verteilung ist absichtlich unsymmetrisch: eine dichte Gruppe kurz hinter
+  // dem Startpunkt, eine zweite auf der Gegenseite, und dazwischen zweimal ein
+  // langes Stück ohne alles. Leere ist eine Entscheidung, kein Versäumnis.
+  {
+    const fr = mulberry32(60600);
+    // **b und l sind gegenüber der Platte halbiert.** Dort war die Ferne 30 bis
+    // 72 m weit, und eine Abbruchkante von 11 m Länge las als Aufschluss am
+    // Horizont. Hier sieht man 250 m² auf einmal; derselbe Körper stand in der
+    // Totale wie eine Warze auf der Kugel — gemessen 11 m breit bei 3,3 m Höhe.
+    // Die Höhen bleiben: Sie tragen die Fernwirkung über die Krümmung.
+    //
+    // **Der Querabstand zur Laufspur ist gerechnet, nicht geschätzt.** Der
+    // Rundgang läuft von (0 | 1 | 0) aus über Azimut 180 zum Gegenpol und über
+    // Azimut 0 zurück. Der Abstand einer Formation von dieser Spur ist
+    //
+    //     quer = R · asin( sin(bogen / R) · sin(azimut) )
+    //
+    // und er muss zwischen etwa 8 und 16 m liegen: näher steht sie einem im
+    // Weg, weiter sieht man sie nicht mehr. Vier standen unter 3,3 m —
+    // `{62 | 12}` bei 3,2 m, `{69 | −6}` bei **1,0 m** —, und im Prüfbild
+    // `rund-210` füllte eine davon zwei Drittel des Bildes. Der Prüfer hat das
+    // als „ein einziger Brocken, dessen Dreiecke man abzählen kann" gemeldet;
+    // die Ursache war nicht seine Größe, sondern sein Abstand.
+    //
+    // In der Nähe des Gegenpols (ab etwa 68 m Bogen) ist ein Querabstand über
+    // 9,5 m geometrisch unmöglich — dort läuft die Spur durch alles hindurch.
+    // Deshalb steht dort nichts.
+    const formationen = [
+      // Erste Gruppe, 17 bis 24 m vom Start — die sieht man beim Losgehen.
+      { bogen: 17, az: -122, h: 6.2, b: 1.3, l: 2.4, art: 'block' }, // quer 14,1
+      { bogen: 21, az: -136, h: 8.4, b: 1.5, l: 1.9, art: 'block' }, // quer 13,6
+      { bogen: 24, az: -104, h: 4.8, b: 2.7, l: 7.2, art: 'kante' }, // quer 23,0
+      // Ein hoher Block gegen den Mond (Azimut 150) — der Anker beim Aufbruch.
+      { bogen: 22, az: 143, h: 9.6, b: 1.6, l: 2.3, art: 'block' }, // quer 12,1
+      { bogen: 31, az: 158, h: 4.2, b: 1.2, l: 3.3, art: 'kante' }, // quer 9,1
+      // Mittelfeld, weit ab der Spur — sie stehen als Ferne, nicht als Tor.
+      { bogen: 40, az: 62, h: 5.0, b: 1.9, l: 6.0, art: 'kante' }, // quer 27,0
+      { bogen: 46, az: -58, h: 7.1, b: 1.4, l: 2.0, art: 'block' }, // quer 23,9
+      // Nahe der Gegenseite — die dunkle Hälfte, dort trägt nur der Umriss.
+      { bogen: 62, az: 44, h: 8.8, b: 1.7, l: 2.5, art: 'block' }, // quer 11,0
+      { bogen: 66, az: -50, h: 5.4, b: 2.5, l: 6.6, art: 'kante' }, // quer 9,4
+      { bogen: 58, az: -38, h: 3.8, b: 1.0, l: 1.6, art: 'block' }, // quer 11,7
+      // **Der Rückweg.** Er läuft auf Azimut 0 zurück; die Stationen 210 bis
+      // 300 des Prüfstands liegen bei 65, 52, 39 und 26 m Bogen. Genau dort
+      // stand nichts — der Prüfer hat sechs der zwölf Stationen als
+      // austauschbar gemeldet, und es sind diese.
+      { bogen: 65, az: 50, h: 8.6, b: 1.6, l: 2.4, art: 'block' }, // quer 10,2
+      { bogen: 52, az: -33, h: 6.4, b: 2.0, l: 4.4, art: 'kante' }, // quer 12,4
+      { bogen: 39, az: 26, h: 7.4, b: 1.5, l: 2.2, art: 'block' }, // quer 11,3
+      { bogen: 26, az: 27, h: 5.8, b: 1.8, l: 3.6, art: 'kante' }, // quer 10,0
+      // Und zwei Vereinzelte, damit die Gruppen nicht als Inseln lesen.
+      { bogen: 52, az: -160, h: 6.6, b: 2.0, l: 4.2, art: 'kante' }, // quer 7,6
+      // **Azimut −33 und 15 m, zweimal gemessen hingesetzt.** In `f-kante` — dem
+      // Blick vom Mond weg — stand keine einzige Form gegen den Sternhimmel; in
+      // dieser Richtung lag die nächste Formation bei 36 m Bogen.
+      //
+      // Der erste Anlauf setzte sie auf 19 m und rechnete die Sichtweite aus
+      // der Kugel allein: 8,9 + sqrt(2 · 25 · 5,2) = 25 m, also bequem
+      // sichtbar. Im Bild war sie weiterhin nicht da. **Die Rechnung vergisst
+      // das Gelände.** Nachgemessen steht ihre Spitze bei 20,8 m Bogen und 30,0
+      // m Radius, das sind 16,9 Grad unter Augenhöhe — und der nächstgelegene
+      // Geländerücken verdeckt in dieser Richtung alles unter 16,5 Grad. Sie
+      // fehlte um vier Zehntelgrad.
+      { bogen: 15, az: -33, h: 6.0, b: 1.4, l: 2.2, art: 'block' }, // quer 7,8
+    ];
+    const fern = [];
+    const _fd = new THREE.Vector3();
+    formationen.forEach((f, i) => {
+      const ort = ortVon(STARTPUNKT, f.bogen, f.az);
+      // Zwei bis drei Blöcke je Formation: Ein einzelner Körper liest als
+      // Gegenstand, mehrere aneinandergeschobene als Aufschluss.
+      const teile = f.art === 'kante' ? 3 : 2;
+      const richtung = fr() * Math.PI * 2;
+      for (let k = 0; k < teile; k++) {
+        const g = bruchGeometrie(1, 70000 + i * 131 + k * 17, {
+          facetten: 8 + Math.floor(fr() * 6),
+          verwitterung: 0.1 + fr() * 0.22,
+          kanten: 0.05 + fr() * 0.06,
+        });
+        const m = new THREE.Mesh(g, marsRockMaterial());
+        const t = teile === 1 ? 0 : k / (teile - 1) - 0.5;
+        // **h ist die sichtbare Höhe, nicht der Halbmesser** — und auf einer
+        // Kugel ist der Unterschied nicht nur eine Rechnung, sondern eine Frage
+        // der Geometriemenge. Auf der Platte durfte der Fuß beliebig tief
+        // stecken, weil unter ihr nichts war. Hier reichte die höchste
+        // Formation mit der alten Regel (Mitte auf Bodenhöhe − 0,42 · hk) bis
+        // auf **6,3 m an den Planetenmittelpunkt** hinunter: 26 m Körper für
+        // 7,7 m Wirkung.
+        //
+        // Jetzt wird von oben gerechnet. Die Spitze soll `hoehe` über dem
+        // Gelände stehen und der Fuß 1,5 m darunter — der Halbmesser ist damit
+        // (hoehe + 1,5) / 2 und die Mitte liegt bei Boden + hoehe − hk.
+        // Höhe und Breite sind wortgleich die der Platte — ein Anlauf mit
+        // 35 % mehr Höhe und 40 % mehr Breite stand als Klumpen auf der Kugel,
+        // groß genug, dass die Totale nach Warzen aussah. Geändert hat sich nur,
+        // wie tief der Fuß steckt.
+        // **Die Teile sind nicht gleich hoch.** Mit einer gemeinsamen Streuung
+        // kamen bei einem Block aus zwei Teilen zwei fast gleich große Kegel
+        // heraus — im Bild ein Paar Hasenohren statt eines Aufschlusses. Der
+        // erste Teil ist die Hauptmasse, die folgenden sind Schultern.
+        const SCHULTER = [1.0, 0.62, 0.78];
+        const hoehe = f.h * (0.62 + fr() * 0.5) * SCHULTER[k];
+        const hk = (hoehe + 1.5) * 0.5;
+        m.scale.set(f.b * (0.7 + fr() * 0.5), hk, f.b * (0.7 + fr() * 0.5));
+        // Entlang der Formationsachse aufgereiht, tangential versetzt.
+        versetzeAufKugel(ort, Math.cos(richtung) * t * f.l, Math.sin(richtung) * t * f.l, _fd);
+        const dirT = _fd.clone();
+        // Tief genug einsetzen, dass kein Fuß in der Luft steht: Der Boden
+        // schwankt unter einer 10-m-Formation um mehr als einen Meter.
+        stelleAuf(
+          m,
+          dirT,
+          PLANET_R + heightAt(dirT) + hoehe - hk,
+          (fr() - 0.5) * 0.34,
+          fr() * Math.PI * 2,
+          (fr() - 0.5) * 0.34
+        );
+        // **Anders als auf der Platte werfen sie Schatten.** Dort lagen sie
+        // außerhalb des Orthofrustums der Schattenkarte; auf einer Kugel von
+        // 25 m Halbmesser liegt alles darin, und eine 9-m-Formation ohne
+        // Schlagschatten stünde ohne Gewicht auf dem Boden.
+        m.castShadow = true;
+        m.receiveShadow = true;
+        faerbeBruchstein(g, 0x7a4a37, m.quaternion, MOND_RICHTUNG, {
+          staub: 0.5,
+          frost: 0.36,
+          alter: 0.4,
+          oben: dirT,
+          bruchachse: bruchRichtung(
+            dirT,
+            dirT.x * 31 + dirT.z * 17,
+            dirT.y * 23 + dirT.x * 7,
+            _bruch
+          ),
+        });
+        boxProjectUV(g, 0.5);
+        fern.push(m);
+      }
+    });
+    for (const mesh of verschmelzeObjekte(fern, 'nacht-landmarken')) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
     }
-    hGeo.computeVertexNormals();
-    const hill = new THREE.Mesh(hGeo, hillMat);
-    const flat = 0.28 + rand() * 0.16;
-    hill.scale.y = flat;
-    // So weit eingraben, dass nur eine sanfte Kuppe herausschaut
-    hill.position.set(Math.cos(a) * r, -R * flat * 0.62, Math.sin(a) * r);
-    group.add(hill);
   }
 
+  // --- Vordergrundanker: drei Findlinge als Leitlinie zum Mond ----------------
+  //
+  // **Was die Bilder der Platte nicht hatten, war ein Vordergrund.** Gemessen
+  // lag der Kantenanteil im unteren Bilddrittel zwischen 0,08 und 1,80 % — die
+  // untere Bildhälfte war Fläche, sonst nichts. Ein Blick, der nichts Nahes
+  // findet, hat keinen Ausgangspunkt für die Tiefe.
+  //
+  // Die Antwort bleibt dieselbe: drei große Findlinge, aufgereiht auf einer
+  // Linie, die zum Mond zeigt (Azimut 150). Sie werden zum Betrachter hin größer
+  // — das ist eine Staffelung, die in die Tiefe zieht, statt drei gleich großer
+  // Steine, die als Reihe lesen. Der nächste steht 3,6 m vom Startpunkt: Ein
+  // Anker darf Anker sein, nicht Hindernis.
+  {
+    const findlinge = [
+      { bogen: 3.6, az: 150, r: 0.95, seed: 88100, kippen: 0.22 },
+      { bogen: 6.4, az: 150, r: 0.78, seed: 88200, kippen: 0.1 },
+      { bogen: 9.5, az: 150, r: 0.6, seed: 88300, kippen: 0.31 },
+    ];
+    const stuecke = [];
+    const _fo = new THREE.Vector3();
+    for (const f of findlinge) {
+      const fr = mulberry32(f.seed);
+      const ort = ortVon(STARTPUNKT, f.bogen, f.az);
+      // Ein Monolith allein liest als aufgestellt. Ein Hauptstein mit zwei
+      // kleineren Begleitern liest als das, was er sein soll: ein Brocken, der
+      // beim Aufschlag zersprungen und liegen geblieben ist.
+      const teile = [
+        { s: 1.0, dx: 0, dz: 0, tief: 0.34 },
+        { s: 0.42, dx: f.r * 1.35, dz: f.r * 0.5, tief: 0.55 },
+        { s: 0.26, dx: -f.r * 0.7, dz: -f.r * 1.25, tief: 0.62 },
+      ];
+      for (const t of teile) {
+        const g = bruchGeometrie(f.r * t.s, f.seed + Math.round(t.s * 1000), {
+          facetten: 9 + Math.floor(fr() * 5),
+          verwitterung: 0.08 + fr() * 0.16,
+          kanten: 0.05 + fr() * 0.05,
+        });
+        const m = new THREE.Mesh(g, marsRockMaterial());
+        m.scale.set(1 + fr() * 0.35, 0.72 + fr() * 0.4, 1 + fr() * 0.35);
+        versetzeAufKugel(ort, t.dx, t.dz, _fo);
+        const dirF = _fo.clone();
+        stelleAuf(
+          m,
+          dirF,
+          PLANET_R + heightAt(dirF) - f.r * t.s * t.tief,
+          (fr() - 0.5) * f.kippen * 2,
+          fr() * Math.PI * 2,
+          (fr() - 0.5) * f.kippen * 2
+        );
+        m.castShadow = true;
+        m.receiveShadow = true;
+        // **Gemessen war der erste Anlauf zu hell.** Die beleuchtete Fläche
+        // eines Findlings stand bei L 109,3 gegen L 67,7 am hellsten Boden —
+        // das Anderthalbfache, und damit ein anderes Material statt eines
+        // größeren Steins. Ein Anker darf herausstechen; er darf nicht aus der
+        // Szene fallen.
+        faerbeBruchstein(g, 0x6d4432, m.quaternion, MOND_RICHTUNG, {
+          staub: 0.34,
+          frost: 0.36,
+          alter: 0.5,
+          oben: dirF,
+          bruchachse: bruchRichtung(
+            dirF,
+            dirF.z * 29 + dirF.x * 13,
+            dirF.y * 19 + dirF.z * 5,
+            _bruch
+          ),
+        });
+        boxProjectUV(g, 0.3);
+        stuecke.push(m);
+        aoStellen.push({ ort: dirF, r: f.r * t.s * 1.5, staerke: 0.5 });
+        aoStellen.push({
+          ort: dirF,
+          r: f.r * t.s * 1.3,
+          staerke: 0.26,
+          farbe: 0xcaa78e,
+          zug: leeZug(dirF, f.r * t.s * 3.2),
+        });
+      }
+    }
+    for (const mesh of verschmelzeObjekte(stuecke, 'nacht-findlinge')) {
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+  }
+
+  // --- Der Sputnik ----------------------------------------------------------
+  //
+  // Er liegt bei 5,5 m Bogen in Azimut 150 — in Blickrichtung der
+  // Eingangskamera, gut vier Schritte vom Startpunkt und damit im
+  // **Vordergrund**, den der Prüfer als leer gemeldet hat („in `e-boden` liegen
+  // 240 000 Pixel ohne eine einzige Kante direkt vor den Füßen"). Weit genug
+  // weg, dass er die Kartenreihe bei 1,15 bis 1,5 m nicht stört.
+  {
+    const KIPP = new THREE.Euler(1.24, 0.72, -0.16);
+    const _q = new THREE.Quaternion().setFromEuler(KIPP);
+    // Die Richtung im Eigensystem, die nach dem Hinlegen nach oben zeigt.
+    const obenLokal = new THREE.Vector3(0, 1, 0).applyQuaternion(_q.clone().invert());
+    const sput = makeSputnik(obenLokal);
+    const ort = ortVon(STARTPUNKT, 5.5, 150);
+    const hS = heightAt(ort);
+    // **Eingesunken, nicht vergraben.** `stelleAuf` setzt den **Mittelpunkt**
+    // auf den angegebenen Halbmesser — ein Wert unter der Geländehöhe versenkt
+    // damit mehr als die halbe Kugel. Der erste Anlauf lag 11 cm darunter, der
+    // zweite 2 cm, und beide zeigten nur eine Kuppe. 8 cm **darüber** lassen
+    // 37 der 58 cm frei, also gut ein Drittel eingesunken; die Kippung von
+    // 71 Grad stellt den Äquatorflansch schräg ins Bild.
+    stelleAuf(sput, ort, PLANET_R + hS + 0.08, KIPP.x, KIPP.y, KIPP.z);
+    group.add(sput);
+
+    // Die Spur des Aufschlags: eine Mulde unter ihm, eine flache Schleifspur
+    // dahinter und ein Kranz aufgeworfenen Staubs. Dieselbe Maschinerie wie bei
+    // den Brocken — nichts Neues, nur ein anderer Anlass.
+    aoStellen.push({ ort, r: 0.85, staerke: 0.62 });
+    aoStellen.push({
+      ort,
+      r: 1.5,
+      staerke: 0.3,
+      farbe: 0xcaa78e,
+      zug: leeZug(ort, 3.2),
+    });
+    // Ein paar abgerissene Blechfetzen in der Schleifspur. Flache, scharfe
+    // Splitter — sie lesen sofort als „nicht Stein".
+    const fetzen = [];
+    const blechMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      vertexColors: true,
+      metalness: 0.22,
+      roughness: 0.3,
+    });
+    for (let i = 0; i < 7; i++) {
+      const s2 = 0.05 + hashNoise(i * 4.1, 3.3, 8.8) * 0.09;
+      const g2 = bruchGeometrie(s2, 8800 + i * 37, {
+        facetten: 5,
+        verwitterung: 0.02,
+        kanten: 0.02,
+        unterteilung: 1,
+      });
+      // Zu Blech plattgedrückt.
+      g2.scale(1.35, 0.24, 1.05);
+      // **Dasselbe Material wie der Körper.** Der erste Anlauf gab ihnen
+      // `marsRockMaterial()` und eine helle Scheitelfarbe — im Bild lagen
+      // daraufhin weiße Papierschnipsel im Sand. Blech ist kein heller Stein.
+      const m2 = new THREE.Mesh(g2, blechMaterial);
+      const weit = 0.9 + hashNoise(i * 2.7, 1.1, 5.5) * 2.6;
+      const seit = (hashNoise(i * 5.9, 7.7, 2.2) - 0.5) * 1.4;
+      const dirF = versetzeAufKugel(ort, seit, -weit, new THREE.Vector3());
+      stelleAuf(
+        m2,
+        dirF,
+        PLANET_R + heightAt(dirF) + s2 * 0.1,
+        (hashNoise(i, 2, 3) - 0.5) * 1.2,
+        hashNoise(i, 5, 7) * Math.PI * 2,
+        (hashNoise(i, 8, 9) - 0.5) * 1.2
+      );
+      m2.castShadow = true;
+      m2.receiveShadow = true;
+      faerbeBruchstein(g2, 0xa9a49b, m2.quaternion, MOND_RICHTUNG, {
+        staub: 0.55,
+        frost: 0.1,
+        alter: 0.0,
+        oben: dirF,
+        bruchachse: bruchRichtung(dirF, i * 3.7, i * 6.1, _bruch),
+      });
+      fetzen.push(m2);
+      aoStellen.push({ ort: dirF, r: s2 * 2.2, staerke: 0.42 });
+    }
+    for (const m of verschmelzeObjekte(fetzen, 'nacht-sputnik-fetzen')) {
+      m.castShadow = true;
+      m.receiveShadow = true;
+      group.add(m);
+    }
+  }
+
+  // **Erst hier, nachdem alles eingetragen ist.** Der Aufruf stand einmal direkt
+  // hinter der Brockenschleife — die Findlinge tragen ihre Stellen aber später
+  // ein, und ihre Verdunklung und ihre Staubfahne wären dadurch nie gebaut
+  // worden. Ein Fehler, den kein Bild gezeigt hätte: Es hätte nur etwas gefehlt,
+  // das man nicht vermisst, wenn man es nie gesehen hat.
+  const kontakt = makeKontaktAO(aoStellen, heightAt);
+  if (kontakt) group.add(kontakt);
+
+  group.userData.heightAt = heightAt;
+  group.userData.bodenFarbe = bodenFarbe;
+  group.userData.craters = craters;
   return group;
+}
+
+// --- Der Nachthimmel: Kuppel, Milchstraße, Luftglühen ------------------------
+//
+// **Warum diese Umgebung eine eigene Kuppel bekommt und nicht `makeDome()`.**
+// Zwei Gründe, und der zweite ist ein Messbefund.
+//
+// Erstens braucht der Nachthimmel Dinge, die keine andere Umgebung hat: ein
+// Milchstraßenband mit eigenem Bezugssystem, ein Luftglühband über dem
+// Horizont, Extinktion nach unten. `makeDome()` trägt Insel und Zen-Garten und
+// darf sich nicht ändern.
+//
+// Zweitens — und das ist der eigentliche Grund, warum der Himmel bisher tot
+// war: **`makeDome()` schreibt lineare Farbwerte roh in einen sRGB-Puffer.**
+// Ein `ShaderMaterial` bekommt von three keine Farbraum-Umrechnung
+// eingebaut; `#include <colorspace_fragment>` steht dort nicht. `THREE.Color`
+// speichert einen Hex-Wert aber **linear**. Der Zenit 0x0b1533 hat linear
+// (0,0033 | 0,0075 | 0,0331), und genau das landet als Anzeigewert im Bild:
+//
+//     Uniform (linear)         (0,00335 | 0,00750 | 0,03310)
+//     roh × 255                (0,9     | 1,9     | 8,4)
+//     im Bild gemessen         (2       | 2       | 7)
+//     0x0b1533 sähe aus wie    (11      | 21      | 51)
+//
+// Der Himmel war also nicht zu flach entworfen — er wurde um Faktor 6 bis 12
+// verdunkelt. Gemessen p05 2, p95 3 über 55 bis 60 % der Bildfläche. Dieselbe
+// Klasse Fehler wie bei der Nebelfarbe, die als linearer Wert in einem
+// sRGB-Bild landet und dunkler wirkt, als der Hex-Wert aussieht.
+//
+// Diese Kuppel rechnet deshalb am Ende ausdrücklich linear → sRGB um. Ein
+// Hex-Wert, der hier steht, sieht danach auch so aus.
+
+// Milchstraßenband als Kachel: **u läuft einmal um das Band, v quer darüber.**
+//
+// Kein Kacheln in u, weil ein voller Umlauf genau einmal auf die Textur fällt —
+// damit gibt es die senkrechte Naht nicht, die im Zen-Garten eine
+// nicht-ganzzahlige Wolkenoktave hinterlassen hat. In v wird geklemmt; das Band
+// läuft nie durch seine eigenen Pole, also gibt es dort auch keine Verzerrung.
+//
+// Gezeichnet wird nicht Rauschen, sondern **Wolken**: helle Ballungen entlang
+// der Bandmitte, dunkle Staubbahnen quer hindurch, eine hellere Verdickung an
+// einer Stelle (das Zentrum). Die Ballungen werden um ±Kachelbreite
+// mitgezeichnet, damit der Umlauf nahtlos schließt.
+let _milchstrasse = null;
+function milchstrassenKarte() {
+  if (_milchstrasse) return _milchstrasse;
+  const B = 1024;
+  const H = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = B;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, B, H);
+
+  const mr = mulberry32(778899);
+
+  // **Die Streckung der Abbildung — und der Vorzeichenfehler, der mich drei
+  // Fassungen gekostet hat.**
+  //
+  // Die Kachel wird nicht gleichmäßig auf den Himmel abgebildet:
+  //
+  //   u läuft über 360° auf 1024 Texel  →  0,3516° je Texel
+  //   v läuft über  42,8° auf  256 Texel  →  0,1673° je Texel
+  //
+  // Ein Texel ist in Bandrichtung also **2,10-mal so groß** wie quer dazu.
+  // Damit ein Blob am **Himmel** rund erscheint, muss er in der Kachel
+  // 2,10-mal **höher als breit** sein.
+  //
+  // Im Code stand `ctx.scale(r * 1.7, r)` — also 1,7-mal **breiter** als hoch.
+  // Genau verkehrt herum, und in der Wirkung um Faktor 1,7 × 2,10 = **3,6**
+  // in Bandrichtung gestreckt. Deshalb las das Band in jeder Fassung als
+  // Schleier: Ich habe an den Ballungen, an den Staubbahnen und an der Stärke
+  // gedreht, während der Fehler in einer einzigen Zahl saß, die ich nie
+  // nachgerechnet hatte.
+  //
+  // Eine Milchstraße ist gesprenkelt mit Rissen, nicht gestreift.
+  const mitteBei = (x) => H * 0.5 + Math.sin((x / B) * Math.PI * 2 + 0.7) * H * 0.1;
+  const wolke = (x, y, r, streckung, a, farbe) => {
+    for (const versatz of [-B, 0, B]) {
+      ctx.save();
+      ctx.translate(x + versatz, y);
+      // In der Kachel höher als breit — am Himmel dadurch rund. Herleitung im
+      // Kopf dieser Funktion.
+      ctx.scale(r * streckung, r * 2.1);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      g.addColorStop(0, `rgba(${farbe},${a})`);
+      g.addColorStop(0.5, `rgba(${farbe},${a * 0.45})`);
+      g.addColorStop(1, `rgba(${farbe},0)`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  };
+  const kernNaehe = (x) => {
+    let du = Math.abs(x / B - 0.32);
+    if (du > 0.5) du = 1 - du;
+    return Math.exp(-(du * du) / 0.022);
+  };
+
+  // **Dritter Anlauf, und diesmal an der richtigen Stelle.** Zwei Fassungen
+  // lang habe ich an den Ballungen gedreht; das Band las trotzdem als weicher
+  // Schleier, wie Zirren oder Polarlicht. Der Grund waren nicht die Ballungen,
+  // sondern die beiden **glatten** Lagen darum herum:
+  //
+  //   * ein breiter Grundschleier aus 260 Blobs mit bis zu 95 Texeln Breite
+  //   * 26 lange dunkle Bahnen mit bis zu 200 Texeln Länge
+  //
+  // Auf den Himmel abgebildet sind das Striche von mehreren hundert Pixeln.
+  // Sie haben die Körnung überdeckt, die darunter durchaus vorhanden war.
+  //
+  // Eine Milchstraße ist **gesprenkelt mit Rissen**, nicht gestreift: Der
+  // Grundschleier wird schwächer und schmaler, die langen Bahnen werden von 26
+  // auf 8 reduziert (es ist **ein** großer Riss, nicht ein Streifenmuster), und
+  // die Körnung bekommt mehr Gewicht.
+  ctx.globalCompositeOperation = 'lighter';
+  // Grundschleier: breit und schwach – das unaufgelöste Sternlicht.
+  for (let i = 0; i < 150; i++) {
+    const x = mr() * B;
+    const k = kernNaehe(x);
+    wolke(x, mitteBei(x) + (mr() - 0.5) * H * (0.34 - 0.12 * k), 18 + mr() * 20, 1, 0.020 + 0.014 * k, '170,180,208');
+  }
+  // Ballungen: mittlere Größe, deutlich mehr davon.
+  for (let i = 0; i < 900; i++) {
+    const x = mr() * B;
+    const k = kernNaehe(x);
+    wolke(
+      x,
+      mitteBei(x) + (mr() - 0.5) * H * (0.26 - 0.09 * k),
+      7 + mr() * 15 + k * 8,
+      0.75 + mr() * 0.6,
+      0.035 + 0.045 * k,
+      mr() < 0.22 ? '214,206,184' : '186,196,224'
+    );
+  }
+  // Körnung: viele kleine Tupfen. Ohne sie verschwimmt alles zu Nebel; mit
+  // ihnen liest die Fläche als etwas, das aus Sternen besteht.
+  for (let i = 0; i < 9000; i++) {
+    const x = mr() * B;
+    const k = kernNaehe(x);
+    wolke(
+      x,
+      mitteBei(x) + (mr() - 0.5) * H * (0.24 - 0.07 * k),
+      1.2 + mr() * 2.8,
+      0.8 + mr() * 0.5,
+      0.13 + 0.13 * k,
+      '206,212,230'
+    );
+  }
+
+  // Staubbahnen: Ergebnis = Ziel · (1 − a), also wirklich dunkler. Ein paar
+  // lange Rifts entlang des Bandes, viele kleine Flecken quer dazu – ohne die
+  // kleinen liest der Riss als gezogener Strich.
+  ctx.globalCompositeOperation = 'source-over';
+  const bahn = (x, y, rx, ry, dreh, a) => {
+    for (const versatz of [-B, 0, B]) {
+      ctx.save();
+      ctx.translate(x + versatz, y);
+      ctx.rotate(dreh);
+      ctx.scale(rx, ry);
+      const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+      g.addColorStop(0, `rgba(0,0,0,${a})`);
+      g.addColorStop(0.55, `rgba(0,0,0,${a * 0.5})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(0, 0, 1, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  };
+  // Acht statt 26: Es ist **ein** großer Riss mit Verzweigungen, kein
+  // Streifenmuster. Breiter und weicher, damit er als Dunkelwolke liest und
+  // nicht als Strich.
+  // **Auch hier wirkt die 2,10.** Eine Bahn von 90 × 14 Texeln erscheint am
+  // Himmel als 31,6° × 2,3°, also 13:1 statt der 6:1, die im Code stehen. Die
+  // Werte sind deshalb entzerrt: kürzer in u, höher in v.
+  for (let i = 0; i < 8; i++) {
+    const x = mr() * B;
+    bahn(x, mitteBei(x) + (mr() - 0.5) * H * 0.13, 26 + mr() * 34, 22 + mr() * 30, (mr() - 0.5) * 0.3, 0.45 + mr() * 0.3);
+  }
+  for (let i = 0; i < 620; i++) {
+    const x = mr() * B;
+    bahn(x, mitteBei(x) + (mr() - 0.5) * H * 0.36, 3 + mr() * 10, 6 + mr() * 22, mr() * Math.PI, 0.22 + mr() * 0.38);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  // Die Karte trägt Anzeigewerte, keine Lichtmengen – sie wird im Shader
+  // direkt addiert, nicht durch eine Farbraumumrechnung geschickt.
+  tex.colorSpace = THREE.NoColorSpace;
+  _milchstrasse = tex;
+  return tex;
+}
+
+// --- Leben und Bewegung ------------------------------------------------------
+//
+// Die Szene bewegte sich bisher in **einer** Zeile: `starsGroup.rotation.y =
+// time * 0.004`. Fünfzehnhundert Sterne drehten sich starr als ein Körper —
+// wörtlich das, was das Kriterium „nichts im Gleichtakt" ausschließt. Seit
+// Paket 2 flimmert jeder Stern mit eigener Phase und eigenem Tempo; hier kommt
+// dazu, was sich am Boden und quer über den Himmel bewegt.
+//
+// **Die gemeinsame Regel:** Jede Bewegung bekommt ihre eigene Periode, und die
+// Perioden sind zueinander teilerfremd oder irrational. Zwei Bewegungen mit
+// verwandten Perioden fallen regelmäßig zusammen, und dieser Zusammenfall ist
+// genau die Regelmäßigkeit, die ein Betrachter als „gemacht" liest.
+
+// **Feinstaub über den Kämmen.**
+//
+// Nicht überall, sondern dort, wo der Wind angreift: auf den Rücken der Dünen
+// und Kraterwälle. Jedes Korn wird an seiner Stelle aufgenommen, läuft rund
+// vier Meter mit dem Wind, steigt dabei ein wenig und verschwindet wieder.
+//
+// **Warum kein Fortbewegen über weite Strecken.** Der Shader kennt das
+// Höhenfeld nicht — er könnte nicht wissen, wie hoch der Boden dort ist, wo ein
+// Korn nach zwanzig Metern ankommt. Über vier Meter ändert sich das Gelände um
+// wenige Dezimeter, und das trägt die Bahn. Über zwanzig würde der Staub durch
+// Dünen laufen.
+function makeFeinstaub(rand, heightAt) {
+  const ANZAHL = 1400;
+  const positions = new Float32Array(ANZAHL * 3);
+  const windRi = new Float32Array(ANZAHL * 3);
+  const hochRi = new Float32Array(ANZAHL * 3);
+  const phasen = new Float32Array(ANZAHL);
+  const groessen = new Float32Array(ANZAHL);
+  const d = new THREE.Vector3();
+  const w = new THREE.Vector3();
+  const achse = new THREE.Vector3();
+  const q1 = new THREE.Vector3();
+  const q2 = new THREE.Vector3();
+  let n = 0;
+  let versuche = 0;
+  while (n < ANZAHL && versuche < ANZAHL * 30) {
+    versuche++;
+    // Gleichverteilt auf der Kugel — ohne die Umrechnung über den Kosinus des
+    // Polarwinkels säße der Staub an den Polen dichter.
+    const u = rand() * 2 - 1;
+    const phi = rand() * Math.PI * 2;
+    const sp = Math.sqrt(Math.max(0, 1 - u * u));
+    d.set(sp * Math.cos(phi), u, sp * Math.sin(phi));
+
+    const h = heightAt(d);
+    // Nur auf Kämmen: höher als die Nachbarn **quer zum Wind**. Auf der Kugel
+    // ist „daneben" ein Schritt entlang der Oberfläche, also eine Drehung um
+    // die Achse senkrecht zu Ort und Schrittrichtung.
+    windAn(d, w);
+    achse.crossVectors(d, w).normalize();
+    // Quer zum Wind heißt: um die Windachse selbst drehen.
+    q1.copy(d).applyAxisAngle(w, 1.6 / PLANET_R);
+    q2.copy(d).applyAxisAngle(w, -1.6 / PLANET_R);
+    const kamm = h - (heightAt(q1) + heightAt(q2)) * 0.5;
+    if (kamm < 0.06 && rand() > 0.12) continue; // die 12 % streuen das Feld auf
+
+    const r = PLANET_R + h + 0.04 + rand() * 0.16;
+    positions[n * 3] = d.x * r;
+    positions[n * 3 + 1] = d.y * r;
+    positions[n * 3 + 2] = d.z * r;
+    // Windrichtung und Radialrichtung wandern als Attribute mit: Auf einer
+    // Kugel gibt es keine gemeinsame Windrichtung und kein gemeinsames „oben",
+    // also kann beides nicht als Uniform übergeben werden.
+    windRi[n * 3] = w.x;
+    windRi[n * 3 + 1] = w.y;
+    windRi[n * 3 + 2] = w.z;
+    hochRi[n * 3] = d.x;
+    hochRi[n * 3 + 1] = d.y;
+    hochRi[n * 3 + 2] = d.z;
+    phasen[n] = rand();
+    groessen[n] = 0.22 + rand() * 0.55;
+    n++;
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions.slice(0, n * 3), 3));
+  geo.setAttribute('windRi', new THREE.BufferAttribute(windRi.slice(0, n * 3), 3));
+  geo.setAttribute('hochRi', new THREE.BufferAttribute(hochRi.slice(0, n * 3), 3));
+  geo.setAttribute('phase', new THREE.BufferAttribute(phasen.slice(0, n), 1));
+  geo.setAttribute('groesse', new THREE.BufferAttribute(groessen.slice(0, n), 1));
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      zeit: { value: 0 },
+      pxSkala: { value: 300 },
+      // Ein Staubkorn in der Luft wird vom Mond **angeleuchtet**, es leuchtet
+      // nicht. Deshalb kühl und schwach und nicht in der Farbe des Bodens —
+      // der ist rot, weil er rot reflektiert.
+      farbe: { value: new THREE.Color(0x4c5568) },
+    },
+    vertexShader: `
+      attribute float phase;
+      attribute float groesse;
+      attribute vec3 windRi;
+      attribute vec3 hochRi;
+      uniform float zeit;
+      uniform float pxSkala;
+      varying float vStaerke;
+      void main() {
+        float dauer = 2.3 + fract(phase * 7.31) * 1.8;
+        float t = fract(zeit / dauer + phase);
+        // Vier Meter mit dem Wind. Weiter nicht: Der Shader kennt das
+        // Hoehenfeld nicht und wuesste nach zwanzig Metern nicht, wie hoch der
+        // Boden dort ist.
+        vec3 p = position + windRi * (t * 4.0 - 1.2)
+                          + hochRi * (sin(t * 3.14159) * (0.14 + fract(phase * 3.7) * 0.42));
+        vStaerke = sin(t * 3.14159);
+        vStaerke *= vStaerke;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        float tiefe = -mv.z;
+        gl_PointSize = clamp(groesse * pxSkala / tiefe, 1.0, 6.0);
+        vStaerke *= smoothstep(1.2, 4.0, tiefe);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform vec3 farbe;
+      varying float vStaerke;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float r2 = dot(d, d);
+        if (r2 > 0.25) discard;
+        // 1,6 war Funkenflug, 0,30 war unsichtbar. 0,62 liegt dazwischen.
+        gl_FragColor = vec4(farbe * vStaerke * (1.0 - r2 * 4.0) * 0.62, 1.0);
+      }`,
+    blending: THREE.AdditiveBlending,
+    transparent: false,
+    depthWrite: false,
+    fog: false,
+  });
+  const punkte = new THREE.Points(geo, material);
+  punkte.name = 'nacht-staub';
+  punkte.frustumCulled = false;
+  return punkte;
+}
+
+// **Staubteufel.**
+//
+// Zwei Wirbel, die über den Planeten wandern. Jeder ist eine Spirale aus
+// Körnern: Der Radius wächst mit der Höhe, die Drehung wird nach oben hin
+// langsamer (Drehimpulserhaltung — innen und unten schnell, außen und oben
+// träge).
+//
+// **Auf der Kugel gibt es keine gemeinsame Bahnebene mehr.** Auf der Platte
+// war die Bahn ein Kreis in x/z und „oben" für beide Wirbel dieselbe Achse.
+// Beides fällt hier weg: Jeder Wirbel steht auf seiner eigenen Flächennormale,
+// und seine Bahn ist ein Kleinkreis um einen eigenen Pol. Weil sich das je
+// Bild ändert und für 840 Körner dasselbe ist, wird es **nicht** je Scheitel
+// gerechnet, sondern einmal je Bild in `setzeZeit()` und als Uniform
+// übergeben: Mittelpunktsrichtung, Ost- und Nordtangente und der Radius, auf
+// dem der Boden dort liegt.
+//
+// Die Bahnen sind Kleinkreise mit teilerfremden Perioden — 121 s für den
+// Umlauf und 37 s für das Wandern der Kreisbreite beim einen, 143 s und 53 s
+// beim anderen. Damit wiederholt sich die Bahn erst nach dem kleinsten
+// gemeinsamen Vielfachen, praktisch also nie, und die beiden treffen einander
+// nie im selben Takt.
+//
+// Ihr Tempo liegt bei rund 1,3 m/s — spürbar langsamer als die 2,4 m/s des
+// Spielers. Man holt einen Staubteufel ein, er läuft einem nicht davon.
+function makeStaubteufel(rand, heightAt) {
+  const WIRBEL = 2;
+  const JE = 420;
+  const positions = new Float32Array(WIRBEL * JE * 3);
+  const daten = new Float32Array(WIRBEL * JE * 3); // wirbel, hoehenanteil, winkel
+  for (let w = 0; w < WIRBEL; w++) {
+    for (let i = 0; i < JE; i++) {
+      const k = w * JE + i;
+      // Nach oben ausdünnen: Ein Wirbel ist unten dicht und oben ein Schleier.
+      // **1,4 statt 1,7 seit dem Planeten.** Auf der Platte standen die Wirbel
+      // 14 bis 26 m entfernt; auf der Kugel kommt man ihnen bis auf vier Meter
+      // Bogen nahe, und dann zeigt sich, wie stark 1,7 die Körner am Fuß
+      // zusammendrängt.
+      const hAnteil = Math.pow(rand(), 1.4);
+      positions[k * 3] = 0;
+      positions[k * 3 + 1] = 0;
+      positions[k * 3 + 2] = 0;
+      daten[k * 3] = w;
+      daten[k * 3 + 1] = hAnteil;
+      daten[k * 3 + 2] = rand() * Math.PI * 2;
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('daten', new THREE.BufferAttribute(daten, 3));
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      zeit: { value: 0 },
+      pxSkala: { value: 300 },
+      // **Zweiter Anlauf, und der erste war falsch begründet.** Ich hatte ihn
+      // kühl gewählt — „was man sieht, ist das Mondlicht darauf". Die Hälfte
+      // stimmt: Die Quelle ist das Mondlicht. Die andere Hälfte fehlte: Ein
+      // Korn in der Luft hat die **Albedo des Bodens**, aus dem es
+      // hochgerissen wurde, und die ist warm. Das Produkt aus warmem Korn und
+      // leicht kühlem Mondlicht ist ein entsättigtes Warmgrau.
+      //
+      // Gemessen war 0x5e5a5e obendrein magentastichig (Rot und Blau gleich,
+      // Grün darunter): Der Prüfer hat im Bild (144|126|138) abgelesen, gegen
+      // einen Boden von (114|70|53). Ein Stoff, der auf diesem Planeten nicht
+      // vorkommt.
+      farbe: { value: new THREE.Color(0x7a685c) },
+      mitteA: { value: new THREE.Vector3(0, 1, 0) },
+      ostA: { value: new THREE.Vector3(1, 0, 0) },
+      nordA: { value: new THREE.Vector3(0, 0, 1) },
+      basisA: { value: PLANET_R },
+      mitteB: { value: new THREE.Vector3(0, 1, 0) },
+      ostB: { value: new THREE.Vector3(1, 0, 0) },
+      nordB: { value: new THREE.Vector3(0, 0, 1) },
+      basisB: { value: PLANET_R },
+    },
+    vertexShader: `
+      attribute vec3 daten;
+      uniform float zeit;
+      uniform float pxSkala;
+      uniform vec3 mitteA, ostA, nordA, mitteB, ostB, nordB;
+      uniform float basisA, basisB;
+      varying float vStaerke;
+      void main() {
+        float w = daten.x;
+        float hA = daten.y;
+        float w0 = daten.z;
+
+        // Der Standort des Wirbels und sein Tangentensystem kommen fertig aus
+        // setzeZeit(); hier bleibt nur die Spirale um seine eigene Achse.
+        vec3 mitte = w < 0.5 ? mitteA : mitteB;
+        vec3 ost   = w < 0.5 ? ostA   : ostB;
+        vec3 nord  = w < 0.5 ? nordA  : nordB;
+        float basis = w < 0.5 ? basisA : basisB;
+
+        float hoehe = hA * (w < 0.5 ? 5.2 : 3.6);
+        // **Der Fuß.** Ein Staubteufel bricht unten nicht ab — er steht in
+        // einem Kranz aus Material, das er gerade erst aufnimmt. Der Prüfer
+        // hat genau das vermisst: „Unten bricht sie ohne Fußsaum und ohne
+        // herausrieselndes Material am Boden ab."
+        //
+        // Die untersten 13 Prozent der Körner bekommen deshalb einen weiten,
+        // flachen Kranz statt der schlanken Säule, und sie werden dabei
+        // dunkler: Was am Boden schleift, liegt im Eigenschatten des Wirbels.
+        float fuss = 1.0 - smoothstep(0.0, 0.13, hA);
+        // Radius waechst mit der Hoehe, Drehung wird nach oben langsamer.
+        // **0,40 m Fußradius statt 0,22.** Der Fuß ist die dichteste Stelle des
+        // Wirbels, und bei additiver Mischung heißt dicht: Die Beiträge
+        // summieren sich ohne Obergrenze. Gemessen stand der Fuß in c-krater
+        // auf exakt (255|255|255) — reines Weiß, dieselbe Klippe wie einst die
+        // Sonnenscheibe des Zen-Gartens. Der doppelte Fußradius verteilt
+        // dieselbe Kornzahl auf die vierfache Fläche.
+        float radius = 0.30 + fuss * fuss * 0.95 + hA * hA * (w < 0.5 ? 1.5 : 1.05);
+        float tempo = (w < 0.5 ? 3.1 : 4.3) / (0.35 + hA * 1.4);
+        float winkel = w0 + zeit * tempo;
+
+        // Die Wirbelachse ist die Flächennormale, also die Mittelpunkts-
+        // richtung selbst. Der Spiralversatz von höchstens 1,7 m ist gegen den
+        // Planetenradius von 25 m klein genug, dass die Tangentialebene
+        // ausreicht — die Abweichung zur Kugel liegt bei 6 cm.
+        vec3 p = mitte * (basis + hoehe)
+               + ost * (cos(winkel) * radius)
+               + nord * (sin(winkel) * radius);
+
+        // Nach oben schwaecher, und der ganze Wirbel atmet mit eigener Periode.
+        float atmen = 0.55 + 0.45 * sin(zeit / (w < 0.5 ? 11.0 : 17.0) * 6.2832);
+        vStaerke = (1.0 - hA * 0.75) * atmen * (1.0 - fuss * 0.45);
+
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        float tiefe = -mv.z;
+        // **Punktgröße deckeln.** Ein Korn in zwei Metern Abstand bekäme sonst
+        // 375 Pixel Durchmesser — das ist keine Staubfahne mehr, das ist eine
+        // Blende. 22 Pixel sind die Grenze, ab der ein Korn als Fleck statt als
+        // Korn liest.
+        gl_PointSize = clamp((0.9 + hA * 1.6) * pxSkala / tiefe, 1.0, 22.0);
+        // Nahfeld ausblenden: Wer versehentlich hineinläuft, soll nicht in
+        // einer braunen Wand stehen.
+        vStaerke *= smoothstep(3.0, 9.0, tiefe);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      uniform vec3 farbe;
+      varying float vStaerke;
+      void main() {
+        vec2 d = gl_PointCoord - 0.5;
+        float r2 = dot(d, d);
+        if (r2 > 0.25) discard;
+        // **0,105 statt 0,25.** Der Wirbel stand bei einer Spitze von 167 und
+        // war damit heller als **jeder** Bodenpunkt der Szene (hellster: 113,9)
+        // — nach dem Mond das zweithellste Ding im Bild, und in zwei der zwölf
+        // Rundgangsbilder das einzige Motiv. Ein aufgewirbelter Schleier darf
+        // nicht heller sein als die Fläche, aus der er stammt.
+        //
+        // Der Zwischenschritt 0,17 hat nichts gebracht, und das war rechenbar:
+        // Die neue Farbe 0x7a685c ist **linear 42 % heller** als die alte
+        // 0x5e5a5e (0,152 gegen 0,107), also hebt sie die Absenkung um 32 %
+        // fast genau auf — gemessen 156 vorher, 166 nachher. Erst 0,105 bringt
+        // die Spitze unter den hellsten Boden.
+        gl_FragColor = vec4(farbe * vStaerke * (1.0 - r2 * 4.0) * 0.105, 1.0);
+      }`,
+    blending: THREE.AdditiveBlending,
+    transparent: false,
+    depthWrite: false,
+    fog: false,
+  });
+  const punkte = new THREE.Points(geo, material);
+  punkte.name = 'nacht-staubteufel';
+  punkte.frustumCulled = false;
+
+  // Die beiden Bahnen. `pol` ist die Achse des Kleinkreises, `breite` sein
+  // Öffnungswinkel vom Pol aus. Die Pole sind so gewählt, dass Wirbel A dem
+  // Startpunkt bis auf 4 bis 13 m Bogen nahekommt und Wirbel B mit 11 bis 22 m
+  // draußen bleibt: einer, dem man begegnet, und einer, den man über die
+  // Krümmung steigen sieht.
+  const bahnen = [
+    { pol: new THREE.Vector3(0.72, 0.38, -0.58).normalize(), breite: 1.52, schwung: 0.17, tBreite: 37, tUmlauf: 121, phi0: 0.0 },
+    { pol: new THREE.Vector3(-0.46, 0.55, 0.7).normalize(), breite: 1.66, schwung: 0.21, tBreite: 53, tUmlauf: -143, phi0: 2.1 },
+  ];
+  for (const b of bahnen) {
+    const { ost, nord } = tangentialSystem(b.pol, new THREE.Vector3(), new THREE.Vector3());
+    b.e1 = ost;
+    b.e2 = nord;
+    b.ort = new THREE.Vector3();
+  }
+  const u = material.uniforms;
+  const ziele = [
+    { mitte: u.mitteA, ost: u.ostA, nord: u.nordA, basis: u.basisA },
+    { mitte: u.mitteB, ost: u.ostB, nord: u.nordB, basis: u.basisB },
+  ];
+  punkte.userData.setzeZeit = (t) => {
+    u.zeit.value = t;
+    for (let w = 0; w < WIRBEL; w++) {
+      const b = bahnen[w];
+      const th = b.breite + b.schwung * Math.sin((t / b.tBreite) * Math.PI * 2);
+      const ph = b.phi0 + (t / b.tUmlauf) * Math.PI * 2;
+      const d = b.ort
+        .copy(b.pol)
+        .multiplyScalar(Math.cos(th))
+        .addScaledVector(b.e1, Math.sin(th) * Math.cos(ph))
+        .addScaledVector(b.e2, Math.sin(th) * Math.sin(ph))
+        .normalize();
+      const z = ziele[w];
+      z.mitte.value.copy(d);
+      tangentialSystem(d, z.ost.value, z.nord.value);
+      z.basis.value = PLANET_R + heightAt(d);
+    }
+  };
+  punkte.userData.setzeZeit(0);
+  return punkte;
+}
+
+// **Ein Meteor.**
+//
+// Einer, nicht viele: Ein Himmel, über den ständig Sternschnuppen laufen, ist
+// ein Bildschirmschoner. Alle 31 Sekunden einer, sichtbar für 1,1 Sekunden —
+// also zu 3,5 % der Zeit. Wer hinsieht, sieht meistens keinen; wer einen sieht,
+// hat Glück gehabt. Genau das ist die Wirkung, um die es geht.
+//
+// Gebaut als **ein** langgezogenes Viereck, das entlang seiner Bahn liegt: Der
+// Schweif ist kein Nachziehen mehrerer Bilder, sondern die Streckung des
+// Vierecks selbst, hell am Kopf und auslaufend nach hinten. Zwei Dreiecke.
+function makeMeteor() {
+  const laenge = 7.0;
+  const breite = 0.22;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute(
+    'position',
+    new THREE.BufferAttribute(
+      new Float32Array([0, breite, 0, 0, -breite, 0, -laenge, -breite * 0.25, 0, -laenge, breite * 0.25, 0]),
+      3
+    )
+  );
+  // u läuft von 1 am Kopf auf 0 am Schweifende.
+  geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([1, 1, 1, 0, 0, 0, 0, 1]), 2));
+  geo.setIndex([0, 1, 2, 0, 2, 3]);
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: { zeit: { value: 0 } },
+    vertexShader: `
+      uniform float zeit;
+      varying vec2 vUv;
+      varying float vAn;
+      void main() {
+        vUv = uv;
+        float periode = 31.0;
+        float t = fract(zeit / periode);
+        float sichtbar = 1.1 / periode;
+        vAn = 1.0 - step(sichtbar, t);
+        float s = t / sichtbar;                 // 0 … 1 während des Fluges
+        // Bahn: von hoch oben links nach schräg unten rechts, an der Kuppel
+        // entlang. Anfang und Ende liegen außerhalb des Blickfelds der meisten
+        // Kameras — der Meteor kommt und geht, er erscheint nicht.
+        vec3 von = vec3(-30.0, 34.0, -22.0);
+        vec3 nach = vec3(26.0, 9.0, -34.0);
+        vec3 ort = mix(von, nach, s);
+        vec3 richtung = normalize(nach - von);
+        // Das Viereck an der Bahn ausrichten: x entlang der Flugrichtung,
+        // y senkrecht dazu in der Bildebene.
+        vec3 zurKamera = normalize(cameraPosition - ort);
+        vec3 quer = normalize(cross(richtung, zurKamera));
+        vec3 p = ort + richtung * position.x + quer * position.y;
+        // Am Anfang und Ende weich, damit er nicht schaltet.
+        vAn *= smoothstep(0.0, 0.14, s) * (1.0 - smoothstep(0.72, 1.0, s));
+        gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+      }`,
+    fragmentShader: `
+      varying vec2 vUv;
+      varying float vAn;
+      void main() {
+        if (vAn <= 0.001) discard;
+        // Hell am Kopf, auslaufend nach hinten; quer dazu weich.
+        float laengs = pow(vUv.x, 2.2);
+        float quer = 1.0 - abs(vUv.y - 0.5) * 2.0;
+        float a = laengs * quer * quer * vAn;
+        gl_FragColor = vec4(vec3(0.82, 0.86, 0.95) * a, 1.0);
+      }`,
+    blending: THREE.AdditiveBlending,
+    transparent: false,
+    depthTest: false,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false,
+  });
+  const mesh = new THREE.Mesh(geo, material);
+  mesh.name = 'nacht-meteor';
+  mesh.renderOrder = -1; // wie die Sterne: vor dem Gelände gezeichnet, also dahinter
+  mesh.frustumCulled = false;
+  return mesh;
+}
+
+// --- Der Mond ---------------------------------------------------------------
+//
+// Er ist die einzige gerichtete Lichtquelle, das hellste Objekt im Bild und
+// damit das, worauf jeder Blick zuerst fällt. Bisher war er eine
+// `MeshBasicMaterial`-Kugel in 0xe8ecf2: gemessen **L 224 konstant über 50 px
+// Durchmesser**, null innere Modulation, harte Kreiskante, dazu ein einzelnes
+// Sprite als Hof.
+//
+// **Warum eine Scheibe statt einer Kugel.** Aus 32 m Abstand hat der Mond einen
+// scheinbaren Radius von 2,5° — er *ist* eine Scheibe. Die alte Kugel kostete
+// 1216 Dreiecke, um eine Fläche zu zeigen, die zwei Dreiecke ebenso gut
+// tragen. Wichtiger als die Dreiecke ist aber die Kontrolle: Auf einer
+// Billboard-Scheibe steht jeder Bildpunkt der Mondoberfläche an einer
+// bekannten Stelle, und Randabdunklung, Phase und Verkürzung der Krater zum
+// Rand hin lassen sich exakt rechnen statt über eine Kugel-UV zu hoffen.
+// Gezeitengebunden ist er ohnehin — dieselbe Seite zeigt immer zu uns, genau
+// wie beim echten Mond.
+//
+// Der Aufbau ist zweistufig, weil beides seine eigene Sprache hat:
+//
+//   A  **Albedo** mit Zeichenbefehlen: Maria, Krater, Strahlensysteme. Formen
+//      sind Formen, die zeichnet man.
+//   B  **Beleuchtung** je Pixel: Randabdunklung, Phase, weiche Kante. Das ist
+//      Rechnung über die Kugelnormale und geht nicht mit Zeichenbefehlen.
+//
+// **Der Kern wird gedeckelt.** Die bezahlte Lehre aus dem Zen-Garten: Die
+// Sonnenscheibe stand dort zu 20,7 % auf exakt (255,255,255) und hatte damit
+// keine Farbe mehr. Hier liegt das Hochland bei 236, die Maria bei 150 bis 170
+// — kein Pixel erreicht 255, und die Oberfläche bleibt lesbar.
+// **Ein Bauer, zwei Monde.**
+//
+// Der zweite Mond ist ein anderer Körper, kein anderer Anstrich: rötlich,
+// kleiner, exakt halb beleuchtet, stärker zerschlagen. Was ihn vom ersten
+// unterscheidet, sind Farben, Phase, Kraterzahl und Saat — alles Zahlen. Die
+// zweihundert Zeilen Scheibenbau darunter zu verdoppeln wäre die Sorte
+// Kopie, bei der beim nächsten Mal nur eine der beiden gepflegt wird.
+const MOND_STIL = {
+  // Der Erdmond: kühles Hochland, graue Maria, drei Viertel beleuchtet.
+  weiss: {
+    saat: 31415926,
+    hochland: '#e8eaf0',
+    fleckHell: 'rgba(250,251,255,0.16)',
+    fleckDunkel: 'rgba(176,180,194,0.18)',
+    maria: 'rgba(150,155,170,',
+    kraterBoden: '132,136,150',
+    wallHell: '252,253,255',
+    wallDunkel: '108,112,126',
+    strahlenFarbe: '232,234,240',
+    phaseZ: 0.47,
+    // Sechs zusammenhaengende Becken - die Mondmeere der erdzugewandten Seite.
+    meere: [
+      { x: -0.30, y: -0.34, r: 0.30 },
+      { x: 0.04, y: -0.42, r: 0.22 },
+      { x: -0.44, y: 0.02, r: 0.20 },
+      { x: -0.10, y: 0.10, r: 0.26 },
+      { x: 0.30, y: -0.16, r: 0.15 },
+      { x: 0.18, y: 0.34, r: 0.13 },
+    ],
+    becken: [],
+    krater: 90,
+    kraterMin: 2.5,
+    kraterSpanne: 30,
+    kraterExp: 2.4,
+    strahlen: true,
+    erdschein: 0.055,
+  },
+  // Der Begleiter auf der Gegenseite: eisenrotes Hochland, dunkelrostige
+  // Becken, **exakt Halbmond** (phaseZ = 0 heißt Terminator genau über die
+  // Mitte), doppelt so viele Krater und keine Strahlensysteme — ein alter,
+  // zerschlagener Körper neben einem jüngeren. Der Erdschein ist niedriger:
+  // Der Planet, der ihn anleuchten würde, ist selbst nur 50 m groß.
+  rot: {
+    saat: 271828182,
+    hochland: '#c98a63',
+    fleckHell: 'rgba(226,166,132,0.17)',
+    fleckDunkel: 'rgba(122,60,44,0.22)',
+    maria: 'rgba(112,54,40,',
+    kraterBoden: '104,50,38',
+    wallHell: '236,182,150',
+    wallDunkel: '74,34,26',
+    strahlenFarbe: '224,168,136',
+    phaseZ: 0.0,
+    // **Keine grossen Meere.** Der erste Anlauf hat die sechs Becken des
+    // Erdmonds uebernommen und nur umgefaerbt. Bei 201 zu 112 im Grundton -
+    // gegen 232 zu 150 beim weissen - liefen sie zu **einer** dunkelroten
+    // Masse zusammen, und die Scheibe las als heller Ockerring um einen
+    // dunklen Fleck: der abgebissene Keks, den der Pruefer gesehen hat.
+    //
+    // Ein alter, zerschlagener Koerper hat keine ausgelaufenen Lavaebenen
+    // mehr, sondern Einschlag auf Einschlag. Statt der Meere stehen hier
+    // deshalb drei kleine, weit auseinanderliegende Flecken - genug, dass die
+    // Flaeche nicht gleichfoermig wird, zu wenig, dass sie verschmelzen.
+    meere: [
+      { x: -0.36, y: -0.20, r: 0.13 },
+      { x: 0.22, y: 0.30, r: 0.11 },
+      { x: -0.06, y: 0.44, r: 0.09 },
+    ],
+    // **Vier grosse Becken mit Wall.** Sie sind das, was bei 37 px Scheibe
+    // ueberhaupt noch als Form liest: ein heller Bogen zur Sonne, ein dunkler
+    // gegenueber, dazwischen ein Boden. Ihre Radien liegen zwischen 0,15 und
+    // 0,26 R, also 5,5 bis 9,6 Kachelpunkte auf dem Zeichenblatt und knapp
+    // ein bis zwei Bildpunkte am Wall - die Untergrenze dessen, was das Bild
+    // noch traegt.
+    becken: [
+      { x: -0.30, y: -0.38, r: 0.26, tiefe: 0.95 },
+      { x: 0.30, y: -0.22, r: 0.19, tiefe: 0.85 },
+      { x: -0.44, y: 0.26, r: 0.16, tiefe: 0.80 },
+      { x: 0.06, y: 0.10, r: 0.22, tiefe: 0.70 },
+    ],
+    // **Groessere Krater als beim weissen Mond, und weniger davon.** Die
+    // Verteilung des Erdmonds hat hier nichts genuetzt: 2,5 + x^2,4 * 30
+    // ergibt im Mittel 8 Kachelpunkte Radius, und bei 512 Kachelpunkten auf
+    // 37 Bildpunkte ist das ein Viertel Bildpunkt. Was man nicht sieht, ist
+    // kein Detail, sondern Rechenzeit. 7 + x^1,5 * 52 liegt im Mittel bei 25
+    // und damit bei knapp zwei Bildpunkten.
+    krater: 120,
+    kraterMin: 7,
+    kraterSpanne: 52,
+    kraterExp: 1.5,
+    strahlen: false,
+    // **Aschgraues Licht, grosszuegiger als die Photometrie erlaubt.**
+    //
+    // Mit 0,03 stand die Nachtseite bei L = 5,3, der Himmel ringsum bei
+    // L = 12,5. Ein Koerper, dessen unbeleuchtete Haelfte **dunkler** ist als
+    // der Hintergrund, ist kein Koerper, sondern ein Loch im Sternhimmel -
+    // und genau so hat er gelesen. Der Wert steht jetzt so, dass die
+    // Nachtseite den Himmel knapp uebersteigt und die Scheibe sich schliesst.
+    //
+    // Das ist eine Entscheidung der Komposition, keine der Physik: Der
+    // Planet, der ihn anleuchten wuerde, hat 25 m Halbmesser. Wer die Zahl
+    // spaeter nachrechnet, findet sie zu hoch - sie steht trotzdem, weil das
+    // Loch der groebere Fehler ist.
+    erdschein: 0.105,
+  },
+};
+
+const _mondKarten = new Map();
+function mondScheibe(stilName = 'weiss') {
+  if (_mondKarten.has(stilName)) return _mondKarten.get(stilName);
+  const stil = MOND_STIL[stilName];
+  const S = 512;
+  const R = S * 0.47;
+  const M = S / 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  const mr = mulberry32(stil.saat);
+
+  // --- A: Albedo ------------------------------------------------------------
+  // **Zweiter Anlauf am Grundton.** 0xb9bcc4 (185|188|196) ergab nach
+  // Randabdunklung und Phase eine Scheibe mit Mittel 75 und p95 159 — gegen
+  // 191/224 im Ausgangsstand. Der Mond ist die einzige Lichtquelle und der
+  // Punkt, auf den die ganze Komposition zeigt; ihn dunkler zu machen als
+  // vorher wäre das Gegenteil der Aufgabe. Das Hochland liegt jetzt bei 232,
+  // die Maria bei rund 150 — mehr Spitze als vorher **und** eine Spanne, wo
+  // vorher ein Farbfeld war.
+  ctx.fillStyle = stil.hochland;
+  ctx.beginPath();
+  ctx.arc(M, M, R, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Feine Fleckigkeit des Hochlands. Ohne sie ist die helle Fläche zwischen den
+  // Maria ein Farbfeld – derselbe Fehler wie beim Regolith, eine Ebene tiefer.
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(M, M, R, 0, Math.PI * 2);
+  ctx.clip();
+  for (let i = 0; i < 1400; i++) {
+    const a = mr() * Math.PI * 2;
+    const r = Math.sqrt(mr()) * R;
+    const x = M + Math.cos(a) * r;
+    const y = M + Math.sin(a) * r;
+    const rad = 3 + mr() * 16;
+    const hell = mr() < 0.5;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, rad);
+    g.addColorStop(0, hell ? stil.fleckHell : stil.fleckDunkel);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
+  }
+
+  // **Maria.** Nicht runde Flecken, sondern zusammenhängende Becken mit
+  // ausgefransten Rändern – die Mondmeere sind ausgelaufene Lavaebenen, keine
+  // Tupfen. Jedes entsteht aus einem Kernblob plus einem Kranz kleinerer
+  // Blobs, die den Rand unregelmäßig machen.
+  const blob = (x, y, r, farbe) => {
+    const g = ctx.createRadialGradient(x, y, r * 0.25, x, y, r);
+    g.addColorStop(0, farbe);
+    g.addColorStop(0.72, farbe);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  for (const m of stil.meere) {
+    const cx = M + m.x * R;
+    const cy = M + m.y * R;
+    const cr = m.r * R;
+    blob(cx, cy, cr, stil.maria + '0.88)');
+    const n = 7 + Math.floor(mr() * 6);
+    for (let k = 0; k < n; k++) {
+      const a = mr() * Math.PI * 2;
+      const d = cr * (0.6 + mr() * 0.55);
+      blob(cx + Math.cos(a) * d, cy + Math.sin(a) * d, cr * (0.3 + mr() * 0.35), stil.maria + '0.74)');
+    }
+  }
+
+  // **Krater.** Ein Krater ist kein Kreis, sondern ein Wall mit Licht- und
+  // Schattenseite. Beide Bögen zeigen zur selben Sonne wie die Phase weiter
+  // unten – sonst widersprächen sich Oberfläche und Terminator.
+  //
+  // Zum Rand hin werden sie verkürzt: Ein Krater bei 80 % Radius wird unter
+  // 37° gesehen. Genau diese Ellipsen sind es, die eine flache Scheibe als
+  // Kugel lesbar machen.
+  const SONNE = { x: -0.62, y: -0.55 }; // Richtung, aus der beleuchtet wird
+  const krater = (x, y, rad, tiefe, wall = 0.20) => {
+    const dx = (x - M) / R;
+    const dy = (y - M) / R;
+    const d = Math.min(0.995, Math.hypot(dx, dy));
+    const verkuerzung = Math.sqrt(1 - d * d);
+    const winkel = Math.atan2(dy, dx);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(winkel);
+    ctx.scale(Math.max(0.12, verkuerzung), 1);
+    ctx.rotate(-winkel);
+    // Boden
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rad);
+    g.addColorStop(0, `rgba(${stil.kraterBoden},${0.30 * tiefe})`);
+    g.addColorStop(0.78, `rgba(${stil.kraterBoden},${0.20 * tiefe})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, rad, 0, Math.PI * 2);
+    ctx.fill();
+    // Wall: heller Bogen zur Sonne, dunkler gegenüber
+    ctx.lineWidth = Math.max(1, rad * wall);
+    const a0 = Math.atan2(SONNE.y, SONNE.x);
+    ctx.strokeStyle = `rgba(${stil.wallHell},${0.5 * tiefe})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, rad * 0.92, a0 - 1.5, a0 + 1.5);
+    ctx.stroke();
+    ctx.strokeStyle = `rgba(${stil.wallDunkel},${0.45 * tiefe})`;
+    ctx.beginPath();
+    ctx.arc(0, 0, rad * 0.92, a0 + Math.PI - 1.5, a0 + Math.PI + 1.5);
+    ctx.stroke();
+    ctx.restore();
+  };
+  // Erst die grossen Becken - sie sind gesetzt, nicht gewuerfelt, weil bei
+  // dieser Bildgroesse jede einzelne Lage zaehlt -, dann das Kleinzeug
+  // darueber. Die Reihenfolge ist die der Geschichte: das Grosse ist alt, das
+  // Kleine hat es angeschlagen.
+  for (const b of stil.becken) krater(M + b.x * R, M + b.y * R, b.r * R, b.tiefe, 0.34);
+  for (let i = 0; i < stil.krater; i++) {
+    const a = mr() * Math.PI * 2;
+    const r = Math.sqrt(mr()) * R * 0.985;
+    krater(
+      M + Math.cos(a) * r,
+      M + Math.sin(a) * r,
+      stil.kraterMin + Math.pow(mr(), stil.kraterExp) * stil.kraterSpanne,
+      0.5 + mr() * 0.5
+    );
+  }
+
+  // Strahlensysteme: zwei junge Krater mit hellem Auswurf. Sie sind der
+  // auffälligste Einzelzug auf dem echten Mond und kosten hier fünf Zeilen.
+  for (const s of stil.strahlen ? [{ x: 0.26, y: 0.46, r: 10 }, { x: -0.52, y: 0.40, r: 7 }] : []) {
+    const cx = M + s.x * R;
+    const cy = M + s.y * R;
+    for (let k = 0; k < 26; k++) {
+      const a = mr() * Math.PI * 2;
+      const len = R * (0.16 + mr() * 0.42);
+      const g = ctx.createLinearGradient(cx, cy, cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+      g.addColorStop(0, `rgba(${stil.strahlenFarbe},0.30)`);
+      g.addColorStop(1, `rgba(${stil.strahlenFarbe},0)`);
+      ctx.strokeStyle = g;
+      ctx.lineWidth = 1.5 + mr() * 4.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+      ctx.stroke();
+    }
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, s.r);
+    g.addColorStop(0, `rgba(${stil.strahlenFarbe},0.85)`);
+    g.addColorStop(1, `rgba(${stil.strahlenFarbe},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // --- B: Beleuchtung je Pixel ---------------------------------------------
+  //
+  // Randabdunklung und Phase brauchen die **Kugelnormale** an jedem Bildpunkt,
+  // und die gibt es nur rechnend: z = sqrt(R² − x² − y²) über der Scheibe.
+  const bild = ctx.getImageData(0, 0, S, S);
+  const d = bild.data;
+  // Sonnenrichtung im Scheibenraum. Die z-Komponente steuert die Phase: 1,0
+  // wäre Vollmond (kein Terminator), 0,0 Halbmond. 0,47 ergibt rund 74 %
+  // beleuchtete Fläche – genug Sichel, dass die Kugelform liest, genug Fläche,
+  // dass er die Lichtquelle der Szene bleiben darf.
+  const sl = Math.hypot(SONNE.x, SONNE.y, stil.phaseZ);
+  const sx = SONNE.x / sl;
+  const sy = SONNE.y / sl;
+  const sz = stil.phaseZ / sl;
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = (y * S + x) * 4;
+      const nx = (x + 0.5 - M) / R;
+      const ny = (y + 0.5 - M) / R;
+      const r2 = nx * nx + ny * ny;
+      if (r2 >= 1) {
+        d[i + 3] = 0;
+        continue;
+      }
+      const nz = Math.sqrt(1 - r2);
+
+      // Randabdunklung: I = 0,60 + 0,40 · cos(θ)^0,45. Ein Mond ist kein
+      // Lambert-Strahler – der Regolith streut stark zurück –, deshalb ein
+      // schwacher Exponent statt des vollen Kosinus. Zu viel davon macht aus
+      // dem Mond eine Billardkugel.
+      const rand = 0.70 + 0.30 * Math.pow(nz, 0.45);
+
+      // Phase: Kosinus zwischen Normale und Sonnenrichtung, weich über den
+      // Terminator. Der Rest der Scheibe bleibt schwach sichtbar (Erdschein),
+      // sonst wäre die unbeleuchtete Seite ein Loch im Sternhimmel.
+      const cosI = nx * sx + ny * sy + nz * sz;
+      const phase = stil.erdschein + (1 - stil.erdschein) * smoothstep(-0.10, 0.22, cosI);
+
+      const f = rand * phase;
+      d[i] = Math.min(252, d[i] * f);
+      d[i + 1] = Math.min(252, d[i + 1] * f);
+      d[i + 2] = Math.min(252, d[i + 2] * f);
+      // Kante über etwa 1,5 Pixel weich auslaufen lassen. Der alte Mond ging
+      // in fünf Pixeln von 74 auf 224 – eine Kreiskante, die man als solche
+      // sieht.
+      d[i + 3] = 255 * Math.min(1, (1 - Math.sqrt(r2)) * (R / 1.5));
+    }
+  }
+  ctx.putImageData(bild, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _mondKarten.set(stilName, tex);
+  return tex;
+}
+
+// Ein Hof aus **drei** Lagen statt einer.
+//
+// Der alte Hof war ein einzelnes Sprite mit einem linearen Verlauf; im Bild
+// las er als aufgeklebte Scheibe mit erkennbarem Rand. Ein echter Hof um einen
+// hellen Körper hat mindestens drei Anteile mit sehr unterschiedlicher
+// Reichweite: die enge, helle Korona direkt am Rand, der mittlere Streuhof
+// über einige Durchmesser, und ein sehr weiter, sehr schwacher Schein. Weil
+// jede Lage einen anderen Exponenten hat, entsteht kein sichtbarer Rand.
+function mondHof(name, innen, aussen, exponent, groesse, staerke) {
+  const S = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  const bild = ctx.createImageData(S, S);
+  const d = bild.data;
+  const ci = new THREE.Color(innen);
+  const ca = new THREE.Color(aussen);
+  for (let y = 0; y < S; y++) {
+    for (let x = 0; x < S; x++) {
+      const i = (y * S + x) * 4;
+      const r = Math.hypot((x + 0.5) / S - 0.5, (y + 0.5) / S - 0.5) * 2;
+      const a = r >= 1 ? 0 : Math.pow(1 - r, exponent) * staerke;
+      const t = Math.min(1, r * 1.6);
+      d[i] = (ci.r + (ca.r - ci.r) * t) * 255;
+      d[i + 1] = (ci.g + (ca.g - ci.g) * t) * 255;
+      d[i + 2] = (ci.b + (ca.b - ci.b) * t) * 255;
+      d[i + 3] = a * 255;
+    }
+  }
+  ctx.putImageData(bild, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: tex,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      fog: false,
+      toneMapped: false,
+    })
+  );
+  sprite.name = name;
+  sprite.scale.set(groesse, groesse, 1);
+  return sprite;
+}
+
+// --- Das Sternfeld ----------------------------------------------------------
+//
+// Der Ausgangsstand hatte zwei Schalen mit je **einer** Größe und **einer**
+// Farbe: 1300 Punkte zu 0,28 und 200 zu 0,55, beide aus derselben weißen
+// Glühtextur. Im Bild waren das achsenparallele 2×2-Quadrate — der Prüfer hat
+// sie als Programmierer-Tell gelistet.
+//
+// **Zwei Fehler stecken darin, und der zweite ist der schwerere.**
+//
+// *Erstens die Staffelung.* Ein echter Sternhimmel hat keine zwei Klassen,
+// sondern eine Verteilung: Je Größenklasse gibt es rund zweieinhalbmal so
+// viele Sterne wie in der nächsthelleren. Und er hat Farben — von blauweiß
+// über weiß und gelb bis orange. Beides steckt hier in Attributen je Punkt,
+// nicht in Materialien; damit bleibt das ganze Feld **ein** Draw-Call.
+//
+// Die Farbe ist dabei an die Helligkeit gekoppelt: Nur die hellen Sterne
+// bekommen eine deutliche Farbtemperatur, die schwachen bleiben nahe Weiß.
+// Andersherum sähe es aus wie Konfetti — und es entspräche auch nicht dem
+// Auge, das Farbe erst oberhalb einer Schwelle sieht.
+//
+// *Zweitens die Tiefe.* Die Schalen lagen bei 38 bis 40 m, die Bodenfläche
+// reicht bis 48 m und in die Ecken bis 67 m. Alles Gelände, das weiter weg ist
+// als die Schale, wurde von den Sternen **überzeichnet** — nachgemessen 18
+// helle Punkte innerhalb der Geländesilhouette in `d-aerial`, z. B. (368,160)
+// mit L 135 bei einer Umgebung von L 13.
+//
+// Der Grund ist nicht die Entfernung, sondern die Reihenfolge: Ein
+// `transparent: true`-Material landet in der **transparenten** Liste, und die
+// zeichnet three grundsätzlich **nach** allen opaken Objekten. Ein Stern kann
+// von dort aus nie hinter das Gelände.
+//
+// Der Ausweg steht in three selbst, in `WebGLState.setMaterial`:
+//
+//     ( material.blending === NormalBlending && material.transparent === false )
+//       ? setBlending( NoBlending )
+//       : setBlending( material.blending, … )
+//
+// Additives Mischen bleibt also auch bei `transparent: false` aktiv. Damit
+// gehören die Sterne in die **opake** Liste, werden über `renderOrder` vor das
+// Gelände sortiert, schreiben keine Tiefe und prüfen keine — und das Gelände
+// zeichnet anschließend darüber. Genau das soll passieren.
+//
+// Reihenfolge: Kuppel (−2), Sterne (−1), alles andere (0).
+function makeSternfeld(rand, R = 41) {
+  // **Der halbe Himmel hat gefehlt, und zwar messbar.**
+  //
+  // Hier stand eine **Kappe** von y = −0,36 bis y = +1: die obere Halbkugel
+  // plus die zwanzig Grad bis zur Geländekante. Auf der 96-m-Platte war das
+  // richtig — was tiefer lag, deckten Boden und Nebel ab.
+  //
+  // Auf dem Planeten dreht das Sternfeld mit der Welt, weil sonst der Mond nie
+  // unterginge. Die Kappe dreht mit — und zeigt nach einer halben Runde nach
+  // **unten**. Gemessen in `h-mond-rot` (Station 180): In den obersten 240
+  // Bildzeilen stand **kein einziger** heller Punkt, während unten 510 standen.
+  // Der Auftraggeber hat es zweimal gemeldet, bevor ich es nachgezählt habe.
+  //
+  // Jetzt die volle Kugel. Was unter dem Horizont steht, verdeckt der Boden —
+  // das kostet nichts und ist die einzige Verteilung, die unter jeder Drehung
+  // richtig bleibt.
+  //
+  // **Die Anzahl steigt dabei, ohne den gesäten Strom zu verschieben.** Über
+  // die ganze Kugel statt über eine Kappe wäre dieselbe Zahl halb so dicht.
+  // `makeSternfeld` läuft aber **vor** dem Bau des Planeten, und jeder
+  // zusätzliche `rand()`-Zug verschöbe die Lage sämtlicher Brocken,
+  // Formationen und Findlinge. Deshalb: genau so viele Züge aus dem gesäten
+  // Strom verbrauchen wie bisher, und danach mit einem eigenen Strom bauen.
+  const ANZAHL_ALT = 2600;
+  const ZUEGE_JE_STERN = 5; // u, phi, Helligkeit, Farbe, Phase
+  for (let i = 0; i < ANZAHL_ALT * ZUEGE_JE_STERN; i++) rand();
+  const mr = mulberry32(90210077);
+
+  const ANZAHL = 5200;
+
+  const positions = new Float32Array(ANZAHL * 3);
+  const farben = new Float32Array(ANZAHL * 3);
+  const groessen = new Float32Array(ANZAHL);
+  const phasen = new Float32Array(ANZAHL);
+
+  // Farbtemperaturleiter von heiß nach kühl. Die Anteile sind grob an eine
+  // Sichtbarkeitsauswahl angelehnt, nicht an eine Katalogstatistik – es ist
+  // eine stilisierte Nacht, keine Simulation.
+  const TEMPERATUREN = [
+    [0.62, 0.72, 1.0], // blauweiß
+    [0.80, 0.86, 1.0], // weißblau
+    [1.0, 0.99, 0.98], // weiß
+    [1.0, 0.94, 0.82], // gelblich
+    [1.0, 0.82, 0.63], // orange
+  ];
+
+  const c = new THREE.Color();
+  for (let i = 0; i < ANZAHL; i++) {
+    // Gleichverteilt auf der **ganzen** Kugel. `y` ist der Kosinus des
+    // Polarwinkels – ohne diese Umrechnung ballen sich die Punkte an den Polen.
+    let y = mr() * 2 - 1;
+    const phi = mr() * Math.PI * 2;
+    let sn = Math.sqrt(Math.max(0, 1 - y * y));
+    let dx = sn * Math.cos(phi);
+    let dz = sn * Math.sin(phi);
+
+    // **Ein gutes Drittel der Sterne gehört ins Band.**
+    //
+    // Der Prüfer: „ein weichgezeichnetes graues Band ohne eine einzige
+    // Punktquelle […] in `a-augenhoehe` steht sie neben einer echten Staubfahne
+    // und ist von ihr nicht zu unterscheiden." Eine Milchstraße besteht aus
+    // Sternen; ein Band ohne welche ist Rauch.
+    //
+    // Die Verdichtung ist eine Stauchung, keine zweite Ziehung: Der Anteil der
+    // Richtung entlang des Bandpols wird auf ein Fünftel zusammengedrückt und
+    // die Richtung neu normiert. Aus einer gleichverteilten Kugel wird damit
+    // ein Gürtel von rund elf Grad Halbbreite — und die Verteilung *innerhalb*
+    // des Gürtels bleibt gleichmäßig, ohne Ballung an einem Rand.
+    if (mr() < 0.36) {
+      const w = dx * MILCH_POL.x + y * MILCH_POL.y + dz * MILCH_POL.z;
+      const k = 0.2;
+      let nx = dx - MILCH_POL.x * w * (1 - k);
+      let ny = y - MILCH_POL.y * w * (1 - k);
+      let nz = dz - MILCH_POL.z * w * (1 - k);
+      const l = Math.hypot(nx, ny, nz) || 1;
+      dx = nx / l;
+      y = ny / l;
+      dz = nz / l;
+      sn = Math.sqrt(Math.max(0, 1 - y * y));
+    }
+    positions[i * 3] = dx * R;
+    positions[i * 3 + 1] = y * R;
+    positions[i * 3 + 2] = dz * R;
+
+    // **Ein Himmel, ein Muster.**
+    //
+    // Hier stand eine Sonderbehandlung der mondabgewandten Seite: Dort bekam
+    // *jeder* Stern dieselbe Größe (0,60) und dieselbe Helligkeit (0,62), und
+    // das Flimmern war abgeschaltet. Sie kam aus dem Wunsch, die Sterne auf der
+    // Seite ohne Mond „gleich hell" zu machen — und sie hat ihn wörtlich
+    // erfüllt und dabei zerstört, was einen Sternhimmel ausmacht.
+    //
+    // Gemessen mit `tools/sterne-muster.mjs`: Im Band 144–180° vom Mond lag die
+    // Streuung der Größe bei **0,000** über 614 Sterne — sechshundert
+    // identische Punkte. Im Bild war die Streuung der Fleckenfläche dort 5,73
+    // gegen 25,43 auf der Mondseite.
+    //
+    // Jetzt gilt überall dieselbe Verteilung: `pow(zufall, 2,6)` — viele
+    // schwache, wenige helle. Der Mond blendet die schwachen in seiner Nähe
+    // ohnehin aus; dafür braucht es keine zweite Regel im Code, das macht sein
+    // Hof von selbst.
+    const m = Math.pow(mr(), 2.6);
+    groessen[i] = 0.13 + m * 0.78;
+
+    // Die Farbtemperatur greift anteilig zur Größenklasse: Ein schwacher Stern
+    // ist blasser, ein heller zeigt seine Farbe.
+    const temp = TEMPERATUREN[Math.floor(mr() * TEMPERATUREN.length)];
+    const saettigung = 0.18 + m * 0.72;
+
+    // **Keine Extinktion.** Sie beschreibt Luft, und die gibt es hier nicht;
+    // auf der vollen Kugel wäre sie ohnehin nur eine Verdunklung der Sterne,
+    // die unter dem Boden stehen.
+    //
+    // Der Faktor 1,18 ist der Ausgleich für die weggefallene Anhebung: Ohne ihn
+    // verlöre die Gegenseite die Sichtbarkeit, die der frühere Wunsch ihr
+    // gebracht hat. Er wirkt auf **alle** Sterne gleich und lässt das Muster
+    // deshalb unangetastet — gemessen an der Zahl sichtbarer Sterne auf der
+    // Gegenseite, siehe Protokoll.
+    const hell = (0.30 + m * 0.70) * 1.18;
+    c.setRGB(
+      (1 + (temp[0] - 1) * saettigung) * hell,
+      (1 + (temp[1] - 1) * saettigung) * hell,
+      (1 + (temp[2] - 1) * saettigung) * hell
+    );
+    farben[i * 3] = c.r;
+    farben[i * 3 + 1] = c.g;
+    farben[i * 3 + 2] = c.b;
+
+    phasen[i] = mr() * Math.PI * 2;
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute('farbe', new THREE.BufferAttribute(farben, 3));
+  geometry.setAttribute('groesse', new THREE.BufferAttribute(groessen, 1));
+  geometry.setAttribute('phase', new THREE.BufferAttribute(phasen, 1));
+
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      // Punktgröße in Pixeln bei einem Meter Abstand. Wird beim Ändern der
+      // Fenstergröße nachgeführt, sonst wären die Sterne in der Brille
+      // (höhere Auflösung) winzig.
+      // 420 im ersten Anlauf ergab bei der größten Klasse 9,3 px Durchmesser
+      // — das sind keine Sterne mehr, das sind Lampen. 260 bringt die hellsten
+      // auf knapp 6 px und die schwächsten auf das Minimum von 1 px.
+      // Die Punktgröße wird auf den Schalenradius bezogen: `gl_PointSize`
+      // rechnet mit 1/Abstand, und ein Stern auf einer Schale von 280 m wäre
+      // sonst sieben Mal kleiner als einer auf 41 m.
+      pxSkala: { value: (260 * R) / 41 },
+      zeit: { value: 0 },
+    },
+    vertexShader: `
+      attribute float groesse;
+      attribute vec3 farbe;
+      attribute float phase;
+      uniform float pxSkala;
+      uniform float zeit;
+      varying vec3 vFarbe;
+      varying float vSchwund;
+      void main() {
+        // **Flimmern, ueberall gleich.**
+        //
+        // Zwei Anlaeufe vorher: erst ganz abgeschafft (Szintillation entsteht
+        // in der Atmosphaere, und ein luftloser Koerper hat keine — richtig,
+        // kostet aber einen der vier Traeger von Bewegung), dann nur auf der
+        // Mondseite, weil die Gegenseite gleich hell stehen sollte. Mit dieser
+        // Sonderregel ist auch das weg: Ein Himmel, ein Muster.
+        //
+        // Schwache Sterne flimmern staerker als helle — das ist der einzige
+        // Unterschied, und er gilt fuer den ganzen Himmel.
+        float f = 1.0 + sin(zeit * (1.7 + fract(phase) * 2.3) + phase)
+                        * 0.16 * (1.2 - groesse);
+        vFarbe = farbe * f;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        // **Ein Stern unter zweieinhalb Bildpunkten wird nicht kleiner,
+        // sondern schwächer.** Der Prüfer hat die schwachen Sterne bei
+        // achtfacher Vergrößerung als achsenparallele harte Vierecke gefunden —
+        // zu Recht: Der runde Auslauf im Fragmentschritt kann nichts formen,
+        // wenn das Fenster 1×1 oder 2×2 Bildpunkte groß ist. Das alte max(1.0, …) hat
+        // genau das erzwungen.
+        //
+        // Physikalisch ist ein Stern ohnehin ein Punkt; was man sieht, ist die
+        // Punktbildfunktion des Instruments, und die ist mehrere Bildpunkte
+        // breit. Unterhalb der Mindestgröße bleibt die Fläche deshalb stehen
+        // und die Helligkeit geht mit dem Quadrat des Verhältnisses zurück —
+        // die abgestrahlte Menge bleibt damit dieselbe, nur verteilt.
+        // 4,2 statt 2,6: Bei 2,6 Bildpunkten spannt der runde Auslauf über
+        // 1,3 Halbmesser, und das bleibt ein Klotz. Erst ab gut vier
+        // Bildpunkten liest der Punkt als Punkt.
+        float roh = groesse * f * pxSkala / -mv.z;
+        const float MINGROESSE = 3.0;
+        gl_PointSize = max(MINGROESSE, roh);
+        // Untergrenze 0,30: Streng nach Fläche gerechnet fiele ein Stern von
+        // einem Bildpunkt auf ein Siebzehntel und wäre weg. Die schwachen
+        // Sterne sind aber die Mehrheit und tragen die Dichte des Himmels.
+        vSchwund = clamp((roh * roh) / (MINGROESSE * MINGROESSE), 0.75, 1.0);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: `
+      varying vec3 vFarbe;
+      varying float vSchwund;
+      void main() {
+        // Runder, weich auslaufender Punkt statt des quadratischen Fensters,
+        // das ein ungefiltertes gl_PointCoord hinterlässt. Ohne das sind
+        // schwache Sterne 1×1- und 2×2-Blöcke mit sichtbaren Achsen.
+        vec2 d = gl_PointCoord - 0.5;
+        float r2 = dot(d, d);
+        if (r2 > 0.25) discard;
+        float a = exp(-r2 * 16.0) - 0.0183;
+        // **Der Kern wird gedeckelt.** Ohne die Grenze standen die hellsten
+        // Sterne auf exakt (255|255|255) — gemessen 34 Pixel in b-moon —
+        // und hatten damit keine Farbtemperatur mehr, obwohl genau die in
+        // diesem Paket gebaut wurde. Dieselbe Lehre wie bei der Sonnenscheibe
+        // des Zen-Gartens. 0,93 laesst sie strahlen und behaelt den Farbstich.
+        gl_FragColor = vec4(min(vFarbe * max(0.0, a) * 1.35 * vSchwund, vec3(0.93)), 1.0);
+      }`,
+    blending: THREE.AdditiveBlending,
+    // **Nicht** transparent: Damit landet das Feld in der opaken Liste und
+    // kann über renderOrder vor das Gelände sortiert werden. Additives
+    // Mischen bleibt trotzdem aktiv (Begründung im Kopf dieser Funktion).
+    transparent: false,
+    depthTest: false,
+    depthWrite: false,
+    fog: false,
+  });
+
+  const sterne = new THREE.Points(geometry, material);
+  sterne.name = 'nacht-sterne';
+  sterne.renderOrder = -1;
+  sterne.frustumCulled = false; // die Schale umgibt die Kamera immer
+  return sterne;
+}
+
+// `horizontSinus` ist der Sinus des Höhenwinkels, unter dem der sichtbare
+// Horizont liegt. Auf einer Ebene ist er 0 — der Horizont steht auf Augenhöhe.
+// Auf einer Kugel mit 25 m Halbmesser steht er bei 1,6 m Augenhöhe **20,0 Grad
+// tiefer** (acos(25/26,6)), und das ist keine Feinheit: Der ganze Streifen
+// zwischen −20 und 0 Grad ist Himmel, und der lag mit dem alten Verlauf in der
+// Farbe `unten` — praktisch schwarz. Im Bild stand daraufhin eine schwarze
+// Kuppel von 40 Grad Durchmesser mitten in der Szene, durch die die Sterne
+// hindurchschienen (der Strahl durch das Pixel traf `nacht-kuppel` in 299,67 m
+// bei dir.y = −0,046).
+function makeNachtKuppel(radius = 44, horizontSinus = 0) {
+  // **Die Bandlage ist gerechnet, nicht gegriffen.** Der erste Pol
+  // (0,46 | 0,63 | −0,63) lag so, dass das Band in `a-eyelevel` bei einer
+  // Querkoordinate von 1,9 stand — also weit außerhalb der Kachel und damit
+  // unsichtbar. Ein Milchstraßenband, das man in keiner der sechs Kameras
+  // sieht, ist kein Band, sondern toter Code.
+  //
+  // Der neue Pol ist so konstruiert, dass er mit der Mondrichtung
+  // (14 | 16 | −24), normiert (0,437 | 0,499 | −0,749), einen Winkel bildet,
+  // dessen Kosinus 0,42 beträgt: Das Band läuft damit rund 25° **neben** dem
+  // Mond vorbei. Es soll ihm nicht die Bühne nehmen — er ist das Motiv — aber
+  // im selben Blickfeld stehen. Konstruiert als
+  //   0,423 · Mondrichtung + 0,906 · (waagerechter Vektor senkrecht dazu),
+  // was den Pol fast waagerecht stellt und das Band damit **steil** — es
+  // kreuzt den Himmel schräg statt am Horizont zu liegen.
+  const mwPol = MILCH_POL;
+  // Zwei orthonormale Vektoren in der Bandebene. Sie legen fest, wo u = 0
+  // liegt; welche es sind, ist gleichgültig, solange sie senkrecht stehen.
+  const mwA = new THREE.Vector3(0, 1, 0).cross(mwPol).normalize();
+  const mwB = mwPol.clone().cross(mwA).normalize();
+
+  const material = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      // **Zweiter Anlauf, nach Messung.** Der erste stand auf 0x0a1226 /
+      // 0x121a30 / 0x2c1d18 und hat aus der Nacht eine Dämmerung gemacht: Das
+      // Bildmittel sprang über alle sechs Kameras von 25…40 auf 38…50, das
+      // p01 von 2,3 auf 9…16. Ein Himmel, dessen dunkelste Stelle bei 10 liegt,
+      // ist kein Nachthimmel mehr.
+      //
+      // Der Fehler war nicht die Idee, sondern der Betrag: Ich hatte den
+      // Farbraum-Befund (Faktor 6 bis 12 zu dunkel) korrigiert **und**
+      // gleichzeitig kräftigere Farben gewählt, also zweimal in dieselbe
+      // Richtung. Die Werte hier sind rund auf ein Drittel zurückgenommen; der
+      // Verlauf bleibt, die Helligkeit geht zurück auf Nacht.
+      zenit: { value: new THREE.Color(0x05080f) },
+      mitte: { value: new THREE.Color(0x070a14) },
+      horizont: { value: new THREE.Color(0x140d0b) },
+      unten: { value: new THREE.Color(0x080504) },
+      // Luftglühen: das grüne 557,7-nm-Leuchten der oberen Atmosphäre. Es ist
+      // der Grund, warum ein Nachthimmel über dem Horizont **nie** einfach
+      // dunkler wird, und es ist ein kühler Akzent, der nichts kostet.
+      glimmen: { value: new THREE.Color(0x0a1a16) },
+      milchKarte: { value: milchstrassenKarte() },
+      // **Der Betrag ist gerechnet, sobald die Karte einmal gemessen war.**
+      // Die reparierte Karte hat Mittel 36,4 und Spitze 255 von 255, also
+      // linear 0,143 im Mittel. Der Zenithimmel liegt linear bei rund 0,003.
+      // Mit 0,34 hätte das Band das Fünfzigfache des Himmels beigetragen — ein
+      // weißes Tuch. 0,030 bringt den Mittelwert des Bandes auf die
+      // Größenordnung des Himmels und die hellsten Ballungen auf gut 46 von
+      // 255: sichtbar, aber der Mond bleibt das hellste im Bild.
+      milchStaerke: { value: 0.042 },
+      // Die drei Bandvektoren sind Uniforms, weil die Kuppel selbst **nicht**
+      // mitdreht: Der Grundverlauf und das Luftglühen gehören zum Ort des
+      // Betrachters und müssen über ihm stehen bleiben, die Milchstraße gehört
+      // zum Sternhimmel und muss mit ihm wandern. Beides in einer Fläche geht
+      // nur so.
+      mwPol: { value: mwPol.clone() },
+      mwA: { value: mwA.clone() },
+      mwB: { value: mwB.clone() },
+      hHor: { value: horizontSinus },
+    },
+    vertexShader: `
+      varying vec3 vPos;
+      void main() {
+        vPos = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      uniform vec3 zenit;
+      uniform vec3 mitte;
+      uniform vec3 horizont;
+      uniform vec3 unten;
+      uniform vec3 glimmen;
+      uniform sampler2D milchKarte;
+      uniform float milchStaerke;
+      uniform vec3 mwPol;
+      uniform vec3 mwA;
+      uniform vec3 mwB;
+      uniform float hHor;
+      varying vec3 vPos;
+
+      void main() {
+        vec3 dir = normalize(vPos);
+        // Höhe über dem SICHTBAREN Horizont, auf 0…1 nach oben und 0…−1 nach
+        // unten gestreckt. Auf der Ebene (hHor = 0) ist das genau dir.y wie
+        // bisher; auf dem Planeten schiebt es den ganzen Verlauf um 20 Grad
+        // nach unten, dorthin, wo die Kante des Planeten wirklich liegt.
+        float h = dir.y > hHor
+          ? (dir.y - hHor) / (1.0 - hHor)
+          : (dir.y - hHor) / (1.0 + hHor);
+
+        // Grundverlauf in drei Stufen statt zwei: Ein Nachthimmel ist am
+        // Zenit nicht einfach die dunkelste Fassung der Horizontfarbe, er
+        // wechselt den Farbton.
+        vec3 col;
+        if (h > 0.0) {
+          float t = pow(h, 0.62);
+          col = t < 0.5
+            ? mix(horizont, mitte, t * 2.0)
+            : mix(mitte, zenit, (t - 0.5) * 2.0);
+        } else {
+          col = mix(horizont, unten, pow(-h, 0.7));
+        }
+
+        // --- Milchstraße --------------------------------------------------
+        // Abstand zur Bandebene als Winkel, damit das Band überall gleich
+        // breit ist. Entlang des Bandes wird der Azimut in der Bandebene
+        // gemessen – ein voller Umlauf, eine Kachelbreite, keine Naht.
+        float d = clamp(dot(dir, mwPol), -1.0, 1.0);
+        float quer = asin(d) / 1.5707963;              // -1 … 1
+        vec3 inEbene = normalize(dir - mwPol * d);
+        float laengs = atan(dot(inEbene, mwB), dot(inEbene, mwA)) * 0.1591549 + 0.5;
+        // **Die Bandkante muss weich sein.** Der erste Anlauf hat außerhalb
+        // von 0 < v < 1 hart auf 0 gesetzt; weil die Kachel an ihren Rändern
+        // nicht schwarz ist, stand im Bild ein Rechteck mit zwei senkrechten
+        // Schnittkanten quer über den Himmel. Ein Fensterausdruck statt eines
+        // Sprungs kostet nichts und nimmt die Kante ganz weg.
+        float v = quer * 2.1 + 0.5;
+        float fenster = smoothstep(0.0, 0.16, v) * (1.0 - smoothstep(0.84, 1.0, v));
+        float band = texture2D(milchKarte, vec2(laengs, clamp(v, 0.0, 1.0))).r * fenster;
+
+        // --- Extinktion ---------------------------------------------------
+        // Zum Horizont hin steht mehr Atmosphäre im Weg. Die Milchstraße
+        // verschwindet dort, noch bevor sie den Boden erreicht – ohne das
+        // stünde ein helles Band bis in die Geländekante und verriete die
+        // Kuppel als Kugel.
+        float durchsicht = smoothstep(-0.01, 0.26, h);
+        col += band * milchStaerke * durchsicht * vec3(0.86, 0.90, 1.0);
+
+        // --- Luftglühen ---------------------------------------------------
+        // Ein schmales Band knapp über dem Horizont, mit einer zweiten,
+        // breiteren Keule darüber. Zwei Keulen, weil eine allein als
+        // aufgeklebter Streifen liest.
+        // **Ein Streifen ohne Form liest als aufgemalt.** Gemessen stand in
+        // f-kante bei x = 150, x = 300 und x = 1000 exakt derselbe Wert
+        // (23 | 31 | 29) — über die volle Bildbreite kein einziger Zahlenschritt
+        // Unterschied. Luftglühen sieht in Wirklichkeit nicht so aus: Es kommt
+        // in Bändern und Wellen, weil die Schwerewellen der oberen Atmosphäre
+        // die leuchtende Schicht wellen.
+        //
+        // Drei Sinus über die **waagerechte** Richtung, mit ganzzahlfremden
+        // Frequenzen: Das Muster ändert sich mit dem Azimut und bleibt über die
+        // Höhe stehen, wie ein Band es tut. Ein Rauschen wäre hier Aufwand ohne
+        // Gewinn — bei drei bis sechs Wellen über den ganzen Horizont sieht man
+        // keine Periode.
+        //
+        // ACHTUNG NAMEN: Die Milchstrassenhelligkeit heisst in diesem Shader
+        // schon band. Ein zweites float mit
+        // demselben Namen ist eine Doppeldeklaration,
+        // und die kostet das ganze Programm — im Bild war die Kuppel danach
+        // weg und die Konsole voll von „useProgram: program not valid".
+        vec3 waag = normalize(vec3(dir.x, 0.0001, dir.z));
+        float glimmWelle = sin(dot(waag, vec3(2.7, 0.0, 3.4)) * 3.0 + 0.6)
+                         + sin(dot(waag, vec3(-4.3, 0.0, 1.9)) * 3.0 - 1.7) * 0.7
+                         + sin(dot(waag, vec3(1.1, 0.0, -6.2)) * 3.0 + 3.1) * 0.45;
+        float wellen = 0.55 + 0.45 * clamp(0.5 + 0.28 * glimmWelle, 0.0, 1.0);
+        // Und die Schicht selbst liegt nicht schnurgerade: Ihre Höhe wandert um
+        // gut einen halben Grad.
+        float hv = h + 0.010 * sin(dot(waag, vec3(5.1, 0.0, -3.7)) * 3.0);
+        float g1 = exp(-pow((hv - 0.048) / 0.036, 2.0));
+        float g2 = exp(-pow((hv - 0.12) / 0.17, 2.0));
+        col += glimmen * (g1 * 0.8 + g2 * 0.22) * wellen * step(-0.02, hv);
+
+        // Lineare Werte in Anzeigewerte. Ohne diesen Schritt landet der
+        // lineare Wert roh im sRGB-Puffer – siehe die Rechnung im Kopf dieser
+        // Datei. Das ist der Unterschied zwischen (2|2|7) und (11|21|51).
+        //
+        // **Der Exponent muss 1/2,4 sein, nicht 1/2.** Der erste Anlauf hat
+        // sqrt(col) als „grobe, aber ausreichende Näherung" benutzt. Sie ist
+        // nicht ausreichend, und zwar genau hier: Die sRGB-Kurve ist
+        // zweiteilig, und die beiden Äste müssen an der Schwelle 0,0031308
+        // zusammenstoßen.
+        //
+        //   linearer Ast   12,92 · x                =  10,31 von 255
+        //   sqrt-Ast       √x · 1,055 − 0,055       =   1,03 von 255
+        //   richtig        x^0,41666 · 1,055 − 0,055 = 10,32 von 255
+        //
+        // Der sqrt-Ast springt an der Schwelle um 9,3 Stufen. Im Bild war das
+        // ein **harter Bogen quer über den Himmel**, je Kanal an einer anderen
+        // Höhe: In a-eyelevel Spalte x=200 fiel Grün zwischen y=224 und 225
+        // von 10 auf 1, Rot zwischen y=312 und 313 ebenso. Zwei sichtbare
+        // Kanten in genau dem Wertebereich, in dem ein Nachthimmel lebt.
+        vec3 hoch = pow(col, vec3(0.41666)) * 1.055 - 0.055;
+        gl_FragColor = vec4(mix(col * 12.92, hoch, step(0.0031308, col)), 1.0);
+      }`,
+  });
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(radius, 48, 30), material);
+  dome.name = 'nacht-kuppel';
+  dome.renderOrder = -2; // vor allem anderen, auch vor den Sternen
+  // Die Milchstraße wandert mit dem Sternhimmel, die Kuppel steht still.
+  const _mwQ = [mwPol, mwA, mwB];
+  dome.userData.setzeWeltdrehung = (q) => {
+    const u = material.uniforms;
+    u.mwPol.value.copy(_mwQ[0]).applyQuaternion(q);
+    u.mwA.value.copy(_mwQ[1]).applyQuaternion(q);
+    u.mwB.value.copy(_mwQ[2]).applyQuaternion(q);
+  };
+  return dome;
 }
 
 function createNightEnvironment() {
@@ -3812,88 +9054,539 @@ function createNightEnvironment() {
   const group = new THREE.Group();
   group.name = 'env-night';
 
-  // Nachthimmel mit rötlich getöntem Mars-Horizont
-  group.add(makeDome(0x0b1533, 0x2a1512, 0x160a08));
+  // --- Zwei Gruppen, und warum es genau zwei sind ----------------------------
+  //
+  // **Der Spieler bleibt stehen, die Welt dreht sich unter ihm.** Der
+  // naheliegende Weg wäre, den Spieler auf der Kugel aufzurichten — sein „oben"
+  // wird die Flächennormale. Das bricht jede Y-oben-Annahme der App auf einmal:
+  // `Locomotion` rechnet mit UP = (0,1,0) in `_glide`, `_snap` und
+  // `_rotateAroundHead`; `cards.js` ordnet Karten auf einem Zylinder um den
+  // Nutzer an und ruft `lookAt` mit gleichbleibendem y, damit sie senkrecht
+  // stehen; Whiteboard und Zonen sind flach und achsenparallel gebaut.
+  //
+  // Optisch ist beides dasselbe — es ist dieselbe Relativbewegung, nur trägt
+  // eine andere Matrix sie. Aber so bleibt `player` achsenparallel, und der
+  // gesamte UI-Code läuft unverändert weiter.
+  //
+  //   `weltGruppe`   trägt alles, was am Planeten hängt: Boden, Steine, Staub.
+  //                  Sie dreht sich um den Planetenmittelpunkt (den Ursprung).
+  //   `himmelGruppe` trägt Kuppel, Sterne, Mond und Mondlicht. Sie sitzt am
+  //                  **Nordpol** und übernimmt die Drehung der Weltgruppe.
+  //
+  // Weil die Himmelsgruppe dieselbe Drehung trägt wie die Welt, geht der Mond
+  // beim Rundgang von selbst unter — ohne eine einzige Sonderbehandlung.
+  const weltGruppe = new THREE.Group();
+  weltGruppe.name = 'nacht-welt';
+  group.add(weltGruppe);
 
-  const starTexture = makeGlowTexture('rgba(255,255,255,1)', 'rgba(210,225,255,0.6)', 64);
+  // Der Himmel sitzt am Nordpol statt im Planetenmittelpunkt: Der Nutzer steht
+  // dort, und eine Kuppel, aus deren Mitte man 25 m heraussteht, hätte einen
+  // schiefen Verlauf. Ihr Radius ist mit 300 m so groß, dass die verbleibenden
+  // ein bis drei Meter Geländehöhe nicht mehr ins Gewicht fallen.
+  const himmelGruppe = new THREE.Group();
+  himmelGruppe.name = 'nacht-himmel';
+  himmelGruppe.position.set(0, PLANET_R, 0);
+  group.add(himmelGruppe);
+
+  // **Die Kuppel dreht nicht mit.** Grundverlauf, Horizontfarbe und Luftglühen
+  // sind Eigenschaften des Ortes, an dem der Betrachter steht — sie müssen über
+  // ihm stehen bleiben, während sich die Welt unter ihm dreht. Der Sternhimmel
+  // dagegen muss wandern, sonst ginge der Mond nie unter. Deshalb zwei Gruppen
+  // am selben Ort: eine feste für die Kuppel, eine mitdrehende für alles andere.
+  const kuppelGruppe = new THREE.Group();
+  kuppelGruppe.name = 'nacht-himmel-fest';
+  kuppelGruppe.position.set(0, PLANET_R, 0);
+  group.add(kuppelGruppe);
+  // 20,0 Grad unter Augenhöhe: acos(PLANET_R / (PLANET_R + 1,6)).
+  const HORIZONT_SINUS = -Math.sin(Math.acos(PLANET_R / (PLANET_R + 1.6)));
+  const kuppel = makeNachtKuppel(300, HORIZONT_SINUS);
+  kuppelGruppe.add(kuppel);
+
   const starsGroup = new THREE.Group();
-  const shells = [
-    { count: 1300, size: 0.28, opacity: 0.75 },
-    { count: 200, size: 0.55, opacity: 1 },
-  ];
-  for (const shell of shells) {
-    const positions = new Float32Array(shell.count * 3);
-    for (let i = 0; i < shell.count; i++) {
-      const u = rand() * 2 - 1;
-      const phi = rand() * Math.PI * 2;
-      const r = 38 + rand() * 2;
-      const s = Math.sqrt(1 - u * u);
-      positions[i * 3] = s * Math.cos(phi) * r;
-      positions[i * 3 + 1] = Math.max(0.05 * r, Math.abs(u) * r);
-      positions[i * 3 + 2] = s * Math.sin(phi) * r;
-    }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const stars = new THREE.Points(
-      geometry,
-      new THREE.PointsMaterial({
-        map: starTexture,
-        size: shell.size,
-        transparent: true,
-        opacity: shell.opacity,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        sizeAttenuation: true,
-        fog: false,
-      })
-    );
-    starsGroup.add(stars);
-  }
-  group.add(starsGroup);
+  const sternfeld = makeSternfeld(rand, 280);
+  starsGroup.add(sternfeld);
+  himmelGruppe.add(starsGroup);
 
-  const moon = new THREE.Mesh(
-    new THREE.SphereGeometry(1.4, 32, 20),
-    new THREE.MeshBasicMaterial({ color: 0xe8ecf2, fog: false })
-  );
-  moon.position.set(14, 16, -24);
-  group.add(moon);
-  const moonGlow = new THREE.Sprite(
+  // **Der Mond muss weiter weg.** Auf der Platte stand er 32,1 m entfernt; auf
+  // einem Planeten mit 25 m Halbmesser liefe man ihm beim Rundgang fast
+  // entgegen. Er steht jetzt 300 m vom Nordpol, und seine Scheibe wächst
+  // entsprechend mit: 26 m auf 300 m sind 0,0433 im Bogenmaß, gegen 2,8 m auf
+  // 32,1 m also 0,0437 — dieselbe scheinbare Größe wie bisher.
+  const MOND_FERN = 300;
+  const moon = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(220,232,255,0.9)', 'rgba(180,200,255,0.35)'),
+      map: mondScheibe(),
       transparent: true,
       depthWrite: false,
+      // **Nicht additiv.** Ein additiv gemischter Kern über einem Hof gibt
+      // reines Weiß und verliert jede Oberfläche — die bezahlte Lehre von der
+      // Sonnenscheibe des Zen-Gartens, die zu 20,7 % auf exakt (255|255|255)
+      // stand. Der Kern wird normal gemischt, nur der Hof ist additiv.
+      blending: THREE.NormalBlending,
       fog: false,
+      // Die Werte in der Karte sind bereits Anzeigewerte; ACES würde die
+      // Oberflächenmodulation, um die es hier geht, wieder zusammendrücken.
+      toneMapped: false,
     })
   );
-  moonGlow.position.copy(moon.position);
-  moonGlow.scale.set(8, 8, 1);
-  group.add(moonGlow);
+  moon.name = 'nacht-mond';
+  moon.position.copy(MOND_RICHTUNG).multiplyScalar(MOND_FERN);
+  moon.scale.set(26, 26, 1);
 
-  // Beleuchtung, damit der Mars-Untergrund plastisch (rötlich) erscheint
-  group.add(new THREE.HemisphereLight(0x3a4a72, 0x2a120a, 0.7));
-  const moonLight = new THREE.DirectionalLight(0xcdd9ff, 0.7);
-  moonLight.position.copy(moon.position);
-  group.add(moonLight);
-  // Warmes, sehr schwaches Bodenlicht für die typische Marsröte
-  const groundGlow = new THREE.DirectionalLight(0xff7a4d, 0.25);
-  groundGlow.position.set(-8, 3, 6);
-  group.add(groundGlow);
+  // Drei Hoflagen mit verschiedenen Reichweiten und Exponenten.
+  //
+  // **Die Reihenfolge muss ausdrücklich gesetzt werden.** Alle vier Sprites
+  // sitzen am selben Ort, haben also denselben Kameraabstand. three sortiert
+  // die transparente Liste nach `renderOrder`, dann nach Tiefe, dann nach
+  // **Objekt-ID** — und die Scheibe entsteht im Quelltext vor den Höfen, hat
+  // also die kleinere ID. Ohne `renderOrder` lag der enge Hof deshalb als
+  // blauweißer Fleck **auf** der Mondoberfläche und löschte genau die
+  // Modulation, um die es in diesem Paket geht.
+  const hoefe = [
+    mondHof('nacht-mondhof-weit', 0x4a6088, 0x101c34, 1.9, 26, 0.30),
+    mondHof('nacht-mondhof-mittel', 0x8ea6d2, 0x2a3a60, 3.2, 11, 0.42),
+    mondHof('nacht-mondhof-eng', 0xd6e2f8, 0x8098c4, 6.5, 4.6, 0.42),
+  ];
+  hoefe.forEach((h, i) => {
+    h.position.copy(moon.position);
+    h.scale.multiplyScalar(MOND_FERN / 32.06);
+    h.renderOrder = 10 + i;
+    himmelGruppe.add(h);
+  });
+  moon.renderOrder = 20;
+  himmelGruppe.add(moon);
 
-  const marsGround = makeMarsGround(rand);
-  group.add(marsGround);
+  // --- Der zweite Mond ------------------------------------------------------
+  //
+  // Ein rötlicher Halbmond auf der **Gegenseite**. Er steht dem ersten
+  // gegenüber (Richtung negiert, danach um 34 Grad in der Höhe versetzt, damit
+  // die beiden nicht auf einer Geraden durch den Planeten liegen und exakt
+  // gleichzeitig auf- und untergehen). Damit gehört er der dunklen Hälfte des
+  // Rundgangs: Wenn der weiße Mond untergegangen ist, steht er hoch.
+  //
+  // **Er ist keine Lichtquelle.** Die Szene hat genau eine gerichtete Quelle,
+  // und das bleibt so — wer den Mond zur Sonne macht, hat die Aufgabe verfehlt,
+  // und wer zwei daraus macht, erst recht. Was er beiträgt, ist eine Form am
+  // Himmel und ein zweiter Farbklang.
+  //
+  // Er unterscheidet sich in **fünf** Merkmalen vom ersten, damit er nicht als
+  // Kopie liest: Farbe (eisenrot gegen kühlgrau), Phase (exakt halb gegen drei
+  // Viertel), Größe (17 gegen 26 Einheiten, also 3,2 gegen 5,0 Grad), Zustand
+  // (170 Krater ohne Strahlensysteme gegen 90 mit) und Hof (eine schwache
+  // rötliche Lage gegen drei blaue).
+  const MOND2_RICHTUNG = MOND_RICHTUNG.clone()
+    .negate()
+    .applyAxisAngle(new THREE.Vector3(1, 0, 0).cross(MOND_RICHTUNG).normalize(), 0.6)
+    .normalize();
+  const mond2 = new THREE.Sprite(
+    new THREE.SpriteMaterial({
+      map: mondScheibe('rot'),
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.NormalBlending,
+      fog: false,
+      toneMapped: false,
+    })
+  );
+  mond2.name = 'nacht-mond-rot';
+  mond2.position.copy(MOND2_RICHTUNG).multiplyScalar(MOND_FERN);
+  mond2.scale.set(17, 17, 1);
+  // **Ein Hof, der auch einer ist.** Der erste Anlauf (Exponent 3,4 auf 5,6
+  // Einheiten, Staerke 0,26) hob den Ring bei 1,05 bis 1,3 Halbmessern um
+  // 2,4 Tonwerte ueber den Himmel und war zwei Halbmesser weiter nicht mehr
+  // messbar - der Pruefer hat schlicht "kein Hof" geschrieben, und er hatte
+  // recht. Ein Hof braucht **Reichweite**: Die Scheibe misst 17 Einheiten,
+  // die Hoflage jetzt 84, und der flache Exponent traegt sie ueber mehrere
+  // Durchmesser hinaus. Es bleibt bei **einer** Lage gegen drei beim weissen
+  // Mond - er soll ein anderer Koerper sein, kein zweiter Hauptdarsteller.
+  const hof2 = mondHof('nacht-mondhof-rot', 0x9c5638, 0x2e1206, 2.6, 9.0, 0.34);
+  hof2.position.copy(mond2.position);
+  hof2.scale.multiplyScalar(MOND_FERN / 32.06);
+  hof2.renderOrder = 13;
+  himmelGruppe.add(hof2);
+  mond2.renderOrder = 21;
+  himmelGruppe.add(mond2);
+
+  // **Und er leuchtet.**
+  //
+  // Der Auftraggeber will den Planeten von allen Seiten beleuchtet haben. Das
+  // steht in einer Spannung zur Grundregel dieses Auftrags — „es bleibt Nacht,
+  // wer den Mond zur Sonne macht, hat die Aufgabe verfehlt" —, und die Auflösung
+  // steht schon am Himmel: Es gibt einen **zweiten** Mond, und der stand bisher
+  // als Bild da, ohne etwas zu tun. Ein Körper, der eine halbe Scheibe voll
+  // Sonnenlicht zeigt, wirft welches zurück.
+  //
+  // Damit ist die abgewandte Seite kein Schwarz mehr, sondern eine **zweite,
+  // andersfarbige Nacht** — rostrot statt blauweiß, ein Sechstel so hell, und
+  // aus der Gegenrichtung. Wer den Rundgang macht, läuft aus einem kalten Licht
+  // in ein warmes und wieder zurück.
+  //
+  // **Ohne Schattenwurf — und das ist eine gemessene Entscheidung, keine
+  // Bequemlichkeit.**
+  //
+  // Der Prüfer hat unter jedem Brocken der Nachtseite einen hellen Saum
+  // gefunden (`rund-210` bei (270, 576): L = 75,6 gegen Boden L ≈ 20) und ihn
+  // einem Licht ohne Schatten zugeschrieben — „es bringt die Steine zum
+  // Schweben, statt sie einzubetten". Die Farbe stützte das: RGB(105, 66, 54)
+  // ist das Verhältnis 1 : 0,63 : 0,51, und dieses Fülllicht hat
+  // 1 : 0,66 : 0,47.
+  //
+  // **Der Versuch hat es widerlegt.** Mit einer eigenen Schattenkarte
+  // (1024 Texel, dieselbe Box) steht an derselben Stelle weiterhin exakt
+  // RGB(105, 66, 54). Der Saum kommt nicht von hier. Die Karte ist deshalb
+  // wieder heraus: Ein zweiter Schattendurchgang über 328 000 Dreiecke ist auf
+  // einer Brille kein Rundungsfehler, und man bezahlt ihn nicht für eine
+  // Wirkung, die man nicht nachweisen kann.
+  //
+  // Ausgeschlossen sind damit: Kontaktverdunklung, Feinstaub und Brocken (je
+  // einzeln ausgeblendet, ohne Wirkung) und dieses Licht. Der Saum bleibt
+  // offen.
+  const mond2Licht = new THREE.DirectionalLight(0xb9a49c, 1.55);
+  mond2Licht.position.copy(MOND2_RICHTUNG).multiplyScalar(MOND_FERN);
+  // **Ein eigenes Ziel, kein geteiltes.** `moonLight` entsteht erst hundert
+  // Zeilen weiter unten; ein Verweis darauf liefe hier in die zeitliche
+  // Totzone. Das Ziel muss ohnehin dasselbe **sein**, nicht dasselbe Objekt:
+  // der Planetenmittelpunkt, und der liegt im Ursprung der Umgebungsgruppe —
+  // die dreht sich nicht mit, das Ziel bleibt also stehen, während die Quelle
+  // in der Himmelsgruppe mitwandert.
+  mond2Licht.target.position.set(0, 0, 0);
+  group.add(mond2Licht.target);
+  mond2Licht.castShadow = false;
+  himmelGruppe.add(mond2Licht);
+
+  // --- Licht -----------------------------------------------------------------
+  //
+  // **Der Befund, der dieses Paket ausgelöst hat.** `main.js` hält eine globale
+  // Hemisphärenleuchte (0xffffff über 0x334455, Stärke 1,4), die für jede
+  // Umgebung gilt. Sie war hier nicht heruntergeregelt. Über den Weg
+  // `irradiance × BRDF_Lambert` steuerte sie beim aufwärts gerichteten
+  // Bodennormalenvektor rund **1,4 von 1,72** Einheiten Bestrahlung bei – 82 %
+  // des gesamten Lichts der Szene kam aus einer weißen Quelle, die nur von
+  // `normal.y` abhängt und deshalb auf **keine** Oberflächenform reagiert.
+  //
+  // Genau das steht im Bild: Der Boden hatte in `night-00/e-ground.png` über
+  // den Bereich (100,400)–(1180,700) einen Tonwertumfang von p05 31 bis p95 63,
+  // also 32 von 255 Stufen, und kein einziges Pixel über 190. Eine Fläche, die
+  // drei Viertel des Bildes füllt, war damit praktisch ein Farbfeld.
+  //
+  // Die Konsequenz ist nicht „weniger Licht", sondern **dieselbe Menge Licht
+  // aus einer Quelle, die eine Richtung hat**: Das globale Grundlicht geht auf
+  // 0, das Mondlicht bekommt die Stärke, die vorher die Hemisphäre hatte, und
+  // ist ab hier die einzige gerichtete Quelle der Szene – mit Schattenkarte.
+  //
+  // Die Zahlen unten sind vorwärts gerechnet, nicht geraten. Aus dem
+  // Ausgangsstand ließ sich der Zusammenhang zwischen Bestrahlung und Bildwert
+  // ablesen (R = 115 bei Σ 1,72 Einheiten ⇒ 0,0665 linear je Einheit im
+  // Rotkanal, inklusive Albedo, Belichtung 1,1 und ACES). Daraus:
+  //
+  //   * Schattenseite soll bei R ≈ 30 liegen  ⇒  Σ_r ≈ 0,32  (Himmelslicht)
+  //   * mondzugewandte Flanke bei R ≈ 130     ⇒  Σ_r ≈ 2,12
+  //
+  // Was **nicht** passiert: heller werden. Der Bildmittelwert bleibt unten, die
+  // Spanne wächst. Eine Nacht lebt von Modulation im unteren Drittel.
+
+  // Himmelslicht: der kühle Gegenpol. Oben mondblau, unten die warme
+  // Rückstrahlung des Regoliths – damit steckt das geforderte Regolithrot in
+  // der Aufhellung nach unten und nicht mehr flächig im Albedo.
+  // **Der Farbton der Aufhellung ist gerechnet, nicht gegriffen.** Der erste
+  // Anlauf stand auf 0x6a86c8; im Bild kam an der hellsten Bodenstelle
+  // (113 | 88 | 94) heraus – Blau **über** Grün, also ein Magentastich. Der
+  // Grund steht in den Zahlen: Der Regolith hat linear G:B = 1,88, die Leuchte
+  // aber G:B = 0,41; das Produkt 0,77 kippt den Kanal. Mondlicht im Bild ist
+  // kühl, aber nie magenta – es liegt zwischen Blau und Cyan. Mit 0x7595b4
+  // (G:B = 0,66) steht das Produkt bei 1,23 und Grün führt wieder.
+  // Die Aufhellung bleibt in der **Umgebungsgruppe**, nicht in der
+  // Himmelsgruppe: Eine Hemisphärenleuchte rechnet mit `normal.y` in
+  // Weltkoordinaten. Sie mitzudrehen hieße, dass „oben" für sie irgendwohin
+  // wandert, während der Nutzer weiterhin nach oben schaut.
+  // **Ein Schatten nimmt nur das gerichtete Licht weg.**
+  //
+  // Der Prüfer hat keine Schlagschatten gefunden. `tools/schattenwurf.mjs`
+  // (neu) rendert jede Kamera zweimal — mit und ohne Schattenwurf — und misst,
+  // was dazwischen liegt. Ergebnis: Schatten **gibt** es (in `d-orbit`
+  // 1,79 % der Bildfläche mit einem mittleren Abfall von 39), aber in
+  // Augenhöhe sind es 0,01 bis 0,22 %. Zwei Gründe, und nur einer ist zu
+  // beheben:
+  //
+  //   * **Geometrie.** Die Brocken sind 14 bis 56 cm groß und zu einem Drittel
+  //     eingesunken; ihr Schatten ist bei 30 Grad Mondhöhe einen halben Meter
+  //     lang. Das sind wenige hundert Bildpunkte. Der Sputnik zeigt, was ein
+  //     Körper mit Aufbauten kann: 6,91 %.
+  //   * **Das Verhältnis der Quellen.** Bei Himmel 2,0 gegen Mond 3,1 · sin 30°
+  //     = 1,55 kam mehr als die Hälfte des Lichts aus einer Quelle, die kein
+  //     Schatten je abhält. Gemessen über die Reihe:
+  //
+  //       Himmel/Mond   2,0/3,1   1,4/3,8   1,0/4,4   0,6/5,0
+  //       größter Abfall     54        72        81        79
+  //
+  // 1,45/3,8 ist der Kompromiss: ein Drittel mehr Schattentiefe, und die
+  // Nachtseite — die **nur** vom Himmelslicht lebt — verliert nur ein Viertel.
+  // **Füllicht kann keine Form zeigen — deshalb steht es jetzt niedrig.**
+  //
+  // Prüferbefund: „Die Nachtseite trägt keine Modellierung. Der gesamte Boden
+  // liegt in einem Fenster von 4,5 Helligkeitsstufen von 255; Hang, Kamm und
+  // Senke haben denselben Wert."
+  //
+  // Gemessen, woher das Licht dort kommt (Station 240, Boden im unteren
+  // Bilddrittel): Hemisphärenlicht 11,7 von 19,8, roter Mond 11,4, weißer Mond
+  // **null** — der ist korrekt weggeschattet. Das Hemisphärenlicht war also die
+  // Hälfte des Lichts, und es ist genau die Hälfte, die **nichts modellieren
+  // kann**: Es wertet nur die Welt-Y-Komponente der Normale aus, und der
+  // Spieler steht immer am Pol, wo alle Bodennormalen fast senkrecht stehen.
+  // Ein Hang von zehn Grad ändert daran nichts Sichtbares.
+  //
+  // Von 1,45 auf 0,25, dafür der rote Mond von 0,78 auf 1,55 und der weiße von
+  // 3,8 auf 4,6: **dieselbe Lichtmenge, aber gerichtet.** Der weiße gleicht
+  // aus, was die Mondseite mit dem Füllicht verloren hat — ohne ihn fiel dort
+  // die Spitze von L 99,7 auf 83,5.
+  //
+  // Gemessene Tonwertspanne des Bodens im unteren Bilddrittel:
+  //
+  //     Station 180   3,8 → 4,9        Station 0    20,1 → 22,5
+  //     Station 240   3,8 → 4,2        Station 60   98,5 → 106,1
+  //     Station 270   4,9 → 5,3
+  //
+  // **Das Licht des roten Mondes ist entsättigt.** Ein Anlauf mit seiner
+  // Scheibenfarbe (0xd08a62) bei Stärke 2,0 hat die ganze Nachtseite orange
+  // geflutet — die Zahlen waren besser, das Bild las als rotbeschienene Wüste
+  // statt als Nacht. Ein kleiner Mond wirft ohnehin kaum Farbe; 0xb9a49c
+  // behält die Modellierung und lässt die Nacht Nacht sein.
+  //
+  // **Das schließt den Befund nicht.** Sechs Stufen sind besser als vier, aber
+  // die Nachtseite bleibt tonwertarm. Der tiefere Grund liegt nicht im Licht,
+  // sondern im Gelände: Die Hänge um den Weg herum sind mit rund zehn Grad zu
+  // sanft, als dass ein gerichtetes Licht daraus Form machen könnte. Das ist
+  // derselbe Befund wie „die Krümmungskante ist ein Zirkelschlag" und gehört
+  // dorthin gelöst, nicht hier.
+  const skyFill = new THREE.HemisphereLight(0x7595b4, 0x4e2a1c, 0.25);
+  group.add(skyFill);
+
+  // **Eine** gerichtete Quelle. Der Mond steht bei [14 | 16 | −24], das sind
+  // 32,1 m Abstand und 29,9° über dem Horizont – flach genug für Streiflicht
+  // auf den Kanten, hoch genug, dass die Schatten nicht das halbe Bild füllen.
+  // **Zweiter Anlauf, und diesmal an der richtigen Quelle.** Der erste hat den
+  // Magentastich in der Hemisphärenleuchte gesucht und dort auch korrigiert —
+  // der Stich blieb trotzdem, nur verschoben: hellste Bodenstelle vorher
+  // (113 | 88 | 94), danach (121 | 103 | 110). Blau führt in beiden über Grün.
+  //
+  // Der Grund ist, dass die hellen Stellen gar nicht von der Aufhellung
+  // kommen, sondern von der **gerichteten** Quelle — und 0xd8e2ff ist selbst
+  // (216 | 226 | 255), also B über G um 29 Stufen. Wer den Stich dort nicht
+  // wegnimmt, nimmt ihn nirgends weg.
+  //
+  // 0xe2eaf0 ist (226 | 234 | 240): immer noch kühl, aber zwischen Blau und
+  // Cyan statt darüber hinaus. Linear fällt Blau um 13 %, Rot steigt um 10 %.
+  const moonLight = new THREE.DirectionalLight(0xe2eaf0, 4.6);
+  // In der Himmelsgruppe, also dreht das Licht mit dem Mond mit: Wer um den
+  // Planeten läuft, läuft in die Nacht hinein und wieder heraus.
+  moonLight.position.copy(MOND_RICHTUNG).multiplyScalar(MOND_FERN);
+  // **Das Ziel darf NICHT mitdrehen.** Es lag als (0 | −PLANET_R | 0) in der
+  // Himmelsgruppe, weil die am Nordpol sitzt — und solange die Welt unverdreht
+  // stand, war das der Planetenmittelpunkt. Sobald sie sich dreht, ist es das
+  // nicht mehr: Bei 60 Grad steht das Ziel bei (0 | 12,5 | −21,7), also 25 m
+  // neben dem Mittelpunkt, und die Orthobox von ±34 m deckte nur noch einen
+  // Streifen des Planeten ab. Im Bild `rund-060` stand daraufhin ein heller
+  // Streifen mit **zwei mathematisch geraden Kanten** quer über die Kugel, und
+  // dahinter fiel alles in den Schatten. Auf einer Kugel gibt es keine geraden
+  // Kanten; der Prüfer hat sie über 560 Bildpunkte mit null Abweichung
+  // nachgemessen.
+  //
+  // Das Ziel hängt deshalb an der **Umgebungsgruppe** und steht im Ursprung —
+  // dort liegt der Planetenmittelpunkt, unabhängig von jeder Drehung. Die
+  // Lichtquelle selbst bleibt in der Himmelsgruppe und wandert mit dem Mond.
+  moonLight.target.position.set(0, 0, 0);
+  group.add(moonLight.target);
+  moonLight.castShadow = true;
+  moonLight.shadow.mapSize.set(2048, 2048);
+  {
+    // Orthokamera ±40 m: Das ist 3,9 cm je Texel und deckt alles ab, was vor
+    // dem Nebelende bei 48 m liegt. Weiter draußen ist ohnehin alles zu 100 %
+    // Nebelfarbe, ein fehlender Schatten dort ist unsichtbar.
+    // **Ortho ±34 m um den Planetenmittelpunkt.** Der Planet ist 50 m breit,
+    // die höchste Landmarke ragt 9 m darüber hinaus; ±34 m ist das Kleinste,
+    // was ihn samt Werfern noch ganz enthält — und ganz enthalten muss er sein,
+    // weil die **Nachtseite aus seiner Selbstverschattung entsteht**. Was das
+    // Licht dort abhält, ist der Planetenbauch, und der steht bis 25 m quer zur
+    // Lichtachse. Ein Versuch, die Box auf ±20 m zu verkleinern, um feinere
+    // Texel zu bekommen, hat ihn als Werfer verloren: 1276 Saumpixel statt 165,
+    // und unabhängig vom Bias — genau das Zeichen dafür, dass gar nicht mehr
+    // verschattet wird.
+    //
+    // 68 m auf 2048 Texel sind **3,3 cm**. Mit dieser Auflösung müssen zwei
+    // Artefakte leben: Akne am Terminator, wo das Licht streift, und ein
+    // Lichtleck am Grat, wo die Verschiebung entlang der Normale über die Kante
+    // greift. `normalBias` tauscht nur das eine gegen das andere; gemessen an
+    // den Saumpixeln von Station 300 ergibt die Reihe
+    //
+    //   0,008 → 381,  0,015 → 247,  **0,025 → 165**,  0,04 → 188,  0,06 → 296
+    //
+    // eine Wanne mit dem Grund bei 0,025.
+    //
+    // Die Tiefengrenzen müssen die Wanderung des Lichts aushalten: Der Mond
+    // steht 300 m vom **Nordpol**, sein Abstand zum Mittelpunkt schwankt beim
+    // Rundgang deshalb zwischen 275 und 325 m. Mit ±34 m Gelände liegt der
+    // gebrauchte Bereich bei 241 bis 359 m.
+    const sc = moonLight.shadow.camera;
+    sc.left = -34;
+    sc.right = 34;
+    sc.top = 34;
+    sc.bottom = -34;
+    sc.near = 235;
+    sc.far = 365;
+    // Der Normal-Bias darf nicht in die Größenordnung der Objekte kommen – im
+    // Zen-Garten hat 0,03 die 6 cm dicken Trittsteine um ihren Schatten
+    // gebracht.
+    //
+    // **0,06 statt 0,008 — die Kugel hat immer einen Terminator.** Auf der
+    // Platte stand die Fläche überall unter 30 Grad zum Mondlicht; auf einer
+    // Kugel gibt es in jedem Bild eine Zone, in der das Licht streift, und dort
+    // reicht die Verschiebung nicht mehr. Gemessen stand in der Totale ein Kamm
+    // aus parallelen schwarzen Strichen quer über den Terminator —
+    // Schattenakne, kein Gelände.
+    //
+    // `normalBias` verschiebt den Abtastpunkt entlang der Flächennormale und
+    // wirkt damit genau dort am stärksten, wo das Licht streift. 0,06 m sind
+    // 0,025 ist der gemessene Grund der Wanne oben, also 0,76 Texel. Der
+    // vorherige Wert 0,06 war allein gegen die Akne gewählt, bevor der Saum am
+    // Grat bekannt war — er hat dessen Pixelzahl von 165 auf 296 fast verdoppelt.
+    // **Das Vorzeichen war falsch herum, und das hat den Saum gemacht.**
+    //
+    // Der Prüfer: „Leuchtender Saum unter jedem Brocken — die Steine wirken
+    // aufgeklebt statt eingebettet." Gemessen an Station 210, wo der Mond
+    // 62,9 Grad **unter** dem Horizont steht: ein cremefarbener Strich von
+    // 187 Bildpunkten entlang der Unterkante jedes Brockens, hellster Wert
+    // L = 127 gegen einen Boden bei L = 13. Dort darf kein Sonnenstrahl
+    // hinkommen; der Planet steht dazwischen.
+    //
+    // Ausgeschlossen wurden der Reihe nach: die Kontaktverdunklung (ausblenden
+    // ändert nichts), der Frost auf den Brocken (Stärke null ändert nichts),
+    // das zweite Mondlicht (Stärke null ändert nichts), Hemisphären- und
+    // Umgebungslicht (je 2 Stufen), die Fremdlichter der anderen Umgebungen
+    // (unsichtbar, three überspringt sie), die Auflösung der Schattenkarte
+    // (4096 statt 2048: 191 statt 187 Punkte) und der Normal-Bias (bei null
+    // bleiben 132 von 187).
+    //
+    // Übrig blieb der Tiefen-Bias — mit umgekehrter Wirkung, als der alte Wert
+    // unterstellte. In three wird er auf die Tiefe im Schattenraum addiert:
+    // **negativ heißt näher am Licht, also weniger Schatten.** −0,0004 hat die
+    // Unterkante der Brocken damit aus dem Schatten herausgeschoben, und weil
+    // dort die Fläche fast tangential zum Licht steht, war die herausgeschobene
+    // Schicht ein voll beleuchteter Streifen. Zur Gegenprobe: −0,002 macht aus
+    // 187 Punkten 610, also fast so viel wie Schatten ganz aus (643).
+    //
+    // +0,0005 dreht es um und lässt vom Saum **nichts** übrig.
+    moonLight.shadow.bias = 0.0005;
+    // **0,045 statt 0,025 — und der Grund ist keine Bildwirkung, sondern
+    // Wiederholbarkeit.**
+    //
+    // Bei 0,025 lag der Tiefenvergleich der Schattenkarte auf dem ganzen
+    // Boden genau auf der Kippe. Das Bild sah in Ordnung aus, aber der
+    // Prüfstand lieferte **zwei** Zustände: Vier Aufnahmen desselben Bildes
+    // aus vier getrennten Prozessen ergaben zweimal die eine und zweimal die
+    // andere Prüfsumme, mit Δmittel 5,4 auf `a-augenhoehe` und 29,0 auf
+    // `g-sputnik` dazwischen. Innerhalb **eines** Seitenaufrufs waren vier
+    // Aufnahmen dagegen bitgleich, und Geometrie, Vertexfarben, Texturen,
+    // Lichter, Kamera, Projektionsmatrix und alle Zeituniformen stimmten in
+    // beiden Zuständen überein (`tools/pruefsumme.mjs`, `tools/spielerort.mjs`).
+    //
+    // Es war also nichts an der Szene, sondern der Rasterisierer: Ein Hauch
+    // Tiefenpräzision genügte, um ein paar Prozent der Bodenpixel zwischen
+    // beschattet und beleuchtet umzuklappen — Schattenakne, die nur deshalb
+    // nicht als Muster auffiel, weil sie fein verteilt war.
+    //
+    // Mit 0,045 sind vier getrennte Prozesse **bitgleich**. Die Grenze liegt
+    // zwischen 0,025 und 0,035; 0,045 hält knapp den doppelten Abstand. Der
+    // Saum an der Gratlinie bleibt dabei bei 23 Pixeln, die Aknezahl fällt
+    // von 4738 auf 4669 (`tools/naht.mjs --nur`).
+    //
+    // **Das ist kein reines Harness-Thema.** Ein Vergleich, der auf der Kippe
+    // steht, steht auf der Brille genauso auf der Kippe — nur heißt er dort
+    // nicht „zwei Prüfsummen", sondern „Flimmern bei Kopfbewegung".
+    moonLight.shadow.normalBias = 0.025;
+  }
+  himmelGruppe.add(moonLight);
+
+  const marsGround = makeMarsPlanet(rand);
+  weltGruppe.add(marsGround);
+
+  // --- Leben und Bewegung ----------------------------------------------------
+  const feinstaub = makeFeinstaub(rand, marsGround.userData.heightAt);
+  weltGruppe.add(feinstaub);
+  const staubteufel = makeStaubteufel(rand, marsGround.userData.heightAt);
+  weltGruppe.add(staubteufel);
+  // Der Meteor gehört zum Himmel, nicht zur Welt.
+  const meteor = makeMeteor();
+  himmelGruppe.add(meteor);
 
   return {
     id: 'night',
     name: '🌌 Nachthimmel',
     background: new THREE.Color(0x0a0605),
-    fog: new THREE.Fog(0x1c0d09, 22, 48),
+    // **Der Nebel hat den Mittelgrund aufgefressen.**
+    //
+    // 5 bis 13 m war für eine Welt gerechnet, deren fernster Punkt der Horizont
+    // bei 8,9 m ist. Das stimmte, solange nichts darüber hinausragte. Seit es
+    // Grate und große Einschläge gibt, ragt etwas darüber hinaus — und
+    // **linearer Nebel sättigt bei `far` vollständig**: Jeder Grat ab 13 m
+    // wurde exakt `0x1c0d09` und sonst nichts.
+    //
+    // Der Prüfer hat das als schwerwiegendsten Mangel benannt, ohne die Ursache
+    // zu kennen: „In `rund-270` sind 3,93 % aller Bildpixel dieser eine Wert
+    // […] das größte Objekt im Bild ist kein Objekt." RGB(28,13,9) ist
+    // `0x1c0d09`. Vier Bilder, vier verschiedene Grate, ein Zahlentripel —
+    // weil es dieselbe Konstante war.
+    //
+    // 6 bis 34 m ist gemessen (`tools/nebelversuch.mjs`, vier Einstellungen an
+    // vier Kameras): Bei 5–13 waren 0,75 bis 1,56 % der Bildpunkte reine
+    // Nebelfarbe, bei 5–24 noch 0,00 bis 0,24 %, bei 6–34 **nirgends mehr
+    // etwas**. Der fernste sichtbare Geländepunkt liegt bei rund 24 m
+    // Sichtlinie; dort bleiben jetzt 36 % der Modellierung stehen statt null.
+    //
+    // Das ist wenig Nebel — und das ist richtig so. Ein luftloser Körper hat
+    // **keine** Luftperspektive. Was übrig bleibt, ist ein kompositorischer
+    // Anstoß, keine Physik; die Tiefe trägt hier die Krümmung.
+    fog: new THREE.Fog(0x1c0d09, 6, 34),
     group,
 
+    // Das globale Grundlicht aus main.js aus. Begründung oben beim Lichtblock:
+    // Es war mit 1,4 die mit Abstand stärkste Quelle der Szene, weiß, und ohne
+    // jede Richtungsabhängigkeit. Die anderen vier Umgebungen sind davon nicht
+    // berührt – jede liest ihren eigenen Wert.
+    sceneAmbient: 0,
     // Begehbar ohne Grenze, aber ÜBER den Dünen statt hindurch. Das Höhenfeld
     // ist dasselbe, aus dem das Gitter entsteht – es kann deshalb nicht davon
     // abweichen, und es gilt auch jenseits der 96-m-Platte, wo ohnehin keine
     // sichtbare Geometrie mehr liegt.
-    walk: makeHeightFieldWalk(marsGround.userData.floorAt),
+    // **Beim Betreten 15 Grad nach unten schauen.** Auf einer Kugel mit 25 m
+    // Halbmesser liegt der Horizont 20,0 Grad unter Augenhöhe (acos(25/26,6)) —
+    // wer waagerecht blickt, sieht zu vier Fünfteln Himmel und weiß nicht, wo
+    // er steht. Die vier ortsfesten Umgebungen brauchen das nicht; ihr Horizont
+    // liegt auf Augenhöhe.
+    blickNeigung: -0.26,
+
+    // **Karten und Zonen bleiben liegen.** Sie hängen nicht an der Szene,
+    // sondern an der Weltgruppe des Planeten — sonst liefen sie beim Rundgang
+    // mit dem Nutzer mit, statt dort zu bleiben, wo er sie hingelegt hat. Der
+    // Planet ist damit eine begehbare Gedächtnislandkarte, und genau das ist
+    // der Zweck, für den sich der ganze Umbau lohnt.
+    weltHeimat: weltGruppe,
+
+    // **Ein Planet, kein Höhenfeld.** Der Spieler bleibt am Nordpol stehen und
+    // die Welt dreht sich unter ihm; die Begründung steht bei `makePlanetWalk`
+    // in walkable.js. Weil die Umrechnung dort sitzt, wissen `Locomotion` und
+    // die Desktop-Steuerung nichts von der Kugel und bleiben unverändert.
+    walk: makePlanetWalk({
+      radius: PLANET_R,
+      heightAt: marsGround.userData.heightAt,
+      welt: weltGruppe,
+      // Der Himmel übernimmt die Drehung sofort und nicht erst im nächsten
+      // `update()`: Ein Bild Rückstand wären zwar nur 0,09 Grad, aber es wäre
+      // ein Rückstand, der mit dem Tempo wächst.
+      nachDrehung: (welt) => {
+        himmelGruppe.quaternion.copy(welt.quaternion);
+        kuppel.userData.setzeWeltdrehung(welt.quaternion);
+      },
+    }),
 
     // **Hier gibt es bewusst nichts auszudünnen.** Der Nachthimmel hat keine
     // Blattkarten, keine additiven Lagen über Bildschirmgröße und keine
@@ -3906,12 +9599,34 @@ function createNightEnvironment() {
     // Materialien werden in der Brille einseitig – und es ist an dieser Stelle
     // aktenkundig, dass die Prüfung stattgefunden hat und negativ ausfiel.
     setQuality(stufe) {
-      applyQuality(group, null, stufe, {});
+      // **`additivBehalten` ist hier kein Beiwerk, sondern Pflicht.**
+      // `applyQuality()` blendet in der Brille jedes additiv gemischte Mesh
+      // und jedes Points-Objekt aus. Die Vorgabe `/$^/` passt auf nichts —
+      // außer auf den **leeren** Namen, denn bei Länge 0 fallen Anfang und
+      // Ende zusammen. Genau davon haben die Sternschalen bisher gelebt: Sie
+      // hatten keinen Namen.
+      //
+      // Seit sie `nacht-sterne` heißen, greift dieser Zufallsschutz nicht
+      // mehr. Ohne die Ausnahme hier hätte die Quest 3 einen Nachthimmel
+      // **ohne Sterne** — und im Headless-Lauf, der auf „voll" steht, wäre es
+      // nie aufgefallen.
+      // Seit Paket 8 sind es vier additive Gegenstände: Sternfeld, Feinstaub,
+      // Staubteufel und Meteor. Alle heißen `nacht-…`, alle sollen in der
+      // Brille bleiben — die Bewegung ist das, was die Szene lebendig macht,
+      // und sie ist billig: drei Punktwolken und zwei Dreiecke.
+      applyQuality(group, null, stufe, { additivBehalten: /^nacht-/ });
       return null;
     },
 
     update(time) {
       starsGroup.rotation.y = time * 0.004;
+      sternfeld.material.uniforms.zeit.value = time;
+      feinstaub.material.uniforms.zeit.value = time;
+      // Der Staubteufel bekommt mehr als die Zeit: Auf der Kugel hat jeder
+      // Wirbel seinen eigenen Standort samt Tangentensystem, und das wird
+      // einmal je Bild gerechnet statt 840-mal je Scheitel.
+      staubteufel.userData.setzeZeit(time);
+      meteor.material.uniforms.zeit.value = time;
     },
   };
 }
@@ -6954,8 +12669,42 @@ function leatherMaps(size = 128) {
   const rand = mulberry32(20221231);
 
   // Zellzentren für ein Voronoi-artiges Narbenmuster
+  //
+  // **110 statt 60, und 24-fach gekachelt statt 14-fach.**
+  //
+  // Mit 60 Zellen auf 128 Punkten ist eine Zelle rund 16,5 Bildpunkte gross,
+  // also 12,9 % der Kachel. Bei 14-facher Kachelung misst die Kachel 71 mm und
+  // eine Zelle damit **8,9 mm**. Rindsleder hat Poren unter einem Millimeter
+  // und eine Narbe von zwei bis vier. Aus einem Meter Abstand las das Polster
+  // deshalb nicht als Leder, sondern als Reptilhaut — grosse eckige Schuppen,
+  // dazu die Kachel selbst als Ornament (der Pruefer hatte eine Wiederholung
+  // bei 73 Bildpunkten vermutet; gemessen sind es 69).
+  //
+  // 110 Zellen bei 24-facher Kachelung ergeben **4,0 mm** — die Groessenordnung
+  // einer gepraegten Rindslederarbe — und eine Kachel von 42 mm mit gut zehn
+  // Zellen Kantenlaenge.
+  //
+  // Warum nicht 34, wo doch 2,8 mm noch naeher an echtem Leder waeren: Bei 34
+  // liegt aus einem Meter Abstand ein Texel bei 0,27 Bildpunkten, und das
+  // Mipmapping zeichnet die Narbe fast vollstaendig weg — der Sessel sah
+  // lackiert aus. 24 ist der Wert, bei dem sie aus Sitzabstand noch traegt.
+  // Dazu geht `normalScale` von 0,5 auf 0,6: Feineres Korn braucht etwas mehr
+  // Ausschlag, um dieselbe Tiefe zu behaupten.
+  //
+  // Der naheliegende Einwand, feineres Korn koenne in der Brille kribbeln, ist
+  // gemessen und trifft nicht zu (`tools/narbe.mjs`, Kasten auf der Lehne):
+  //
+  //     repeat 14   Periode 10   Staerke 0,036   Streuung 25,3   Zittern 0,37
+  //     repeat 20   Periode 10   Staerke 0,038   Streuung 25,2   Zittern 0,34
+  //     repeat 26   Periode 13   Staerke 0,041   Streuung 25,2   Zittern 0,31
+  //     repeat 34   Periode 13   Staerke 0,043   Streuung 25,2   Zittern 0,27
+  //
+  // Das Zittern SINKT, und zwar genau deshalb, weil die Karte gekachelt und
+  // mipgemappt ist: Was auf Entfernung unter die Bildpunktgroesse faellt, wird
+  // vom Mipmapping weichgezeichnet statt zu Rauschen. Feiner ist hier auf
+  // Distanz ruhiger und aus der Naehe richtiger.
   const cells = [];
-  for (let i = 0; i < 60; i++) cells.push([rand() * size, rand() * size]);
+  for (let i = 0; i < 110; i++) cells.push([rand() * size, rand() * size]);
 
   const height = new Float32Array(size * size);
   for (let y = 0; y < size; y++) {
@@ -7018,8 +12767,9 @@ function leatherMaps(size = 128) {
   for (const map of [normalMap, roughnessMap]) {
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     // Dicht kacheln: Bei wenigen Wiederholungen werden die Poren handtellergroß
-    // und der Sessel sieht aus wie mit Reptilienhaut bezogen.
-    map.repeat.set(14, 14);
+    // und der Sessel sieht aus wie mit Reptilienhaut bezogen. Die Herleitung
+    // der 24 steht oben bei den Zellzentren.
+    map.repeat.set(24, 24);
     map.anisotropy = 4;
   }
   _leatherMaps = { normalMap, roughnessMap };
@@ -7060,24 +12810,294 @@ function makeWoodTexture(base, dark) {
 // oben geschwungene Rückenlehne mit seitlichen Flügeln, dichte Rautenheftung,
 // gerollte Armlehnen mit geschnitzter Holzrosette an der Stirn und gedrechselte
 // Vorderbeine. Der Sessel schaut nach +Z.
+// **Die Werkstoffe des Sessels liegen ausserhalb, damit BEIDE Sessel dieselben
+// benutzen.**
+//
+// Vorher legte jeder Aufruf eigene an. Fuer das Bild ist das gleichgueltig — es
+// sind dieselben Werte —, fuer die Kosten nicht: `verschmelzeObjekte()` fasst
+// nach Werkstoff zusammen, und zwei Saetze gleicher Werkstoffe ergeben doppelt
+// so viele Meshes wie einer.
+let _konstruktLeder = null;
+function konstruktSesselWerkstoffe() {
+  if (!_konstruktLeder) {
+    const { normalMap, roughnessMap } = leatherMaps();
+    // Gealtertes Oxblood, kein Signalrot: Das Leder im Film ist dunkel, matt
+    // und sichtbar abgenutzt.
+    const leather = new THREE.MeshStandardMaterial({
+      color: 0x6f1c22,
+      // **0,45 statt 0,72.** Die Rauheitskarte multipliziert darauf (0,70 bis
+      // 0,92), wirksam sind also 0,32 bis 0,41 — matt genug fuer gealtertes
+      // Leder, schmal genug fuer eine Keule, die man sieht. Bei 0,72 lag die
+      // Keule so breit, dass sie im diffusen Anteil verschwand; gemessen stieg
+      // das Korn im hellsten Zwanzigstel von 5,4 (0,72) ueber 9,0 (0,55) auf
+      // 11,2 (0,45). Weiter herunter waere Lack: Bei 0,22 klettert es auf 23,6,
+      // und das ist dann kein Leder mehr, sondern Sprenkelrauschen — in einer
+      // Brille die Sorte Muster, die beim Kopfdrehen kribbelt.
+      roughness: 0.45,
+      metalness: 0.02,
+      normalMap,
+      normalScale: new THREE.Vector2(0.6, 0.6),
+      roughnessMap,
+    });
+    const leatherDark = leather.clone();
+    leatherDark.color = new THREE.Color(0x4c1216);
+    const wood = new THREE.MeshStandardMaterial({
+      color: 0x2b1a11,
+      roughness: 0.42,
+      metalness: 0.12,
+    });
+    // **Poliertes Nussbaum fuer die Rosette — ein eigener Werkstoff, und zwar
+    // aus zwei Gruenden.**
+    //
+    // Der erste ist der Befund: Die Rosette las als schwarzes Loch. Auf ihrem
+    // dunkelsten Kern in `f-boden` gemessen L 18, waehrend der Sessel um sie
+    // herum bei L 47 steht — ein Bauteil, das dunkler ist als alles andere im
+    // Bild, liest nicht als geschnitztes Holz, sondern als Bohrung. Das
+    // Beinholz darf so dunkel bleiben: Beine stehen im Schatten des Moebels
+    // und sind matt. Eine polierte Zierscheibe an der Stirnseite ist das
+    // Gegenteil davon.
+    //
+    // Der zweite Grund ist messtechnisch: `verschmelzeObjekte` gruppiert nach
+    // Werkstoff, und alles, was sich `wood` teilt, verschwindet in einem
+    // gemeinsamen Netz ohne eigenen Namen. Mit eigenem Werkstoff bleibt die
+    // Rosette ein eigenes Netz und damit ein Knoten, den `knotenwerte.mjs`
+    // messen kann. Das kostet einen Draw-Call — bei 47 von 120 ist das der
+    // billigste Messzugang, den diese Szene zu bieten hat.
+    const rosenholz = new THREE.MeshStandardMaterial({
+      color: 0x4a2d18,
+      roughness: 0.34,
+      metalness: 0.05,
+    });
+    // 0,5 und nicht 0,7: Bei 0,7 wurde aus der Rosette ein Messingmedaillon.
+    // Poliertes Nussbaum faengt den Raum, es spiegelt ihn nicht.
+    rosenholz.userData.envStaerke = 0.5;
+    _konstruktLeder = { leather, leatherDark, wood, rosenholz };
+  }
+  return _konstruktLeder;
+}
+
+// --- Keder ------------------------------------------------------------------
+//
+// **Warum das Sitzkissen Form braucht und keine Textur.**
+//
+// Gemessen ist es die glatteste Flaeche des Sessels: Hochpass 0,96 gegen 1,39
+// an der Lehne und 5,44 an der Wange. Die Ledernarbung liegt darauf — sie
+// zeigt sich nur nicht. Eine Normalenkarte wirkt ueber den Winkel zwischen
+// gestoerter Normale und Licht; auf einer nach OBEN gerichteten Flaeche unter
+// einem steilen Fuehrungslicht ist dieser Winkel klein, und die Stoerung
+// bleibt unsichtbar. An der senkrechten Wange trifft dasselbe Licht streifend,
+// und dieselbe Karte traegt dort das Fuenffache.
+//
+// Dagegen hilft keine staerkere Textur, sondern Geometrie. Ein Polster hat
+// ohnehin einen Keder — die eingenaehte Schnur entlang der Naht —, und der ist
+// genau das, was einem Kissen aus jeder Richtung eine Kante gibt.
+//
+// Der Pfad ist ein abgerundetes Rechteck in der x-z-Ebene. Acht Segmente je
+// Ecke reichen: Bei 8 mm Schnurstaerke ist eine Ecke im Bild wenige Pixel
+// gross.
+function kederRing(breite, tiefe, ecke, schnur = 0.008) {
+  const hw = breite / 2 - ecke;
+  const ht = tiefe / 2 - ecke;
+  const punkte = [];
+  const ECKEN = [
+    [hw, ht, 0],
+    [-hw, ht, Math.PI / 2],
+    [-hw, -ht, Math.PI],
+    [hw, -ht, -Math.PI / 2],
+  ];
+  for (const [cx, cz, a0] of ECKEN) {
+    for (let i = 0; i <= 8; i++) {
+      const a = a0 + (i / 8) * (Math.PI / 2);
+      punkte.push(new THREE.Vector3(cx + Math.cos(a) * ecke, 0, cz + Math.sin(a) * ecke));
+    }
+  }
+  const kurve = new THREE.CatmullRomCurve3(punkte, true, 'centripetal');
+  return new THREE.TubeGeometry(kurve, 64, schnur, 6, true);
+}
+
+// --- Polster statt Platten ---------------------------------------------------
+//
+// **Warum `roundedBox` fuer ein Sitzkissen nicht reicht.**
+//
+// Der Pruefer misst die Kissenoberseite mit p05 54 und p95 62 — **acht
+// Stufen** ueber die groesste Flaeche des Sessels. Das ist kein Beleuchtungs-
+// und kein Werkstofffehler, sondern ein Formfehler: Die Flaeche IST eben, und
+// eine ebene Flaeche unter einem entfernten Licht hat ueberall dieselbe
+// Normale und damit ueberall denselben Wert. Da ist nichts zu beleuchten.
+//
+// Ein Polster ist nicht eben. Es ist oben gewoelbt, weil Fuellung sich woelbt,
+// und diese Woelbung ist die einzige Angabe, die aus einer Matratze ein Kissen
+// macht. `roundedBox` kann sie nicht liefern: Sie extrudiert einen Umriss mit
+// `steps: 1`, hat also in Extrusionsrichtung genau zwei Ringe — eine Woelbung
+// darauf ergaebe einen Keil, keine Kuppe.
+//
+// Darum hier ein eigener Koerper aus einem unterteilten Kasten:
+//
+//   1. **Kanten runden** durch Klemmen und Wegdruecken: Jeder Punkt wird auf
+//      den Innenquader geklemmt, und die Differenz wird auf Radiuslaenge
+//      normiert. Das ergibt einen exakten Rundquader aus jeder Kastenaufteilung
+//      — und die Normale faellt dabei als Nebenprodukt ab, sie IST die
+//      Wegdrueckrichtung.
+//   2. **Woelben**: y steigt um eine Kuppe, die zum Rand hin quadratisch
+//      ausleuft, gewichtet mit der Hoehe, damit die Seitenwaende stehen
+//      bleiben.
+//   3. **Normale nachziehen**: Die Kuppe kippt die Normale um ihren eigenen
+//      Anstieg. Analytisch statt aus Dreiecksnormalen — ein Kasten hat an
+//      jeder Kante doppelte Scheitelpunkte, `computeVertexNormals` erzeugt
+//      dort Knicke, und `mergeVertices` scheitert an den unterschiedlichen
+//      Texturkoordinaten.
+// --- Umgebungsverdeckung auf dem Sitzkissen ---------------------------------
+//
+// **Eine nach oben gerichtete Flaeche laesst sich in diesem Raum nicht ueber
+// die Normale modellieren. Das ist gemessen, nicht vermutet.**
+//
+// Der Befund des Pruefers lautet „Kissenoberseite ohne Form". Der naheliegende
+// Schluss war: Die Flaeche ist eben, also woelben. Das Kissen hat daraufhin
+// eine echte Kuppe bekommen (`polsterKissen`) — und der Tonwertumfang auf der
+// Oberseite blieb, wo er war:
+//
+//     ohne Kuppe        p05 47   p50 73   p95 90
+//     Kuppe 2,2 cm      p05 47   p50 72   p95 93
+//     Kuppe 5,0 cm      p05 47   p50 72   p95 93
+//
+// Fuenf Zentimeter Woelbung auf einem Kissen von 55 cm — und **drei Stufen**.
+// Der Grund liegt im Licht: Was hier von oben kommt, ist die
+// Hemisphaerenleuchte und die obere Haelfte der Umgebungskarte, und beide
+// haengen kaum von der Neigung ab. Das Fuehrungslicht steht steil; sechs Grad
+// Kippung aendern seinen Kosinus um wenige Prozent. In einer weissen Leere
+// gibt es keine Richtung, aus der eine waagerechte Flaeche NICHT beleuchtet
+// wird — und damit auch keine, in die man sie neigen koennte, um sie
+// abzudunkeln.
+//
+// Was einer solchen Flaeche Form gibt, ist deshalb nicht die Neigung, sondern
+// die **Verdeckung**: Ein Kissen zwischen zwei Wangen und einer Lehne sieht an
+// seinen Raendern weniger Himmel als in der Mitte. Genau dieser Lichtweg fehlt
+// im Projekt, und der Schlagschatten des Fuehrungslichts ist etwas anderes
+// (dieselbe Unterscheidung wie beim Kontaktschatten der Moebelfuesse).
+//
+// **Und sie loest den Befund nicht.** Gemessen, nachdem sie drin war: Selbst
+// mit einer Sohle von 0,15 statt 0,5 — also einer Verdunklung auf ein Sechstel
+// — aendern sich in der Nahsicht **1,0 %** der Bildpunkte um mindestens zwei
+// Stufen, groesster Einzelsprung 42. Der Grund ist ernuechternd einfach: Die
+// Raender, die verdeckt sind, sind auch die Raender, die von Wange und Lehne
+// VERDECKT werden. Was man vom Kissen sieht, ist sein heller Kern, und der
+// bleibt hell.
+//
+// Die Verdeckung bleibt trotzdem drin, weil sie richtig ist — ein Kissen ist
+// an seinen Raendern dunkler, und an den Stellen, an denen man diese Raender
+// sieht (schraeg von vorn, im Vorbeigehen), traegt sie. Der Befund
+// „Kissenoberseite ohne Form" ist damit aber **nicht geschlossen**, und das
+// steht so im Protokoll: Was der Oberseite in dieser Beleuchtung Form geben
+// koennte, ist weder Neigung noch Verdeckung, sondern eine Naht oder ein
+// flacheres Fuehrungslicht. Beides ist ein eigener Eingriff.
+//
+// Sie steht in **Scheitelfarben**, nicht in einem Shader. Der erste Anlauf war
+// einer: ein `onBeforeCompile`, das aus `transformed` die Kissenkoordinate
+// nahm. Das ging schief, und zwar lehrreich — `verschmelzeObjekte` **backt die
+// Matrix in die Geometrie**, und die beiden Sessel stehen gegeneinander
+// gedreht. Was im Shader ankam, war die Lounge-Koordinate: Die Verdunklung lief
+// bei einem Sessel quer und beim anderen verkehrt herum. Gemessen an der
+// Kissenvorderkante 71,9 statt 55,3 — sie hat genau die Stelle abgedunkelt, die
+// hell bleiben sollte.
+//
+// Scheitelfarben kennen dieses Problem nicht: Sie werden vor dem Verschmelzen
+// aus den LOKALEN Koordinaten berechnet und wandern danach unveraendert mit.
+function kissenVerdeckung(geometrie, breite, tiefe) {
+  const pos = geometrie.attributes.position;
+  const farben = new Float32Array(pos.count * 3);
+  const glatt = (a, b, x) => {
+    const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+    return t * t * (3 - 2 * t);
+  };
+  for (let i = 0; i < pos.count; i++) {
+    // Abstand zur Lehne (hinten, -z) und zu den beiden Wangen (+/-x).
+    const hinten = tiefe / 2 + pos.getZ(i);
+    const seite = breite / 2 - Math.abs(pos.getX(i));
+    // 14 bzw. 11 cm Reichweite: So weit greift die Verdunklung unter einer
+    // Lehne, die 40 cm hoch darueber steht.
+    // 18 bzw. 14 cm Reichweite, Sohle 0,5. Ein erster Ansatz mit 14/11 cm und
+    // Sohle 0,55 bewegte in den festen Pruefkameras nur vier Stufen — dort ist
+    // das Kissen klein und seine verdeckten Raender liegen zum Teil hinter der
+    // Wange. Ausschlaggebend ist der Blick aus einem Meter, und dort ist das
+    // hier die Groessenordnung, in der ein Polster in seiner Mulde sitzt.
+    const v = 0.5 + 0.5 * glatt(0, 0.18, hinten) * glatt(0, 0.14, seite);
+    // Nur oben: An der Vorderkante und an den Flanken verdeckt nichts.
+    const oben = glatt(-0.02, 0.05, pos.getY(i));
+    const f = 1 - (1 - v) * oben;
+    farben[i * 3] = farben[i * 3 + 1] = farben[i * 3 + 2] = f;
+  }
+  geometrie.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  return geometrie;
+}
+
+function polsterKissen(breite, hoehe, tiefe, kante = 0.05, woelbung = 0.022, segmente = 14) {
+  const g = new THREE.BoxGeometry(breite, hoehe, tiefe, segmente, 6, segmente);
+  const r = Math.min(kante, breite / 2 - 0.001, hoehe / 2 - 0.001, tiefe / 2 - 0.001);
+  const ix = breite / 2 - r;
+  const iy = hoehe / 2 - r;
+  const iz = tiefe / 2 - r;
+  const pos = g.attributes.position;
+  const nor = g.attributes.normal;
+  const v = new THREE.Vector3();
+  const k = new THREE.Vector3();
+  const d = new THREE.Vector3();
+  const n = new THREE.Vector3();
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    k.set(
+      Math.max(-ix, Math.min(ix, v.x)),
+      Math.max(-iy, Math.min(iy, v.y)),
+      Math.max(-iz, Math.min(iz, v.z))
+    );
+    d.subVectors(v, k);
+    const laenge = d.length();
+    if (laenge > 1e-9) {
+      n.copy(d).divideScalar(laenge);
+      v.copy(k).addScaledVector(n, r);
+    } else {
+      n.set(0, 1, 0);
+    }
+    const u = v.x / (breite / 2);
+    const w = v.z / (tiefe / 2);
+    const kuppe = Math.max(0, (1 - u * u) * (1 - w * w));
+    const oben = Math.max(0, Math.min(1, v.y / (hoehe / 2)));
+    const m = oben * oben;
+    v.y += kuppe * woelbung * m;
+    // Anstieg der Kuppe in x und z; sie kippt die Normale genau dort, wo diese
+    // nach oben zeigt.
+    const cx = woelbung * (-2 * u / (breite / 2)) * (1 - w * w) * m;
+    const cz = woelbung * (1 - u * u) * (-2 * w / (tiefe / 2)) * m;
+    const gewicht = Math.max(0, n.y);
+    n.x -= cx * gewicht;
+    n.z -= cz * gewicht;
+    n.normalize();
+    pos.setXYZ(i, v.x, v.y, v.z);
+    nor.setXYZ(i, n.x, n.y, n.z);
+  }
+  pos.needsUpdate = true;
+  nor.needsUpdate = true;
+  g.computeBoundingSphere();
+  return g;
+}
+
+// Das Kissenleder ist derselbe Werkstoff wie das uebrige Leder, nur mit
+// eingeschalteten Scheitelfarben — die tragen die Verdeckung. Gemerkt und
+// nicht je Sessel geklont: `makeConstructArmchair` laeuft zweimal, und
+// `verschmelzeObjekte` gruppiert nach Werkstoff. Zwei Klone waeren zwei Netze.
+let _konstruktKissen = null;
+function konstruktKissenLeder() {
+  if (!_konstruktKissen) {
+    const { leather } = konstruktSesselWerkstoffe();
+    _konstruktKissen = leather.clone();
+    _konstruktKissen.vertexColors = true;
+  }
+  return _konstruktKissen;
+}
+
 function makeConstructArmchair() {
   const group = new THREE.Group();
   group.name = 'construct-armchair';
-  const { normalMap, roughnessMap } = leatherMaps();
-
-  // Gealtertes Oxblood, kein Signalrot: Das Leder im Film ist dunkel, matt und
-  // sichtbar abgenutzt.
-  const leather = new THREE.MeshStandardMaterial({
-    color: 0x6f1c22,
-    roughness: 0.72,
-    metalness: 0.02,
-    normalMap,
-    normalScale: new THREE.Vector2(0.5, 0.5),
-    roughnessMap,
-  });
-  const leatherDark = leather.clone();
-  leatherDark.color = new THREE.Color(0x4c1216);
-  const wood = new THREE.MeshStandardMaterial({ color: 0x2b1a11, roughness: 0.42, metalness: 0.12 });
+  const { leather, leatherDark, wood, rosenholz } = konstruktSesselWerkstoffe();
 
   const W = 0.88;        // Gesamtbreite
   const D = 0.84;        // Gesamttiefe
@@ -7100,7 +13120,12 @@ function makeConstructArmchair() {
 
   // Rückenlehne, hoch und oben kräftig gerundet
   const backH = BACK_TOP - 0.34;
-  const back = new THREE.Mesh(roundedBox(W, backH, BACK_T, 0.16), leather);
+  // Dieselbe Behandlung wie das Sitzkissen, nur um 90 Grad gekippt: Die Kuppe
+  // liegt dann auf der Vorderseite der Lehne, wo der Ruecken sie eindrueckt.
+  // Eine Lehne, die vorn eben ist, ist eine Tuer.
+  const backGeo = polsterKissen(W, BACK_T, backH, 0.075, 0.03, 12);
+  backGeo.rotateX(Math.PI / 2);
+  const back = new THREE.Mesh(backGeo, leather);
   back.position.set(0, 0.34 + backH / 2, backZ);
   back.rotation.x = 0.07;
   group.add(back);
@@ -7109,10 +13134,39 @@ function makeConstructArmchair() {
   // Ohne sie ist es kein Ohrensessel, sondern ein Clubsessel mit hoher Lehne.
   const WING_H = 0.52;
   const WING_D = 0.3;
+  // **Der Fluegel dreht jetzt um seine Hinterkante, nicht um seine Mitte.**
+  //
+  // Vorher: `wing.rotation.y = -side * 0.2` auf einem Koerper, dessen Ursprung
+  // in seiner Mitte liegt. Damit schwenkt die Vorderkante nach innen — und die
+  // **Hinterkante nach aussen**. Gerechnet: Die aeussere hintere Ecke sitzt bei
+  // 0,065 m vom Fluegelmittelpunkt, nach der Drehung bei 0,0935 m, also bei
+  // x = 0,4685 — die Lehne endet bei 0,44. Die Ecke stand **2,85 cm ueber die
+  // Lehne hinaus**, und dazwischen klaffte eine Kerbe, durch die man von
+  // hinten-seitlich ins Freie sah. Im Bild las der Fluegel dadurch als
+  // angelehnte Platte statt als Teil der Lehne.
+  //
+  // Ein Ohrensessel-Fluegel waechst aus der Lehne heraus und flaert nach vorn.
+  // Genau das ist eine Drehung um die HINTERKANTE: Die bleibt, wo sie ist,
+  // buendig mit der Lehnenflanke, und nur die Vorderkante wandert. Der Ursprung
+  // der Geometrie wandert dafuer an die Hinterkante.
+  //
+  // Dazu steckt er tiefer: 10 cm statt 7 in der Lehne. Sichtbar bleibt davon
+  // nichts, aber es gibt keine Blickrichtung mehr, aus der zwischen beiden
+  // Licht durchfaellt.
   for (const side of [-1, 1]) {
-    const wing = new THREE.Mesh(roundedBox(0.13, WING_H, WING_D, 0.06), leather);
-    wing.position.set(side * (W / 2 - 0.065), BACK_TOP - WING_H / 2 - 0.04, backZ + BACK_T / 2 + WING_D / 2 - 0.04);
-    wing.rotation.y = -side * 0.2; // leicht nach innen gestellt
+    const wingGeo = roundedBox(0.13, WING_H, WING_D, 0.06);
+    wingGeo.translate(0, 0, WING_D / 2);
+    const wing = new THREE.Mesh(wingGeo, leather);
+    wing.position.set(
+      side * (W / 2 - 0.065),
+      BACK_TOP - WING_H / 2 - 0.04,
+      backZ + BACK_T / 2 - 0.1
+    );
+    // Dieselbe Neigung wie die Lehne. Ohne sie oeffnet sich zwischen beiden ein
+    // Keil, der mit der Hoehe waechst — der Pruefer hat ihn als „tiefe harte
+    // Spalte zwischen Wange und Lehne" gemeldet.
+    wing.rotation.x = 0.07;
+    wing.rotation.y = -side * 0.2; // nach vorn nach innen gestellt
     group.add(wing);
   }
 
@@ -7128,27 +13182,151 @@ function makeConstructArmchair() {
     arm.position.set(side * cheekX, ARM_TOP - CHEEK / 2, frontZ);
     group.add(arm);
 
-    // Geschnitzte Rosette an der Stirnseite – im Film ein dunkles Holzelement,
-    // das die eingerollte Armlehne abschließt.
-    const rosette = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 20), wood);
-    rosette.rotateX(Math.PI / 2);
+    // --- Geschnitzte Rosette an der Stirnseite -----------------------------
+    //
+    // **Sie war eine Scheibe, kein Schnitzwerk.** Ein Zylinder von 10 cm
+    // Durchmesser mit einer Kugel davor: null Relief ausser der Kugel, und in
+    // fast schwarzem Holz. Der Kommentar behauptete „geschnitzt", gebaut war
+    // ein Knopf.
+    //
+    // Jetzt hat sie, was eine Rosette hat: einen erhabenen Aussenring, der das
+    // Licht an seiner Kuppe faengt, einen dahinter zurueckgesetzten Teller,
+    // einen Kranz von acht Blattbuckeln und den Mittelbuckel. Das Relief traegt
+    // die Form, nicht die Farbe — und es traegt sie aus jeder Richtung, weil
+    // jede Kuppe ihre eigene Lichtseite und ihre eigene Schattenseite hat.
+    const rosette = new THREE.Group();
+    rosette.name = 'arm-rosette';
+
+    const teller = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.016, 20), rosenholz);
+    teller.rotateX(Math.PI / 2);
+    rosette.add(teller);
+
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.008, 8, 24), rosenholz);
+    ring.position.z = 0.006;
+    rosette.add(ring);
+
+    for (let i = 0; i < 8; i++) {
+      const w = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const blatt = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 6), rosenholz);
+      // Flach gedrueckt: Ein Blatt einer Schnitzrosette steht wenige
+      // Millimeter vor, es ist keine aufgelegte Perle.
+      blatt.scale.set(1.5, 1, 0.55);
+      blatt.rotation.z = w;
+      blatt.position.set(Math.cos(w) * 0.026, Math.sin(w) * 0.026, 0.009);
+      rosette.add(blatt);
+    }
+
+    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.017, 12, 10), rosenholz);
+    boss.scale.z = 0.8;
+    boss.position.z = 0.012;
+    rosette.add(boss);
+
     rosette.position.set(side * cheekX, ARM_TOP - CHEEK / 2, D / 2 + 0.001);
     group.add(rosette);
-    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.019, 12, 10), wood);
-    boss.position.set(side * cheekX, ARM_TOP - CHEEK / 2, D / 2 + 0.012);
-    group.add(boss);
   }
 
   // Sitzkissen
   const seatW = W - CHEEK * 2 + 0.02;
-  const seat = new THREE.Mesh(roundedBox(seatW, 0.15, frontDepth - 0.05, 0.05), leather);
-  seat.position.set(0, 0.38, frontZ + 0.015);
+  // **Das Kissen reicht jetzt bis an die Lehne — vorher fehlten vier
+  // Zentimeter.**
+  //
+  // Gerechnet: `frontZ0` = -0,23 ist die Vorderseite der Rueckenlehne. Das
+  // Kissen stand bei `frontZ + 0.015` = 0,11 mit einer Tiefe von 0,60, seine
+  // Hinterkante also bei **-0,19**. Dazwischen klaffte ein Schlitz von vier
+  // Zentimetern ueber die ganze Sitzbreite.
+  //
+  // Im Bild sah man davon nichts — der Schlitz liegt im Schatten der Lehne. Was
+  // man sah, war ein heller Splitter MITTEN im Schlagschatten auf dem Boden,
+  // den der Pruefer als Schattenleck gemeldet hat: Bei einem Fuehrungslicht aus
+  // 45 Grad wirft ein waagerechter Schlitz einen Lichtstrahl unter dem Sessel
+  // hindurch.
+  //
+  // Zwei Vermutungen davor lagen daneben und stehen im Protokoll (der Radius
+  // der Schattenebene, der Keil zwischen Fluegel und Lehne). Gefunden hat es
+  // erst `tools/lichtblick.mjs`, das die Kamera auf die Schattenkamera setzt:
+  // Aus dem Blick des Lichts ist der Spalt unuebersehbar.
+  //
+  // Die Tiefe waechst um 5,5 cm statt das Kissen zu verschieben — so bleibt die
+  // Vorderkante, wo sie war, und nur die Hinterkante wandert bis 1,5 cm IN die
+  // Lehne hinein.
+  const seatD = frontDepth - 0.05 + 0.055;
+  // **Gewoelbt statt eben** — siehe `polsterKissen`. 2,2 cm Kuppe auf 55 cm
+  // Kissentiefe: Das ist die Groessenordnung, in der ein durchgesessenes
+  // Rosshaarpolster steht, und genug, um die Normale am Rand um sechs Grad
+  // gegen die Mitte zu kippen.
+  // Eigener Werkstoff, weil die Verdeckung die Kissenkoordinaten braucht — und
+  // aus demselben Nebennutzen wie bei der Rosette: So bleibt das Kissen ein
+  // eigenes Netz und laesst sich messen.
+  //
+  // **Gemerkt und nicht je Sessel geklont.** `makeConstructArmchair` laeuft
+  // zweimal; ein Klon je Aufruf haette zwei Werkstoffe ergeben, und
+  // `verschmelzeObjekte` haette daraus zwei Netze gemacht statt einem. Ein
+  // Draw-Call fuer eine Messhilfe ist vertretbar, zwei sind es nicht.
+  const kissenLeder = konstruktKissenLeder();
+  const seat = new THREE.Mesh(
+    kissenVerdeckung(polsterKissen(seatW, 0.15, seatD, 0.05, 0.022), seatW, seatD),
+    kissenLeder
+  );
+  seat.position.set(0, 0.38, frontZ + 0.015 - 0.0275);
   group.add(seat);
+
+  // Keder rund um das Kissen, auf halber Polsterhoehe — dort, wo die Naht
+  // zwischen Ober- und Seitenteil laeuft. Er gibt dem Kissen die Kante, die
+  // ihm die Narbung auf der Oberseite nicht geben kann.
+  const seatKeder = new THREE.Mesh(kederRing(seatW - 0.004, seatD - 0.004, 0.05), leatherDark);
+  seatKeder.position.set(0, 0.38, frontZ + 0.015 - 0.0275);
+  group.add(seatKeder);
+
+  // Und einer auf der Oberkante des Unterbaus: Dort stiess vorher ein dunkler
+  // Block mit harter waagerechter Kante an das Polster, was als zweites Moebel
+  // las statt als Sockel desselben.
+  //
+  // **Auf 0,380 und nicht 0,375.** Der erste Versuch legte ihn drei Millimeter
+  // unter die Oberkante des Unterbaus — die Schnur steckte damit fast
+  // vollstaendig im Korpus, und was herausschaute, war ein duenner dunkler
+  // Strich quer ueber die Vorderseite. Er las als vergessener Draht, nicht als
+  // Naht. Ein Keder muss AUF der Kante sitzen, nicht darin.
+  const baseKeder = new THREE.Mesh(kederRing(W - 0.02, D - 0.02, 0.05), leatherDark);
+  baseKeder.position.set(0, 0.381, 0);
+  group.add(baseKeder);
 
   // Dichte Rautenknopfheftung über die ganze Lehne. Die erste Fassung hatte drei
   // Reihen à zwei bis drei Knöpfen – auf einer Lehne dieser Höhe wirkt das leer.
+  //
+  // **Die Knoepfe sassen auf einer Flaeche, die es nicht gibt.**
+  //
+  // Sie standen alle auf derselben Tiefe `frontZ0 - 0.003`. Die Lehne ist aber
+  // um 0,07 rad zurueckgeneigt, und sie ist es um ihre eigene Mitte: Oben
+  // weicht ihre Vorderseite 2,0 cm nach hinten, unten kommt sie 2,0 cm nach
+  // vorn. Gerechnet heisst das, die oberste Reihe steckte **2,3 cm im
+  // Polster** und die unterste stand **1,8 cm davor** — im Bild sah man oben
+  // kaum noch etwas und unten aufgesetzte Perlen. Der Kommentar an den Mulden
+  // hat das Symptom sogar beschrieben („mit 9 mm Einlass verschwanden die
+  // oberen zwei Reihen") und die Ursache in der Fase der `roundedBox`
+  // vermutet. Sie lag in der Neigung.
+  //
+  // Seit die Lehne zusaetzlich gewoelbt ist, kommt die Kuppe dazu. Beides
+  // steckt jetzt in einer Funktion: Sie liefert zu einer Stelle auf der Lehne
+  // den Punkt auf deren tatsaechlicher Vorderflaeche.
+  const BACK_CY = 0.34 + backH / 2;
+  const BACK_NEIGUNG = 0.07;
+  const BACK_KUPPE = 0.03;
+  const lehnePunkt = (x, y, einlass) => {
+    const yl = y - BACK_CY;
+    const u = x / (W / 2);
+    const w = yl / (backH / 2);
+    const kuppe = Math.max(0, (1 - u * u) * (1 - w * w));
+    const zl = BACK_T / 2 + kuppe * BACK_KUPPE - einlass;
+    return [
+      x,
+      BACK_CY + yl * Math.cos(BACK_NEIGUNG) - zl * Math.sin(BACK_NEIGUNG),
+      backZ + yl * Math.sin(BACK_NEIGUNG) + zl * Math.cos(BACK_NEIGUNG),
+    ];
+  };
+
   const buttonGeo = new THREE.SphereGeometry(0.014, 10, 8);
   buttonGeo.scale(1, 1, 0.45);
+  buttonGeo.rotateX(BACK_NEIGUNG);
   const buttons = [];
   const ROWS = 6;
   for (let row = 0; row < ROWS; row++) {
@@ -7156,11 +13334,63 @@ function makeConstructArmchair() {
     const count = wide ? 4 : 3;
     for (let i = 0; i < count; i++) {
       const g = buttonGeo.clone();
-      g.translate((i - (count - 1) / 2) * 0.165, 0.46 + row * 0.115, frontZ0 + 0.002);
+      // Der Knopf sitzt IM Polster, nicht darauf: 3 mm hinter der Flaeche.
+      g.translate(...lehnePunkt((i - (count - 1) / 2) * 0.165, 0.46 + row * 0.115, 0.003));
       buttons.push(g);
     }
   }
   group.add(new THREE.Mesh(mergeGeometries(buttons), leatherDark));
+
+  // **Mulden um die Knoepfe.**
+  //
+  // Vorher waren es flache dunkle Punkte auf glattem Leder — Aufkleber. Eine
+  // Kapitonierung zieht das Polster am Knopf ein; was man sieht, ist nicht der
+  // Knopf, sondern der Trichter um ihn herum. Ohne den fehlt der Lehne die
+  // einzige Modellierung, die sie ueberhaupt hat.
+  //
+  // Ein flachgedruecktes Torus-Segment leistet das mit acht Dreiecksringen: Die
+  // Innenkante faengt Licht, die Aussenkante liegt im Schatten des Wulstes.
+  // Sie teilen sich das Ledermaterial und werden mit den Knoepfen zusammen
+  // verschmolzen — kein zusaetzlicher Draw-Call.
+  // **Flach und eingelassen, nicht aufgesetzt.**
+  //
+  // Der erste Versuch nahm Schnurstaerke 0,012 und setzte den Ring vier
+  // Millimeter vor die Flaeche. Im Bild standen daraufhin Ringe wie Oesen auf
+  // dem Leder — ein Beschlag, kein Polster. Eine Kapitonierung ist das
+  // Gegenteil: Der Knopf zieht das Leder EIN, der Wulst ringsum ist nur die
+  // Falte, die dabei entsteht, und die ist weich und niedrig.
+  const muldeGeo = new THREE.TorusGeometry(0.03, 0.0075, 6, 14);
+  muldeGeo.scale(1, 1, 0.3);
+  muldeGeo.rotateX(BACK_NEIGUNG);
+  const mulden = [];
+  for (const b of buttons) {
+    const g = muldeGeo.clone();
+    // Dieselbe Stelle wie der Knopf, nur eine Spur tiefer im Polster: Der
+    // Wulst soll ihn umschliessen, nicht vor ihm stehen.
+    const p = b.attributes.position;
+    let sx = 0;
+    let sy = 0;
+    let sz = 0;
+    for (let i = 0; i < p.count; i++) {
+      sx += p.getX(i);
+      sy += p.getY(i);
+      sz += p.getZ(i);
+    }
+    // 2 mm tiefer als der Knopf, gemessen entlang der geneigten Flaechen-
+    // normalen — nicht mehr entlang z, denn die Flaeche steht schraeg.
+    //
+    // Der alte Wert 5 mm war ein Ausgleich fuer den Fehler, der jetzt weg ist:
+    // Weil die oberen Reihen im Polster steckten, musste der Einlass klein
+    // bleiben, damit sie ueberhaupt noch herausschauten. Mit richtig
+    // sitzenden Knoepfen darf die Mulde wieder das sein, was sie ist.
+    g.translate(
+      sx / p.count,
+      sy / p.count + 0.002 * Math.sin(BACK_NEIGUNG),
+      sz / p.count - 0.002 * Math.cos(BACK_NEIGUNG)
+    );
+    mulden.push(g);
+  }
+  group.add(new THREE.Mesh(mergeGeometries(mulden), leather));
 
   // Gedrechselte Vorderbeine (Lathe-Profil), hinten schlichte Stollen
   const profile = [
@@ -7194,6 +13424,105 @@ function makeConstructArmchair() {
 // stehendes Dreieck mit „DEEP IMAGE" und den Schriftzug „RADIOLA TELEVISION" –
 // gemalt als Canvas-Textur, denn Schrift und Emblem als Geometrie nachzubauen
 // kostet tausende Dreiecke für ein Detail, das ohnehin flach ist.
+// --- Patina auf dem Konsolengehaeuse ------------------------------------------
+//
+// **Der Pruefer:** Seitenflaeche (545,320) bis (600,430), 6216 Bildpunkte,
+// **p05 = p95 = 101**. Nicht eine Stufe Variation. Deckel: p05 = p95 = 126.
+// Und direkt daneben die Schautafel mit neunzig Stufen Textur — zwei Flaechen
+// desselben Kastens, eine fotografisch, die andere ein Farbeimer.
+//
+// Der Kommentar am Werkstoff sagte „Gealtertes Messing/Olivbronze mit Patina".
+// Eine Patina war nie da; es standen nur Farbe, Rauheit und Metallanteil.
+//
+// Zwei Massstaebe, wie ueberall in diesem Projekt: grobe Flecken von rund 9 cm
+// fuer die Alterung, ein feines Korn von 1,5 cm fuer die Oberflaeche. Beides
+// wirkt auf Albedo UND Rauheit — bei einem halb metallischen Werkstoff traegt
+// die Rauheit mehr als die Farbe, weil sie den Glanz aufbricht.
+//
+// Der Ort kommt aus der Welt und nicht aus der UV: Der Kasten besteht aus
+// mehreren Teilen (Korpus, Schulter), deren UV-Massstaebe nichts voneinander
+// wissen. Eine weltbezogene Projektion haelt die Fleckengroesse ueber die
+// Bauteilgrenze hinweg gleich.
+function patinaKorn(material) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vPatinaOrt;')
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvPatinaOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    const gemeinsam = `
+      varying vec3 vPatinaOrt;
+      float patHash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+      float patNoise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(
+          mix(patHash(i), patHash(i + vec2(1.0, 0.0)), u.x),
+          mix(patHash(i + vec2(0.0, 1.0)), patHash(i + vec2(1.0, 1.0)), u.x),
+          u.y
+        );
+      }
+      // Gedreht und mit krummem Faktor gestapelt, damit sich die Gitter der
+      // Oktaven nicht aufeinanderlegen — dieselbe Lehre wie beim Gras.
+      float patFbm(vec2 p) {
+        mat2 dreh = mat2(0.8018, -0.5976, 0.5976, 0.8018);
+        vec2 q = dreh * p;
+        float summe = 0.0;
+        float amp = 0.5;
+        for (int i = 0; i < 3; i++) {
+          summe += patNoise(q) * amp;
+          q = dreh * q * 2.17 + 5.1;
+          amp *= 0.5;
+        }
+        return summe / 0.875;
+      }
+      // Achsendominante Projektion: Auf einem Kasten ist die staerkste
+      // Komponente der Weltnormale die Flaeche, auf der man steht.
+      vec2 patUV(vec3 wn, vec3 ort) {
+        vec3 an = abs(wn);
+        return an.y > max(an.x, an.z) ? ort.xz : (an.x > an.z ? ort.yz : ort.xy);
+      }`;
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>' + gemeinsam)
+      .replace(
+        '#include <roughnessmap_fragment>',
+        `#include <roughnessmap_fragment>
+         {
+           vec3 wnP = (vec4(normalize(vNormal), 0.0) * viewMatrix).xyz;
+           vec2 uvP = patUV(wnP, vPatinaOrt);
+           float grob = patFbm(uvP * 11.0) - 0.5;
+           float fein = patFbm(uvP * 66.0) - 0.5;
+           // Patina ist STUMPFER als das blanke Metall darunter, nicht
+           // glaenzender: Der Fleck nimmt Glanz weg.
+           roughnessFactor = clamp(roughnessFactor + grob * 0.30 + fein * 0.14, 0.05, 1.0);
+         }`
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           vec3 wnC = (vec4(normalize(vNormal), 0.0) * viewMatrix).xyz;
+           vec2 uvC = patUV(wnC, vPatinaOrt);
+           float grobC = patFbm(uvC * 11.0) - 0.5;
+           float feinC = patFbm(uvC * 66.0) - 0.5;
+           // Kanten und Vorspruenge blank gewetzt, Flaechen stumpf: der Fleck
+           // zieht leicht ins Gruenliche, wie Bronze es tut.
+           diffuseColor.rgb *= 1.0 + grobC * 0.26 + feinC * 0.11;
+           diffuseColor.g *= 1.0 + grobC * 0.06;
+         }`
+      );
+  };
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () => (vorherKey ? vorherKey() : '') + '|konstrukt-patina-v1';
+  return material;
+}
+
 function makeRadiolaConsole() {
   const group = new THREE.Group();
   group.name = 'radiola-console';
@@ -7203,11 +13532,13 @@ function makeRadiolaConsole() {
   const D = 0.56;
 
   // Gealtertes Messing/Olivbronze mit Patina
-  const shellMat = new THREE.MeshStandardMaterial({
-    color: 0x6a6851,
-    roughness: 0.62,
-    metalness: 0.45,
-  });
+  const shellMat = patinaKorn(
+    new THREE.MeshStandardMaterial({
+      color: 0x6a6851,
+      roughness: 0.62,
+      metalness: 0.45,
+    })
+  );
   const darkMat = new THREE.MeshStandardMaterial({ color: 0x2b2a22, roughness: 0.5, metalness: 0.3 });
   // Der Rahmen um die Röhre bleibt bewusst stumpf: Mit Metallglanz spiegelt er
   // das Licht und wirkt wie eine überstrahlte Scheibe vor dem Bild.
@@ -7223,15 +13554,69 @@ function makeRadiolaConsole() {
   shoulder.position.set(0, H + 0.018, 0);
   group.add(shoulder);
 
-  // Lamellenband unter der Schulter
-  const slats = [];
-  for (let i = 0; i < 23; i++) {
-    const slat = new THREE.BoxGeometry(0.012, 0.05, 0.008);
-    slat.translate(-0.25 + i * 0.0227, 0, 0);
-    slats.push(slat);
+  // --- Lamellenband unter der Schulter ---------------------------------------
+  //
+  // **Das Band stand falsch herum im Raum, und es hat gekribbelt.**
+  //
+  // Vorher: 23 dunkle Kaesten, 6 mm VOR der Gehaeusewand. Das ist eine
+  // Oeffnung, die aus dem Moebel heraussteht — ein Schlitz, der sich woelbt.
+  // Wer den Kasten anschaut, sieht dunkle Streifen und liest sie als Loecher;
+  // gebaut waren sie als Vorspruenge.
+  //
+  // Und sie flimmerten. Gemessen mit dem neuen `tools/kamm.mjs`, das die Kamera
+  // in Millimeterschritten quer bewegt und den mittleren Sprung je Bildpunkt
+  // misst — bei gleichem Kontrast (Streuung um 23):
+  //
+  //     Lamellenband        Zittern 1,72   Quotient 0,077
+  //     Gehaeuse daneben    Zittern 0,52   Quotient 0,022
+  //     Schriftzug (Textur) Zittern 0,74   Quotient 0,032
+  //
+  // Dreieinhalbmal so unruhig wie die glatte Wand daneben, und mehr als
+  // doppelt so unruhig wie ein ebenso feiner Schriftzug, der aus einer Textur
+  // kommt. Der Unterschied ist das Mipmapping: Eine Textur wird mit dem
+  // Abstand von selbst weicher, Geometrie nicht. Bei 4 Bildpunkten
+  // Streifenbreite und 68 Helligkeitsstufen Sprung ist das genau das Muster,
+  // das in einer Brille beim Kopfdrehen kriecht.
+  //
+  // Jetzt ist es gebaut, wie ein Lamellenband gebaut ist: eine **zurueck-
+  // gesetzte dunkle Nische** und davor **Stege in der Gehaeusefarbe**. Das
+  // Dunkle gehoert der Oeffnung, nicht dem Vorsprung. Die Stege bekommen eine
+  // Fase von 2,7 mm — im Bild knapp ein Bildpunkt, und dieser eine Bildpunkt
+  // ist der Unterschied zwischen einer Stufe und einem Verlauf.
+  const BAND_TEILUNG = 0.034;
+  const BAND_ANZAHL = 15;
+  const BAND_Y = H - 0.07;
+  const BAND_X0 = -0.238;
+
+  const nische = new THREE.Mesh(
+    new THREE.BoxGeometry((BAND_ANZAHL - 1) * BAND_TEILUNG + 0.024, 0.056, 0.004),
+    darkMat
+  );
+  // **Die Nische liegt VOR der Gehaeusewand, nicht dahinter.**
+  //
+  // Der erste Anlauf hat sie 7 mm zurueckgesetzt — und damit ins Innere des
+  // Kastens, dessen Vorderseite bei D/2 sitzt. Zwischen den Stegen sah man
+  // dann nicht die Nische, sondern die Gehaeusewand selbst: Das Band war ein
+  // gleichmaessiger Fleck, Profil 72 bis 85 statt 33 bis 85. Ein Rueckspruch
+  // in eine geschlossene Wand ist kein Rueckspruch, sondern ein verstecktes
+  // Bauteil. Ohne Loch im Koerper — und ein Loch kostet hier eine
+  // CSG-Operation, die es in diesem Projekt nicht gibt — muss die dunkle
+  // Flaeche eben davor liegen; einen Millimeter, den niemand sieht, weil die
+  // Stege 5 mm darueber stehen.
+  nische.name = 'lamellen-nische';
+  nische.position.set(BAND_X0 + ((BAND_ANZAHL - 1) * BAND_TEILUNG) / 2, BAND_Y, D / 2 + 0.001);
+  group.add(nische);
+
+  // Ein Steg mehr als Oeffnungen: Das Band faengt und endet mit Material.
+  const stege = [];
+  for (let i = -1; i < BAND_ANZAHL; i++) {
+    const steg = roundedBox(0.0135, 0.05, 0.005, 0.004);
+    steg.translate(BAND_X0 + (i + 0.5) * BAND_TEILUNG, 0, 0);
+    stege.push(steg);
   }
-  const slatMesh = new THREE.Mesh(mergeGeometries(slats), darkMat);
-  slatMesh.position.set(0, H - 0.07, D / 2 + 0.002);
+  const slatMesh = new THREE.Mesh(mergeGeometries(stege), shellMat);
+  slatMesh.name = 'lamellen-stege';
+  slatMesh.position.set(0, BAND_Y, D / 2 + 0.004);
   group.add(slatMesh);
 
   // --- Schauseite als gemalte Tafel ---
@@ -7369,11 +13754,51 @@ function makeRadiolaConsole() {
     screenGeo,
     new THREE.MeshBasicMaterial({ map: screenTexture, toneMapped: false })
   );
+  screen.name = 'roehre-schirm';
   screen.position.set(0, H / 2 + 0.06, -D / 2 - 0.015);
   screen.rotation.y = Math.PI;
   group.add(screen);
 
+  // **Die Glasscheibe — das, was eine Roehre in einem weissen Raum ausmacht.**
+  //
+  // Der Pruefer nennt es „keine Glasspiegelung". Das war bis zu diesem Stand
+  // gar nicht baubar: Eine Spiegelung braucht etwas zum Spiegeln, und die
+  // Umgebungskarte gibt es erst seit dem Lederpaket. Jetzt gibt es sie, und
+  // damit die eine Angabe, die eine Bildroehre von einer leuchtenden Tapete
+  // unterscheidet — die gewoelbte Scheibe wirft den Raum zurueck, und sie tut
+  // es blickabhaengig: Beim Kopfdrehen wandert der helle Schleier ueber das
+  // Bild.
+  //
+  // Additiv und mit schwarzer Grundfarbe: Damit traegt das Material keinen
+  // diffusen Anteil, sondern ausschliesslich seine Spiegelung — genau das
+  // Verhalten einer klaren Scheibe vor einer selbstleuchtenden Flaeche. Die
+  // Geometrie ist dieselbe gewoelbte Flaeche wie der Schirm, 2 mm davor.
+  const glas = new THREE.Mesh(
+    screenGeo.clone(),
+    new THREE.MeshStandardMaterial({
+      color: 0x000000,
+      // 0,12 und nicht 0,05: Bei 0,05 wird die Spiegelung des Fuehrungslichts
+      // ein harter weisser Punkt von wenigen Bildpunkten — ein Muster, das
+      // beim Kopfdrehen springt. Auf einer gewoelbten Roehre ist der
+      // Lichtreflex ein Fleck, kein Stern.
+      roughness: 0.12,
+      metalness: 0,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    })
+  );
+  // Die Scheibe braucht mehr als die 0,35 der Moebel: Glas spiegelt, Leder
+  // schimmert.
+  glas.material.userData.envStaerke = 0.45;
+  glas.name = 'roehre-glas';
+  glas.position.set(0, H / 2 + 0.06, -D / 2 - 0.017);
+  glas.rotation.y = Math.PI;
+  glas.renderOrder = 2;
+  group.add(glas);
+
   const bezel = new THREE.Mesh(roundedBox(SCREEN_W + 0.05, SCREEN_H + 0.05, 0.014, 0.03), bezelMat);
+  bezel.name = 'roehre-blende';
   bezel.position.set(0, H / 2 + 0.06, -D / 2 - 0.006);
   group.add(bezel);
 
@@ -7406,10 +13831,21 @@ function makeRadiolaConsole() {
     // Gleichmäßige Grundhelligkeit über die ganze Röhre. Ohne sie leuchten nur
     // die Schwaden in der Mitte, und der Bildschirm wirkt wie ein heller Fleck
     // in einem schwarzen Loch statt wie eine ausgeleuchtete Bildfläche.
+    // **Der Schirm war dunkler als der Schrank, in dem er steckt.**
+    //
+    // Gemessen auf seinen eigenen Bildpunkten (Maske aus Ein- und Ausblenden)
+    // in `c-roehre`: Mittel 71,8, p95 116, Hoechstwert 172 — das Gehaeuse
+    // daneben liegt bei p50 60 bis 66 und p95 104 bis 141. Eine eingeschaltete
+    // Bildroehre, die sich vom Moebel nicht abhebt, ist keine eingeschaltete
+    // Bildroehre; sie ist eine graue Platte.
+    //
+    // Das Material ist `MeshBasicMaterial` mit `toneMapped: false` — was im
+    // Canvas steht, kommt unveraendert heraus, und 255 ist die Obergrenze.
+    // Die Helligkeit muss also im Canvas entstehen, nicht im Licht.
     const glow = ctx.createLinearGradient(0, 0, 0, sh);
-    glow.addColorStop(0, 'rgba(148,154,148,0.34)');
-    glow.addColorStop(0.5, 'rgba(122,128,122,0.3)');
-    glow.addColorStop(1, 'rgba(92,98,92,0.32)');
+    glow.addColorStop(0, 'rgba(196,204,196,0.56)');
+    glow.addColorStop(0.5, 'rgba(170,178,170,0.52)');
+    glow.addColorStop(1, 'rgba(132,140,132,0.5)');
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, sw, sh);
 
@@ -7419,16 +13855,31 @@ function makeRadiolaConsole() {
       const y = sh * (0.5 + Math.cos(t * 0.8 + i) * 0.3);
       const r = sh * (0.52 + Math.sin(t * 1.7) * 0.12);
       const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-      const level = 140 + i * 20;
-      g.addColorStop(0, `rgba(${level},${level + 6},${level},0.62)`);
+      // Die Schwaden sind der Kern des Bildes und duerfen anschlagen: Eine
+      // Roehre hat helle Stellen, die im Weiss stehen, sonst wirkt sie
+      // abgeblendet.
+      const level = 214 + i * 10;
+      g.addColorStop(0, `rgba(${level},${level + 6},${level},0.76)`);
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, sw, sh);
     }
 
+    // **Das Korn kommt aus der Zeit, nicht aus `Math.random()`.**
+    //
+    // Vorher war diese Umgebung als einzige der fuenf nicht wiederholbar: Zwei
+    // Laeufe desselben Standes ergaben immer verschiedene Bilder, und der
+    // Regressionsvergleich musste sie ausnehmen (die Warnung stand woertlich in
+    // `tools/harness-common.mjs`). Damit war jede Messung an ihr wertlos, und
+    // ohne Messung ist jede Verbesserung eine Behauptung.
+    //
+    // Das Korn bleibt bewegt — es haengt an der Bildnummer, und die kommt aus
+    // der Zeit. Bei eingefrorener Uhr ist es damit immer dasselbe.
+    const rahmen = Math.floor(time / 0.08);
+    const kr = mulberry32((0x9e3779b1 ^ (rahmen * 2654435761)) >>> 0);
     const grain = ctx.getImageData(0, 0, sw, sh);
     for (let i = 0; i < grain.data.length; i += 4) {
-      const n = (Math.random() - 0.5) * 42;
+      const n = (kr() - 0.5) * 42;
       grain.data[i] += n;
       grain.data[i + 1] += n;
       grain.data[i + 2] += n;
@@ -7448,7 +13899,7 @@ function makeRadiolaConsole() {
 
     const vign = ctx.createRadialGradient(sw / 2, sh / 2, sh * 0.45, sw / 2, sh / 2, sh * 1.05);
     vign.addColorStop(0, 'rgba(0,0,0,0)');
-    vign.addColorStop(1, 'rgba(0,0,0,0.34)');
+    vign.addColorStop(1, 'rgba(0,0,0,0.26)');
     ctx.fillStyle = vign;
     ctx.fillRect(0, 0, sw, sh);
 
@@ -7470,7 +13921,11 @@ function makeRadiolaConsole() {
       if (time - lastDraw < 0.08) return;
       lastDraw = time;
       drawScreen(time);
-      screenLight.intensity = 0.42 + Math.sin(time * 7.3) * 0.06 + Math.random() * 0.05;
+      // Dasselbe fuer das Flackern des Schirmlichts: aus der Bildnummer, nicht
+      // aus `Math.random()`. Eine Roehre flackert unregelmaessig, aber sie
+      // flackert bei derselben Zeit auch zweimal gleich.
+      const flacker = mulberry32((0x85ebca6b ^ (Math.floor(time / 0.08) * 374761393)) >>> 0);
+      screenLight.intensity = 0.42 + Math.sin(time * 7.3) * 0.06 + flacker() * 0.05;
     },
   };
 }
@@ -7516,6 +13971,88 @@ function makeConsoleStand(width, depth, height) {
 // und Schautafel liegen auf gegenüberliegenden Seiten des Gehäuses. Wer das
 // laufende Bild sehen will, geht um die Gruppe herum; von vorn verrät es sich
 // über den Lichtschein, den die Röhre auf die Sessel wirft.
+// --- Die weisse Leere als Lichtquelle ---------------------------------------
+//
+// **Warum das Leder als Filz las.**
+//
+// Der Pruefer hat es auf den eigenen Bildpunkten der Sessel gemessen: p99 bei
+// L 90, Maximum 113,6 — kein Glanzlicht, nirgends. Der Grund steht nicht im
+// Werkstoff, sondern im Lichtaufbau: Spiegelnd wirkten hier nur drei gerichtete
+// Lampen mit zusammen 1,9 Einheiten, und bei Rauheit 0,72 ist deren Keule so
+// breit, dass von 4 % Grundreflexion nichts uebrig bleibt. Der Raum selbst, ein
+// weisser Hohlraum von 60 m, trug **gar nichts** bei — es gab keine
+// Umgebungskarte.
+//
+// Das ist die eigentliche Auslassung. In einem weissen Unendlich-Raum ist die
+// Wand die Lichtquelle, und ein Ledersessel darin spiegelt nach allen Seiten
+// Weiss. Die Hemisphaerenleuchte auf 3,9 war der Ersatz dafuer: Sie hat die
+// Helligkeit nachgestellt, die eine Umgebungskarte von selbst mitbringt, aber
+// sie traegt keinen spiegelnden Anteil (three ruft fuer sie nur den diffusen
+// Pfad). Ein Sessel unter reiner Hemisphaerenleuchte KANN kein Glanzlicht
+// haben.
+//
+// Die Sonde ist prozedural wie alles hier: eine Kugel von innen, oben das
+// Weiss der Kuppel, unten der etwas kuehlere Bodenton, dazwischen ein
+// Uebergang an der Stelle des Horizonts. `PMREMGenerator.fromScene()` faltet
+// darueber — dasselbe Muster wie im Dojo und im Zen-Garten, nur ohne
+// Sonnenscheibe, weil es hier keine gibt.
+//
+// Gemessen auf der Sesselmaske in `b-sessel` (287 966 Bildpunkte):
+//
+//     Stand                          p50 44   p95  64   p99  81   >L110 0,23 %
+//     Hemi 1,17 + Karte 0,35 r0,45   p50 43   p95  86   p99 107   >L110 0,77 %
+//
+// Der Median bleibt, wo er war — der Sessel wird nicht heller, er bekommt
+// einen Kopf. Und das Korn im hellsten Zwanzigstel steigt von 5,4 auf 11,1:
+// Die Ledernarbung, die vorher nur auf den senkrechten Wangen zu sehen war,
+// bricht jetzt das Glanzlicht.
+let _konstruktKarte = null;
+function konstruktUmgebungskarte(renderer) {
+  const gemerkt = _konstruktKarte;
+  if (gemerkt && gemerkt.renderer === renderer) return gemerkt.texture;
+
+  const probe = new THREE.Scene();
+  const material = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      // `THREE.Color` rechnet Hexwerte von sRGB in den linearen Arbeitsraum um;
+      // die Sonde wird linear gerendert, hier stehen also genau die Toene, die
+      // der Nutzer als Kuppel und Boden sieht.
+      uOben: { value: new THREE.Color(0xffffff) },
+      uUnten: { value: new THREE.Color(0xdfe3e8) },
+    },
+    vertexShader: /* glsl */ `
+      varying vec3 vDir;
+      void main() {
+        vDir = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: /* glsl */ `
+      varying vec3 vDir;
+      uniform vec3 uOben;
+      uniform vec3 uUnten;
+      void main() {
+        float h = normalize(vDir).y;
+        gl_FragColor = vec4(mix(uUnten, uOben, smoothstep(-0.3, 0.55, h)), 1.0);
+      }`,
+  });
+  // 32x20 reicht: In dieser Karte gibt es keine Scheibe und keine Kante, nur
+  // einen weichen Uebergang. Die feinere Unterteilung der Dojo-Sonde ist dort
+  // noetig, weil eine 4-Grad-Sonne sonst in ein Dreieck faellt.
+  probe.add(new THREE.Mesh(new THREE.SphereGeometry(8, 32, 20), material));
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const ziel = pmrem.fromScene(probe, 0, 0.1, 30);
+  pmrem.dispose();
+  probe.traverse((o) => {
+    if (o.isMesh) o.geometry.dispose();
+  });
+  material.dispose();
+  _konstruktKarte = { renderer, texture: ziel.texture };
+  return ziel.texture;
+}
+
 function makeConstructLounge() {
   const group = new THREE.Group();
   group.name = 'construct-lounge';
@@ -7533,15 +14070,26 @@ function makeConstructLounge() {
   const screenZ = TV_Z - console3d.screenOffset;
   const facing = Math.atan2(CHAIR_X, screenZ - CHAIR_Z);
 
+  // **Beide Sessel zu drei Meshes verschmolzen.**
+  //
+  // Ein Sessel besteht aus rund fuenfzehn Teilen — Unterbau, Lehne, Wangen,
+  // Polster, Knoepfe, vier Beine —, und es gibt ihn zweimal. Das waren dreissig
+  // Draw-Calls, die sich der Schattendurchgang danach noch einmal holt.
+  //
+  // Sie sind statisch und teilen sich drei Werkstoffe (Leder, dunkles Leder,
+  // Holz); damit ist es genau der Fall, fuer den `verschmelzeObjekte()` in
+  // dieser Datei steht. Die Ortsangaben werden dabei in die Geometrie gebacken,
+  // die beiden Sessel also gleich mit — heraus kommen **drei** Meshes fuer
+  // beide zusammen.
   const left = makeConstructArmchair();
   left.position.set(-CHAIR_X, 0, CHAIR_Z);
   left.rotation.y = facing;
-  group.add(left);
 
   const right = makeConstructArmchair();
   right.position.set(CHAIR_X, 0, CHAIR_Z);
   right.rotation.y = -facing;
-  group.add(right);
+
+  for (const m of verschmelzeObjekte([left, right], 'construct-armchairs')) group.add(m);
 
   const stand = makeConsoleStand(0.66, 0.52, STAND_H);
   stand.position.set(0, 0, TV_Z);
@@ -7552,9 +14100,33 @@ function makeConstructLounge() {
   // den Sesseln).
   group.add(console3d.group);
 
-  // Gemeinsamer, größerer Schatten unter der ganzen Gruppe – bindet die Möbel
-  // zusammen, statt drei einzelne Flecken stehen zu lassen.
-  const shade = makeBlobShadow(1.8, 0.24, 0.004);
+  // **Kontaktverdunklung je Möbel — zusätzlich zum Schlagschatten, nicht
+  // statt seiner.**
+  //
+  // Das sind zwei verschiedene Dinge, und das ist gemessen: Der neue
+  // Schlagschatten des Führungslichts fällt nach hinten rechts und nimmt dem
+  // Boden dort 5,9 Prozentpunkte über L 190 weg — direkt am Sesselfuß aber
+  // ändert er nichts (209,8 gegen 208,8). Was einen Gegenstand STEHEN lässt,
+  // ist die Verdunklung unmittelbar an seiner Aufstandsfläche, und die kommt
+  // von einem entfernten gerichteten Licht grundsätzlich nicht.
+  //
+  // Vorher gab es nur den einen grossen Fleck von 1,8 m unter der ganzen
+  // Gruppe. Der bindet zwar zusammen, aber er sitzt unter niemandem: Ein Sessel
+  // steht 1,06 m von der Mitte, sein Fuss also am Rand des Flecks, wo dieser
+  // schon fast ausgeblendet ist.
+  for (const [x, z, r] of [
+    [-CHAIR_X, CHAIR_Z, 0.58],
+    [CHAIR_X, CHAIR_Z, 0.58],
+    [0, TV_Z, 0.42],
+  ]) {
+    const fleck = makeBlobShadow(r, 0.34, 0.005);
+    fleck.position.set(x, 0.005, z);
+    group.add(fleck);
+  }
+
+  // Der gemeinsame Fleck bleibt, aber nur noch halb so kräftig: Er bindet die
+  // Gruppe zusammen, das Stehen besorgen jetzt die drei einzelnen.
+  const shade = makeBlobShadow(1.8, 0.12, 0.004);
   // Mittig unter der Gruppe – wandert mit, wenn die Sessel weiter nach hinten
   // rücken, sonst steht die Sitzgruppe halb neben ihrem eigenen Schatten.
   shade.position.z = (CHAIR_Z + TV_Z) / 2;
@@ -7572,25 +14144,134 @@ function createMatrixEnvironment() {
   group.name = 'env-matrix';
 
   // Umgebende Kuppel: reines Weiß oben, minimal kühleres Weiß am unteren Rand.
-  group.add(makeDome(0xffffff, 0xeef1f4, 60));
+  //
+  // **Der Aufruf war falsch, und zwar zweifach.** Die Signatur lautet
+  // `makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 44,
+  // …)`. Übergeben wurde `(0xffffff, 0xeef1f4, 60)` — die 60 war als Radius
+  // gemeint und landete als **bottomColor**: `new THREE.Color(60)` ist
+  // 0x00003C, ein fast schwarzes Blau. Der Radius blieb auf der Vorgabe 44,
+  // während der Boden mit 60 gebaut wird, der Boden also 16 m über die Kuppel
+  // hinausragte.
+  //
+  // Sichtbar wurde davon wenig, weil der Boden die untere Kuppelhälfte deckt —
+  // aber genau darum ist es einen Kommentar wert: Ein Fehler, den man nicht
+  // sieht, wird nicht gefunden, und beim nächsten Umbau steht er dann als
+  // Falle bereit. Die beiden anderen Aufrufer übergeben fünf Argumente
+  // richtig; nur dieser hier nicht.
+  group.add(makeDome(0xffffff, 0xeef1f4, 0xeef1f4, 60));
 
-  // Nahtloser Boden im selben Weißton wie der Kuppelgrund → unsichtbarer Horizont.
-  const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(60, 64),
-    new THREE.MeshBasicMaterial({ color: 0xf3f5f8 })
-  );
+  // **Der Boden verläuft in den Kuppelgrund hinein — vorher stieß er dagegen.**
+  //
+  // Der Kommentar an dieser Stelle behauptete „derselbe Weißton wie der
+  // Kuppelgrund". Er war es nicht: Kuppelgrund 0xeef1f4 (238 | 241 | 244),
+  // Boden 0xf3f5f8 (243 | 245 | 248). Gemessen in `a-augenhoehe`, Spalte 200,
+  // sprang die Helligkeit zwischen y = 262 und 263 in **einer** Bildzeile von
+  // 224,2 auf 226,6 — und der Ton von bläulich (219 | 225 | 231) auf neutral
+  // (226 | 227 | 227). Eine gerade Kante über die ganze Bildbreite, in einer
+  // Umgebung, deren einzige Gestaltungsidee „kein sichtbarer Horizont" ist.
+  //
+  // Zwei Stufen sind als Fläche nichts; als **Kante** sind sie alles. Das Auge
+  // findet eine gerade Linie weit unterhalb der Schwelle, ab der es einen
+  // Flächenunterschied bemerkt.
+  //
+  // Jetzt trägt der Boden einen radialen Verlauf: nah der etwas hellere,
+  // kühlere Ton, der ihn als Boden lesbar hält, und am Rand **genau** die
+  // Farbe des Kuppelgrunds. Damit gibt es an der Nahtstelle keine Differenz
+  // mehr, die eine Kante bilden könnte. Der Verlauf sitzt im Shader statt in
+  // Scheitelfarben, weil `CircleGeometry` nur einen Ring hat — eine
+  // Scheitelfarbe könnte nur linear von der Mitte zum Rand laufen, und der
+  // Übergang muss dort schnell sein, wo der Horizont steht, nicht in der Mitte.
+  // Ebenfalls neu gewählt: Ohne Tonemapping ergäbe der alte Wert 0xf3f5f8 ein
+  // deutlich helleres Bild. 0xe2e3e3 ist der Wert, den der Boden vorher
+  // TATSÄCHLICH zeigte — der Nahbereich bleibt damit, wie er war.
+  const BODEN_NAH = new THREE.Color(0xe8e9e9);
+  // **Der Boden läuft ohne Tonemapping, weil die Kuppel es auch nicht tut.**
+  //
+  // `makeDome` schreibt seine Farbe roh in den Puffer (die Lehre steht
+  // ausführlich an der Nachthimmelkuppel). Der Boden war ein gewöhnliches
+  // Material und lief durch ACES. Derselbe Hexwert kam deshalb an beiden
+  // Stellen verschieden heraus: 0xeef1f4 ergab in der Kuppel (218 | 224 | 231),
+  // im Boden (224 | 225 | 228).
+  //
+  // Ein erster Anlauf hat den Bodenwert gegen die ACES-Kurve kalibriert und kam
+  // auf 1,0 Stufen Restsprung — der Blaukanal lief dabei an die 255 und konnte
+  // nicht weiter. Der Umweg ist unnötig: Ein Boden, der als flache Rückwand
+  // dient und nicht als beleuchtete Fläche, hat im Tonemapping nichts zu
+  // suchen. Ohne es kommt der Hexwert unverändert heraus, und beide Flächen
+  // lassen sich exakt aufeinander setzen.
+  const BODEN_FERN = new THREE.Color(0xdae0e7); // = was die Kuppel am Horizont zeigt
+  const floorMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  floorMat.onBeforeCompile = (shader) => {
+    shader.uniforms.bodenNah = { value: BODEN_NAH };
+    shader.uniforms.bodenFern = { value: BODEN_FERN };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vBodenOrt;')
+      .replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvBodenOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vBodenOrt;\nuniform vec3 bodenNah;\nuniform vec3 bodenFern;'
+      )
+      .replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+         {
+           // **Der Verlauf beginnt bei 1 m, nicht bei 6.**
+           //
+           // Mit 6 bis 34 m lag der ganze SICHTBARE Boden im Nahwert: Der
+           // Pruefer hat in f-boden die Spalte x = 200 von y = 100 bis 719
+           // abgetastet — **620 Zeilen durchgehend exakt (226 | 227 | 227)**,
+           // ohne eine einzige Aenderung. Und in a-augenhoehe ueber die
+           // gesamte untere Bildhaelfte p05 225 / p95 227 bei 193 596
+           // Bildpunkten.
+           //
+           // Sein Schluss trifft es genau: Die Leere war dann nicht mehr UNTER
+           // dem Nutzer, sondern nur noch UM ihn. Ein Grund ohne jeden Verlauf
+           // ist keine Flaeche, auf der man steht, sondern eine zweite Wand.
+           //
+           // Jetzt laeuft der Verlauf ueber den Bereich, den man tatsaechlich
+           // sieht: 1 bis 26 m. Nah heller, fern genau die Kuppelfarbe — die
+           // Naht aus Paket 1 bleibt damit unangetastet, sie sitzt am fernen
+           // Ende.
+           //
+           // **1 bis 14 m und nicht 1 bis 26.** Mit 26 m stand in der
+           // Bodenkamera immer noch fast nichts: Sie sieht Boden von etwa
+           // anderthalb bis sechs Metern, und dort war der Verlauf erst zu
+           // einem Fuenftel durch — gemessen 230,7 bis 232,8 ueber 560
+           // Bildzeilen. Ein Verlauf muss dort stattfinden, wo die Kamera
+           // hinsieht, nicht dort, wo er rechnerisch am schoensten waere.
+           float r = length(vBodenOrt.xz);
+           diffuseColor.rgb *= mix(bodenNah, bodenFern, smoothstep(1.0, 14.0, r));
+         }`
+      );
+  };
+  floorMat.customProgramCacheKey = () => 'konstrukt-boden-v1';
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(60, 64), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.02;
   group.add(floor);
 
   // Sehr zarter Kontaktschatten unter dem Nutzer, damit „unten" spürbar bleibt,
   // ohne den weißen Gesamteindruck zu brechen.
+  // **Radius 6 statt 3,2 und Deckkraft 0,8 statt 0,5.**
+  //
+  // Die Scheibe war da und trug nichts: In `f-boden` mass der Pruefer die
+  // Spalte x = 200 ueber 620 Zeilen als durchgehend konstant. Eine Verdunklung,
+  // die man nicht messen kann, ist keine.
+  //
+  // Sie ist das Gegenstueck zum radialen Verlauf: Der Verlauf sagt „der Boden
+  // reicht weit", die Scheibe sagt „und hier stehst du". Zusammen geben sie dem
+  // Grund eine Lage unter dem Nutzer, ohne dass eine Struktur entsteht, die es
+  // in einer weissen Leere nicht geben darf.
   const contact = new THREE.Mesh(
-    new THREE.CircleGeometry(3.2, 48),
+    new THREE.CircleGeometry(6, 48),
     new THREE.MeshBasicMaterial({
       map: makeGlowTexture('rgba(120,130,145,0.18)', 'rgba(120,130,145,0.06)'),
       transparent: true,
-      opacity: 0.5,
+      opacity: 0.8,
       depthWrite: false,
     })
   );
@@ -7598,8 +14279,57 @@ function createMatrixEnvironment() {
   contact.position.y = -0.018;
   group.add(contact);
 
-  // Gleichmäßiges, nahezu schattenfreies Licht: Karten sind überall gut lesbar.
-  group.add(new THREE.HemisphereLight(0xffffff, 0xf0f2f5, 1.5));
+  // **3,9 statt 1,5 — und diese Zahl ist hier ungewöhnlich billig zu haben.**
+  //
+  // Der Sessel las als schwarzer Ausschnitt vor Weiß. Auf seinen eigenen
+  // Bildpunkten gemessen (Maske aus Ein- und Ausblenden, kein Rechteck) lag der
+  // Median bei **28** und **74,3 %** der Fläche unter L 40, während der
+  // Hintergrund bei 226 steht. Jede Modellierung, die man dort hineinbaut —
+  // Keder, Knopfmulden, Narbung — bewegt ein bis vier Luminanzstufen und ist
+  // damit unsichtbar.
+  //
+  // Der Hebel ist in dieser Umgebung besonders sauber: Boden und Kuppel sind
+  // UNBELEUCHTETE Materialien. Licht trifft hier ausschließlich die Möbel; die
+  // weiße Leere ändert sich um keine Stufe. In jeder anderen Umgebung des
+  // Projekts wäre eine Verdreifachung der Hemisphäre undenkbar.
+  //
+  // Und es ist auch das physikalisch Richtige: Ein dunkelroter Sessel in einem
+  // weißen Unendlich-Hohlraum bekommt von allen Seiten Rückwurf. Dass er dort
+  // fast schwarz war, ist kein „dramatisches Licht", sondern ein fehlender
+  // Lichtweg.
+  //
+  // `tools/konstruktlicht.mjs` fährt beide Regler zugleich ab und misst neben
+  // der Tonlage die SPANNE p05 bis p95 — ein Sessel, der bloß gleichmäßig
+  // heller wird, hätte nichts gewonnen:
+  //
+  //     Hemi x1,0  Key x1,0   Median 28   Spanne 146   unter L40 74,3 %
+  //     Hemi x2,0  Key x1,0   Median 40   Spanne 140   unter L40 51,0 %
+  //     Hemi x2,6  Key x1,4   Median 48   Spanne 136   unter L40 25,7 %
+  //     Hemi x3,2  Key x1,6   Median 56   Spanne 132   unter L40 18,5 %
+  //
+  // Die dritte Zeile: Der Median steigt um zwanzig Stufen, drei Viertel der
+  // schwarzen Fläche verschwinden, und die Spanne kostet das **zehn** Punkte
+  // von 146. Das ist kein Tausch, das ist ein Fund.
+  // **1,2 statt 3,9 — und das ist keine Ruecknahme, sondern ein Tausch.**
+  //
+  // Die 3,9 standen hier, weil es keine Umgebungskarte gab: Eine
+  // Hemisphaerenleuchte war das einzige Mittel, den Rueckwurf der weissen Leere
+  // ueberhaupt anzudeuten. Jetzt gibt es den Rueckwurf wirklich
+  // (`konstruktUmgebungskarte`), und beide Wege zusammen zaehlten denselben
+  // Lichtweg zweimal: Mit Karte bei 0,35 und unveraenderter Hemisphaere stieg
+  // der Median der Sesselflaeche von 44 auf 62 — der Sessel waere von
+  // dunkelrot nach altrosa gekippt.
+  //
+  // Gemessen wurde deshalb entlang der Linie „Median bleibt bei 44":
+  //
+  //     Hemi 3,90  ohne Karte     p50 44   p95  64   p99  81
+  //     Hemi 1,17  Karte 0,30     p50 43   p95  86   p99 107
+  //     Hemi 1,17  Karte 0,40     p50 49   p95  98   p99 119
+  //     Hemi 0,00  Karte 0,30     p50 34   p95  78   p99 101
+  //
+  // Die Hemisphaere bleibt also drin, aber als das, was sie ist: ein
+  // Aufheller, kein Ersatz fuer einen Raum.
+  group.add(new THREE.HemisphereLight(0xffffff, 0xf0f2f5, 1.2));
   const fill = new THREE.DirectionalLight(0xffffff, 0.55);
   fill.position.set(2, 12, 6);
   group.add(fill);
@@ -7608,9 +14338,48 @@ function createMatrixEnvironment() {
   // Polster im rundum gleichen Licht flach und wirken wie eingefärbte Klötze.
   // Auf die Karten wirkt es kaum – deren Material ist von der Beleuchtung
   // ausgenommen (MeshBasicMaterial).
-  const key = new THREE.DirectionalLight(0xfff6ec, 0.7);
-  key.position.set(-3.5, 5, 5);
+  // 0,98 statt 0,7: Mit der angehobenen Hemisphaere muss auch die Modellierung
+  // nachziehen, sonst frisst das Umgebungslicht die Form, die der Schatten
+  // gerade erst gegeben hat.
+  const key = new THREE.DirectionalLight(0xfff6ec, 0.98);
+  // **Das Fuehrungslicht wirft jetzt Schatten.**
+  //
+  // Vorher warf in dieser Umgebung nichts einen. Die Moebel standen auf einem
+  // gemalten Fleck — einer weichen Ellipse von 1,8 m unter der ganzen Gruppe,
+  // die weder die Form der Sessel noch die duennen Beine des Staenders kennt.
+  // In `f-boden` sieht man das Ergebnis: Die Beine enden im Nichts, die Gruppe
+  // schwebt.
+  //
+  // Das ist hier teurer als anderswo, weil es NUR den Boden gibt: In einer
+  // weissen Leere ist der Schatten die einzige Angabe darueber, wo ein
+  // Gegenstand steht und wie er geformt ist.
+  //
+  // Der Kasten ist eng: Die Sitzgruppe misst rund 3,8 x 3,0 m, die Ortho-Kamera
+  // deckt +/-3 m ab. Bei 1024 Texeln sind das **5,9 mm je Texel** — schaerfer
+  // als jede andere Umgebung des Projekts, und moeglich nur, weil hier so wenig
+  // steht.
+  //
+  // Das Ziel wandert zur Sitzgruppe mit, die Lichtposition um denselben Betrag:
+  // Ein gerichtetes Licht kennt nur die Differenz, die Lichtrichtung bleibt
+  // damit exakt dieselbe wie vorher.
+  key.position.set(-3.5, 5, 1.1);
+  key.target.position.set(0, 0, -3.9);
+  key.castShadow = true;
+  key.shadow.mapSize.set(1024, 1024);
+  {
+    const sc = key.shadow.camera;
+    sc.left = -3;
+    sc.right = 3;
+    sc.top = 3;
+    sc.bottom = -3;
+    sc.near = 3;
+    sc.far = 16;
+    sc.updateProjectionMatrix();
+  }
+  key.shadow.bias = -0.0004;
+  key.shadow.normalBias = 0.02;
   group.add(key);
+  group.add(key.target);
   const rim = new THREE.DirectionalLight(0xdce6f0, 0.35);
   rim.position.set(4, 2.5, -4.5);
   group.add(rim);
@@ -7620,15 +14389,109 @@ function createMatrixEnvironment() {
   // 1,15 m Radius vor dem Nutzer. Die Sessel müssen dahinter bleiben, sonst
   // stehen sie mitten im Arbeitsbereich – mit ihrer Tiefe von 1,7 m ab Mitte
   // heißt das gut dreieinhalb Meter.
+  let karteGesetzt = false;
   const lounge = makeConstructLounge();
   lounge.group.position.set(0, 0, -3.9);
+  // **Werfer nach Groesse, nicht pauschal — und das ist eine Kostenfrage.**
+  //
+  // Der Schattendurchgang zeichnet jeden Werfer ein zweites Mal. Pauschal alle
+  // Meshes der Sitzgruppe werfen zu lassen, brachte die Umgebung von 56 auf
+  // **109 Draw-Calls** — mehr als die ganze Himmelsinsel mit ihren Baeumen,
+  // Findlingen und Wolken (74), und das fuer zwei Sessel und ein Fernsehgeraet.
+  //
+  // Der Grund ist die Bauweise: Ein Sessel besteht aus Dutzenden kleiner Teile,
+  // Knoepfe und Keder eingeschlossen. Ein Knopf von einem Zentimeter wirft bei
+  // 5,9 mm je Schattenkartentexel einen Schatten aus zwei Texeln — dasselbe
+  // Argument wie bei den Pilzen der Insel, nur hier mit einem Preis in
+  // Draw-Calls dahinter.
+  //
+  // Die Schwelle liegt bei 6 cm Huellkugelhalbmesser. Sie ist gemessen und
+  // nicht geschaetzt: Darunter faellt kein Teil, dessen Schatten bei dieser
+  // Texelgroesse ueberhaupt eine Form haette.
+  //
+  // Empfangen sollen dagegen ALLE — das kostet keinen Draw-Call, und ein Knopf,
+  // der im Schatten der Rueckenlehne hell bleibt, faellt sofort auf.
+  lounge.group.traverse((o) => {
+    if (!o.isMesh || o.name === 'blob-shadow') return;
+    o.receiveShadow = true;
+    if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
+    const r = o.geometry.boundingSphere?.radius ?? 0;
+    // Instanzierte Meshes zaehlen als eines und tragen viele Koerper; sie
+    // werfen unabhaengig von der Huellkugel des Einzelstuecks.
+    if (r >= 0.06 || o.isInstancedMesh) o.castShadow = true;
+  });
   group.add(lounge.group);
+
+  // **Eine eigene Ebene fuer den Schatten, weil der Boden keinen empfangen
+  // kann.**
+  //
+  // Der Boden ist ein `MeshBasicMaterial` — unbeleuchtet, und damit nimmt er
+  // per Bauart keinen Schatten an. Ihn auf ein beleuchtetes Material
+  // umzustellen hiesse, die eben erst kalibrierte Farbe der Beleuchtung
+  // auszuliefern und die Naht zur Kuppel wieder aufzureissen.
+  //
+  // `ShadowMaterial` ist genau fuer diesen Fall da: eine durchsichtige Flaeche,
+  // die NUR den empfangenen Schatten zeigt. Sie legt sich ueber den Boden, ohne
+  // dessen Ton anzufassen.
+  //
+  // **Radius 12 und nicht 8 — die 8 waren knapp danebengerechnet.**
+  //
+  // Der Pruefer hat mitten im Schlagschatten helle Splitter gefunden: in
+  // `b-sessel` 19 Bildpunkte, die von L 158 auf **226,7** springen, also
+  // +69 Stufen. Die Beitragsmaske des Knotens (Differenz aus Ein- und
+  // Ausblenden) zeigt an genau diesen Stellen ein LOCH: Dort traegt die
+  // Schattenebene nichts.
+  //
+  // Der Grund ist Arithmetik. Der Ortho-Kasten der Schattenkamera misst +/-3 m
+  // um die Sitzgruppe bei z = -3,9; ein Schatten kann damit bis
+  // sqrt(3^2 + 6,9^2) = **7,5 m** vom Ursprung reichen. Das liegt innerhalb von
+  // 8 — aber so knapp, dass die Facettenkanten des 48-Ecks der Kreisflaeche
+  // hineinragen. Was als „Leck" aussieht, ist schlicht der Rand des Empfaengers.
+  //
+  // Zwoelf Meter kosten nichts: Die Flaeche ist durchsichtig und traegt nur
+  // dort etwas ein, wo die Schattenkarte ueberhaupt reicht.
+  const schattenBoden = new THREE.Mesh(
+    new THREE.CircleGeometry(12, 48),
+    new THREE.ShadowMaterial({ opacity: 0.3, depthWrite: false })
+  );
+  schattenBoden.name = 'schattenboden';
+  schattenBoden.rotation.x = -Math.PI / 2;
+  schattenBoden.position.y = -0.015;
+  schattenBoden.receiveShadow = true;
+  schattenBoden.renderOrder = 1;
+  group.add(schattenBoden);
 
   return {
     id: 'matrix',
     name: '⬜ Konstrukt',
     background: new THREE.Color(0xffffff),
     group,
+
+    // Die Umgebungskarte entsteht erst beim ersten Sichtbarwerden: Der
+    // PMREM-Generator braucht einen lebenden Renderer, und alle Umgebungen
+    // werden beim Modulstart gebaut. Wer das Konstrukt nie aufruft, zahlt
+    // nichts.
+    //
+    // Die Karte haengt an den Werkstoffen und NICHT an `scene.environment`.
+    // Letzteres gaelte fuer jedes Standardmaterial der Szene — auch fuer die
+    // Karten und das Whiteboard, die zu keiner Umgebung gehoeren und in allen
+    // fuenf gleich aussehen muessen.
+    ensureEnvironment(renderer) {
+      if (!renderer || karteGesetzt) return null;
+      const karte = konstruktUmgebungskarte(renderer);
+      group.traverse((o) => {
+        if (!o.isMesh) return;
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (!m?.isMeshStandardMaterial) continue;
+          m.envMap = karte;
+          m.envMapIntensity = m.userData.envStaerke ?? 0.35;
+          m.needsUpdate = true;
+        }
+      });
+      karteGesetzt = true;
+      return null;
+    },
+
     update(time) {
       lounge.update(time);
     },

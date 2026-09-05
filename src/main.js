@@ -29,6 +29,7 @@ import { createEnvironments } from './environments.js';
 import { Whiteboard } from './whiteboard.js';
 import { ZoneManager } from './zones.js';
 import { Timer } from './timer.js';
+import { inHeimat } from './heimat.js';
 import { Locomotion } from './locomotion.js';
 import { History } from './history.js';
 import { Hud } from './hud.js';
@@ -45,7 +46,19 @@ scene.background = DESKTOP_BG;
 // plus Reserve; bei 60 wurden die skalierte Insel und der Konstrukt-Boden
 // abgeschnitten. near bleibt bei 5 cm – dort sitzt praktisch die gesamte
 // Tiefengenauigkeit, ein größeres far kostet sie kaum.
-const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 260);
+// **Die Fernebene reicht bis 340 m, seit der Nachthimmel ein Planet ist.**
+// Seine Kuppel steht 300 m vom Nordpol, das Sternfeld bei 280, der Mond bei
+// 300 — mit den alten 260 m stand mitten im Bild ein **schwarzes Loch**: Die
+// Fernebene schneidet nach Sichttiefe, nicht nach Abstand, also fiel genau der
+// Kegel von 29,9 Grad um die Blickachse weg (cos 29,9° = 260/300), während der
+// Rand der Kuppel schräg genug stand, um durchzukommen. Gemessen: Das Loch
+// zeigte exakt die Hintergrundfarbe (10|6|5), und mit far = 5000 füllte es
+// sich auf (30|32|38).
+//
+// Die Tiefenauflösung kostet das nichts. Sie hängt an 1/near − 1/far; mit
+// near = 0,05 sind das 20,0 gegen vorher 19,996 — der Unterschied liegt bei
+// zwei Zehntausendsteln.
+const camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.05, 340);
 camera.position.set(0, 1.6, 1.2);
 
 // Player-Rig: Kamera (und in XR die Controller) hängen hier. three.js wendet die
@@ -71,6 +84,30 @@ renderer.toneMappingExposure = 1.1;
 // Folgenlos für Umgebungen ohne Werfer: Ohne castShadow und receiveShadow
 // rendert three keine Schattenkarte und ändert kein Pixel.
 renderer.shadowMap.enabled = true;
+// **PCF, und die Alternativen sind gemessen durchgefallen.**
+//
+// Der Prüfer hat im Halbschatten ein 2-Pixel-Schachbrett gefunden — die
+// Quantisierung, die hartes PCF am Texelraster der Schattenkarte hinterlässt.
+// `tools/raster.mjs` (neu) misst sie als Autokorrelation des Hochpasses; mit
+// Schatten steht r(1,0) bei −0,374, ohne Schatten bei +0,765.
+//
+// Vier Auswege, alle nachgemessen:
+//
+//   * `PCFSoftShadowMap` — in three r185 **abgekündigt**; three meldet beim
+//     Setzen „has been deprecated. Using PCFShadowMap instead." Der klassische
+//     Hebel existiert nicht mehr.
+//   * Schattenkarte 4096 statt 2048 — RMS 1,075 → 0,974, also **10 % für die
+//     vierfache Karte**. Auf einer Brille kein Handel.
+//   * `shadow.radius` 2 und 6 — macht es **schlechter** (RMS 2,5 und 4,3):
+//     Der größere Kernel spreizt die Quantisierung, statt sie zu glätten.
+//   * `VSMShadowMap` — löscht das Gitter, aber nur, weil es die Schatten
+//     gleich mitlöscht: Der Sputnik wirft keinen mehr, das Bild wird um 18
+//     Helligkeitsstufen heller, und die Himmelsinsel ändert sich um Δmax 118.
+//
+// Es bleibt deshalb bei PCF, und das Gitter bleibt als bekannter, gemessener
+// Mangel stehen. Ein eigener, gedrehter PCF-Kern wäre ein Eingriff in einen
+// three-Shaderbaustein, der alle fünf Umgebungen trägt — das ist kein Preis
+// für ein Muster, das man bei achtfacher Vergrößerung findet.
 renderer.shadowMap.type = THREE.PCFShadowMap;
 document.body.appendChild(renderer.domElement);
 
@@ -121,8 +158,33 @@ const environments = createEnvironments(scene);
 const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
 let envIndex = -1; // -1 = Passthrough (AR) bzw. weißer Hintergrund
 
+// **Wo Inhalte hängen, entscheidet die Umgebung.** Vier der fünf sind ortsfest
+// und lassen Karten und Zonen an der Szene; der 🌌 Nachthimmel gibt seine
+// Weltgruppe an, weil sich unter dem Nutzer der Planet dreht und alles, was an
+// der Szene hinge, mit ihm um die Kugel liefe. Die vollständige Begründung
+// steht in heimat.js.
+//
+// Der Umweg über Rückrufe ist nötig, weil `applyEnvironment()` schon beim
+// Aufbau der Szene läuft — lange bevor es einen `cardManager` oder einen
+// `zoneManager` gibt. Ein direkter Zugriff wäre ein Fehler in der temporalen
+// Totzone, und der zeigt sich nicht als Fehlermeldung, sondern als Seite, die
+// nie fertig lädt (die Lehre von `bodenFarbe` in environments.js).
+let weltHeimatZiel = null;
+const weltHeimatEmpfaenger = [];
+function setzeWeltHeimat(ziel) {
+  weltHeimatZiel = ziel;
+  for (const empfaenger of weltHeimatEmpfaenger) empfaenger(ziel);
+}
+// Wer sich anmeldet, bekommt die aktuelle Wahl sofort — die Umgebung steht zu
+// diesem Zeitpunkt längst fest.
+function meldeWeltHeimat(empfaenger) {
+  weltHeimatEmpfaenger.push(empfaenger);
+  empfaenger(weltHeimatZiel ?? scene);
+}
+
 function applyEnvironment() {
   const inPassthrough = renderer.xr.isPresenting && xrMode === 'immersive-ar';
+  setzeWeltHeimat((envIndex >= 0 ? environments[envIndex].weltHeimat : null) ?? scene);
   environments.forEach((env, i) => {
     env.group.visible = i === envIndex;
   });
@@ -200,7 +262,270 @@ controls.update();
 
 // --- Bausteine ---
 
-const cardManager = new CardManager(scene);
+const cardManager = new CardManager(scene, { floorY: () => _floorY ?? 0 });
+
+// **Ein Aufruf, drei Stellen.** Das Flussdiagramm braucht zwei Angaben, die es
+// selbst nicht kennt: die Bodenhöhe unter dem Nutzer (sonst legt es sich auf
+// y = 1,5 und damit auf dem Planeten unter den Boden) und die Heimat der Karten
+// (sonst hängt es sie vom Planeten ab in die Szene). Beides stand an drei
+// Aufrufstellen zu wiederholen — genau die Bauart, an der der Freiraum der
+// Fortbewegung schon einmal auseinandergelaufen ist.
+// **Alles, was offen ist, nebeneinander vor den Nutzer holen.**
+//
+// Drei Gründe, warum das ein eigener Knopf ist:
+//
+//   * Im 🌌 Nachthimmel **bleibt liegen, was man ablegt** — das ist seit dem
+//     Umbau der Zweck der Umgebung. Wer eine halbe Runde gelaufen ist, hat
+//     Tafel, Uhr, Zonen und Karten hinter sich; der einzige Weg zurück war,
+//     die Werkzeuge aus- und wieder einzublenden.
+//   * `placeInFront` setzt jedes Panel für sich auf dieselbe Stelle. Tafel und
+//     Zeituhr standen dadurch übereinander: gemessen 25,0° Winkelabstand, wo
+//     40,6° nötig gewesen wären.
+//   * Karten und Zonen haben gar keinen gemeinsamen Aufruf dafür.
+//
+// **Zwei Ebenen, nicht eine Reihe.** „Nebeneinander" kann nicht heißen, eine
+// Karte von 0,32 m neben eine Tafel von 1,92 m zu stellen — bei dreißig Karten
+// wäre die Reihe 12 m lang. Die großen Flächen (Tafel, Uhr, Zonen) bilden
+// deshalb eine Wand, die Karten stehen in Reihen davor. Das ist auch die
+// Ordnung, in der beides ohnehin benutzt wird.
+//
+// **Zonen nehmen ihre Karten mit.** Eine Zone weiß nicht, welche Karten zu ihr
+// gehören — es gibt keine Mitgliedschaft, nur Nähe (`Zone.umfasst`). Würde man
+// die Rahmen einsammeln und die Karten getrennt neu verteilen, löste ein Klick
+// jede Gruppierung auf, die der Nutzer von Hand gebaut hat. Die Karten vor
+// einem Rahmen werden deshalb **starr mitgeführt**: ihre Lage relativ zur Zone
+// bleibt auf den Millimeter erhalten.
+const WERKZEUG_LUECKE = 0.12; // Meter zwischen zwei Panels
+// **Wie breit die Wand werden darf, bevor sie nach hinten weicht.**
+//
+// Erst standen hier 80 Grad. Mit Tafel, zwei Zonen und Zeitgeber schob das den
+// ganzen Aufbau auf 3,10 m zurück — und die Tafel ist das, worauf man zeichnet;
+// sie gehört nach vorn.
+//
+// Die Kamera der App hat 70 Grad senkrecht, im Format 16:9 also **102 Grad
+// waagerecht**. Ein Aufbau von 100 Grad passt damit rechnerisch gerade eben und
+// steht praktisch am Bildrand, wo die Perspektive die Panels stark verzerrt.
+// 90 Grad lässt Rand: Die äußerste Kante liegt bei 45 Grad, und die Tafel
+// bleibt bei gut zwei Metern statt bei drei.
+const WERKZEUG_SICHT = THREE.MathUtils.degToRad(90);
+// Karten dürfen nicht breiter stehen als die Wand darüber, sonst ragen sie
+// seitlich darunter hervor. Derselbe Wert, aus demselben Grund.
+//
+// **Beides ist eine Obergrenze, keine Zusage.** Reicht `radiusMax` nicht aus —
+// bei Tafel, zwei Zonen und Zeitgeber sind es zusammen 5,58 m Panelbreite —,
+// legt sich der Aufbau um den Nutzer herum, und die äußeren Flächen liegen
+// hinter dem Bildrand, bis er den Kopf dreht. Das ist keine Nachlässigkeit,
+// sondern Geometrie: Vier Flächen dieser Größe passen nicht gleichzeitig nah
+// und in ein Blickfeld.
+const KARTEN_SICHT = THREE.MathUtils.degToRad(90);
+const KARTEN_LUECKE = 0.07;
+const KARTEN_REIHE = 6;
+const _oW = new THREE.Vector3();
+const _oM = new THREE.Matrix4();
+const _oM2 = new THREE.Matrix4();
+const _oS = new THREE.Vector3();
+const _oZ = new THREE.Vector3();
+
+// Eine Reihe von Blöcken auf einem Bogen um den Nutzer, das breiteste in der
+// Mitte, die übrigen wechselweise rechts und links daneben.
+//
+// **Nicht die ganze Reihe zentrieren:** Bei Tafel und Zeitgeber stünde die
+// Tafel dann elf Grad neben der Achse, und man arbeitet nicht auf etwas, das
+// schief vor einem hängt.
+function bogenReihe(bloecke, { camPos, blick, rechts, hoehe, radiusStart, sicht, luecke, radiusMax }) {
+  if (!bloecke.length) return;
+  const sortiert = [...bloecke].sort((a, b) => b.breite - a.breite);
+
+  // **Der Abstand wird aus der wirklichen Spanne gerechnet, nicht aus der Summe
+  // der Breiten.** Weil das Hauptpanel mittig steht und die übrigen einseitig
+  // wachsen, ist die Anordnung nicht symmetrisch. Ein erster Anlauf hat die
+  // Summe als zentrierten Block geprüft (77°) und eine Anordnung von 85°
+  // gebaut — der Zeitgeber stand daraufhin am Bildrand.
+  const spanne = (r) => {
+    const h = (w) => Math.atan(w.breite / 2 / r);
+    const l = 2 * Math.atan(luecke / 2 / r);
+    let re = h(sortiert[0]);
+    let li = -re;
+    for (let i = 1; i < sortiert.length; i++) {
+      if (i % 2 === 1) re += l + 2 * h(sortiert[i]);
+      else li -= l + 2 * h(sortiert[i]);
+    }
+    return re - li;
+  };
+  let radius = radiusStart;
+  while (radius < radiusMax && spanne(radius) > sicht) radius += 0.1;
+
+  const halbwinkel = (w) => Math.atan(w.breite / 2 / radius);
+  const winkelLuecke = 2 * Math.atan(luecke / 2 / radius);
+  const setze = (w, winkel) => {
+    _oW.copy(blick)
+      .multiplyScalar(Math.cos(winkel) * radius)
+      .addScaledVector(rechts, Math.sin(winkel) * radius)
+      .add(camPos);
+    _oW.y = hoehe;
+    w.stelleAnOrt(_oW, camPos);
+  };
+
+  setze(sortiert[0], 0);
+  let randRechts = halbwinkel(sortiert[0]);
+  let randLinks = -randRechts;
+  for (let i = 1; i < sortiert.length; i++) {
+    const w = sortiert[i];
+    const h = halbwinkel(w);
+    if (i % 2 === 1) {
+      const winkel = randRechts + winkelLuecke + h;
+      setze(w, winkel);
+      randRechts = winkel + h;
+    } else {
+      const winkel = randLinks - winkelLuecke - h;
+      setze(w, winkel);
+      randLinks = winkel - h;
+    }
+  }
+}
+
+function ordneAlles() {
+  const camPos = camera.getWorldPosition(new THREE.Vector3());
+  const blick = camera.getWorldDirection(new THREE.Vector3());
+  blick.y = 0;
+  if (blick.lengthSq() < 1e-6) blick.set(0, 0, -1);
+  blick.normalize();
+  // Die Rechte des Betrachters. Dasselbe Vorzeichen wie in `flowLayout`.
+  const rechts = new THREE.Vector3().crossVectors(blick, new THREE.Vector3(0, 1, 0)).normalize();
+  const boden = _floorY ?? 0;
+  const heimat = cardManager.heimat;
+
+  // --- Wer gehört zu wem? --------------------------------------------------
+  //
+  // Erst zuordnen, dann bewegen: Nach dem ersten verschobenen Rahmen stimmt die
+  // Nachbarschaft nicht mehr, und die Zuordnung wäre eine andere.
+  scene.updateMatrixWorld(true);
+  const zonen = zoneManager.zones;
+  const gebunden = new Map(); // Zone -> [{ karte, rel }]
+  const frei = [];
+  for (const karte of cardManager.cards) {
+    karte.group.getWorldPosition(_oW);
+    // **Die nächste Zone, nicht die erste.** Zwei Rahmen können sich
+    // überlappen — dann bekäme sonst der zuerst angelegte alle Karten, auch
+    // die, die sichtbar vor dem anderen liegen.
+    let zone = null;
+    let naechste = Infinity;
+    for (const z of zonen) {
+      if (!z.umfasst(_oW)) continue;
+      const d = z.group.getWorldPosition(_oZ).distanceToSquared(_oW);
+      if (d < naechste) {
+        naechste = d;
+        zone = z;
+      }
+    }
+    if (!zone) {
+      frei.push(karte);
+      continue;
+    }
+    // Die Lage der Karte **relativ zur Zone**, als Matrix. Damit überlebt auch
+    // eine gedrehte oder skalierte Zone das Verschieben unverändert.
+    const rel = new THREE.Matrix4()
+      .copy(zone.group.matrixWorld)
+      .invert()
+      .multiply(karte.group.matrixWorld);
+    if (!gebunden.has(zone)) gebunden.set(zone, []);
+    gebunden.get(zone).push({ karte, rel });
+  }
+
+  // --- Ebene 1: die großen Flächen ----------------------------------------
+  const flaechen = [];
+  if (whiteboard.group.visible) flaechen.push(whiteboard);
+  if (timer.group.visible) flaechen.push(timer);
+  for (const z of zonen) flaechen.push(z);
+  // **Die Wand steht höher, wenn Karten darunter müssen.** Der erste Anlauf
+  // hat die Panels auf Augenhöhe gesetzt und die freien Karten bei 1,3 m davor
+  // — im Bild lagen „Freie Idee 1, 2, 3, 5" quer über der Tafel und beiden
+  // Zonen. Zwei Ebenen in der Tiefe reichen nicht; sie müssen sich auch in der
+  // Höhe trennen.
+  const freieVor = cardManager.cards.length - [...gebunden.values()].reduce((n, l) => n + l.length, 0);
+  const reihenNoetig = Math.ceil(freieVor / KARTEN_REIHE);
+  const hoeheFlaeche =
+    boden +
+    THREE.MathUtils.clamp(
+      camPos.y - boden - 0.08 + Math.min(reihenNoetig, 3) * 0.22,
+      0.95,
+      2.35
+    );
+  bogenReihe(flaechen, {
+    camPos,
+    blick,
+    rechts,
+    hoehe: hoeheFlaeche,
+    radiusStart: 1.7,
+    radiusMax: 3.0,
+    sicht: WERKZEUG_SICHT,
+    luecke: WERKZEUG_LUECKE,
+  });
+
+  // --- Die Karten der Zonen ziehen starr mit ------------------------------
+  scene.updateMatrixWorld(true);
+  const heimatInv = heimat === scene ? null : _oM2.copy(heimat.matrixWorld).invert();
+  for (const [zone, liste] of gebunden) {
+    for (const { karte, rel } of liste) {
+      _oM.multiplyMatrices(zone.group.matrixWorld, rel);
+      if (heimatInv) _oM.premultiply(heimatInv);
+      _oS.copy(karte.group.scale);
+      _oM.decompose(karte.group.position, karte.group.quaternion, karte.group.scale);
+      // Die Skalierung der Karte gehört ihr, nicht der Rechnung: Sie kürzt sich
+      // zwar heraus, aber ein Rundungsfehler in `decompose` bliebe sonst
+      // stehen und summierte sich über wiederholtes Ordnen auf.
+      karte.group.scale.copy(_oS);
+    }
+  }
+
+  // --- Ebene 2: die freien Karten, in Reihen davor ------------------------
+  //
+  // Sechs je Reihe: Eine Karte von 0,32 m nimmt bei 1,3 m Abstand rund 17° ein,
+  // sechs davon 100°. Die Reihen stehen untereinander, mittig auf Augenhöhe.
+  const reihen = [];
+  for (let i = 0; i < frei.length; i += KARTEN_REIHE) reihen.push(frei.slice(i, i + KARTEN_REIHE));
+  const reihenHoehe = 0.24;
+  // Unter der Unterkante der höchsten Fläche beginnen, nicht auf Augenhöhe.
+  // Ohne Flächen gibt es nichts zu unterlaufen — dann stehen die Karten selbst
+  // auf Augenhöhe, wie sie es von `arrangeInArc` gewohnt sind.
+  const hoechste = flaechen.reduce((m, f) => Math.max(m, f.hoehe), 0);
+  const oberkante = flaechen.length
+    ? hoeheFlaeche - hoechste / 2 - 0.14
+    : boden + THREE.MathUtils.clamp(camPos.y - boden - 0.05, 0.6, 2.1) + ((reihen.length - 1) / 2) * reihenHoehe;
+  reihen.forEach((reihe, r) => {
+    const hoehe = Math.max(boden + 0.35, oberkante - r * reihenHoehe);
+    bogenReihe(
+      reihe.map((karte) => ({
+        breite: 0.32 * karte.scale,
+        stelleAnOrt: (ort, cp) => {
+          karte.group.position.copy(inHeimat(heimat, scene, ort.clone()));
+          karte.group.lookAt(cp.x, ort.y, cp.z);
+        },
+      })),
+      {
+        camPos,
+        blick,
+        rechts,
+        hoehe,
+        radiusStart: 1.3,
+        radiusMax: 2.2,
+        sicht: KARTEN_SICHT,
+        luecke: KARTEN_LUECKE,
+      }
+    );
+  });
+
+  return { flaechen: flaechen.length, karten: cardManager.cards.length };
+}
+
+const ordneFluss = () =>
+  layoutFlow(cardManager.cards, connectionManager.connections, camera, scene, {
+    heimat: cardManager.heimat,
+    boden: _floorY ?? 0,
+  });
+// Jetzt gibt es einen Empfänger für die Heimatwahl — und die Umgebung steht
+// schon fest, also einmal nachziehen.
+meldeWeltHeimat((ziel) => cardManager.setHeimat(ziel));
 const connectionManager = new ConnectionManager(scene, cardManager);
 // Fährt Karten sanft an neue Plätze, statt sie springen zu lassen.
 const tweener = new Tweener();
@@ -221,9 +546,18 @@ try {
   // Ohne gemerkte Stufe bleibt es bei „Normal"
 }
 
-const whiteboard = new Whiteboard(scene, { onSketch: () => handleAction('sketch') });
+const whiteboard = new Whiteboard(scene, {
+  onSketch: () => handleAction('sketch'),
+  floorY: () => _floorY ?? 0,
+});
 
-const zoneManager = new ZoneManager(scene);
+const zoneManager = new ZoneManager(scene, { floorY: () => _floorY ?? 0 });
+// Zonen sind Rahmen, vor denen Karten stehen — sie müssen dieselbe Heimat haben
+// wie die Karten, sonst löst sich die Gruppierung beim Weitergehen auf.
+meldeWeltHeimat((ziel) => zoneManager.setHeimat(ziel));
+// Und die Tafel: Sie soll da stehen bleiben, wo man sie aufgestellt hat, statt
+// auf dem Planeten für immer vor dem Nutzer zu schweben.
+meldeWeltHeimat((ziel) => whiteboard.setHeimat(ziel));
 zoneManager.onRename = async (zone) => {
   const text = await getUserText();
   if (text) {
@@ -233,7 +567,8 @@ zoneManager.onRename = async (zone) => {
   }
 };
 
-const timer = new Timer(scene);
+const timer = new Timer(scene, { floorY: () => _floorY ?? 0 });
+meldeWeltHeimat((ziel) => timer.setHeimat(ziel));
 
 function boardToJSON() {
   return {
@@ -582,7 +917,7 @@ async function handleAction(action) {
       return;
     }
     if (action === 'flow-layout') {
-      const count = layoutFlow(cardManager.cards, connectionManager.connections, camera, scene);
+      const count = ordneFluss();
       if (!count) {
         setStatus('Noch keine Prozessschritte da – erst „Schritt" oder „Aus Text" benutzen.');
         return;
@@ -678,6 +1013,22 @@ async function handleAction(action) {
       zone.placeInFront(camera);
       commit('Zone erstellt');
       setStatus('🗂️ Zone erstellt – Karten davor gruppieren. ✎ zum Umbenennen.');
+      return;
+    }
+    if (action === 'tools-order') {
+      const { flaechen, karten } = ordneAlles();
+      if (!flaechen && !karten) {
+        setStatus('Nichts zum Ordnen da – erst eine Karte, eine Zone oder ein Werkzeug öffnen.');
+        return;
+      }
+      // **Rückgängig machbar, und das ist kein Beiwerk.** Auf dem Planeten sind
+      // die abgelegten Karten eine begehbare Gedächtnislandkarte; ein Klick
+      // holt sie alle ein. Ohne Verlaufseintrag wäre das nicht zurückzuholen.
+      commit('Neu angeordnet');
+      const teile = [];
+      if (flaechen) teile.push(`${flaechen} Fläche${flaechen === 1 ? '' : 'n'}`);
+      if (karten) teile.push(`${karten} Karte${karten === 1 ? '' : 'n'}`);
+      setStatus(`🧭 ${teile.join(' und ')} vor dich geordnet. Strg+Z macht es rückgängig.`);
       return;
     }
     if (action === 'timer') {
@@ -1008,7 +1359,7 @@ async function buildFlowFromText() {
       const to = byResponseId.get(edge.to);
       if (from && to) connectionManager.connect(from, to, { label: edge.label });
     }
-    layoutFlow(cardManager.cards, connectionManager.connections, camera, scene);
+    ordneFluss();
     commit('Prozess erzeugt');
     setStatus(
       previous.length
@@ -1110,6 +1461,7 @@ const DESKTOP_BUTTONS = {
   'btn-timer': 'timer',
   'btn-topic': 'topic',
   'btn-whiteboard': 'whiteboard',
+  'btn-tools-order': 'tools-order',
   'btn-export': 'export',
   'btn-mermaid': 'flow-export',
   'btn-flow': 'flow-generate',
@@ -1595,6 +1947,13 @@ const _walkZiel = { x: 0, z: 0 };
 // Bodenhoehe uebernommen, statt aus der alten dorthin zu gleiten.
 let _walkEnv = -2;
 let _floorY = null;
+const _blickRi = new THREE.Vector3();
+const _kamVorOrbit = new THREE.Vector3();
+const _orbitVersatz = new THREE.Vector3();
+// Wo die Kamera am Ende des letzten Bildes stand. Alles, was sich bis zum
+// naechsten Bild daran aendert, kommt von OrbitControls und ist Umsehen, nicht
+// Gehen. `null` heisst: noch kein Bezug, nicht korrigieren.
+let _kamZuletzt = null;
 
 // Wie weit die Desktop-Kamera ueber ihrem Boden stehen darf.
 //
@@ -1642,7 +2001,43 @@ renderer.setAnimationLoop(() => {
     locomotion.update(dt);
   } else {
     updateDesktopMovement(dt);
-    controls.update();
+    // **Auf dem Planeten darf Umsehen nicht Gehen sein.**
+    //
+    // `OrbitControls` schwenkt die Kamera auf einer Kugel um `controls.target`
+    // — bei 1,86 m Kreisradius verschiebt ein Mausziehen sie also um bis zu
+    // 3,7 m. In den vier ortsfesten Umgebungen ist das genau richtig: Man
+    // umkreist den Punkt vor sich. Auf dem Planeten liest die Sperre jede
+    // Verschiebung der Kamera als Schritt und dreht die Welt darunter — man
+    // läuft beim Umsehen seitwärts, und **das** ist die „komische Steuerung",
+    // die gemeldet wurde. Gemessen: 216 Bildpunkte ziehen drehte den Blick um
+    // 52,8 Grad und die Welt um 0,65 m Bogen.
+    //
+    // Rückgängig gemacht wird der Anteil, den der Orbit verschoben hat — an
+    // Kamera **und** Ziel, damit die Blickrichtung bleibt. Aus dem Umkreisen
+    // wird ein Umsehen an Ort und Stelle; Kreisradius und Ziehgefühl bleiben.
+    //
+    // **Verglichen wird gegen das Ende des letzten Bildes, nicht gegen den
+    // Moment vor `controls.update()`.** Der erste Anlauf tat Letzteres und hat
+    // nur die Hälfte erwischt: `OrbitControls` ruft `update()` auch selbst,
+    // direkt aus seinem `pointermove`-Handler, also zwischen zwei Bildern.
+    const walkJetzt = (envIndex >= 0 ? environments[envIndex].walk : null) ?? FLAT_WALK;
+    if (walkJetzt.istPlanet && walkEnabled && _kamZuletzt !== null) {
+      _orbitVersatz.subVectors(camera.position, _kamZuletzt);
+      _orbitVersatz.y = 0; // die Höhe regelt der Bodenblock
+      camera.position.sub(_orbitVersatz);
+      controls.target.sub(_orbitVersatz);
+    }
+    updateDesktopMovement(dt);
+    if (walkJetzt.istPlanet && walkEnabled) {
+      _kamVorOrbit.copy(camera.position);
+      controls.update();
+      _orbitVersatz.subVectors(camera.position, _kamVorOrbit);
+      _orbitVersatz.y = 0;
+      camera.position.sub(_orbitVersatz);
+      controls.target.sub(_orbitVersatz);
+    } else {
+      controls.update();
+    }
   }
   // Den Nutzer auf dem Boden und im begehbaren Bereich halten.
   //
@@ -1663,11 +2058,13 @@ renderer.setAnimationLoop(() => {
   const walk = (envIndex >= 0 ? environments[envIndex].walk : null) ?? FLAT_WALK;
   if (!walkEnabled) {
     _walkEnv = -2; // beim Wiedereinschalten neu einmessen
+    _kamZuletzt = null;
   } else {
     if (_walkEnv !== envIndex) {
       _walkEnv = envIndex;
       walk.reset?.();
       _floorY = null; // neue Bodenhoehe uebernehmen statt dorthin gleiten
+      _kamZuletzt = null; // Bezug fuer die Orbit-Korrektur neu fassen
     }
 
     const head = camera.getWorldPosition(_walkHead);
@@ -1680,7 +2077,57 @@ renderer.setAnimationLoop(() => {
     // Brille unangenehm, über ein paar Bilder verteilt liest es sich als Stufe
     // bzw. als Anstieg.
     const zielY = walk.floorAt(_walkZiel.x, _walkZiel.z);
-    if (_floorY === null) _floorY = zielY;
+    if (_floorY === null) {
+      _floorY = zielY;
+      // **Die Desktop-Pose muss auf den neuen Boden mitgehoben werden.**
+      //
+      // Am Desktop kreist die Kamera um `controls.target`. Beide standen bei
+      // Umgebungswechseln auf der Hoehe des alten Bodens; die Kamera wurde vom
+      // Block weiter unten sofort auf `_floorY + AUGE_MIN` geklemmt, das Ziel
+      // aber nur um `dy` nachgezogen — und `dy` ist in genau diesem Bild null,
+      // weil `_floorY` gerade erst gesetzt wurde.
+      //
+      // Auf den vier ortsfesten Umgebungen fiel das nie auf: Ihr Boden liegt
+      // um null. Der Nachthimmel ist seit dem Umbau ein Planet, sein Boden
+      // liegt bei 25,3 m — die Kamera sprang also auf 26,9 m, waehrend das
+      // Ziel bei 1,4 m stehenblieb. Man sah senkrecht nach unten, und jede
+      // Mausbewegung schwenkte einen um den **Planetenmittelpunkt** statt um
+      // den eigenen Kopf. Genau so hat es der Nutzer gemeldet.
+      //
+      // Gehoben werden Kamera und Ziel um denselben Betrag: Blickrichtung,
+      // Neigung und Kreisradius bleiben damit erhalten, nur die Hoehe stimmt.
+      if (!renderer.xr.isPresenting) {
+        const hub = zielY + 1.6 - camera.position.y;
+        if (Math.abs(hub) > 0.001) {
+          camera.position.y += hub;
+          controls.target.y += hub;
+        }
+        // **Und waagerecht auf die Polachse.** Sonst holt die Sperre die Kamera
+        // im ersten Bild von 1,2 m auf den Freiraum zurueck und dreht dabei die
+        // Welt um 0,95 m — man betritt den Planeten mit einem Ruck, den niemand
+        // ausgeloest hat. Ziel und Kamera wandern gemeinsam, die Blickrichtung
+        // bleibt.
+        if (walk.istPlanet) {
+          controls.target.x -= camera.position.x;
+          controls.target.z -= camera.position.z;
+          camera.position.x = 0;
+          camera.position.z = 0;
+        }
+        // Eine Umgebung darf zusaetzlich sagen, wie steil man beim Betreten
+        // schauen soll. Auf einer Kugel mit 25 m Halbmesser liegt der Horizont
+        // 20 Grad unter Augenhoehe — wer waagerecht schaut, sieht zu vier
+        // Fuenfteln Himmel.
+        const neigung = envIndex >= 0 ? environments[envIndex].blickNeigung : undefined;
+        if (typeof neigung === 'number') {
+          _blickRi.subVectors(controls.target, camera.position);
+          const weite = Math.hypot(_blickRi.x, _blickRi.z);
+          if (weite > 1e-4) {
+            controls.target.y = camera.position.y + Math.tan(neigung) * weite;
+          }
+        }
+        controls.update();
+      }
+    }
     const dy = (zielY - _floorY) * Math.min(1, dt * 7);
     _floorY += dy;
 
@@ -1717,6 +2164,11 @@ renderer.setAnimationLoop(() => {
       controls.target.z += dz;
       controls.target.y += dy;
     }
+    // Bezug fuer die Orbit-Korrektur im naechsten Bild.
+    if (!renderer.xr.isPresenting) {
+      if (_kamZuletzt === null) _kamZuletzt = new THREE.Vector3();
+      _kamZuletzt.copy(camera.position);
+    }
   }
 
   renderer.render(scene, camera);
@@ -1752,7 +2204,8 @@ window.__app = {
   connectionManager,
   keyboard,
   flow: {
-    layout: () => layoutFlow(cardManager.cards, connectionManager.connections, camera, scene),
+    layout: () =>
+      ordneFluss(),
     types: FLOW_TYPES,
   },
   tweener,
@@ -1765,6 +2218,8 @@ window.__app = {
   interactions,
   controls,
   handleAction,
+  // Für tools/werkzeuge.mjs: die Anordnung ohne den Umweg über die Statuszeile.
+  ordneAlles,
   setStatus,
   history,
   hud,

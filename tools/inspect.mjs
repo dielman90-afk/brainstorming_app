@@ -150,21 +150,37 @@ try {
   }
 
   // Software-Rasterizer-Boden: leere weiße Umgebung, gleiche Auflösung.
-  await selectEnv(page, 'matrix');
-  await page.waitForTimeout(300);
-  const floor = await page.evaluate(async () => {
-    const { renderer, scene, camera } = window.__app;
-    const gl = renderer.getContext();
-    const times = [];
-    for (let i = 0; i < 60; i++) {
-      const t0 = performance.now();
-      renderer.render(scene, camera);
-      gl.finish();
-      times.push(performance.now() - t0);
-    }
-    return +(times.slice(10).reduce((s, v) => s + v, 0) / (times.length - 10)).toFixed(2);
-  });
-  process.stdout.write(`\nSoftware-Boden (⬜ Konstrukt, 1280x720): ${floor} ms/Frame\n`);
+  //
+  // **Der Boden ist eine Nebenauskunft und darf den Lauf nicht kippen.** Die
+  // Budgetzahlen darüber sind das, wofür dieses Werkzeug da ist; die Frame-Zeit
+  // ist nur ein Bezugspunkt für den Software-Rasterizer und sagt nichts über
+  // die Brille.
+  //
+  // Zwei Läufe sind hier an „Execution context was destroyed" gescheitert, und
+  // beide Male lag es nicht am Werkzeug: Ich hatte `src/environments.js`
+  // bearbeitet, **während** der Lauf lief, und Vite hat die Seite neu geladen.
+  // Ein Lauf ohne Eingriff kommt sauber durch. Das `try` bleibt trotzdem — es
+  // kostet nichts und hält die Budgetzahlen fest, wenn der Seitenkontext aus
+  // welchem Grund auch immer wegbricht.
+  try {
+    await selectEnv(page, 'matrix');
+    await page.waitForTimeout(300);
+    const floor = await page.evaluate(async () => {
+      const { renderer, scene, camera } = window.__app;
+      const gl = renderer.getContext();
+      const times = [];
+      for (let i = 0; i < 60; i++) {
+        const t0 = performance.now();
+        renderer.render(scene, camera);
+        gl.finish();
+        times.push(performance.now() - t0);
+      }
+      return +(times.slice(10).reduce((s, v) => s + v, 0) / (times.length - 10)).toFixed(2);
+    });
+    process.stdout.write(`\nSoftware-Boden (⬜ Konstrukt, 1280x720): ${floor} ms/Frame\n`);
+  } catch (e) {
+    process.stdout.write(`\nSoftware-Boden: nicht gemessen — ${String(e).split('\n')[0]}\n`);
+  }
 } finally {
   await browser.close();
   await server.stop();

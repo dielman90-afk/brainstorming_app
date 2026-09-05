@@ -23,6 +23,7 @@ export class InteractionManager {
     this.raycaster = new THREE.Raycaster();
     this.tempMatrix = new THREE.Matrix4();
     this.pointer = new THREE.Vector2();
+    this._weltHilf = new THREE.Vector3();
     this.controllers = [];
     this.hands = [];
     this.drag = null;
@@ -183,20 +184,29 @@ export class InteractionManager {
     }
     const target = controller.userData.grabbedTarget;
     if (target) {
-      this.scene.attach(target.group);
+      // Zonen gehören zur Welt und melden dafür eine Heimat; das Whiteboard ist
+      // ein Werkzeug und bleibt an der Szene.
+      (target.heimat?.() ?? this.scene).attach(target.group);
       controller.userData.grabbedTarget = null;
       const targetStart = controller.userData.grabTargetStart;
-      if (targetStart && target.group.position.distanceToSquared(targetStart) > MOVE_EPSILON_SQ) {
+      // **Welt gegen Welt.** `grabTargetStart` kommt aus `getWorldPosition`;
+      // `group.position` ist nach dem Zurückhängen die lokale Lage in der
+      // Heimat. Auf dem Planeten liegen dazwischen 25 m, und jede Berührung
+      // meldete eine Verschiebung an den Undo-Verlauf.
+      if (targetStart && this._weltAbstandQ(target.group, targetStart) > MOVE_EPSILON_SQ) {
         this.onGrabMoved?.(target);
       }
       controller.userData.grabTargetStart = null;
     }
     const card = controller.userData.grabbed;
     if (card) {
-      this.scene.attach(card.group);
+      // In die **Heimat** der Karten, nicht in die Szene: Im Nachthimmel ist
+      // das die Weltgruppe des Planeten, und eine dort losgelassene Karte
+      // bleibt liegen, wenn man weitergeht.
+      (this.cardManager?.heimat ?? this.scene).attach(card.group);
       controller.userData.grabbed = null;
       const start = controller.userData.grabStart;
-      if (start && card.group.position.distanceToSquared(start) > MOVE_EPSILON_SQ) {
+      if (start && this._weltAbstandQ(card.group, start) > MOVE_EPSILON_SQ) {
         this.haptics?.pulse('release', controller);
         this.onCardMoved?.(card);
       }
@@ -301,14 +311,7 @@ export class InteractionManager {
     }
     if (hit.type === 'grab' && event.button === 0) {
       event.stopPropagation();
-      const normal = this.camera.getWorldDirection(new THREE.Vector3());
-      this.dragGrab = {
-        target: hit.target,
-        plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.target.group.position),
-        offset: hit.target.group.position.clone().sub(hit.point),
-        point: new THREE.Vector3(),
-        start: hit.target.group.position.clone(),
-      };
+      this.dragGrab = this._beginneZug(hit.target.group, hit.point, { target: hit.target });
       return;
     }
     if (hit.type !== 'card') return;
@@ -319,14 +322,53 @@ export class InteractionManager {
     this.cardManager.select(hit.card);
     if (this.onCardPick?.(hit.card)) return;
     this.onCardGrabStart?.(hit.card);
+    this.drag = this._beginneZug(hit.card.group, hit.point, { card: hit.card });
+  }
+
+  // **Ein Zug rechnet in Weltkoordinaten, nicht in den Koordinaten des Elters.**
+  //
+  // Hier stand einmal `gruppe.position` — die **lokale** Lage im Elter — neben
+  // `hit.point` und der Ziehebene, die beide in **Welt** stehen. Auf den vier
+  // ortsfesten Umgebungen ist das dasselbe, weil dort der Elter die Szene im
+  // Ursprung ist. Im 🌌 Nachthimmel ist der Elter die Weltgruppe des Planeten:
+  // Sie steht zwar auch im Ursprung, trägt aber die Drehung des Rundgangs, und
+  // eine Karte liegt 25 m vom Mittelpunkt entfernt.
+  //
+  // Gemessen mit `tools/werkzeuge.mjs`: Nach 40 Grad Weltdrehung — gut 17 m
+  // Bogen, also nach ein paar Schritten — warf ein Zug über 40 Bildpunkte die
+  // Karte **18,95 m** weit. Das ist der gemeldete Fehler „Kärtchen
+  // verschwinden, wenn man sie verschieben möchte".
+  //
+  // Bemerkenswert ist, dass er erst nach dem Losgehen auftritt: Steht die Welt
+  // noch unverdreht, sind lokal und Welt zufällig gleich, und nichts springt.
+  _beginneZug(gruppe, treffer, rest) {
+    const welt = gruppe.getWorldPosition(new THREE.Vector3());
     const normal = this.camera.getWorldDirection(new THREE.Vector3());
-    this.drag = {
-      card: hit.card,
-      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, hit.card.group.position),
-      offset: hit.card.group.position.clone().sub(hit.point),
+    return {
+      ...rest,
+      gruppe,
+      plane: new THREE.Plane().setFromNormalAndCoplanarPoint(normal, welt),
+      offset: welt.clone().sub(treffer),
       point: new THREE.Vector3(),
-      start: hit.card.group.position.clone(),
+      // Der Vergleich am Ende läuft ebenfalls über die Weltlage — sonst misst
+      // er den Abstand zwischen zwei Bezugssystemen und meldet jede Berührung
+      // als Verschiebung an den Undo-Verlauf.
+      start: welt.clone(),
     };
+  }
+
+  // Der quadrierte Abstand einer Gruppe von einer **Weltlage**. Dieselbe Falle
+  // wie oben, nur an der anderen Stelle: `gruppe.position` ist lokal.
+  _weltAbstandQ(gruppe, weltStart) {
+    return gruppe.getWorldPosition(this._weltHilf).distanceToSquared(weltStart);
+  }
+
+  // Die Weltlage aus dem Zug in den Elter zurückrechnen und setzen.
+  _fuehreZug(zug) {
+    if (!this.raycaster.ray.intersectPlane(zug.plane, zug.point)) return;
+    zug.point.add(zug.offset);
+    const elter = zug.gruppe.parent;
+    zug.gruppe.position.copy(elter ? elter.worldToLocal(zug.point) : zug.point);
   }
 
   _onPointerMove(event) {
@@ -339,16 +381,12 @@ export class InteractionManager {
     }
     if (this.dragGrab) {
       this._setRayFromMouse(event);
-      if (this.raycaster.ray.intersectPlane(this.dragGrab.plane, this.dragGrab.point)) {
-        this.dragGrab.target.group.position.copy(this.dragGrab.point.add(this.dragGrab.offset));
-      }
+      this._fuehreZug(this.dragGrab);
       return;
     }
     if (this.drag) {
       this._setRayFromMouse(event);
-      if (this.raycaster.ray.intersectPlane(this.drag.plane, this.drag.point)) {
-        this.drag.card.group.position.copy(this.drag.point.add(this.drag.offset));
-      }
+      this._fuehreZug(this.drag);
       return;
     }
     if (event.target === this.renderer.domElement) {
@@ -367,14 +405,14 @@ export class InteractionManager {
     if (this.dragGrab) {
       const { target, start } = this.dragGrab;
       this.dragGrab = null;
-      if (target.group.position.distanceToSquared(start) > MOVE_EPSILON_SQ) {
+      if (this._weltAbstandQ(target.group, start) > MOVE_EPSILON_SQ) {
         this.onGrabMoved?.(target);
       }
     }
     if (this.drag) {
       const { card, start } = this.drag;
       this.drag = null;
-      if (card.group.position.distanceToSquared(start) > MOVE_EPSILON_SQ) {
+      if (this._weltAbstandQ(card.group, start) > MOVE_EPSILON_SQ) {
         this.onCardMoved?.(card);
       }
     }
