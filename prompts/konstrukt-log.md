@@ -592,3 +592,104 @@ vergrößert — eine ganze Runde in die falsche Richtung. Die Maske misst die
 Differenz aus Ein- und Ausblenden; eine Fläche, die da ist und nichts tut, sieht
 darin genauso aus wie eine, die fehlt. Zwei sehr verschiedene Zustände mit
 demselben Messwert, und das stand nirgends dran.
+
+---
+
+## Paket 6 — Das Leder hatte kein Glanzlicht, weil der Raum kein Licht abgab
+
+**Befund des Prüfers (Rang 3 seiner Liste):** Auf den 281 009 roten Bildpunkten
+der Sessel liegt p99 bei L 90, das Maximum bei 113,6. „Die Sessel lesen als
+Filz." — Bestätigt: eigene Messung auf der Beitragsmaske in `b-sessel`
+(287 966 Punkte) ergab p95 64, p99 81, **0,23 %** über L 110.
+
+### Die Ursache stand nicht im Werkstoff
+
+Der naheliegende Griff wäre die Rauheit gewesen. Sie allein bringt aber fast
+nichts — gemessen mit dem neuen `tools/lederglanz.mjs`:
+
+| Rauheit | p95 | p99 | > L 110 | Korn im hellsten Zwanzigstel |
+| --- | --- | --- | --- | --- |
+| 0,72 (Stand) | 64 | 81 | 0,23 % | 5,4 |
+| 0,45 | 60 | 94 | 0,59 % | 12,3 |
+| 0,22 | 57 | 95 | 0,72 % | 23,6 |
+
+p95 **fällt** dabei sogar. Der Grund: Spiegelnd wirkten in dieser Umgebung nur
+drei gerichtete Lampen mit zusammen 1,9 Einheiten. Bei 4 % Grundreflexion eines
+Nichtmetalls ist deren Beitrag klein, ganz gleich wie schmal die Keule ist —
+schmaler heißt nur, dass sich derselbe kleine Betrag auf weniger Punkte drängt.
+
+**Was fehlte, war der Raum.** Das Konstrukt ist ein weißer Hohlraum von 60 m,
+und ein Ledersessel darin spiegelt nach allen Seiten Weiß. Eine Umgebungskarte
+gab es nicht. Die Hemisphärenleuchte auf 3,9 war der Ersatz dafür — sie hat die
+Helligkeit nachgestellt, die eine Umgebungskarte mitbringt, aber sie trägt
+**keinen spiegelnden Anteil**: three ruft für eine Hemisphärenleuchte nur den
+diffusen Pfad. Ein Sessel unter reiner Hemisphärenleuchte kann kein Glanzlicht
+haben. Nicht „hat keins", sondern kann keins haben.
+
+### Was gebaut wurde
+
+`konstruktUmgebungskarte(renderer)` — eine prozedurale Sonde nach demselben
+Muster wie Dojo und Zen-Garten: Kugel von innen, oben das Weiß der Kuppel, unten
+der kühlere Bodenton, `PMREMGenerator.fromScene()` darüber. Keine Sonnenscheibe,
+weil es hier keine gibt; 32×20 Segmente reichen deshalb.
+
+Die Karte hängt an den Werkstoffen der Umgebung, **nicht** an
+`scene.environment`: Letzteres gälte auch für Karten und Whiteboard, die zu
+keiner Umgebung gehören und in allen fünf gleich aussehen müssen. Gebaut wird
+sie erst beim ersten Sichtbarwerden (`ensureEnvironment`), wie beim Zen-Teich.
+
+Weil damit derselbe Lichtweg zweimal zählte, musste die Hemisphäre im selben
+Zug herunter. Gemessen entlang der Linie „der Median bleibt, wo er ist":
+
+| | p50 | p95 | p99 | > L 110 |
+| --- | --- | --- | --- | --- |
+| Hemi 3,90, keine Karte | 44 | 64 | 81 | 0,23 % |
+| Hemi 3,90, Karte 0,35 | 62 | 89 | 99 | 0,33 % |
+| Hemi 0,00, Karte 0,30 | 34 | 78 | 101 | 0,57 % |
+| **Hemi 1,17, Karte 0,30, Rauheit 0,45** | **43** | **86** | **107** | **0,77 %** |
+
+### Ergebnis im Stand
+
+| Kamera | p50 | p95 | p99 | max | > L 110 | Korn |
+| --- | --- | --- | --- | --- | --- | --- |
+| `b-sessel` | 47 | 93 | 113 | 202 | 1,54 % | 10,8 |
+| `a-augenhoehe` | 50 | 102 | 133 | 197 | 1,66 % | 9,1 |
+| `e-schraeg` | 46 | 92 | 115 | 202 | 1,40 % | 11,2 |
+
+Vorher an derselben Stelle (`b-sessel`): 44 / 64 / 81 / 189 / 0,23 % / 5,4.
+
+Der Median bleibt — der Sessel wird nicht heller, er bekommt einen Kopf. Und das
+Korn im hellsten Zwanzigstel verdoppelt sich: Die Ledernarbung, die bisher nur
+auf den senkrechten Wangen zu sehen war, bricht jetzt das Glanzlicht. Genau das
+unterscheidet Leder von Lack und von Filz.
+
+### Warum nicht schmaler
+
+Bei Rauheit 0,22 steigt das Korn auf 23,6. Das ist kein Leder mehr, sondern
+Sprenkelrauschen — in einer Brille die Sorte Muster, die beim Kopfdrehen
+kribbelt. 0,45 mit der aufmultiplizierenden Rauheitskarte (0,70 bis 0,92) ergibt
+wirksam 0,32 bis 0,41; das ist die obere Kante dessen, was gealtertes Leder
+trägt.
+
+### Regression und Kosten
+
+Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 6 bei 0,008 % (das bekannte
+Rauschband seiner eigenen Bewegung). 43 Draw-Calls, 59 726 Dreiecke — beides
+unverändert; die Karte kostet keinen Aufruf, sie hängt an vorhandenen
+Werkstoffen. Texturspeicher 1,98 MB von 60. Build grün, Konsole frei von Errors
+und Warnings.
+
+### Neues Werkzeug
+
+`tools/lederglanz.mjs` — Verteilung auf der Beitragsmaske der Sessel, mit zwei
+Zahlen statt einer: Anteil oberhalb einer Helligkeit (**gibt** es ein
+Glanzlicht) und mittlerer 3×3-Hochpass innerhalb der hellsten 5 % (**wie** sieht
+es aus — Lack ist dort glatt, Leder gesprenkelt). Zwei Fallen kostete es
+unterwegs:
+
+* Die Maske aus Ein- und Ausblenden enthält auch den **Schlagschatten**: Blendet
+  man die Sessel aus, wird der Boden dort hell, und mit L 157 bis 222 ist er das
+  Hellste in der Maske. Gemessen worden wäre der Boden. Jetzt kommt eine
+  Farbprobe dazu — Leder ist rot, der Boden ist neutral.
+* Die drei Sessel-Meshes heißen nach dem Verschmelzen `construct-armchairs`,
+  `-1` und `-2`. Ein Vergleich auf Gleichheit fand nur eines davon.
