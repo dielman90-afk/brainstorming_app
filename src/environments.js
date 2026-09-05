@@ -12811,7 +12811,32 @@ function konstruktSesselWerkstoffe() {
       roughness: 0.42,
       metalness: 0.12,
     });
-    _konstruktLeder = { leather, leatherDark, wood };
+    // **Poliertes Nussbaum fuer die Rosette — ein eigener Werkstoff, und zwar
+    // aus zwei Gruenden.**
+    //
+    // Der erste ist der Befund: Die Rosette las als schwarzes Loch. Auf ihrem
+    // dunkelsten Kern in `f-boden` gemessen L 18, waehrend der Sessel um sie
+    // herum bei L 47 steht — ein Bauteil, das dunkler ist als alles andere im
+    // Bild, liest nicht als geschnitztes Holz, sondern als Bohrung. Das
+    // Beinholz darf so dunkel bleiben: Beine stehen im Schatten des Moebels
+    // und sind matt. Eine polierte Zierscheibe an der Stirnseite ist das
+    // Gegenteil davon.
+    //
+    // Der zweite Grund ist messtechnisch: `verschmelzeObjekte` gruppiert nach
+    // Werkstoff, und alles, was sich `wood` teilt, verschwindet in einem
+    // gemeinsamen Netz ohne eigenen Namen. Mit eigenem Werkstoff bleibt die
+    // Rosette ein eigenes Netz und damit ein Knoten, den `knotenwerte.mjs`
+    // messen kann. Das kostet einen Draw-Call — bei 47 von 120 ist das der
+    // billigste Messzugang, den diese Szene zu bieten hat.
+    const rosenholz = new THREE.MeshStandardMaterial({
+      color: 0x4a2d18,
+      roughness: 0.34,
+      metalness: 0.05,
+    });
+    // 0,5 und nicht 0,7: Bei 0,7 wurde aus der Rosette ein Messingmedaillon.
+    // Poliertes Nussbaum faengt den Raum, es spiegelt ihn nicht.
+    rosenholz.userData.envStaerke = 0.5;
+    _konstruktLeder = { leather, leatherDark, wood, rosenholz };
   }
   return _konstruktLeder;
 }
@@ -12858,7 +12883,7 @@ function kederRing(breite, tiefe, ecke, schnur = 0.008) {
 function makeConstructArmchair() {
   const group = new THREE.Group();
   group.name = 'construct-armchair';
-  const { leather, leatherDark, wood } = konstruktSesselWerkstoffe();
+  const { leather, leatherDark, wood, rosenholz } = konstruktSesselWerkstoffe();
 
   const W = 0.88;        // Gesamtbreite
   const D = 0.84;        // Gesamttiefe
@@ -12930,15 +12955,47 @@ function makeConstructArmchair() {
     arm.position.set(side * cheekX, ARM_TOP - CHEEK / 2, frontZ);
     group.add(arm);
 
-    // Geschnitzte Rosette an der Stirnseite – im Film ein dunkles Holzelement,
-    // das die eingerollte Armlehne abschließt.
-    const rosette = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.02, 20), wood);
-    rosette.rotateX(Math.PI / 2);
+    // --- Geschnitzte Rosette an der Stirnseite -----------------------------
+    //
+    // **Sie war eine Scheibe, kein Schnitzwerk.** Ein Zylinder von 10 cm
+    // Durchmesser mit einer Kugel davor: null Relief ausser der Kugel, und in
+    // fast schwarzem Holz. Der Kommentar behauptete „geschnitzt", gebaut war
+    // ein Knopf.
+    //
+    // Jetzt hat sie, was eine Rosette hat: einen erhabenen Aussenring, der das
+    // Licht an seiner Kuppe faengt, einen dahinter zurueckgesetzten Teller,
+    // einen Kranz von acht Blattbuckeln und den Mittelbuckel. Das Relief traegt
+    // die Form, nicht die Farbe — und es traegt sie aus jeder Richtung, weil
+    // jede Kuppe ihre eigene Lichtseite und ihre eigene Schattenseite hat.
+    const rosette = new THREE.Group();
+    rosette.name = 'arm-rosette';
+
+    const teller = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.016, 20), rosenholz);
+    teller.rotateX(Math.PI / 2);
+    rosette.add(teller);
+
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.008, 8, 24), rosenholz);
+    ring.position.z = 0.006;
+    rosette.add(ring);
+
+    for (let i = 0; i < 8; i++) {
+      const w = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const blatt = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 6), rosenholz);
+      // Flach gedrueckt: Ein Blatt einer Schnitzrosette steht wenige
+      // Millimeter vor, es ist keine aufgelegte Perle.
+      blatt.scale.set(1.5, 1, 0.55);
+      blatt.rotation.z = w;
+      blatt.position.set(Math.cos(w) * 0.026, Math.sin(w) * 0.026, 0.009);
+      rosette.add(blatt);
+    }
+
+    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.017, 12, 10), rosenholz);
+    boss.scale.z = 0.8;
+    boss.position.z = 0.012;
+    rosette.add(boss);
+
     rosette.position.set(side * cheekX, ARM_TOP - CHEEK / 2, D / 2 + 0.001);
     group.add(rosette);
-    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.019, 12, 10), wood);
-    boss.position.set(side * cheekX, ARM_TOP - CHEEK / 2, D / 2 + 0.012);
-    group.add(boss);
   }
 
   // Sitzkissen

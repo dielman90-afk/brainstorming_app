@@ -857,3 +857,74 @@ Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 5 bei 0,010 %. Draw-Calls
 45 → **47** (die Scheibe ist ein eigener Körper und liegt im
 Transparenz-Durchgang), Dreiecke 73 406 → 74 078, Texturspeicher 1,98 MB.
 Build grün, Konsole frei von Errors und Warnings.
+
+---
+
+## Paket 9 — Die Armrosette war eine Scheibe, kein Schnitzwerk
+
+**Befund des Prüfers (Rang 8):** „Armrosetten als schwarze Löcher", L 25,1,
+89,6 % unter L 40.
+
+Bestätigt, und der Blick in den Quelltext sagt sofort, warum: Gebaut war ein
+Zylinder von 10 cm Durchmesser mit einer Kugel davor. Der Kommentar daneben
+behauptete „geschnitzte Rosette"; gebaut war ein Knopf. Null Relief außer der
+Kugel, und das in einem Holz von 0x2b1a11 — dem dunkelsten Werkstoff der ganzen
+Szene.
+
+### Zwei Änderungen, und die zweite hat einen Nebennutzen
+
+**Relief.** Jetzt hat sie, was eine Rosette hat: einen erhabenen Außenring
+(Torus, 8 mm Schnur), der das Licht an seiner Kuppe fängt, einen dahinter
+zurückgesetzten Teller, einen Kranz aus acht flachgedrückten Blattbuckeln und
+den Mittelbuckel. Das Relief trägt die Form aus **jeder** Richtung, weil jede
+Kuppe ihre eigene Lichtseite und ihre eigene Schattenseite hat — anders als eine
+Textur, die nur bei streifendem Licht etwas zeigt (dieselbe Lehre wie am
+Sitzkissen, Paket 3).
+
+**Eigener Werkstoff.** Poliertes Nussbaum, 0x4a2d18, Rauheit 0,34,
+Kartenstärke 0,5. Das Beinholz darf dunkel bleiben — Beine stehen im Schatten
+des Möbels und sind matt. Eine polierte Zierscheibe an der Stirnseite ist das
+Gegenteil davon.
+
+Der Nebennutzen ist messtechnisch: `verschmelzeObjekte` gruppiert nach
+Werkstoff, und alles, was sich `wood` teilt, verschwindet in einem gemeinsamen
+Netz ohne eigenen Namen. Mit eigenem Werkstoff bleibt die Rosette ein eigenes
+Netz und damit ein Knoten, den `knotenwerte.mjs` messen kann. Ein Draw-Call bei
+47 von 120 ist der billigste Messzugang, den diese Szene zu bieten hat.
+
+### Ergebnis
+
+Gemessen im Rechteck der geänderten Bildpunkte in `f-boden` — das ist der
+verlässlichste Weg, ein verschmolzenes Einzelteil zu finden: Was sich zwischen
+zwei Ständen ändert, **ist** das Bauteil.
+
+| Rosette | Mittel | p05 | p50 | unter L 40 |
+| --- | --- | --- | --- | --- |
+| links, vorher | 52,0 | 27 | 48 | 32,3 % |
+| links, nachher | 62,7 | 46 | 59 | **0,0 %** |
+| rechts, vorher | 41,8 | 30 | 31 | 60,9 % |
+| rechts, nachher | 62,9 | 50 | 62 | **0,0 %** |
+
+Der Befund „schwarzes Loch" ist damit weg, und zwar an beiden Sesseln.
+
+### Was unterwegs schiefging
+
+Der erste Anlauf stand auf 0x5a3a22 bei Rauheit 0,28 und Kartenstärke 0,7.
+Heraus kam ein **Messingmedaillon** — eine Zierscheibe, die heller glänzt als
+das Leder, liest als Metall, nicht als Holz. Poliertes Nussbaum fängt den Raum,
+es spiegelt ihn nicht.
+
+Und zweimal habe ich die Rosette im Bild an der falschen Stelle gesucht: erst
+auf der Schautafel der Konsole (dort steht der dunkelste Kern des Bildes, ein
+Bedienknopf), dann 60 Bildpunkte daneben. Beides kostete je einen Messlauf. Der
+Differenzweg — zwei Stände abziehen, die geänderten Punkte sind das Bauteil —
+hätte beim ersten Mal funktioniert. Dafür gibt es jetzt `tools/kasten.mjs`.
+
+### Regression und Kosten
+
+Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 5 bei 0,008 %. Draw-Calls
+47 → **49**, Dreiecke 74 078 → **82 270** (vier Rosetten mit Ring, acht Blättern
+und Buckel, rund 2000 Dreiecke je Stück). Texturspeicher 1,98 MB. Build grün,
+Konsole frei von Errors und Warnings.
+
+Neues Werkzeug `tools/kasten.mjs`.
