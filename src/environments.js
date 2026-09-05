@@ -13215,15 +13215,69 @@ function makeRadiolaConsole() {
   shoulder.position.set(0, H + 0.018, 0);
   group.add(shoulder);
 
-  // Lamellenband unter der Schulter
-  const slats = [];
-  for (let i = 0; i < 23; i++) {
-    const slat = new THREE.BoxGeometry(0.012, 0.05, 0.008);
-    slat.translate(-0.25 + i * 0.0227, 0, 0);
-    slats.push(slat);
+  // --- Lamellenband unter der Schulter ---------------------------------------
+  //
+  // **Das Band stand falsch herum im Raum, und es hat gekribbelt.**
+  //
+  // Vorher: 23 dunkle Kaesten, 6 mm VOR der Gehaeusewand. Das ist eine
+  // Oeffnung, die aus dem Moebel heraussteht — ein Schlitz, der sich woelbt.
+  // Wer den Kasten anschaut, sieht dunkle Streifen und liest sie als Loecher;
+  // gebaut waren sie als Vorspruenge.
+  //
+  // Und sie flimmerten. Gemessen mit dem neuen `tools/kamm.mjs`, das die Kamera
+  // in Millimeterschritten quer bewegt und den mittleren Sprung je Bildpunkt
+  // misst — bei gleichem Kontrast (Streuung um 23):
+  //
+  //     Lamellenband        Zittern 1,72   Quotient 0,077
+  //     Gehaeuse daneben    Zittern 0,52   Quotient 0,022
+  //     Schriftzug (Textur) Zittern 0,74   Quotient 0,032
+  //
+  // Dreieinhalbmal so unruhig wie die glatte Wand daneben, und mehr als
+  // doppelt so unruhig wie ein ebenso feiner Schriftzug, der aus einer Textur
+  // kommt. Der Unterschied ist das Mipmapping: Eine Textur wird mit dem
+  // Abstand von selbst weicher, Geometrie nicht. Bei 4 Bildpunkten
+  // Streifenbreite und 68 Helligkeitsstufen Sprung ist das genau das Muster,
+  // das in einer Brille beim Kopfdrehen kriecht.
+  //
+  // Jetzt ist es gebaut, wie ein Lamellenband gebaut ist: eine **zurueck-
+  // gesetzte dunkle Nische** und davor **Stege in der Gehaeusefarbe**. Das
+  // Dunkle gehoert der Oeffnung, nicht dem Vorsprung. Die Stege bekommen eine
+  // Fase von 2,7 mm — im Bild knapp ein Bildpunkt, und dieser eine Bildpunkt
+  // ist der Unterschied zwischen einer Stufe und einem Verlauf.
+  const BAND_TEILUNG = 0.034;
+  const BAND_ANZAHL = 15;
+  const BAND_Y = H - 0.07;
+  const BAND_X0 = -0.238;
+
+  const nische = new THREE.Mesh(
+    new THREE.BoxGeometry((BAND_ANZAHL - 1) * BAND_TEILUNG + 0.024, 0.056, 0.004),
+    darkMat
+  );
+  // **Die Nische liegt VOR der Gehaeusewand, nicht dahinter.**
+  //
+  // Der erste Anlauf hat sie 7 mm zurueckgesetzt — und damit ins Innere des
+  // Kastens, dessen Vorderseite bei D/2 sitzt. Zwischen den Stegen sah man
+  // dann nicht die Nische, sondern die Gehaeusewand selbst: Das Band war ein
+  // gleichmaessiger Fleck, Profil 72 bis 85 statt 33 bis 85. Ein Rueckspruch
+  // in eine geschlossene Wand ist kein Rueckspruch, sondern ein verstecktes
+  // Bauteil. Ohne Loch im Koerper — und ein Loch kostet hier eine
+  // CSG-Operation, die es in diesem Projekt nicht gibt — muss die dunkle
+  // Flaeche eben davor liegen; einen Millimeter, den niemand sieht, weil die
+  // Stege 5 mm darueber stehen.
+  nische.name = 'lamellen-nische';
+  nische.position.set(BAND_X0 + ((BAND_ANZAHL - 1) * BAND_TEILUNG) / 2, BAND_Y, D / 2 + 0.001);
+  group.add(nische);
+
+  // Ein Steg mehr als Oeffnungen: Das Band faengt und endet mit Material.
+  const stege = [];
+  for (let i = -1; i < BAND_ANZAHL; i++) {
+    const steg = roundedBox(0.0135, 0.05, 0.005, 0.004);
+    steg.translate(BAND_X0 + (i + 0.5) * BAND_TEILUNG, 0, 0);
+    stege.push(steg);
   }
-  const slatMesh = new THREE.Mesh(mergeGeometries(slats), darkMat);
-  slatMesh.position.set(0, H - 0.07, D / 2 + 0.002);
+  const slatMesh = new THREE.Mesh(mergeGeometries(stege), shellMat);
+  slatMesh.name = 'lamellen-stege';
+  slatMesh.position.set(0, BAND_Y, D / 2 + 0.004);
   group.add(slatMesh);
 
   // --- Schauseite als gemalte Tafel ---

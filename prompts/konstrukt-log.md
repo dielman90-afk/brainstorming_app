@@ -693,3 +693,95 @@ unterwegs:
   Farbprobe dazu — Leder ist rot, der Boden ist neutral.
 * Die drei Sessel-Meshes heißen nach dem Verschmelzen `construct-armchairs`,
   `-1` und `-2`. Ein Vergleich auf Gleichheit fand nur eines davon.
+
+---
+
+## Paket 7 — Das Lamellenband stand falsch herum im Raum, und es kribbelte
+
+**Befund des Prüfers (Rang 4 seiner Liste):** „Aliasing der Lüftungsschlitze",
+`f-boden`, Strichbreiten 2 bis 4 Bildpunkte — das eine Muster der Szene, das in
+einer Brille garantiert kriecht.
+
+### Erst messen, ob es überhaupt kriecht
+
+Ein Standbild kann das nicht beantworten. Neues Werkzeug `tools/kamm.mjs`: Es
+bewegt die Kamera in Millimeterschritten quer zur Blickrichtung — 1,5 mm je
+Schritt, weniger als ein ruhig stehender Kopf ohnehin schwankt — und misst je
+Bereich den mittleren Sprung pro Bildpunkt (**Zittern**) neben der
+Standardabweichung im Bereich (**Streuung**, also der vorhandene Kontrast).
+
+| Bereich | Streuung | Zittern | Quotient |
+| --- | --- | --- | --- |
+| Lamellenband | 22,5 | **1,72** | 0,077 |
+| Gehäuse daneben, glatt | 23,9 | 0,52 | 0,022 |
+| Schriftzug „AWA" (Textur) | 23,1 | 0,74 | 0,032 |
+| Leder | 70,3 | 0,27 | 0,004 |
+
+Bestätigt, und der Vergleich sagt gleich, woran es liegt: Der Schriftzug ist
+ebenso fein und hat denselben Kontrast, zittert aber nur halb so stark. Er kommt
+aus einer **Textur** und wird mit dem Abstand von selbst weicher. Geometrie hat
+kein Mipmapping.
+
+### Der zweite Befund kam beim Hinsehen
+
+Die 23 dunklen Kästen standen **6 mm vor** der Gehäusewand. Das ist eine
+Öffnung, die aus dem Möbel heraussteht — ein Schlitz, der sich wölbt. Wer das
+Band anschaut, liest dunkle Streifen als Löcher; gebaut waren sie als
+Vorsprünge. Das ist unabhängig vom Flimmern falsch.
+
+Jetzt: eine dunkle Nische und davor Stege in der Gehäusefarbe. Das Dunkle gehört
+der Öffnung, nicht dem Vorsprung.
+
+### Drei Anläufe, und was jeder gelehrt hat
+
+| # | Änderung | Ergebnis |
+| --- | --- | --- |
+| 1 | Nische 7 mm **zurück**gesetzt, Stege bündig | Band verschwindet: Profil 72–85 statt 33–85 |
+| 2 | Nische 1 mm **vor** die Wand, Stege 5 mm darüber | Zittern 1,27 → 1,05, Streuung 21,9 → 19,2 |
+| 3 | Teilung 22,7 → 34 mm, 15 statt 23 Öffnungen, Fase 2,4 mm | Zittern → **0,86**, Streuung 19,5 |
+
+Anlauf 1 war ein Denkfehler mit Ansage: Die Vorderseite des Gehäuses sitzt bei
+z = D/2, und eine Nische dahinter liegt **im** Kasten. Zwischen den Stegen sah
+man dann nicht die Nische, sondern die Gehäusewand selbst. Ein Rücksprung in
+eine geschlossene Wand ist kein Rücksprung, sondern ein verstecktes Bauteil —
+ein Loch im Körper wäre eine CSG-Operation, die es in diesem Projekt nicht gibt.
+Also liegt die dunkle Fläche eben davor; einen Millimeter, den niemand sieht,
+weil die Stege 4 mm darüber stehen.
+
+Anlauf 3 ist der eigentliche Hebel und der einzige, der am Kern ansetzt: **Die
+Merkmalsgröße in Bildpunkten.** Eine Fase mildert die Stufe, eine dunklere Farbe
+mildert den Ausschlag — aber wenn ein Streifen 4 Bildpunkte breit ist, bleibt er
+unteraufgelöst. Bei 34 mm Teilung sind es 6 bis 7, und das ist der Unterschied.
+Eine gröbere Blende ist zudem periodgerecht; Konsolen der Fünfziger haben
+Stäbe von zwei bis drei Zentimetern, nicht von einem.
+
+### Ergebnis
+
+| | Streuung | Zittern | Quotient | max dL |
+| --- | --- | --- | --- | --- |
+| vorher | 21,9 | 1,27 | 0,058 | 36 |
+| nachher | 19,5 | **0,86** | 0,044 | 36 |
+
+Ein Drittel weniger Zittern bei erhaltenem Kontrast. Damit liegt das Band
+zwischen dem Schriftzug aus der Textur (0,032) und dem, was es war — nicht bei
+der glatten Wand (0,024), aber ein Lamellenband ist auch keine glatte Wand.
+Die letzte Fase hat außerdem den größten Einzelsprung von 60 auf 36 zurückgeholt.
+
+**Offen und ehrlich:** Der Quotient sinkt nur von 0,058 auf 0,044. Was
+tatsächlich verschwindet, ist ein Drittel der absoluten Unruhe; was bleibt, ist
+ein Muster mit 15 harten Kanten. Ganz weg wäre es nur als Textur — und das wäre
+weniger Modellierung, nicht mehr.
+
+### Regression und Kosten
+
+Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 6 bei 0,009 %. Build grün,
+Konsole frei von Errors und Warnings.
+
+Draw-Calls 43 → **45** (die Nische ist ein eigener Körper), Dreiecke 59 726 →
+**73 406**. Der Sprung von 13 680 Dreiecken geht auf die Stege: 16 Stück aus
+`roundedBox`, und das ist eine `ExtrudeGeometry` mit Fase — rund 855 Dreiecke je
+Steg für ein Bauteil von anderthalb Zentimetern. Beides bleibt weit im Budget
+(45 von 120, 73 406 von 350 000), aber es ist ein Viertel mehr Geometrie für
+eine Blende, und das gehört hier notiert statt weggelächelt. Wer die Zahl
+braucht, findet sie in `roundedBox` — `bevelSegments: 3` und `curveSegments: 6`
+sind für ein 13-mm-Teil großzügig.
