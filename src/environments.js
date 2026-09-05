@@ -12669,8 +12669,42 @@ function leatherMaps(size = 128) {
   const rand = mulberry32(20221231);
 
   // Zellzentren für ein Voronoi-artiges Narbenmuster
+  //
+  // **110 statt 60, und 24-fach gekachelt statt 14-fach.**
+  //
+  // Mit 60 Zellen auf 128 Punkten ist eine Zelle rund 16,5 Bildpunkte gross,
+  // also 12,9 % der Kachel. Bei 14-facher Kachelung misst die Kachel 71 mm und
+  // eine Zelle damit **8,9 mm**. Rindsleder hat Poren unter einem Millimeter
+  // und eine Narbe von zwei bis vier. Aus einem Meter Abstand las das Polster
+  // deshalb nicht als Leder, sondern als Reptilhaut — grosse eckige Schuppen,
+  // dazu die Kachel selbst als Ornament (der Pruefer hatte eine Wiederholung
+  // bei 73 Bildpunkten vermutet; gemessen sind es 69).
+  //
+  // 110 Zellen bei 24-facher Kachelung ergeben **4,0 mm** — die Groessenordnung
+  // einer gepraegten Rindslederarbe — und eine Kachel von 42 mm mit gut zehn
+  // Zellen Kantenlaenge.
+  //
+  // Warum nicht 34, wo doch 2,8 mm noch naeher an echtem Leder waeren: Bei 34
+  // liegt aus einem Meter Abstand ein Texel bei 0,27 Bildpunkten, und das
+  // Mipmapping zeichnet die Narbe fast vollstaendig weg — der Sessel sah
+  // lackiert aus. 24 ist der Wert, bei dem sie aus Sitzabstand noch traegt.
+  // Dazu geht `normalScale` von 0,5 auf 0,6: Feineres Korn braucht etwas mehr
+  // Ausschlag, um dieselbe Tiefe zu behaupten.
+  //
+  // Der naheliegende Einwand, feineres Korn koenne in der Brille kribbeln, ist
+  // gemessen und trifft nicht zu (`tools/narbe.mjs`, Kasten auf der Lehne):
+  //
+  //     repeat 14   Periode 10   Staerke 0,036   Streuung 25,3   Zittern 0,37
+  //     repeat 20   Periode 10   Staerke 0,038   Streuung 25,2   Zittern 0,34
+  //     repeat 26   Periode 13   Staerke 0,041   Streuung 25,2   Zittern 0,31
+  //     repeat 34   Periode 13   Staerke 0,043   Streuung 25,2   Zittern 0,27
+  //
+  // Das Zittern SINKT, und zwar genau deshalb, weil die Karte gekachelt und
+  // mipgemappt ist: Was auf Entfernung unter die Bildpunktgroesse faellt, wird
+  // vom Mipmapping weichgezeichnet statt zu Rauschen. Feiner ist hier auf
+  // Distanz ruhiger und aus der Naehe richtiger.
   const cells = [];
-  for (let i = 0; i < 60; i++) cells.push([rand() * size, rand() * size]);
+  for (let i = 0; i < 110; i++) cells.push([rand() * size, rand() * size]);
 
   const height = new Float32Array(size * size);
   for (let y = 0; y < size; y++) {
@@ -12733,8 +12767,9 @@ function leatherMaps(size = 128) {
   for (const map of [normalMap, roughnessMap]) {
     map.wrapS = map.wrapT = THREE.RepeatWrapping;
     // Dicht kacheln: Bei wenigen Wiederholungen werden die Poren handtellergroß
-    // und der Sessel sieht aus wie mit Reptilienhaut bezogen.
-    map.repeat.set(14, 14);
+    // und der Sessel sieht aus wie mit Reptilienhaut bezogen. Die Herleitung
+    // der 24 steht oben bei den Zellzentren.
+    map.repeat.set(24, 24);
     map.anisotropy = 4;
   }
   _leatherMaps = { normalMap, roughnessMap };
@@ -12801,7 +12836,7 @@ function konstruktSesselWerkstoffe() {
       roughness: 0.45,
       metalness: 0.02,
       normalMap,
-      normalScale: new THREE.Vector2(0.5, 0.5),
+      normalScale: new THREE.Vector2(0.6, 0.6),
       roughnessMap,
     });
     const leatherDark = leather.clone();
