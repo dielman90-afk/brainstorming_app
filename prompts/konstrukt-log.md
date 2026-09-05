@@ -1070,3 +1070,70 @@ bei 0,009 %.
 
 51 Draw-Calls, 89 150 Dreiecke, 1,98 MB Textur — alle drei unveraendert. Build
 gruen, Konsole frei von Errors und Warnings.
+
+---
+
+## Paket 12 — Die Ledernarbung las als Reptilhaut
+
+Der Prüfer hatte eine Kachelwiederholung bei „etwa 73 Bildpunkten" vermutet und
+sie als unbestätigt notiert. Gemessen (`tools/kachel.mjs`, Autokorrelation über
+hochpassgefilterte Zeilen) sind es **69** auf der Lehne und **33** auf dem
+Flügel. Der Befund ist damit bestätigt — und beim freien Blick aus einem Meter
+Abstand (`tools/blick.mjs`) ist er offensichtlich: große eckige Schuppen, ein
+Krokodilmuster.
+
+### Die Rechnung
+
+60 Zellen auf 128 Punkten ergeben eine Zelle von rund 16,5 Punkten, also 12,9 %
+der Kachel. Bei 14-facher Kachelung misst die Kachel 71 mm — **eine Zelle ist
+damit 8,9 mm groß**. Rindsleder hat Poren unter einem Millimeter und eine Narbe
+von zwei bis vier. Das ist Faktor drei bis neun daneben.
+
+Jetzt: 110 Zellen, 24-fach gekachelt. Eine Zelle misst 4,0 mm, die Kachel 42 mm
+mit gut zehn Zellen Kantenlänge. `normalScale` geht von 0,5 auf 0,6 — feineres
+Korn braucht etwas mehr Ausschlag, um dieselbe Tiefe zu behaupten.
+
+### Warum nicht noch feiner
+
+Der erste Anlauf stand auf 34-facher Kachelung (2,8 mm Zelle) und war
+**zu** fein: Aus einem Meter Abstand liegt ein Texel dann bei 0,27 Bildpunkten,
+und das Mipmapping zeichnet die Narbe fast vollständig weg. Der Sessel sah
+lackiert aus — der entgegengesetzte Fehler zum Ausgangszustand, und optisch der
+schlimmere. 24 ist der Wert, bei dem die Narbe aus Sitzabstand noch trägt.
+
+### Der naheliegende Einwand ist gemessen und trifft nicht zu
+
+Feineres Korn könnte in der Brille kribbeln. `tools/narbe.mjs` fährt `repeat`
+zur Laufzeit ab und misst beide Seiten in einem Lauf:
+
+| repeat | Periode | Stärke | Streuung | Zittern |
+| --- | --- | --- | --- | --- |
+| 14 | 10 | 0,036 | 25,3 | **0,37** |
+| 20 | 10 | 0,038 | 25,2 | 0,34 |
+| 26 | 13 | 0,041 | 25,2 | 0,31 |
+| 34 | 13 | 0,043 | 25,2 | **0,27** |
+
+Das Zittern **sinkt**, und zwar genau deshalb, weil die Karte gekachelt und
+mipgemappt ist: Was auf Entfernung unter die Bildpunktgröße fällt, wird
+weichgezeichnet statt zu Rauschen. Feiner ist hier auf Distanz ruhiger und aus
+der Nähe richtiger — die Grenze setzt nicht das Flimmern, sondern das
+Verschwinden.
+
+Im Stand gemessen: Kachelperiode auf dem Flügel **33 → 13** Bildpunkte, Zittern
+0,37 → 0,34, Streuung unverändert 25,1.
+
+Die 66 Bildpunkte, die im Kasten über der Lehne stehen bleiben, sind **nicht**
+die Kachel: Dort sitzt die Knopfheftung, und ihre Knöpfe stehen 0,165 m
+auseinander.
+
+### Regression und Kosten
+
+Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 6 bei 0,009 %. 51
+Draw-Calls, 89 150 Dreiecke, 1,98 MB Textur — alle unverändert; es ist dieselbe
+128er-Kachel, nur anders gefüllt und dichter gelegt. Die Erzeugung kostet mehr:
+Die Suche nach den zwei nächsten Zellzentren läuft je Bildpunkt über alle
+Zellen, also 128² × 110 statt 128² × 60 — rund 1,8 statt 1,0 Millionen
+Abstände, einmalig beim ersten Aufruf. Build grün, Konsole frei von Errors und
+Warnings.
+
+Neues Werkzeug `tools/narbe.mjs`.
