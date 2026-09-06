@@ -13415,7 +13415,38 @@ function makeConstructArmchair() {
     group.add(rear);
   }
 
-  group.add(makeBlobShadow(0.6, 0.85, 0.006));
+  // --- Kontaktverdunklung: ein Fleck je FUSS, nicht einer je Moebel ----------
+  //
+  // **Der Pruefer misst am Sesselfuss 5 bis 8 von 255 Stufen Verdunklung** —
+  // gegen 70 bis 75 im Schlagschatten daneben. Die Moebel liegen damit auf dem
+  // Boden auf statt darauf zu stehen, und in einer diffus ausgeleuchteten
+  // weissen Leere ist der Kontaktschatten das EINZIGE Signal, das ein Objekt an
+  // den Boden bindet.
+  //
+  // Die Ursache ist die Groesse: Der eine Fleck unter dem Sessel hat Radius
+  // 0,60, die Fuesse stehen bei 0,48 vom Mittelpunkt — also bei 80 % des
+  // Radius, wo der Verlauf der Schattentextur (0,5 in der Mitte, 0,24 bei 55 %,
+  // 0 am Rand) schon fast ausgelaufen ist. Ein Fleck, der unter dem ganzen
+  // Moebel liegt, ist an keinem seiner Fuesse dunkel.
+  //
+  // Jetzt kommen vier kleine dazu, einer je Bein, mit 7,5 cm Radius auf einem
+  // Bein von 3 cm. Sie kosten keinen Draw-Call: `verschmelzeSchatten` legt sie
+  // mit dem grossen Fleck in ein Netz — und weil das gemeinsame
+  // Schattenmaterial dabei geteilt wird, verschmelzen anschliessend auch die
+  // Schatten BEIDER Sessel zu einem einzigen Netz statt zu zweien.
+  const fuesse = [makeBlobShadow(0.6, 0.7, 0.006)];
+  for (const sx of [-1, 1]) {
+    for (const [sz, versatz] of [
+      [1, D / 2 - 0.09],
+      [-1, -(D / 2 - 0.09)],
+    ]) {
+      void sz;
+      const fleck = makeBlobShadow(0.075, 0.9, 0.004);
+      fleck.position.set(sx * (W / 2 - 0.09), 0.004, versatz);
+      fuesse.push(fleck);
+    }
+  }
+  group.add(verschmelzeSchatten(fuesse, 'sessel-kontakt'));
   return group;
 }
 
@@ -14136,7 +14167,23 @@ function makeConsoleStand(width, depth, height) {
   }
   for (const m of verschmelzeObjekte(teile, 'console-stand-teile')) group.add(m);
 
-  group.add(makeBlobShadow(0.42, 0.8, 0.006));
+  // Dieselbe Behandlung wie am Sessel: ein Fleck je Fuss zusaetzlich zum
+  // grossen. Der Ausstellwinkel der Beine (0,1 rad ueber die Beinhoehe) wandert
+  // dabei mit — der Fuss steht nicht unter seinem Anschlusspunkt.
+  const standFuesse = [makeBlobShadow(0.42, 0.62, 0.006)];
+  const ausstellung = Math.tan(0.1) * legH;
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const fleck = makeBlobShadow(0.06, 0.9, 0.004);
+      fleck.position.set(
+        sx * (width / 2 - 0.05 + ausstellung),
+        0.004,
+        sz * (depth / 2 - 0.05 + ausstellung)
+      );
+      standFuesse.push(fleck);
+    }
+  }
+  group.add(verschmelzeSchatten(standFuesse, 'staender-kontakt'));
   return group;
 }
 

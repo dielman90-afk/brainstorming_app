@@ -1433,3 +1433,54 @@ sauber belegt. Der Horizont war trotzdem da — weil er nicht aus dem Sprung kam
 sondern aus der Form der Kurve, in der die Naht liegt. Wer nur die Stelle
 prüft, an der er einen Fehler erwartet, findet den, der eine Ebene darüber
 liegt, nie.
+
+---
+
+## Paket 17 — Die Möbel lagen auf, sie standen nicht
+
+**Befund 3 des Prüfers, belegt:** Am Sesselfuß beträgt die Verdunklung des
+Bodens **5 bis 8 von 255 Stufen** — gegen 70 bis 75 im Schlagschatten daneben.
+In einer diffus ausgeleuchteten weißen Leere ist der Kontaktschatten das
+**einzige** Signal, das ein Objekt an den Boden bindet; ohne ihn kleben die drei
+Möbel wie Aufkleber auf der Fläche.
+
+### Die Ursache ist die Größe des Flecks
+
+Es gab Kontaktflecken — einen je Möbel. Der unter dem Sessel hat Radius 0,60,
+seine Füße stehen bei 0,48 vom Mittelpunkt, also bei **80 % des Radius**. Die
+Schattentextur läuft von 0,5 in der Mitte über 0,24 bei 55 % auf 0 am Rand; bei
+80 % ist davon fast nichts mehr übrig. **Ein Fleck, der unter dem ganzen Möbel
+liegt, ist an keinem seiner Füße dunkel.**
+
+### Ein Fleck je Fuß
+
+Vier kleine dazu, 7,5 cm Radius auf einem Bein von 3 cm (am Ständer 6 cm auf
+2,4 cm). Der Ausstellwinkel der Fernsehbeine wandert mit: 0,1 rad über die
+Beinhöhe verschieben den Fuß um 2,7 cm nach außen — er steht nicht unter seinem
+Anschlusspunkt.
+
+Gemessen in `f-boden`, im Rechteck der geänderten Bildpunkte:
+
+| Fuß | vorher (p50) | nachher (p50) | freier Boden |
+| --- | --- | --- | --- |
+| Fernsehmöbel vorn | 215 | **184** | 229 |
+| Sessel vorn | 162 | **138** | 229 |
+
+Größter Einzelabfall am Ständerfuß: **88,9 Stufen**. Aus 14 Stufen Abstand zum
+freien Boden werden 45.
+
+### Und es kostet nichts — es spart
+
+`verschmelzeSchatten` legt den großen Fleck und die vier kleinen in **ein** Netz.
+Der Nebeneffekt ist der eigentliche Gewinn: Weil dabei das gemeinsame
+Schattenmaterial benutzt wird statt eines eigenen je Fleck, verschmelzen
+anschließend auch die Kontaktschatten **beider Sessel** zu einem einzigen Netz.
+Vorher waren das zwei Netze mit je zwei Dreiecken (`construct-armchairs-5` und
+`-6` im Knotenbericht — zwei Draw-Calls für zwei Dreiecke).
+
+Draw-Calls **48 → 47**, Dreiecke 93 778 → 93 828. Die große Fleckdeckkraft geht
+im Gegenzug von 0,85 auf 0,70 (Sessel) und von 0,80 auf 0,62 (Ständer), damit
+die Summe nicht zu schwer wird.
+
+Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 5 bei 0,009 %.
+Texturspeicher 1,98 MB. Build grün, Konsole frei von Errors und Warnings.
