@@ -1344,3 +1344,92 @@ Texturspeicher 1,98 MB. Das Bild ist gegenüber der werfenden Fassung
 **bitgleich** — der Schatten war unsichtbar, er hat nur gekostet. Zen,
 Nachthimmel und Insel bitgleich, Dojo Δmax 6 bei 0,011 %. Build grün, Konsole
 frei von Errors und Warnings.
+
+---
+
+## Paket 16 — Die Leere hatte einen Horizont
+
+Der Prüfer, neu angesetzt auf den Stand nach Paket 15, nennt diesen Befund an
+zweiter Stelle seiner Liste und begründet ihn damit, dass er die
+Gestaltungsidee selbst verletzt. Er hat recht, und er hat es sauber belegt.
+Meine Nachmessung in `a-augenhoehe`, senkrechte Abtastung an vier Stellen der
+Bildbreite:
+
+| y | 0 | 100 | 200 | **280–340** | 400 | 500 | 700 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| R | 232 | 228 | 223 | **218** | 224 | 229 | 228 |
+
+Auf eine Stufe gleich bei x = 60, 300, 1000 und 1220. Ein Minimum, das über die
+volle Bildbreite auf gleicher Höhe liegt, **ist** ein Horizont.
+
+### Die Ursache war eine Summe, nicht eine Naht
+
+Zwei Verläufe, die beide zum Horizont hin dunkler wurden:
+
+* **Die Kuppel schreibt ihre Farbe roh in den Puffer** — die Lehre steht seit
+  Langem an der Nachthimmelkuppel, und hier hat sie mich trotzdem erwischt.
+  `THREE.Color(0xeef1f4)` wandelt nach linear, das ergibt 0,863, und roh
+  geschrieben sind das **220**, nicht 238. Der Kuppelverlauf lief also von 234
+  oben auf 220 am Horizont.
+* **Der Boden** lief von 218 in der Ferne auf 232 unter den Füßen.
+
+Zusammen ein V mit der Spitze genau am Horizont. Und das Bittere daran: Die
+**Naht war richtig kalibriert** — 220 gegen 218, eine Stufe. Paket 1 hat genau
+diese Naht vermessen und geschlossen. Was niemand gemessen hat, war die Kurve
+um sie herum. Ein Fehler, der aus einem gelösten Problem entsteht: Ich habe die
+Stelle geprüft, an der ich einen Sprung erwartet habe, und nicht die Form der
+Kurve, in der sie liegt.
+
+### Die Kuppel ist jetzt einfarbig
+
+Ohne Verlauf kann sie zum Horizont hin nicht dunkler werden. 0xfcfcfc und nicht
+0xffffff, weil roh geschrieben reines Weiß 255 wäre — eine geklippte Fläche über
+der halben Bildhöhe, gegen die jede Silhouette mit dem höchstmöglichen Kontrast
+stünde (der Prüfer bemängelt die Silhouettentreppe getrennt, Befund 14).
+
+Der Boden läuft jetzt von 0xf8f8f8 in der Ferne — demselben Wert, den die Kuppel
+zeigt — auf 0xe6e8ec unter den Füßen. Damit fällt der Tonwert von oben nach
+unten **monoton** durch:
+
+| y | 0–340 | 400 | 480 | 560 | 680 |
+| --- | --- | --- | --- | --- | --- |
+| R | 248 | 241 | 235 | 231 | 227 |
+
+Kein Minimum, kein Band, keine Naht. Der Übergang Kuppel → Boden liegt bei
+248 → 246 über 40 Bildzeilen.
+
+## Und im selben Zug: das Banding
+
+Befund 9 des Prüfers, ebenfalls belegt: Der Verlauf bestand aus lauter absolut
+gleichfarbigen Bändern mit Ein-Stufen-Sprüngen, gemessen bis 61 Bildpunkte breit,
+und in einem leeren 80×80-Feld ein mittlerer Nachbarunterschied von **0,00**. In
+einer weißen Leere, in der das Auge nichts anderes zu tun hat, sind das die
+einzigen sichtbaren Strukturen: konzentrische Ringe um den Betrachter.
+
+Dagegen hilft kein feinerer Verlauf, sondern **Rauschen**. Eine halbe Stufe
+Streuung je Bildpunkt löst die Kante zwischen zwei Quantisierungsstufen in einen
+Übergang auf. 1,5/255 im linearen Raum sind nach der sRGB-Wandlung rund 0,75/255
+— unter der Sichtbarkeitsschwelle für eine Fläche, über der für eine Kante.
+
+| Bodenverlauf, Lauflängen bei x = 60 | Anzahl Streifen | längster | Mittel |
+| --- | --- | --- | --- |
+| vorher | 20 | 61 px | 17,9 px |
+| nachher | 93 | 38 px | **3,9 px** |
+
+Die Kuppel braucht kein Rauschen mehr: Sie ist einfarbig, und eine Fläche ohne
+Verlauf kann nicht banden.
+
+### Regression und Kosten
+
+48 Draw-Calls, 93 778 Dreiecke, 1,98 MB Textur — alle unverändert; es sind zwei
+Farbwerte und sechs Zeilen Shader. Zen, Nachthimmel und Insel **bitgleich**,
+Dojo Δmax 6 bei 0,010 %. Build grün, Konsole frei von Errors und Warnings.
+
+### Die Lehre
+
+**Eine Naht kann richtig sitzen und trotzdem falsch sein.** Paket 1 hat den
+Sprung an der Nahtstelle Kuppel/Boden auf eine Stufe genau geschlossen und das
+sauber belegt. Der Horizont war trotzdem da — weil er nicht aus dem Sprung kam,
+sondern aus der Form der Kurve, in der die Naht liegt. Wer nur die Stelle
+prüft, an der er einen Fehler erwartet, findet den, der eine Ebene darüber
+liegt, nie.

@@ -14339,7 +14339,34 @@ function createMatrixEnvironment() {
   // sieht, wird nicht gefunden, und beim nächsten Umbau steht er dann als
   // Falle bereit. Die beiden anderen Aufrufer übergeben fünf Argumente
   // richtig; nur dieser hier nicht.
-  group.add(makeDome(0xffffff, 0xeef1f4, 0xeef1f4, 60));
+  // **Die Leere hatte einen Horizont — gemessen, quer durch alle Bilder.**
+  //
+  // Senkrechte Abtastung in `a-augenhoehe`, an vier Stellen der Bildbreite auf
+  // eine Stufe gleich: von (232|236|240) am oberen Rand faellt der Wert stetig
+  // auf ein Plateau (218|224|231) bei y = 260 bis 345 und steigt darunter
+  // wieder auf (229|231|232). Ein Minimum, das ueber die volle Breite auf
+  // gleicher Hoehe liegt, IST ein Horizont — und der Sinn dieser Umgebung ist,
+  // keinen zu haben.
+  //
+  // Die Ursache ist die Summe zweier Verlaeufe, die beide zum Horizont hin
+  // dunkler wurden:
+  //
+  //   * Die Kuppel schreibt ihre Farbe **roh** in den Puffer (die Lehre steht
+  //     an der Nachthimmelkuppel). 0xeef1f4 wird von `THREE.Color` nach linear
+  //     gewandelt, das ergibt 0,863, und roh geschrieben sind das **220** —
+  //     nicht 238. Ihr Verlauf lief also von 234 oben auf 220 am Horizont.
+  //   * Der Boden lief von 218 in der Ferne auf 232 unter den Fuessen.
+  //
+  // Beide zusammen ergeben ein V mit der Spitze genau am Horizont. Die Naht
+  // selbst war dabei richtig kalibriert (220 gegen 218, eine Stufe) — der
+  // Fehler war nicht die Naht, sondern dass sie das Minimum einer Kurve war.
+  //
+  // Jetzt ist die Kuppel **einfarbig**: Ohne Verlauf kann sie zum Horizont hin
+  // nicht dunkler werden, und der Tonwert faellt von oben nach unten monoton
+  // durch. 0xfcfcfc, weil roh geschrieben 0xffffff reines 255 waere — eine
+  // geklippte Flaeche ueber der halben Bildhoehe, gegen die jede Silhouette mit
+  // dem hoechstmoeglichen Kontrast steht.
+  group.add(makeDome(0xfcfcfc, 0xfcfcfc, 0xfcfcfc, 60));
 
   // **Der Boden verläuft in den Kuppelgrund hinein — vorher stieß er dagegen.**
   //
@@ -14365,7 +14392,7 @@ function createMatrixEnvironment() {
   // Ebenfalls neu gewählt: Ohne Tonemapping ergäbe der alte Wert 0xf3f5f8 ein
   // deutlich helleres Bild. 0xe2e3e3 ist der Wert, den der Boden vorher
   // TATSÄCHLICH zeigte — der Nahbereich bleibt damit, wie er war.
-  const BODEN_NAH = new THREE.Color(0xe8e9e9);
+  const BODEN_NAH = new THREE.Color(0xe6e8ec);
   // **Der Boden läuft ohne Tonemapping, weil die Kuppel es auch nicht tut.**
   //
   // `makeDome` schreibt seine Farbe roh in den Puffer (die Lehre steht
@@ -14380,7 +14407,7 @@ function createMatrixEnvironment() {
   // dient und nicht als beleuchtete Fläche, hat im Tonemapping nichts zu
   // suchen. Ohne es kommt der Hexwert unverändert heraus, und beide Flächen
   // lassen sich exakt aufeinander setzen.
-  const BODEN_FERN = new THREE.Color(0xdae0e7); // = was die Kuppel am Horizont zeigt
+  const BODEN_FERN = new THREE.Color(0xf8f8f8); // = was die Kuppel zeigt, jetzt ueberall
   const floorMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
   floorMat.onBeforeCompile = (shader) => {
     shader.uniforms.bodenNah = { value: BODEN_NAH };
@@ -14426,10 +14453,26 @@ function createMatrixEnvironment() {
            // hinsieht, nicht dort, wo er rechnerisch am schoensten waere.
            float r = length(vBodenOrt.xz);
            diffuseColor.rgb *= mix(bodenNah, bodenFern, smoothstep(1.0, 14.0, r));
+           // **Rauschen gegen Streifen.**
+           //
+           // Der Verlauf bestand aus lauter absolut gleichfarbigen Baendern mit
+           // Ein-Stufen-Spruengen dazwischen — gemessen bis 37 Bildpunkte breit,
+           // und in einem leeren 80x80-Feld ein mittlerer Nachbarunterschied von
+           // 0,00. In einer weissen Leere, in der das Auge nichts anderes zu tun
+           // hat, sind diese Baender die einzige sichtbare Struktur: konzentrische
+           // Ringe um den Betrachter.
+           //
+           // Dagegen hilft kein feinerer Verlauf, sondern Rauschen: Eine halbe
+           // Stufe Streuung je Bildpunkt loest die Kante zwischen zwei
+           // Quantisierungsstufen in einen Uebergang auf. 1,5/255 im linearen
+           // Raum sind nach der sRGB-Wandlung rund 0,75/255 — unter der
+           // Sichtbarkeitsschwelle fuer eine Flaeche, ueber der fuer eine Kante.
+           float dith = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+           diffuseColor.rgb += (dith - 0.5) * (1.5 / 255.0);
          }`
       );
   };
-  floorMat.customProgramCacheKey = () => 'konstrukt-boden-v1';
+  floorMat.customProgramCacheKey = () => 'konstrukt-boden-v2';
   const floor = new THREE.Mesh(new THREE.CircleGeometry(60, 64), floorMat);
   floor.rotation.x = -Math.PI / 2;
   floor.position.y = -0.02;
