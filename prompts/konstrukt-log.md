@@ -1282,3 +1282,47 @@ die Backticks in GLSL-Kommentaren, gegen die `tools/shaderlint.mjs` als
 48 Draw-Calls, 93 010 Dreiecke, 1,98 MB Textur — alle unverändert; es ist
 dasselbe Mesh mit anderem Werkstoff. Zen, Nachthimmel und Insel **bitgleich**,
 Dojo Δmax 4 bei 0,009 %. Build grün, Konsole frei von Errors und Warnings.
+
+---
+
+## Paket 15 — Die Bedienknöpfe waren zwei Kegelstümpfe
+
+**Befund des Prüfers:** „Konsolenknöpfe ohne Bauteilcharakter." Gebaut war
+`CylinderGeometry(0.026, 0.03, 0.026, 16)` in fast schwarzem Material — im Bild
+zwei dunkle Klumpen auf der Blende.
+
+Ein Bedienknopf der Zeit hat vier Merkmale, und keines davon war da:
+
+* einen **Sockelring** in Messing, wo der Knopf auf die Blende trifft (an einem
+  Gerät ist das die Rosette, die das Loch verdeckt),
+* einen **eingezogenen Schaft** über dem Sockel,
+* eine **Fase zur Stirn**, die das Licht als Ring fängt,
+* eine **Zeigermarke** auf der Schulter.
+
+Das Profil läuft jetzt über `LatheGeometry` mit **14** Segmenten. Vierzehn und
+nicht dreißig: Bakelitknöpfe sind gepresst und facettiert, und die Facetten sind
+es, die den Knopf beim Kopfdrehen leben lassen — eine glatte Drehfläche hätte in
+dieser gleichmäßigen Beleuchtung wieder keine Modellierung. Das ist dieselbe
+Lehre wie an der Kissenoberseite, nur diesmal von vornherein eingerechnet: In
+einem Raum ohne Lichtrichtung trägt eine Kante, keine Wölbung.
+
+Werkstoff neu: Bakelit (0x1a1712, Rauheit 0,30) statt des matten
+Gehäusedunkels — gepresstes Bakelit glänzt, und seit es eine Umgebungskarte gibt,
+kann man das auch sehen.
+
+`c-roehre` ändert sich um 0,56 % der Bildpunkte (≥ 8 Stufen).
+
+### Nebenbei bestätigt
+
+Der Befund „obere Knopfreihe ohne Mulde" ist mit Paket 10 erledigt: Seit die
+Knöpfe auf der tatsächlichen, geneigten Lehnenfläche sitzen statt auf einer
+festen Tiefe, trägt die Mulde auf allen sechs Reihen. Der freie Blick von vorn
+zeigt sie vollständig.
+
+### Regression und Kosten
+
+Draw-Calls **48 → 48**: Vorher waren die beiden Knöpfe zwei Meshes, jetzt sind
+es zwei — einer für beide Körper, einer für beide Messingteile. Dreiecke
+93 010 → **94 674**, Texturspeicher 1,98 MB. Zen, Nachthimmel und Insel
+**bitgleich**, Dojo Δmax 4 bei 0,011 %. Build grün, Konsole frei von Errors und
+Warnings.

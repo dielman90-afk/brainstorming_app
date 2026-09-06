@@ -13885,13 +13885,70 @@ function makeRadiolaConsole() {
   bezel.position.set(0, H / 2 + 0.06, -D / 2 - 0.006);
   group.add(bezel);
 
-  // Zwei Bedienknöpfe unter der Röhre
-  const knobGeo = new THREE.CylinderGeometry(0.026, 0.03, 0.026, 16);
-  knobGeo.rotateX(Math.PI / 2);
-  for (const side of [-1, 1]) {
-    const knob = new THREE.Mesh(knobGeo, darkMat);
-    knob.position.set(side * 0.13, H / 2 - 0.24, -D / 2 - 0.012);
-    group.add(knob);
+  // --- Zwei Bedienknöpfe unter der Röhre -------------------------------------
+  //
+  // **Sie waren zwei Kegelstümpfe.** `CylinderGeometry(0.026, 0.03, 0.026, 16)`
+  // in fast schwarzem Material: im Bild zwei dunkle Klumpen auf der Blende, ohne
+  // Sockel, ohne Fase, ohne Marke. Der Pruefer nennt es „ohne
+  // Bauteilcharakter", und das trifft es — ein Bedienknopf ist ein Bauteil mit
+  // vier Merkmalen, und keines davon war da.
+  //
+  // Jetzt hat er sie alle:
+  //
+  //   * einen **Sockelring** in Messing, wo der Knopf auf die Blende trifft
+  //     (an einem Geraet ist das die Rosette, die das Loch verdeckt),
+  //   * einen **eingezogenen Schaft** ueber dem Sockel,
+  //   * eine **Fase zur Stirn**, die das Licht als Ring faengt,
+  //   * eine **Zeigermarke** aus Messing auf der Schulter.
+  //
+  // Das Profil laeuft ueber `LatheGeometry` mit 14 Segmenten. Vierzehn und
+  // nicht dreissig: Bakelitknoepfe der Zeit sind gepresst und facettiert, und
+  // die Facetten sind es, die den Knopf beim Kopfdrehen leben lassen — eine
+  // glatte Drehflaeche haette in dieser gleichmaessigen Beleuchtung wieder
+  // keine Modellierung (dieselbe Lehre wie an der Kissenoberseite).
+  const bakelit = new THREE.MeshStandardMaterial({
+    color: 0x1a1712,
+    roughness: 0.3,
+    metalness: 0.05,
+  });
+  const knopfMessing = new THREE.MeshStandardMaterial({
+    color: 0x6d5a33,
+    roughness: 0.36,
+    metalness: 0.6,
+  });
+  {
+    const profil = [
+      [0.0, 0.0],
+      [0.031, 0.0],
+      [0.031, 0.005],
+      [0.026, 0.008],
+      [0.026, 0.023],
+      [0.022, 0.03],
+      [0.011, 0.033],
+      [0.0, 0.033],
+    ].map(([r, h]) => new THREE.Vector2(r, h));
+    const koerper = [];
+    const beschlag = [];
+    for (const side of [-1, 1]) {
+      const k = new THREE.LatheGeometry(profil, 14);
+      // Der Lathe steht auf +y; die Knopfachse zeigt nach -z, zur Roehrenseite.
+      k.rotateX(-Math.PI / 2);
+      k.translate(side * 0.13, H / 2 - 0.24, -D / 2 - 0.006);
+      koerper.push(k);
+
+      const ring = new THREE.TorusGeometry(0.032, 0.0035, 6, 20);
+      ring.translate(side * 0.13, H / 2 - 0.24, -D / 2 - 0.006);
+      beschlag.push(ring);
+
+      // Zeigermarke: ein schmaler Steg von der Schulter zur Stirnkante.
+      const marke = new THREE.BoxGeometry(0.005, 0.02, 0.004);
+      marke.translate(0, 0.019, 0);
+      marke.rotateX(-Math.PI / 2);
+      marke.translate(side * 0.13, H / 2 - 0.24 + 0.021, -D / 2 - 0.006 - 0.017);
+      beschlag.push(marke);
+    }
+    group.add(new THREE.Mesh(mergeGeometries(koerper), bakelit));
+    group.add(new THREE.Mesh(mergeGeometries(beschlag), knopfMessing));
   }
 
   // --- Bildinhalt ---
