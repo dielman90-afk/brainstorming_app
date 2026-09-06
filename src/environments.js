@@ -13947,8 +13947,18 @@ function makeRadiolaConsole() {
       marke.translate(side * 0.13, H / 2 - 0.24 + 0.021, -D / 2 - 0.006 - 0.017);
       beschlag.push(marke);
     }
-    group.add(new THREE.Mesh(mergeGeometries(koerper), bakelit));
-    group.add(new THREE.Mesh(mergeGeometries(beschlag), knopfMessing));
+    // Kein Schattenwerfer: Ein 3-cm-Knopf auf einer senkrechten Wand wirft
+    // nichts, was man sieht. Der Vermerk ist noetig, weil die Auswahl der
+    // Werfer ueber die Huellkugel laeuft und die beiden Knoepfe verschmolzen
+    // 26 cm auseinanderliegen (siehe `createMatrixEnvironment`).
+    for (const [geo, mat] of [
+      [koerper, bakelit],
+      [beschlag, knopfMessing],
+    ]) {
+      const mesh = new THREE.Mesh(mergeGeometries(geo), mat);
+      mesh.userData.keinWerfer = true;
+      group.add(mesh);
+    }
   }
 
   // --- Bildinhalt ---
@@ -14589,7 +14599,14 @@ function createMatrixEnvironment() {
     const r = o.geometry.boundingSphere?.radius ?? 0;
     // Instanzierte Meshes zaehlen als eines und tragen viele Koerper; sie
     // werfen unabhaengig von der Huellkugel des Einzelstuecks.
-    if (r >= 0.06 || o.isInstancedMesh) o.castShadow = true;
+    // **Die Huellkugel eines VERSCHMOLZENEN Koerpers ist nicht die seines
+    // Bauteils.** Die beiden Bedienknoepfe messen je 3 cm und blieben deshalb
+    // unter der Schwelle; zu einem Mesh zusammengefasst spannen sie 26 cm
+    // auseinander, die Huellkugel misst 16 cm — und beide Netze landeten im
+    // Schattendurchgang. Gemessen: 48 auf 50 Draw-Calls, fuer den Schatten von
+    // zwei Knoepfen auf der Gehaeusewand, die es ohnehin nicht gibt. Was
+    // ausdruecklich nicht werfen soll, sagt es hier selbst.
+    if ((r >= 0.06 || o.isInstancedMesh) && !o.userData.keinWerfer) o.castShadow = true;
   });
   group.add(lounge.group);
 

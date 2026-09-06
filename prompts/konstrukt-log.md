@@ -1319,10 +1319,28 @@ Knöpfe auf der tatsächlichen, geneigten Lehnenfläche sitzen statt auf einer
 festen Tiefe, trägt die Mulde auf allen sechs Reihen. Der freie Blick von vorn
 zeigt sie vollständig.
 
-### Regression und Kosten
+### Regression und Kosten — und eine Zahl, die ich zuerst falsch aufgeschrieben habe
 
-Draw-Calls **48 → 48**: Vorher waren die beiden Knöpfe zwei Meshes, jetzt sind
-es zwei — einer für beide Körper, einer für beide Messingteile. Dreiecke
-93 010 → **94 674**, Texturspeicher 1,98 MB. Zen, Nachthimmel und Insel
-**bitgleich**, Dojo Δmax 4 bei 0,011 %. Build grün, Konsole frei von Errors und
-Warnings.
+Im ersten Anlauf stand hier „Draw-Calls 48 → 48", begründet damit, dass vorher
+zwei Knopf-Meshes standen und jetzt auch zwei. **Gemessen waren es 50.** Die
+Zahl stand im selben Messlauf, aus dem ich die Dreiecke abgeschrieben habe; ich
+habe sie nicht angesehen, weil ich die Antwort schon zu kennen glaubte.
+
+Die zwei Aufrufe sind erklärt, und die Erklärung ist eine eigene Lehre:
+
+**Die Hüllkugel eines verschmolzenen Körpers ist nicht die seines Bauteils.**
+Die Auswahl der Schattenwerfer läuft über `geometry.boundingSphere.radius >=
+0.06`. Ein einzelner Knopf misst 3 cm und blieb darunter — verschmolzen spannen
+die beiden 26 cm auseinander, die Hüllkugel misst 16 cm, und **beide** neuen
+Netze landeten im Schattendurchgang. `renderer.info.render.calls` zählt den mit.
+Zwei Aufrufe für den Schatten zweier Knöpfe auf einer senkrechten Wand, den es
+ohnehin nicht gibt.
+
+Behoben über einen Vermerk `userData.keinWerfer`, den die Werferauswahl
+respektiert. Damit:
+
+Draw-Calls **48 → 48** (diesmal gemessen), Dreiecke 93 010 → **93 778**,
+Texturspeicher 1,98 MB. Das Bild ist gegenüber der werfenden Fassung
+**bitgleich** — der Schatten war unsichtbar, er hat nur gekostet. Zen,
+Nachthimmel und Insel bitgleich, Dojo Δmax 6 bei 0,011 %. Build grün, Konsole
+frei von Errors und Warnings.
