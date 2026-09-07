@@ -1830,8 +1830,32 @@ function grasMaterial() {
            // ab; hier tut er es, weil sonst zwei Dunstquellen dieselbe Strecke
            // doppelt berechnen. Das ist eine Entscheidung der Technik, keine
            // der Optik, und sie steht als solche hier.
-           float weite = smoothstep(4.0, 26.0, tiefe) * (1.0 - smoothstep(30.0, 55.0, tiefe));
-           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.55, 0.44), weite * 0.30);
+           // **Und die Staffelung stand auf dem Kopf, gemessen auf der Maske
+           // des Inselkoerpers.** Der Pruefer meldet die Luftperspektive in
+           // 1-eyelevel als umgekehrt. Ueber sieben Baender vom Vordergrund
+           // bis zum Kamm, nur auf Bildpunkten des Bodens (Maske aus dem Ein-
+           // und Ausblenden von island-body, sonst misst man Buesche mit):
+           //
+           //     Saettigung 28,1  28,2  29,4  29,7  28,4  24,7  22,9
+           //
+           // Die Saettigung STEIGT ueber die ersten vier Baender und faellt
+           // erst danach; das Maximum liegt in der Mittelentfernung. Ueber die
+           // ganze Strecke sind es 5,2 Punkte.
+           //
+           // Zwei Stellschrauben, beide gemessen: Der Faktor allein bringt
+           // wenig (0,30 auf 0,55 vertieft nur das ferne Ende), weil der Dunst
+           // erst bei 4 m einsetzt und die nahe Haelfte gar nicht erreicht.
+           // Zusammen mit einem frueheren Einsatz — 2 statt 4 m — wird die
+           // Reihe fast monoton:
+           //
+           //     Saettigung 27,9  27,8  28,6  28,1  25,6  21,2  19,1
+           //
+           // 8,8 Punkte statt 5,2, und der einzige verbleibende Anstieg
+           // betraegt 0,7 Punkte. Die Totale bleibt dabei unberuehrt
+           // (Wiesenmittel 150,0 auf 150,6, Anteil ueber L 190 unveraendert
+           // 18,1 %) — die Grenze, an der ein frueherer Anlauf gescheitert ist.
+           float weite = smoothstep(2.0, 24.0, tiefe) * (1.0 - smoothstep(30.0, 55.0, tiefe));
+           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.55, 0.44), weite * 0.45);
            // --- Das Ufer -------------------------------------------------
            //
            // Der Pruefer: „Der Bach ist ein gestrichener Farbstreifen ohne

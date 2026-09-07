@@ -3362,3 +3362,59 @@ Entscheidung nachvollziehbar ist statt vergessen.
 ### Regression und Kosten
 
 Keine Änderung an `src/`. Ein neues Werkzeug.
+
+## Paket R — Die Luftperspektive stand auf dem Kopf (Prüferbefund 19)
+
+### Erst der Kasten, dann die Zahl
+
+Ein erster Durchlauf über waagerechte Bänder in `1-eyelevel` ergab eine völlig
+unregelmäßige Reihe (L 178 / 169 / 156 / 175 / 161). Der Grund: Die Bänder
+enthalten Büsche, Bäume und den Bach, und ein Farbfilter auf „grün" nimmt Laub
+mit. Gemessen wurde damit die Bepflanzung, nicht der Boden.
+
+Die belastbare Messung läuft deshalb auf der **Maske des Inselkörpers** — aus dem
+Ein- und Ausblenden von `island-body` gewonnen, wie bei den Vögeln und beim
+Wasserfall. Sieben Bänder vom Vordergrund bis zum Kamm:
+
+    Saettigung   28,1  28,2  29,4  29,7  28,4  24,7  22,9
+
+Die Sättigung **steigt** über die ersten vier Bänder und fällt erst danach; das
+Maximum liegt in der Mittelentfernung. Über die ganze Strecke sind es 5,2 Punkte.
+Der Prüfer hat recht: Über die halbe Sichtweite läuft die Staffelung rückwärts.
+
+### Der Faktor allein reicht nicht — auch das ist gemessen
+
+Naheliegend war, den Dunst kräftiger zu machen. 0,30 → 0,55 vertieft aber nur das
+ferne Ende (22,9 → 18,9) und lässt den Anstieg in der nahen Hälfte unberührt
+(28,1 → 29,3). Der Grund steht in der Kurve selbst: Der Dunst setzt bei **4 m**
+ein und erreicht die nahe Hälfte gar nicht.
+
+### Ergebnis
+
+Einsatz 4 → 2 m, Faktor 0,30 → 0,45:
+
+    vorher    28,1  28,2  29,4  29,7  28,4  24,7  22,9    Spanne 5,2
+    nachher   27,9  27,8  28,6  28,1  25,6  21,2  19,1    Spanne 8,8
+
+Die Reihe ist fast monoton; der einzige verbleibende Anstieg beträgt **0,7
+Punkte** statt 1,6, und das Gefälle über die ganze Strecke hat sich von 5,2 auf
+8,8 Punkte fast verdoppelt.
+
+**Die Totale bleibt unberührt** — genau die Grenze, an der ein früherer Anlauf
+gescheitert ist: Wiesenmittel in `4-aerial` 150,0 → 150,6, Anteil über L 190
+unverändert 18,1 %. (Der verworfene Anlauf von damals brachte 159,5 → 162,7 und
+16,4 % → 29,2 %.)
+
+### Was bewusst so bleibt
+
+Die **Helligkeit** ist weiter nicht monoton (181,9 / 181,8 / 175,1 / 175,4 /
+177,2 / 179,7 / 180,2). Das ist die Feuchtemalerei der Wiese — Mulden dunkel,
+Rücken hell —, und die soll über zehn Meter stärker wirken als der Dunst. Reale
+Luftperspektive über drei bis zehn Meter ist in klarer Luft vernachlässigbar; was
+dort ordnet, ist der Boden selbst.
+
+### Regression und Kosten
+
+Zwei Zahlen im Grasshader. 93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert.
+Alle Zen-Bilder, Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei
+0,009 %. Build grün, Konsole frei von Errors und Warnings.
