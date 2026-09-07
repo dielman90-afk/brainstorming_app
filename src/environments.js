@@ -744,6 +744,61 @@ let _inselHolz = null;
 let _inselLaub = null;
 let _inselKarten = null;
 let _inselNadeln = null;
+
+// Genau ersetzen oder scheitern. `String.replace` tut bei einem fehlenden
+// Muster **nichts** und meldet das nicht — ein Shader-Eingriff, der ins Leere
+// laeuft, sieht dann aus wie ein Eingriff ohne Wirkung. Diese Lehre hat beim
+// Konstrukt einen ganzen Messlauf gekostet.
+function ersetzeImShader(text, suchen, ersetzen) {
+  if (!text.includes(suchen)) throw new Error(`Shader-Muster fehlt: ${suchen}`);
+  return text.replace(suchen, ersetzen);
+}
+
+// **Die Karten bleiben stehen, sie werden nur unscharf abgetastet.**
+//
+// Der erste Anlauf hat die Karten zwischen 12 und 26 m ausgeblendet und den
+// Huellkoerper uebernehmen lassen. Das Zittern fiel wie erhofft (Quotient
+// 0,099 auf 0,027), aber im Bild stand danach keine Krone mehr, sondern eine
+// **Traube einzelner Klumpen mit Luft dazwischen**: Der Huellkoerper ist als
+// Verdecker HINTER den Karten gebaut, nicht als eigenstaendige Krone. Er kann
+// nicht uebernehmen, was er nie getragen hat.
+//
+// Stattdessen wird die Karte mit wachsender Entfernung aus einer **groeberen
+// Mipmap-Stufe** abgetastet. Das ist genau die Antwort auf die gemessene
+// Ursache: Was zittert, ist nicht die Karte, sondern die Nadelzeichnung
+// darauf, die auf 30 m unter einen Bildpunkt faellt. Eine Stufe hoeher
+// gemittelt ist dieselbe Zeichnung eine weiche Masse — und eine weiche Masse
+// ist genau das, was eine Konifere aus 30 m ist.
+//
+// Der Bias wirkt auf Farbe **und** Alpha zugleich, und das ist beabsichtigt:
+// Das gemittelte Alpha liegt ueber der Schwelle, wo Nadeln dicht stehen, und
+// darunter, wo sie ausduennen. Die Karte wird dadurch am Rand weicher statt
+// loechrig.
+function kartenFerne(material, von, bis, bias) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    // `onBeforeCompile` bekommt den Shader mit unaufgeloesten `#include`;
+    // der Baustein muss selbst eingesetzt werden, sonst laeuft die Ersetzung
+    // ins Leere. Dieselbe Lehre wie bei `narbenGlaettung`.
+    const baustein = ersetzeImShader(
+      THREE.ShaderChunk.map_fragment,
+      'texture2D( map, vMapUv );',
+      'texture2D( map, vMapUv, kartenBias );'
+    );
+    shader.fragmentShader = ersetzeImShader(
+      shader.fragmentShader,
+      '#include <map_fragment>',
+      `float kartenBias = ${bias.toFixed(2)} * smoothstep(${von.toFixed(1)}, ${bis.toFixed(1)}, length(vViewPosition));
+${baustein}`
+    );
+  };
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () =>
+    `${vorherKey ? vorherKey() : ''}|kartenfern-${von}-${bis}-${bias}`;
+  return material;
+}
+
 function inselBaumMaterialien() {
   if (!_inselHolz) {
     _inselHolz = rindenKorn(weatheredWoodMaterial({ tone: 0x8f6a48, vertexColors: false }));
@@ -853,6 +908,58 @@ function inselBaumMaterialien() {
     // nicht Gegenstand dieses Auftrags und braucht eine eigene Messung.
     _inselNadeln.alphaToCoverage = true;
     _inselKarten.alphaToCoverage = true;
+
+    // --- Fernstufe: In der Ferne traegt der Huellkoerper, nicht die Karte ----
+    //
+    // **Der Pruefer meldet die Nadelkrone als flimmernd, und die Ursache ist
+    // gemessen keine der vermuteten.**
+    //
+    // `tools/kronenzittern.mjs` dreht die Kamera um Viertelbildpunkte — die
+    // Millimeterfassung von `kamm.mjs` misst auf 30 m Entfernung nichts, weil
+    // 1,5 mm Versatz dort ein Zwanzigstel Bildpunkt sind. Im Kronenkasten von
+    // `4-aerial` ergab die Reihe:
+    //
+    //     stand                    Zittern 4,75   Quotient 0,099   max dL 156
+    //     ohne Normalenkarte               4,63             0,097          156
+    //     ohne Rauheitskarte               4,69             0,097          156
+    //     Anisotropie 16                   4,75             0,100          156
+    //     Alphaschwelle 0,20               4,11             0,100          159
+    //     Alphaschwelle 0,60               5,21             0,097          162
+    //     ohne Karten                      1,93             0,029          128
+    //     ohne Huellkoerper                5,60             0,116          156
+    //
+    // **Kein einziger Materialschalter bewegt etwas.** Was zittert, sind die
+    // Blattkarten selbst: Ohne sie ist die Krone so ruhig wie die Wiese
+    // (Quotient 0,029 gegen 0,039), ohne den Huellkoerper darunter wird es
+    // schlimmer. Das ist kein Beleuchtungsfehler und kein Filterfehler, sondern
+    // Unteraufloesung: Ein Nadelbuendel ist auf 30 m ein Bildpunkt, und jede
+    // Vierteldrehung tastet ein anderes ab.
+    //
+    // Also eine Fernstufe — aber nicht die naheliegende. Die Begruendung, warum
+    // der Huellkoerper NICHT uebernehmen kann, steht bei `kartenFerne`.
+    //
+    // **Die Staerke des Bias ist gemessen, nicht gewaehlt.** Die Streuung im
+    // Kasten sagt, ob die Karten noch da sind: 47,8 mit Karten, 65,8 ohne.
+    //
+    //     Bias 1,8   Streuung 51,1   Zittern 3,20   Quotient 0,063
+    //     Bias 2,2            55,8            2,97            0,053
+    //     Bias 2,8            65,1            2,84            0,044
+    //     Bias 3,8            65,8            1,76            0,027
+    //
+    // Ab 2,8 steht die Streuung auf dem Wert OHNE Karten — das Alpha ist so
+    // weit heruntergemittelt, dass die Karte ganz unter die Schwelle faellt
+    // und wieder die Klumpentraube dasteht. Die Ruhe von 0,027 ist dieselbe
+    // wie beim ersten, verworfenen Anlauf, und sie ist auf demselben Weg
+    // erkauft. 1,8 ist der groesste Bias, bei dem die Krone noch eine Krone
+    // ist; er nimmt 36 Prozent des Zitterns. Der Rest bleibt stehen und steht
+    // als offener Punkt im Protokoll.
+    //
+    // Der Schattenwurf bleibt unberuehrt: Das Tiefenmaterial tastet die Karte
+    // ohne Bias ab, sie wirft also weiter ihren vollen Schatten. Ein Baum,
+    // dessen Schatten beim Weggehen weich wird, waere ein schlimmerer Fehler
+    // als der, den diese Stufe behebt.
+    kartenFerne(_inselNadeln, 12.0, 26.0, 1.8);
+    kartenFerne(_inselKarten, 12.0, 26.0, 1.8);
   }
   return { holz: _inselHolz, laub: _inselLaub, karten: _inselKarten, nadeln: _inselNadeln };
 }

@@ -2360,3 +2360,105 @@ Stelle, an der gekürzt wird — die Fleckenzahl ist dafür ein einzelner Parame
 Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 5 bei 0,010 %. Zen-Prüfstand
 unverändert bei 93 Draw-Calls / 74 606 Dreiecken / 21,53 MB. Build grün, Konsole
 frei von Errors und Warnings.
+
+## Paket D — Die Nadelkronen flimmern (Prüferbefund 3)
+
+### Erst ein Werkzeug, sonst misst man nichts
+
+`kamm.mjs` versetzt die Kamera in Millimetern. Auf 1,1 m sind 1,5 mm knapp ein
+Bildpunkt — auf 30 m ein Zwanzigstel davon. An einer Baumkrone im Hintergrund
+meldete die Millimeterfassung deshalb einen Quotienten von **0,005**, also
+„vollkommen ruhig", während der Prüfer sie als flimmernd meldet. Er hat recht,
+und meine Messung hat in der falschen Größenordnung gewackelt.
+
+Neu ist `--dreh`: Die Kamera **dreht** sich um Viertelbildpunkte statt sich zu
+verschieben. Eine Drehung verschiebt das ganze Bild um denselben Betrag,
+unabhängig von der Entfernung — und ein Kopf in der Brille dreht sich mehr, als
+er wandert. Damit im Kronenkasten von `4-aerial`:
+
+    Konifere        Zittern 4,75   Quotient 0,099   max dL 156
+    Konifere fern   Zittern 2,70   Quotient 0,240   max dL 106
+    Wiese (Bezug)   Zittern 0,75   Quotient 0,039   max dL  43
+
+Ein Viertelbildpunkt Kopfdrehung ändert einzelne Kronenpixel um bis zu **156 von
+255**. Befund bestätigt.
+
+### Die Ursache ist keine der vermuteten
+
+`tools/kronenzittern.mjs` schaltet die Ursachen einzeln ab und misst dieselbe
+Drehreihe:
+
+| Variante | Mittel | Streuung | Zittern | Quotient |
+| --- | --- | --- | --- | --- |
+| stand | 70,2 | 47,8 | 4,75 | 0,099 |
+| ohne Normalenkarte | 70,2 | 47,8 | 4,63 | 0,097 |
+| ohne Rauheitskarte | 68,5 | 48,3 | 4,69 | 0,097 |
+| ohne alphaToCoverage | 60,3 | 42,9 | 4,11 | 0,096 |
+| Anisotropie 16 | 70,3 | 47,8 | 4,75 | 0,100 |
+| Alphaschwelle 0,20 | 62,0 | 41,3 | 4,11 | 0,100 |
+| Alphaschwelle 0,60 | 78,6 | 53,7 | 5,21 | 0,097 |
+| **ohne Karten** | 113,8 | 66,0 | **1,93** | **0,029** |
+| ohne Hüllkörper | 72,3 | 48,3 | 5,60 | 0,116 |
+
+**Kein einziger Materialschalter bewegt etwas.** Die Normalenkarte, die in
+Paket „Laubprobe" als Hauptquelle des *Hochpasses* gemessen wurde, trägt zum
+*Zittern* 0,12 von 4,75 bei. Was zittert, sind die Blattkarten selbst: Ohne sie
+ist die Krone so ruhig wie die Wiese. Das ist kein Beleuchtungs- und kein
+Filterfehler, sondern Unterauflösung — ein Nadelbündel ist auf 30 m ein
+Bildpunkt, und jede Vierteldrehung tastet ein anderes ab.
+
+### Der naheliegende Schluss war falsch, und das Bild hat es gezeigt
+
+Wenn die Karten zittern und der Hüllkörper ruhig ist: Karten ausblenden,
+Hüllkörper übernehmen lassen. Gebaut (Ausblendung 12 → 26 m, Hüllkörper zum
+Ausgleich um 0,62 nachgedunkelt), und das Zittern fiel wie erhofft auf 0,027.
+
+Im Bild stand danach **keine Krone mehr**, sondern eine Traube einzelner Klumpen
+mit Luft dazwischen. Der Hüllkörper ist als Verdecker *hinter* den Karten
+gebaut; er kann nicht übernehmen, was er nie getragen hat. Verworfen.
+
+### Was stattdessen dasteht
+
+Die Karten bleiben, sie werden nur aus einer **gröberen Mipmap-Stufe**
+abgetastet: `texture2D(map, vMapUv, bias)` mit einem Bias, der zwischen 12 und
+26 m einblendet. Das trifft genau die gemessene Ursache — nicht die Karte
+zittert, sondern die Nadelzeichnung darauf. Eine Stufe höher gemittelt ist
+dieselbe Zeichnung eine weiche Masse, und eine weiche Masse ist, was eine
+Konifere aus 30 m ist.
+
+**Die Stärke ist gemessen, nicht gewählt.** Die Streuung im Kasten verrät, ob die
+Karten noch da sind: 47,8 mit, 65,8 ohne.
+
+| Bias | Streuung | Zittern | Quotient |
+| --- | --- | --- | --- |
+| 0 (Stand) | 47,8 | 4,75 | 0,099 |
+| **1,8** | **51,1** | **3,20** | **0,063** |
+| 2,2 | 55,8 | 2,97 | 0,053 |
+| 2,8 | 65,1 | 2,84 | 0,044 |
+| 3,8 | 65,8 | 1,76 | 0,027 |
+
+Ab 2,8 steht die Streuung auf dem Wert **ohne** Karten: Das Alpha ist so weit
+heruntergemittelt, dass die Karte unter die Schwelle fällt — die Ruhe von 0,027
+ist dieselbe wie beim verworfenen ersten Anlauf und auf demselben Weg erkauft.
+1,8 ist der größte Bias, bei dem die Krone noch eine Krone ist.
+
+Der Schattenwurf bleibt unberührt: Das Tiefenmaterial tastet ohne Bias ab. Ein
+Baum, dessen Schatten beim Weggehen weich wird, wäre ein schlimmerer Fehler als
+der, den diese Stufe behebt.
+
+### Offen, und das gehört hierher
+
+**36 Prozent des Zitterns sind weg, 64 Prozent stehen noch da** (Quotient 0,099
+→ 0,063 gegen 0,039 auf der Wiese). Der Rest sitzt in der Silhouette der Karten
+gegen den hellen Himmel und ist mit vierfachem MSAA nicht weiter zu bekommen.
+Was wirklich helfen würde, wäre ein Hüllkörper, der die Krone **trägt** statt sie
+nur zu verdecken — dann könnte die Fernstufe die Karten ganz abschalten. Das ist
+ein Umbau der Kronengeometrie und damit ein eigenes Paket, kein Nachtrag zu
+diesem.
+
+### Regression und Kosten
+
+Kein Objekt, kein Dreieck, kein Byte Textur, kein Draw-Call: 78 / 299 192 /
+11,83 MB, unverändert gegenüber Paket C. Nachthimmel und Konstrukt **bitgleich**,
+Dojo Δmax 4 bei 0,007 %, Zen-Prüfstand unverändert. Build grün, Konsole frei von
+Errors und Warnings.

@@ -1,6 +1,17 @@
 // **Flimmert ein feines Muster, wenn der Kopf sich bewegt?**
 //
-//   node tools/kamm.mjs [--env matrix] [--hoch] <shot> <x0,y0,x1,y1:Name> ...
+//   node tools/kamm.mjs [--env matrix] [--hoch] [--dreh] <shot> <x0,y0,x1,y1:Name> ...
+//
+// `--dreh` wackelt nicht in Millimetern, sondern in **Bildpunkten**: Die Kamera
+// dreht sich um Bruchteile eines Pixels, statt sich zu verschieben. Das ist
+// keine Bequemlichkeit, sondern die einzige Messung, die in der Ferne noch
+// etwas sagt. Ein Versatz von 1,5 mm verschiebt einen Gegenstand auf 1,1 m um
+// knapp einen Bildpunkt und einen auf 30 m um ein Zwanzigstel davon — an einer
+// Baumkrone im Hintergrund misst die Millimeterfassung deshalb null
+// (gemessen: Quotient 0,005), auch wenn die Krone in Bewegung kribbelt. Eine
+// Drehung verschiebt dagegen **das ganze Bild** um denselben Betrag,
+// unabhaengig von der Entfernung. Und ein Kopf in der Brille dreht sich mehr,
+// als er wandert.
 //
 // `--hoch` wackelt SENKRECHT statt quer. Das ist kein Zusatz, sondern eine
 // Luecke, die einen Befund verschluckt hat: Ein waagerechtes Streifenmuster
@@ -34,8 +45,9 @@ import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockC
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'matrix');
 const HOCH = argv.includes('--hoch');
+const DREH = argv.includes('--dreh');
 const rest = argv.filter(
-  (a, i) => a !== '--env' && a !== '--hoch' && argv[i - 1] !== '--env'
+  (a, i) => a !== '--env' && a !== '--hoch' && a !== '--dreh' && argv[i - 1] !== '--env'
 );
 const shotName = rest[0];
 const BEREICHE = rest.slice(1).map((s) => {
@@ -46,6 +58,10 @@ const BEREICHE = rest.slice(1).map((s) => {
 // Vier Stellungen, je 1,5 mm auseinander. Zusammen 4,5 mm — weniger, als ein
 // ruhig stehender Kopf ohnehin schwankt.
 const SCHRITTE = [0, 0.0015, 0.003, 0.0045];
+// Bei `--dreh` dieselbe Zahl Stellungen, aber in Bildpunkten: ein Viertel
+// Bildpunkt je Schritt. Unterhalb eines ganzen Bildpunkts liegt genau der
+// Bereich, in dem eine unteraufgeloeste Struktur umspringt statt zu wandern.
+const DREHSCHRITTE = [0, 0.25, 0.5, 0.75];
 
 const L = (p, i) => 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];
 
@@ -68,19 +84,51 @@ try {
   quer[2] /= len;
   if (HOCH) quer = [0, 1, 0];
 
+  // Der Blickpunkt wird um die Kamera gedreht, nicht die Kamera versetzt.
+  // Der Winkel je Bildpunkt folgt aus dem senkrechten Bildwinkel und der
+  // Bildhoehe; die Bildpunkte sind quadratisch, waagerecht gilt derselbe Wert.
+  const HOEHE = 720;
+  const proPunkt = (((shot.fov ?? 60) * Math.PI) / 180) / HOEHE;
+  const laenge = Math.hypot(d[0], d[1], d[2]) || 1;
+  const blick = [d[0] / laenge, d[1] / laenge, d[2] / laenge];
+  // Achse, um die gedreht wird: bei einer Querbewegung die Welt-Hochachse
+  // (der Kopf schaut zur Seite), bei `--hoch` die Querachse (er nickt).
+  const achse = HOCH ? [quer[0], 0, quer[2]] : [0, 1, 0];
+  const gedreht = (w) => {
+    // Rodrigues; die Achse ist bereits normiert.
+    const c = Math.cos(w);
+    const s2 = Math.sin(w);
+    const kd = achse[0] * blick[0] + achse[1] * blick[1] + achse[2] * blick[2];
+    const kx = [
+      achse[1] * blick[2] - achse[2] * blick[1],
+      achse[2] * blick[0] - achse[0] * blick[2],
+      achse[0] * blick[1] - achse[1] * blick[0],
+    ];
+    return [0, 1, 2].map(
+      (i) => (blick[i] * c + kx[i] * s2 + achse[i] * kd * (1 - c)) * laenge + shot.pos[i]
+    );
+  };
+
   const bilder = [];
-  for (const s of SCHRITTE) {
-    const versetzt = {
-      ...shot,
-      pos: [shot.pos[0] + quer[0] * s, shot.pos[1] + quer[1] * s, shot.pos[2] + quer[2] * s],
-    };
+  for (const s of DREH ? DREHSCHRITTE : SCHRITTE) {
+    const versetzt = DREH
+      ? { ...shot, look: gedreht(s * proPunkt) }
+      : {
+          ...shot,
+          pos: [shot.pos[0] + quer[0] * s, shot.pos[1] + quer[1] * s, shot.pos[2] + quer[2] * s],
+        };
     await lockCamera(page, versetzt, 6.0);
     await page.waitForTimeout(360);
     bilder.push(PNG.sync.read(await page.screenshot()));
   }
 
+  const richtung = HOCH ? 'hoch' : 'quer';
   process.stdout.write(
-    `${shotName}  Versatz ${SCHRITTE.map((s) => (s * 1000).toFixed(1)).join(' / ')} mm quer\n` +
+    `${shotName}  ${
+      DREH
+        ? `Drehung ${DREHSCHRITTE.join(' / ')} Bildpunkte ${richtung}`
+        : `Versatz ${SCHRITTE.map((s) => (s * 1000).toFixed(1)).join(' / ')} mm ${richtung}`
+    }\n` +
       `${'Bereich'.padEnd(22)}${'Punkte'.padStart(8)}${'Streuung'.padStart(10)}${'Zittern'.padStart(9)}${'Quotient'.padStart(10)}${'max dL'.padStart(8)}\n`
   );
   for (const b of BEREICHE) {
