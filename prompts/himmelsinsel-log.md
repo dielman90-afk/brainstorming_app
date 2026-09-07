@@ -3295,3 +3295,70 @@ mit einer Materialänderung nicht zu beheben.
 Zwei Zahlen in der Scheitelfärbung. 93 / 74 606 / 21,53 MB im Zen-Prüfstand,
 unverändert. Alle Zen-Bilder, Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 6
 bei 0,008 %. Build grün, Konsole frei von Errors und Warnings.
+
+## Paket Q — „Auf Augenhöhe verrät nichts, dass die Insel fliegt" (Prüferbefund 17)
+
+Dieses Paket ändert nichts an der Szene. Es beantwortet den Befund mit einer
+Messung, weil er über eine einzelne Kamera gestellt war und über die Umgebung
+entschieden werden muss.
+
+### Warum eine Kamera das nicht entscheiden kann
+
+`1-eyelevel` steht bei (1,5 | 1,6 | 9) und blickt nach (−2 | 1,2 | −14) — also
+**quer über die Insel** auf ihren Rücken. Dass man dort keine Kante sieht, ist
+kein Fehler: Auf einer Insel von vierzig Metern versperrt der Wall die Sicht,
+wie er es auf jeder Insel täte. Der Nutzer dreht sich aber; die Frage ist, was er
+über den ganzen Rundblick sieht.
+
+### Das neue Werkzeug
+
+`tools/schwebeblick.mjs` stellt die Kamera auf Augenhöhe in die Inselmitte und
+dreht sie in zwölf Schritten einmal herum. Je Richtung zwei Zahlen: der Anteil
+**Himmel in der unteren Bildhälfte** — bei waagerechtem Blick liegt dort alles,
+was tiefer steht als das Auge, und auf einer normalen Landschaft ist dort kein
+Himmel — und der Anteil **Wolken in derselben Hälfte**.
+
+**Mein erster Anlauf hat falsch gezählt, und das gehört ins Protokoll.** Er nahm
+je Spalte den obersten Bodenpunkt als Horizont und zählte allen Himmel darunter.
+Ein Baum am Bildrand setzt diesen „Horizont" damit an seine Krone, und der ganze
+Himmel neben dem Stamm galt als Blick ins Leere — 3 bis 13 Prozent in jeder
+Richtung. Das Ergebnis („alles verrät das Fliegen") war zufällig dasselbe wie
+nach der Korrektur, aus einem falschen Grund. Die untere Bildhälfte kennt das
+Problem nicht: Dort steht von der Inselmitte aus kein Laub.
+
+### Ergebnis
+
+| Richtung | Himmel unten | Wolke unten |
+| --- | --- | --- |
+| 0° | 1,763 % | 0,470 % |
+| 30° | 3,037 % | 0,273 % |
+| 60° | 3,895 % | 0,266 % |
+| 90° | 8,033 % | 0,094 % |
+| 120° | 12,730 % | 1,761 % |
+| 150° | 11,538 % | 2,244 % |
+| 180° | 9,460 % | 1,513 % |
+| 210° | 1,930 % | 0,212 % |
+| 240° | 1,186 % | 0,367 % |
+| 270° | **0,345 %** | 0,177 % |
+| 300° | **0,377 %** | 0,434 % |
+| 330° | 0,769 % | 0,317 % |
+
+**In allen zwölf Richtungen ist die Leere zu sehen.** Der Befund gilt für die
+eine Prüfkamera, nicht für die Umgebung.
+
+### Was die Messung trotzdem zeigt
+
+Vier der zwölf Richtungen liegen unter einem Prozent — dort ist der Blick ins
+Leere ein Streifen von wenigen Bildpunkten, und dass die Insel fliegt, erfährt man
+dort eher nebenbei. Zwischen 0,345 % (270°) und 12,730 % (120°) liegt der Faktor
+**siebenunddreißig**. Der Rücken der Insel liegt gegen Westen höher.
+
+Das zu ändern hieße, die Geländeform anzufassen — eine Senkung des Walls über ein
+Drittel des Umfangs. Das ist ein Eingriff in die Silhouette, die mehrere Pakete
+bewusst aufgebaut haben, für einen Gewinn, den diese Messung als „vorhanden, aber
+schmal" beziffert. **Nicht gemacht**, und die Zahlen stehen hier, damit die
+Entscheidung nachvollziehbar ist statt vergessen.
+
+### Regression und Kosten
+
+Keine Änderung an `src/`. Ein neues Werkzeug.
