@@ -4430,6 +4430,29 @@ function createIslandEnvironment() {
     { count: 9, yMin: 5, yMax: 13, rMin: 15, rMax: 36, size: 1.2 }, // hoch am Himmel
     { count: 7, yMin: -2, yMax: 3.5, rMin: 16, rMax: 32, size: 1.0 }, // auf Augenhöhe
     { count: 9, yMin: -13, yMax: -4, rMin: 8, rMax: 28, size: 1.35 }, // tief unter den Inseln
+    // **Vierte Schicht: der Abgrund.**
+    //
+    // Der Pruefer misst im unteren Drittel von `3-edge-down` ueber 700
+    // Bildpunkte hinweg eine Schwankung von **drei Stufen** — eine gestrichene
+    // hellblaue Wand. Sein Schluss trifft den Kern: „Genau dieser Blick ist der
+    // Moment, in dem der Nutzer erfaehrt, dass er schwebt. Statt Tiefe bekommt
+    // er eine Wand."
+    //
+    // Die drei Schichten darueber liegen bei y = -13 bis +13; der Kiel reicht
+    // bis -8,2. Die unterste stand also NEBEN der Insel, nicht unter ihr.
+    //
+    // **Ein Wolkenmeer als bemalte Flaeche geht hier nicht**, und das ist
+    // gemessen: Eine Decke bei y = -18 mit 1200 m Kantenlaenge hob den Bereich
+    // von 200 auf 212 an — gleichmaessig, ohne jede Struktur. Der Grund ist der
+    // Tiefennebel, der bei 136 m voll deckt; alles, was von dieser Kamera aus
+    // unter der Insel liegt, ist entweder weiter weg oder von der Insel selbst
+    // verdeckt. Was traegt, muss NAH sein.
+    //
+    // Also Koerper statt Flaeche, im Radius 5 bis 17 lokal (20 bis 68 m) und
+    // 12 bis 22 lokal unter der Nullebene — dicht genug am Kiel, dass sie
+    // durch den Nebel kommen, und weit genug darunter, dass zwischen Kielspitze
+    // und Wolke Luft steht.
+    { count: 12, yMin: -22, yMax: -12, rMin: 5, rMax: 17, size: 1.5 }, // der Abgrund
   ];
   // Kein Wolkenkörper darf in einer Mini-Insel stecken. Die mittlere Schicht
   // (y −2 … 3,5, Radius 16 … 32) überlappt die Inselplätze exakt, und in drei

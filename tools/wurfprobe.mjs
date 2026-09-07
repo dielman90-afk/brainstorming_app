@@ -16,8 +16,10 @@ import { PNG } from 'pngjs';
 import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
-const shotName = argv[0] ?? '4-aerial';
-const K = argv.length >= 5 ? argv.slice(1, 5).map(Number) : [330, 230, 900, 460];
+const shotName = (argv.filter((a) => a !== '--karte'))[0] ?? '4-aerial';
+const KARTE = argv.includes('--karte');
+const rein = argv.filter((a) => a !== '--karte');
+const K = rein.length >= 5 ? rein.slice(1, 5).map(Number) : [330, 230, 900, 460];
 
 const bild = async (page) => {
   await page.waitForTimeout(320);

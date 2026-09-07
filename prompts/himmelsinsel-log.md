@@ -2070,3 +2070,82 @@ Umgebungen.
 `5-backlight` 0,005; `1-eyelevel` 0,004. Der kleine Zahlenwert ist kein Zeichen
 von Wirkungslosigkeit, sondern von Fläche: Stämme belegen wenig Bild. Zen und
 Nachthimmel bitgleich, Konstrukt Δmax 1, Dojo Δmax 5 bei 0,009 %.
+
+---
+
+## Paket A — Zweiter Prüfdurchgang: Abgrund unter der Insel, und ein widerlegter Befund
+
+Der Prüfer ist nach dem Konstrukt-Durchgang neu auf die Insel angesetzt worden
+(neun Bilder: sechs eingefrorene Kameras plus drei freie Nahsichten). Sein
+Bericht hat 21 Befunde; dieses Paket erledigt einen davon und **widerlegt einen
+zweiten**.
+
+### Widerlegt: „Bäume werfen überhaupt keinen Schatten" (sein Befund 2)
+
+Er misst am Baumfuß in `1-eyelevel` Grashelligkeit 183–195 und beim Findling
+zehn Meter daneben 126, und schließt daraus: die Bäume stehen außerhalb des
+Lichtsystems.
+
+**Gemessen mit `tools/wurfprobe.mjs`** (schaltet je Werfer nur `castShadow` ab
+und misst die Differenz), auf der Wiese in `4-aerial`, Kasten 430,240–860,420:
+
+| Werfer | Fläche | Tiefe |
+| --- | --- | --- |
+| `island-laub` | **3,02 %** | 31,2 |
+| `island-holz` | 0,51 % | 26,9 |
+| `island-krone` | 0,14 % | 12,9 |
+| `island-stones` | 1,03 % | 26,5 |
+| bushes + bush-leaves | 1,12 % | 17,9 |
+| alle zusammen | 9,50 % | 33,1 |
+
+Die Bäume beschatten **3,67 % der Wiese** — mehr als die Findlinge. Der Befund
+ist damit widerlegt.
+
+Was an seiner Beobachtung stimmt: Der Baumschatten ist **gesprenkelt**, nicht
+gepoolt. Die Blattkarten werfen einzeln (3,02 %), der Kronenkörper fast nichts
+(0,14 %) — und dass der Körper so wenig beiträgt, ist ein Messartefakt und kein
+Befund: Sein Schatten liegt vollständig im Schatten der Karten, und wer Werfer
+einzeln abschaltet, misst bei überlappenden Verdeckern nichts. Diese Falle steht
+seit dem Konstrukt-Schattensplitter im Protokoll und hat mich hier fast ein
+zweites Mal erwischt.
+
+Und an der Stelle, an der **er** gemessen hat, hat er recht: Bei 38,7° Sonnenstand
+läuft der Schatten eines Baums nach hinten aus dem Bild; am Fuß selbst steht
+keiner. Nur folgt daraus nicht, dass keiner geworfen wird.
+
+### Erledigt: „Unter der Insel ist nichts" (sein Befund 4)
+
+Belegt und schwerwiegend. Im unteren Drittel von `3-edge-down` schwankt die
+Fläche über 700 Bildpunkte um **drei Stufen**. Sein Schluss trifft den Kern:
+„Genau dieser Blick ist der Moment, in dem der Nutzer erfährt, dass er schwebt.
+Statt Tiefe bekommt er eine gestrichene Wand."
+
+Die Ursache stand in den Wolkenschichten: Sie liegen bei y = −13 bis +13, der
+Kiel reicht bis −8,2. Die unterste Schicht stand also **neben** der Insel, nicht
+unter ihr. Es gab nie eine Tiefe.
+
+**Ein Wolkenmeer als bemalte Fläche geht hier nicht, und das ist gemessen.** Der
+erste Anlauf war eine Decke bei y = −18 mit 1200 m Kantenlänge und einer
+Canvas-Textur aus 216 Ballen in drei Größen. Ergebnis im Kasten unter dem Kiel:
+Der Bereich hob sich von 200 auf 212 — **gleichmäßig, ohne jede Struktur**. Der
+Grund ist der Tiefennebel, der bei 136 m voll deckt: Alles, was von dieser
+Kamera aus unter der Insel liegt, ist entweder weiter weg als das oder von der
+Insel selbst verdeckt. Was tragen soll, muss **nah** sein.
+
+Also Körper statt Fläche — eine vierte Wolkenschicht im Radius 5 bis 17 lokal
+(20 bis 68 m) und 12 bis 22 lokal unter der Nullebene: dicht genug am Kiel, dass
+sie durch den Nebel kommt, weit genug darunter, dass zwischen Kielspitze und
+Wolke Luft steht.
+
+Spanne p05–p95 im unteren Bilddrittel: 155 → **164**; im Bild stehen jetzt drei
+Wolkenkörper unter und neben dem Kiel statt einer leeren Wand.
+
+Die Schicht steht **nach** allen anderen Ziehungen im Zufallsstrom — Mini-Inseln,
+Bäume, Steine und Vögel werden dadurch nicht verschoben. Diese Lehre steht seit
+der Wasserfallfahne im Protokoll.
+
+### Regression und Kosten
+
+77 Draw-Calls (von 120), 212 792 Dreiecke, 11,83 MB Textur. Nachthimmel und
+Zen-Garten **bitgleich**, Dojo Δmax 6 bei 0,010 %. Build grün, Konsole frei von
+Errors und Warnings.
