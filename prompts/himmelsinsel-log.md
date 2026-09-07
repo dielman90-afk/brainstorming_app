@@ -3232,3 +3232,66 @@ Eine Zahl im Material, zwei Werkzeugkorrekturen. 93 / 74 606 / 21,53 MB im
 Zen-Prüfstand, unverändert. Alle Zen-Bilder, Nachthimmel und Konstrukt
 **bitgleich**, Dojo Δmax 6 bei 0,009 %. Build grün, Konsole frei von Errors und
 Warnings.
+
+## Paket P — Blasser Mintsaum um das Gras (Prüferbefund 16)
+
+### Zwei Verdächtige, beide differenziell geprüft, beide falsch
+
+**Erster Verdacht: die Erdzone.** Die Erde bekommt an ihrer Oberkante einen
+Grasüberhang eingeblendet (`out.lerp(grass, 1 - g2e)`), und der Ton dafür ist ein
+fester Grünwert ohne die Variation der Wiese — ein Kandidat für eine
+gleichmäßige grüne Bordüre. Geprüft, indem das Erdmaterial zur Laufzeit **rot**
+gefärbt wurde: Der Saum blieb grün. Nicht die Erde.
+
+**Zweiter Verdacht: die Luftperspektive** im Grasshader, die gegen ein blasses
+Mintgrün `vec3(0.40, 0.55, 0.44)` mischt. Term ganz abgeschaltet und dieselben
+Spalten gemessen:
+
+    mit Dunst    x920 L175 S25%   x960 L172 S25%   x1000 L158 S27%   x1040 L166 S26%
+    ohne Dunst   x920 L174 S28%   x960 L172 S28%   x1000 L156 S31%   x1040 L164 S30%
+
+Der Dunst trägt **eine bis zwei Luminanzstufen** und drei bis fünf
+Sättigungspunkte. Er macht den Saum nicht.
+
+### Was der Saum wirklich ist
+
+Die Abbruchkante des Grasdeckels ist eine **Schräge**. Bei einer Sonne von
+38,7 Grad trifft das Licht sie fast senkrecht, während die ebene Fläche daneben
+nur sin(38,7) = 0,63 abbekommt. Die dreißig Luminanzstufen Unterschied sind
+damit **richtige Beleuchtung** und kein Fehler — was daran falsch war, ist etwas
+anderes: Der helle Streifen lief über die ganze Länge **ununterbrochen grün**.
+
+Der Aufriss der Narbe an der Kante hängt an zwei Toren: `smoothstep(0.70, 0.99,
+rr)` für die Nähe zur Kante und einem Rauschtor für die Fleckigkeit. Letzteres
+stand auf `smoothstep(0.42, 0.78, …)` und ließ den Aufriss auf weiten Strecken
+ganz aus — eine saubere, gleichmäßig breite Bordüre aus einer Farbe. Eine
+Grasnarbe, die über eine Kante hängt, reißt dort auf; Erde und Wurzelfilz kommen
+durch.
+
+### Ergebnis
+
+Rauschtor `0.42 … 0.78` → `0.26 … 0.66`. Gezählt wurden die hellen Grünpunkte
+(L > 150) im Kantenkasten von `3-edge-down`:
+
+| | vorher | nachher |
+| --- | --- | --- |
+| Saumpixel | 3728 | **1496** (−60 %) |
+| Mittelfarbe | (141,168,127) | (137,168,126) |
+| Sättigung | 24,4 % | 24,8 % |
+
+Der Saum ist nicht heller oder dunkler geworden — er ist **unterbrochen**. Im
+Bild ist die Bordüre über die linke Hälfte der Kante verschwunden; wo sie bleibt,
+ist sie die besonnte Schräge, und die soll dort sein.
+
+### Was offen bleibt
+
+Die Blässe des verbleibenden Streifens ist die ACES-Kurve: Bei dreißig Stufen
+über der Umgebung liegt er im flachen Ast, und dort verliert jede Farbe
+Sättigung. Das ist dieselbe Mechanik wie bei den Wolken und beim Sonnenkern und
+mit einer Materialänderung nicht zu beheben.
+
+### Regression und Kosten
+
+Zwei Zahlen in der Scheitelfärbung. 93 / 74 606 / 21,53 MB im Zen-Prüfstand,
+unverändert. Alle Zen-Bilder, Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 6
+bei 0,008 %. Build grün, Konsole frei von Errors und Warnings.

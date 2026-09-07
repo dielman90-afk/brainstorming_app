@@ -2599,9 +2599,26 @@ function bodyColor(out, zone, shape, p, t, a) {
     // liegt das Gras als geschlossene, gleichmäßig dicke Zuckergussschicht auf
     // der Insel. Der Aufriss läuft über die Farbe – eine pro Viereck gesetzte
     // Materialgrenze ergäbe wieder eine Treppe aus rechten Winkeln.
+    // **Der Saum reisst zu selten auf, und das ist der Grund fuer den Mintrand.**
+    //
+    // Der Pruefer meldet einen blassen Mintsaum um das Gras. Nachgemessen in
+    // `3-edge-down` liegt die Abbruchkante des Grasdeckels bei L 158 bis 175
+    // gegen 133 auf der ebenen Flaeche — dreissig Stufen heller. Der groesste
+    // Teil davon ist **richtig**: Die Kante ist eine Schraege, und bei einer
+    // Sonne von 38,7 Grad trifft sie das Licht fast senkrecht, waehrend die
+    // Ebene nur sin(38,7) abbekommt. Ein Dunstversuch (Term ganz aus) hat
+    // gezeigt, dass die Luftperspektive daran nur drei bis fuenf
+    // Saettigungspunkte traegt und **eine bis zwei** Luminanzstufen.
+    //
+    // Was den hellen Streifen zum *Saum* macht, ist etwas anderes: Er ist
+    // ueber die ganze Laenge **ununterbrochen gruen**. Das zweite
+    // Rauschtor stand auf smoothstep(0,42 … 0,78) und liess den Aufriss auf
+    // weiten Strecken ganz aus — eine saubere, gleichmaessig breite Bordüre
+    // aus einer Farbe. Eine Grasnarbe, die ueber eine Kante haengt, reisst
+    // dort auf; Erde und Wurzelfilz kommen durch.
     const bare = valueNoise2(Math.cos(a) * 5.5 + 61, Math.sin(a) * 5.5 + 13);
     const patch = valueNoise2(x * 1.1 + 7, z * 1.1 + 23);
-    const wear = smoothstep(0.70, 0.99, rr) * smoothstep(0.42, 0.78, bare * 0.5 + patch * 0.5);
+    const wear = smoothstep(0.70, 0.99, rr) * smoothstep(0.26, 0.66, bare * 0.5 + patch * 0.5);
     if (wear > 0) {
       const soil = _tmpColor.setHSL(0.072, 0.30, 0.19 + 0.05 * (patch - 0.5));
       out.lerp(soil, Math.min(0.85, wear));
