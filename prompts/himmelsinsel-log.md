@@ -3036,3 +3036,70 @@ Eine Zeile im Fragment-Shader der Vögel, sonst nichts. 93 / 74 606 / 21,53 MB i
 Zen-Prüfstand, unverändert. Alle Zen-Bilder, Nachthimmel und Konstrukt
 **bitgleich**, Dojo Δmax 4 bei 0,008 %. Build grün, Konsole frei von Errors und
 Warnings.
+
+## Paket M — Die Bodendekoration als wiederholte Doppelmarke (Prüferbefund 13)
+
+Sein Wort trifft es: Jede Blume war ein dunkelgrüner Stab mit einem weißen Klumpen
+darauf, neunzigmal derselbe Umriss, und der Stab endete ohne Übergang in der
+Grasnarbe. Das ist eine Stecknadel, keine Pflanze.
+
+### Was gemessen besser geworden ist
+
+**Der Stiel war zu dunkel.** Ein Zylinder aus drei Seitenflächen kehrt der Sonne
+immer nur eine zu; die anderen beiden liegen im Schatten. Mit `0x5f8f45` stand er
+als fast schwarzer Strich auf blasser Wiese. Jetzt `0x7ba055`.
+
+**Der Fuß fehlte.** Eine Grundrosette aus vier kurzen Blättern, sechzehn Dreiecke
+je Blume. Sie verdeckt zugleich die Stelle, an der der Zylinder den Boden
+schneidet.
+
+Auf der Maske des Knotens `flowers` in `1-eyelevel`:
+
+| | vorher | nachher |
+| --- | --- | --- |
+| Bildpunkte | 3326 | **4125** (+24 %) |
+| p05 | 66 | **83** |
+| Mittel | 153,6 | 156,2 |
+
+p05 ist der dunkelste Fünftel der Blume, also der Stiel: siebzehn Stufen heller.
+
+### Was gemessen NICHT besser geworden ist
+
+Die Skalierung war bisher gleichmäßig — eine große Blume war exakt dieselbe Form
+wie eine kleine. Höhe und Kopf werden jetzt getrennt gezogen (aus einem eigenen
+Zufallsstrom, damit nichts anderes verschoben wird). Als Maß dafür habe ich die
+Streuung des Seitenverhältnisses über alle vierzig Teilstücke der Maske genommen:
+
+    vorher   Mittel 2,07   sd 0,57   Variationskoeffizient 0,274
+    nachher  Mittel 2,23   sd 0,63   Variationskoeffizient 0,282
+
+**Das ist kein Beleg.** Der mittlere Umriss ist schlanker geworden, die
+Streuung praktisch gleich. Die getrennte Skalierung bleibt drin, weil sie nichts
+kostet — aber sie steht hier nicht als Erfolg, sondern als das, was sie ist: eine
+Änderung ohne nachgewiesene Wirkung. Was den Umriss wirklich vereinheitlicht, ist
+nicht die Skalierung, sondern dass jede Blume dieselbe Geometrie ist: Stiel plus
+Klumpen. Das zu ändern hieße mehrere Blütenformen, also mehrere InstancedMeshes
+und Draw-Calls; das ist ein eigenes Paket mit einer eigenen Budgetrechnung.
+
+**Und ein Zwischenfall beim Messen:** Der erste Vergleich lief über die acht
+größten Teilstücke und gab 0,146 gegen 0,113 — ich hätte daraus geschlossen, die
+Streuung sei *gefallen*. Über alle vierzig Stücke gemessen ist sie unverändert.
+Acht Stichproben sind für eine Streuungsaussage zu wenig, und die acht größten
+sind zudem die nächsten und damit keine Zufallsauswahl. `knotenkasten.mjs` listet
+jetzt vierzig statt acht Stücke.
+
+### Ein Baufehler, der still im Bild landete
+
+Die Rosette kommt aus `halmGeometrie`, und die liefert nur Position, Farbe und
+Normale — **kein uv**. `mergeGeometries` verlangt bei allen Teilen dieselben
+Attribute und gibt sonst `null` zurück: Die Blumen verschwanden vollständig, und
+der nächste Frame brach an `boundingSphere` von `null` ab. Im Prüfbild war nur
+eine schwarze Fläche zu sehen. Die Konsolenprüfung hat es gefangen — ohne sie
+hätte ein leeres Bild wie ein Kamerafehler ausgesehen.
+
+### Regression und Kosten
+
+Sechzehn Dreiecke je Blume, neunzig Blumen: 1440 Dreiecke, kein Draw-Call, kein
+Byte Textur. 93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert. Alle
+Zen-Bilder, Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei 0,007 %.
+Build grün, Konsole frei von Errors und Warnings.

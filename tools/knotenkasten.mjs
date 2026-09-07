@@ -103,7 +103,7 @@ try {
       `${name}  (${n} Netze)  ${cnt} Bildpunkte, ${stuecke.length} Stuecke\n` +
         (stuecke.length ? `  Gesamtkasten ${gx0},${gy0},${gx1},${gy1}\n` : '') +
         stuecke
-          .slice(0, 8)
+          .slice(0, 40)
           .map((s) => `  ${String(s.m).padStart(6)}  ${s.x0},${s.y0},${s.x1},${s.y1}\n`)
           .join('')
     );

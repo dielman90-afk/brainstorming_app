@@ -2682,6 +2682,8 @@ function bodyColor(out, zone, shape, p, t, a) {
 // daraus Kontaktverdunklungen an — in SEINEN Bucket, damit alles zusammen ein
 // einziger Draw-Call bleibt.
 function addGrassDecoration(group, rand, shape) {
+  // Eigener Strom fuer die Formstreuung der Blumen, siehe unten.
+  const bs = mulberry32(0x7ac31e);
   const bluetenFuesse = [];
   const dummy = new THREE.Object3D();
   const color = new THREE.Color();
@@ -2714,14 +2716,44 @@ function addGrassDecoration(group, rand, shape) {
   // gesättigte Primärfarben nebeneinander, ohne Stiel, ohne Bezug zur Wiese.
   // Jetzt: kleine Dolden auf einem Halm, in nur zwei zur Palette passenden
   // Tönen, und in Nestern statt einzeln gestreut.
+  // **0x7ba055 statt 0x5f8f45.** Ein Stiel aus drei Seitenflaechen kehrt der
+  // Sonne immer nur eine zu; die beiden anderen liegen im Schatten und ziehen
+  // den gemessenen Wert nach unten. Mit dem dunkleren Ton stand er im Bild als
+  // fast schwarzer Strich auf blasser Wiese — und ein schwarzer Strich mit
+  // einem weissen Kopf darauf ist eine Stecknadel, kein Blumenstiel. Genau so
+  // hat der Pruefer es gemeldet.
   const stiel = new THREE.CylinderGeometry(0.0025, 0.004, 0.055, 3);
   stiel.translate(0, 0.0275, 0);
-  paintVertices(stiel, 0x5f8f45);
+  paintVertices(stiel, 0x7ba055);
   const dolde = new THREE.IcosahedronGeometry(0.016, 0);
   dolde.scale(1, 0.75, 1);
   dolde.translate(0, 0.062, 0);
   paintVertices(dolde, 0xffffff);
-  const blumeGeo = mergeGeometries([stiel, dolde].map((g) => (g.index ? g.toNonIndexed() : g)));
+  // **Der Fuss.** Der zweite Teil des Befunds: „ohne Fusskontakt". Ein Stiel,
+  // der ohne Uebergang aus der Grasnarbe kommt, sitzt nicht in ihr, er steckt
+  // in ihr. Eine Grundrosette aus vier kurzen Blaettern loest das mit sechzehn
+  // Dreiecken je Blume — und sie verdeckt zugleich die Stelle, an der der
+  // Zylinder den Boden schneidet.
+  const blaetter = [];
+  for (let i = 0; i < 4; i++) {
+    const b = halmGeometrie(0.019, 0.010, 0.013, (i / 4) * TAU + 0.4, 0, 0);
+    // halmGeometrie faerbt nach Grashalm-Art; die Rosette einer Blume ist
+    // heller und gelblicher als die Wiese, sonst verschwindet sie darin.
+    paintVertices(b, 0x86a95c);
+    // **Ohne uv scheitert das Verschmelzen, und zwar still im Bild.**
+    // `mergeGeometries` verlangt bei allen Teilen dieselben Attribute und gibt
+    // sonst `null` zurueck — die Blumen verschwanden, und der naechste Frame
+    // brach an `boundingSphere` von null ab. Stiel und Dolde bringen ihre uv
+    // von Zylinder und Ikosaeder mit, das Halmwerk hat keine.
+    b.setAttribute(
+      'uv',
+      new THREE.BufferAttribute(new Float32Array(b.attributes.position.count * 2), 2)
+    );
+    blaetter.push(b);
+  }
+  const blumeGeo = mergeGeometries(
+    [stiel, dolde, ...blaetter].map((g) => (g.index ? g.toNonIndexed() : g))
+  );
 
   const BLUMEN = 90;
   const flowers = new THREE.InstancedMesh(
@@ -2753,7 +2785,20 @@ function addGrassDecoration(group, rand, shape) {
     dummy.position.set(x, y, z);
     dummy.rotation.set((rand() - 0.5) * 0.3, rand() * TAU, (rand() - 0.5) * 0.3);
     const groesse = 0.75 + rand() * 0.6;
-    dummy.scale.setScalar(groesse);
+    // **Gleichmaessige Skalierung haelt die Silhouette identisch.** Eine grosse
+    // Blume war bisher exakt dieselbe Form wie eine kleine, nur weiter weg
+    // aussehend — neunzig Mal derselbe Umriss. Hoehe und Kopf werden deshalb
+    // getrennt gezogen: ein langer Stiel mit kleinem Kopf steht neben einem
+    // gedrungenen mit grossem.
+    //
+    // Der Strom dafuer ist ein eigener. Zusaetzliche rand()-Ziehungen hier
+    // wuerden Baeume, Steine und Voegel verschieben; diese Lehre steht seit der
+    // Wasserfallfahne im Protokoll.
+    dummy.scale.set(
+      groesse * (0.80 + bs() * 0.45),
+      groesse * (0.70 + bs() * 0.85),
+      groesse * (0.80 + bs() * 0.45)
+    );
     dummy.updateMatrix();
     flowers.setMatrixAt(i, dummy.matrix);
     flowers.setColorAt(i, color.setHex(pick(rand, bluetenTon)));
