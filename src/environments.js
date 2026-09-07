@@ -610,6 +610,11 @@ function baueKrone({
   // solange niemand dieselbe Messung für sie gemacht hat — die Mechanik ist
   // dort dieselbe, der Befund ist es nicht automatisch.
   himmelssaum = true,
+  // Staerke der Kronenverdeckung (0 = aus). Die anderen Umgebungen laufen durch
+  // dieselbe Funktion und bekommen sie NICHT: Der Befund ist auf der Insel
+  // gemessen, und ein Auftrag ueber die Insel ist kein Freibrief, den
+  // Dojo-Garten nebenbei zu veraendern. Dieselbe Regel wie beim Himmelssaum.
+  verdeckung = 0,
 }) {
   const r = mulberry32(seed);
   const schoepfe = [];
@@ -643,8 +648,54 @@ function baueKrone({
     }
   }
 
+  // --- Kronenverdeckung -----------------------------------------------------
+  //
+  // **Der Pruefer: „Die Kronen tragen keine Lichtmodellierung."** In `4-aerial`
+  // ueber die Krone der vorderen Konifere bandweise gemessen: von oben nach
+  // unten 56,2 / 48,2 / 50,1 / 50,8 / 47,7 / 49,1. Sieben Stufen Spanne, nicht
+  // monoton — bei einer Sonne, die 38,7 Grad hoch steht. Eine Baumkrone ist
+  // aber gerade das Gegenteil: oben voll besonnt, unten tiefer Schatten.
+  //
+  // Ein Schattenwurf loest es nicht (die Messung steht bei den Schattenflaggen
+  // in buildIsland). Was fehlt, ist **Verdeckung innerhalb der Krone**: Ein
+  // Schopf, ueber dem zwanzig andere stehen, sieht kaum Himmel. Das laesst sich
+  // beim Bauen ausrechnen — fuer jeden Schopf, wie viel Laub senkrecht ueber ihm
+  // steht — und in die Instanzfarbe legen. Zur Laufzeit kostet es nichts.
+  //
+  // Der Mittelwert wird abgezogen, damit die Krone insgesamt so hell bleibt wie
+  // vorher: Die Oberseite wird heller, die Unterseite dunkler, das Mittel
+  // gleich. Ein Term, der nur abdunkelt, kauft Modellierung mit Dunkelheit —
+  // dieselbe Falle wie beim Schattenwurf zwei Absaetze weiter oben.
+  const dunkel = new Float32Array(schoepfe.length);
+  if (verdeckung > 0) {
+    let summeAll = 0;
+    for (let i = 0; i < schoepfe.length; i++) {
+      const a = schoepfe[i];
+      let v = 0;
+      for (let j = 0; j < schoepfe.length; j++) {
+        if (i === j) continue;
+        const b = schoepfe[j];
+        const dy = b.y - a.y;
+        if (dy <= 0) continue;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const rr = b.s * 1.7;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > rr * rr) continue;
+        // Naeher am Lot zaehlt mehr; was weit oben steht, weniger — sonst
+        // verdunkelt ein Wipfel den ganzen Baum bis zum Boden gleich stark.
+        v += (1 - Math.sqrt(d2) / rr) * Math.exp(-dy * 1.1);
+      }
+      dunkel[i] = Math.min(1, v * 0.34);
+      summeAll += dunkel[i];
+    }
+    const mittel = schoepfe.length ? summeAll / schoepfe.length : 0;
+    for (let i = 0; i < schoepfe.length; i++) dunkel[i] -= mittel;
+  }
+
   const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
+  const _ton = new THREE.Color();
   const setze = (mesh, faktor, palette) => {
     schoepfe.forEach((c, i) => {
       const s = c.s * faktor;
@@ -660,7 +711,11 @@ function baueKrone({
       // dieselbe Mischung – die Unterscheidung „heller/dunkler Laubbaum" ginge
       // verloren. Mit dem Versatz zieht jeder Baum aus seinem eigenen Drittel.
       const idx = (c.slice ?? 0) + (c.ton % 3);
-      mesh.setColorAt(i, new THREE.Color(palette[idx % palette.length]));
+      _ton.set(palette[idx % palette.length]);
+      if (verdeckung > 0) {
+        _ton.multiplyScalar(Math.max(0.25, 1 - dunkel[i] * verdeckung));
+      }
+      mesh.setColorAt(i, _ton);
     });
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
@@ -1002,6 +1057,7 @@ function buildCollectedTrees(ctx, seed) {
       farben: [0x2b4436, 0x33513e, 0x24392c],
       kartenFarben: [0xd8f0c0, 0xc6e4ae, 0xe4ffd0],
       himmelssaum: false,
+      verdeckung: 1.0,
     });
     k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
@@ -1021,6 +1077,7 @@ function buildCollectedTrees(ctx, seed) {
       farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
       kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8, 0xd3efb0, 0xc2e39c, 0xe0f8c0],
       himmelssaum: false,
+      verdeckung: 1.0,
     });
     k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
@@ -4682,6 +4739,21 @@ function buildIsland(
         o.receiveShadow = true;
         o.castShadow = true;
       } else if (o.name === 'island-krone' || o.name === 'island-laub' || o.name === 'island-holz') {
+        // **Kein `receiveShadow`, und das ist gemessen.** Naheliegend waere es:
+        // Der Pruefer meldet Kronen ohne Lichtmodellierung, und eine Krone, die
+        // sich selbst beschattet, bekaeme oben Licht und unten Schatten.
+        // Eingeschaltet und in `4-aerial` bandweise nachgemessen:
+        //
+        //     ohne   oben 56,2  ...  unten 49,1     Spanne 7,1
+        //     mit    oben 49,1  ...  unten 46,1     Spanne 3,0
+        //
+        // Die Krone wird um fuenf Stufen **dunkler** und ihre Spanne
+        // **kleiner**. Der Grund: Die Kartennormalen zeigen in alle
+        // Richtungen, der Schattenterm faellt dadurch ueber die ganze Krone
+        // gleichmaessig an — er nimmt Licht, ohne es zu verteilen. Das ist
+        // dieselbe Rechnung wie bei der Normalenkarte der Nadeln: Ruhe (hier
+        // Tiefe) mit Dunkelheit gekauft. Die Modellierung kommt stattdessen
+        // aus der Kronenverdeckung in `baueKrone`.
         o.castShadow = true;
       } else if (o.name === 'island-stones') {
         o.castShadow = true;

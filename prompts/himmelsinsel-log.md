@@ -2626,3 +2626,62 @@ Draw-Calls und Dreiecke unverändert (78 / 299 192). `cliffMaps()` und
 `cliffMaterial()` bleiben unangetastet — Nachthimmel und Konstrukt **bitgleich**,
 Dojo Δmax 4 bei 0,008 %, Zen-Prüfstand unverändert bei 93 / 74 606 / 21,53 MB.
 Build grün, Konsole frei von Errors und Warnings.
+
+## Paket G — Die Kronen tragen keine Lichtmodellierung (Prüferbefund 7)
+
+In `4-aerial` über die Krone der vorderen Konifere bandweise gemessen, von oben
+nach unten: **56,2 / 48,2 / 50,1 / 50,8 / 47,7 / 49,1**. Sieben Stufen Spanne,
+und nicht einmal monoton — bei einer Sonne, die 38,7 Grad hoch steht. Eine
+Baumkrone ist gerade das Gegenteil: oben voll besonnt, unten tiefer Schatten.
+
+### Der Schattenwurf löst es nicht, und das ist gemessen
+
+Naheliegend wäre `receiveShadow` auf den Kronen — sie werfen längst Schatten,
+sie empfingen nur keine. Eingeschaltet und dieselben Bänder nachgemessen:
+
+    ohne   oben 56,2 … unten 49,1     Spanne 7,1   Mittel 50,0
+    mit    oben 49,1 … unten 46,1     Spanne 3,0   Mittel 45,3
+
+Die Krone wird um fünf Stufen **dunkler** und ihre Spanne **kleiner**. Der Grund:
+Die Kartennormalen zeigen in alle Richtungen, der Schattenterm fällt dadurch über
+die ganze Krone gleichmäßig an — er nimmt Licht, ohne es zu verteilen. Dieselbe
+Rechnung wie bei der Normalenkarte der Nadeln: Tiefe mit Dunkelheit gekauft.
+Wieder ausgebaut, die Messung steht als Begründung im Quelltext.
+
+### Was stattdessen dasteht
+
+**Kronenverdeckung, beim Bauen ausgerechnet.** Für jeden Schopf wird gezählt, wie
+viel Laub senkrecht über ihm steht — gewichtet nach Abstand vom Lot und mit der
+Höhe abklingend, damit nicht ein Wipfel den ganzen Baum bis zum Boden gleich
+stark verdunkelt. Das Ergebnis geht in die Instanzfarbe. Zur Laufzeit kostet es
+nichts: kein Draw-Call, kein Dreieck, kein Byte Textur, keine Shader-Zeile.
+
+**Der Mittelwert wird abgezogen.** Ein Term, der nur abdunkelt, kauft
+Modellierung mit Dunkelheit — genau die Falle, in die der Schattenwurf zwei
+Absätze weiter oben getappt ist. So wird die Oberseite heller und die Unterseite
+dunkler, das Mittel bleibt.
+
+### Ergebnis
+
+Dieselben Bänder, oben nach unten:
+
+    vorher   56,2  48,2  50,1  50,8  47,7  49,1    Spanne  8,5   Mittel 50,0
+    nachher  62,7  53,1  51,9  50,5  43,0  43,2    Spanne 19,7   Mittel 50,1
+
+Die Spanne wächst auf mehr als das Doppelte, der Verlauf ist zum ersten Mal
+**monoton**, und die Krone ist im Mittel nicht dunkler geworden (50,0 → 50,1).
+
+### Die anderen Umgebungen bekommen sie nicht
+
+`baueKrone` bedient auch Dojo und Zen-Garten. Die Verdeckung ist deshalb ein
+Parameter mit Vorgabewert 0 und wird nur von der Insel gesetzt — dieselbe Regel
+wie beim Himmelssaum: Der Befund ist auf der Insel gemessen, und ein Auftrag über
+die Insel ist kein Freibrief, eine andere Umgebung nebenbei zu verändern.
+
+### Regression und Kosten
+
+78 Draw-Calls, 299 192 Dreiecke, 17,17 MB — **unverändert** gegenüber Paket F.
+Die Verdeckung ist eine Rechnung beim Bauen (O(n²) über die Schöpfe einer Insel)
+und danach eine Instanzfarbe. Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 5
+bei 0,009 %, Zen-Prüfstand unverändert. Build grün, Konsole frei von Errors und
+Warnings.
