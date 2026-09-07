@@ -328,6 +328,60 @@ function bakeVertexShade(geometry, tint) {
   return geometry;
 }
 
+// **Eine Scheibe, die Relief tragen kann.**
+//
+// `CircleGeometry(r, 44)` hat **45 Scheitelpunkte**: einen in der Mitte und
+// 44 auf dem Rand. Dazwischen liegt nichts. Jede Höhenfunktion, die man darauf
+// auswertet, wird an genau diesen 45 Stellen abgetastet — und weil der Rand
+// definitionsgemäß auf null liegt, bleibt von einem „Polster mit Buckeln"
+// ein Kegel übrig. Genau daran ist das Moos des Zen-Gartens gescheitert: Im
+// Quelltext stand eine Kuppel mit Wellen darin, im Bild lag ein Abziehbild.
+//
+// Diese Scheibe hat Ringe. `ringe` Zwischenringe kosten ringe·segmente
+// Scheitelpunkte und ebenso viele Dreiecke — bei 6 Ringen und 44 Segmenten
+// sind das 265 Punkte und 528 Dreiecke je Fleck, also nichts.
+function ringScheibe(radius, ringe = 6, segmente = 44) {
+  const pos = [0, 0, 0];
+  const uv = [0.5, 0.5];
+  const idx = [];
+  for (let ri = 1; ri <= ringe; ri++) {
+    const f = ri / ringe;
+    for (let sgm = 0; sgm < segmente; sgm++) {
+      const a = (sgm / segmente) * TAU;
+      pos.push(Math.cos(a) * radius * f, Math.sin(a) * radius * f, 0);
+      uv.push(0.5 + Math.cos(a) * f * 0.5, 0.5 + Math.sin(a) * f * 0.5);
+    }
+  }
+  for (let sgm = 0; sgm < segmente; sgm++) idx.push(0, 1 + sgm, 1 + ((sgm + 1) % segmente));
+  for (let ri = 1; ri < ringe; ri++) {
+    const a0 = 1 + (ri - 1) * segmente;
+    const b0 = 1 + ri * segmente;
+    for (let sgm = 0; sgm < segmente; sgm++) {
+      const s1 = (sgm + 1) % segmente;
+      idx.push(a0 + sgm, b0 + sgm, b0 + s1, a0 + sgm, b0 + s1, a0 + s1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// Ein gesetztes, weiches Rauschen über der Fläche, Ergebnis von −0,5 bis 0,5.
+//
+// **Nicht `hashNoise`.** Der ist ein Hash: Zwei benachbarte Scheitelpunkte
+// bekommen unabhängige Werte, und als HÖHE ergibt das keine Buckel, sondern
+// einen Igel. Für Farbflecken ist er richtig, für Relief nicht — dieselbe
+// Unterscheidung, die weiter oben schon der Umriss gebraucht hat.
+function polsterRauschen(seed) {
+  const rnd = mulberry32(seed);
+  const ox = rnd() * 137;
+  const oy = rnd() * 149;
+  return (x, y) => valueNoise2(x + ox, y + oy) - 0.5;
+}
+
 // Vertices bunt einfärben (feste Farbe) – für zusammengesetzte Geometrien (Pilze).
 function paintVertices(geometry, hex) {
   const c = new THREE.Color(hex);
@@ -12808,6 +12862,9 @@ function createZenEnvironment() {
   // werden nach dem Bauen zu einem Mesh verschmolzen. Gebaut wird trotzdem
   // einzeln, damit die Reihenfolge der Zufallszahlen unangetastet bleibt.
   const moosTeile = [];
+  // Ein Feld über den ganzen Moosbestand. Die Aufrufer rechnen ihre lokale
+  // Lage in Weltmeter um, bevor sie hier hineingehen — siehe unten.
+  const fleckenRauschen = polsterRauschen(0x4d0055);
   for (let i = 0; i < 5; i++) {
     const a = rand() * Math.PI * 2;
     const r = 2 + rand() * 7;
@@ -12819,14 +12876,22 @@ function createZenEnvironment() {
     // Zungen vor und dünnt an anderer Stelle aus. 44 Segmente statt 20, und
     // der Radius jedes Randpunktes wird verrauscht — zwei Frequenzen, damit
     // Buchten und Zungen verschiedener Größe entstehen.
-    const mossGeo = new THREE.CircleGeometry(mossR, 44);
+    // **Ringe statt Speichen.** `CircleGeometry(mossR, 44)` hatte 45 Punkte —
+    // die Mitte und den Rand, dazwischen nichts. Die Kuppel und ihre Wellen
+    // wurden also an 45 Stellen abgetastet, und weil der Rand auf null liegt,
+    // blieb ein Kegel. Sechs Ringe kosten 265 Punkte und 528 Dreiecke.
+    const mossGeo = ringScheibe(mossR, 8, 44);
     {
       const pos = mossGeo.attributes.position;
       const zunge = welligerUmriss(300 + i * 17, 0.24, 6);
       for (let v = 1; v < pos.count; v++) {
-        const a = Math.atan2(pos.getY(v), pos.getX(v));
+        const px = pos.getX(v);
+        const py = pos.getY(v);
+        const a = Math.atan2(py, px);
+        // Der Umriss wirkt auf **alle** Ringe im selben Verhältnis, sonst
+        // stünde die Zunge nur an der Kante und die Fläche darin wäre rund.
         const f = zunge(a);
-        pos.setXY(v, Math.cos(a) * mossR * f, Math.sin(a) * mossR * f);
+        pos.setXY(v, px * f, py * f);
       }
       pos.needsUpdate = true;
     }
@@ -12841,24 +12906,57 @@ function createZenEnvironment() {
     // gedreht; lokales +Z wird damit zu Welt-+Y.
     {
       const pos = mossGeo.attributes.position;
-      const kissen = welligerUmriss(700 + i * 13, 0.5, 5);
+      const beulen = polsterRauschen(9100 + i * 71);
       for (let v = 0; v < pos.count; v++) {
         const px = pos.getX(v);
         const py = pos.getY(v);
         const t = Math.min(1, Math.hypot(px, py) / mossR);
-        const a = Math.atan2(py, px);
-        // Kuppel, am Rand auf null, mit Buckeln darin
-        const hoehe = 0.055 * Math.pow(1 - t * t, 0.65) * kissen(a * 1.7);
+        // **Der Kissenterm über dem Winkel ist gefallen.** Er stand als
+        // `kissen(a · 1,7)` in der Höhe und war, solange die Scheibe 45 Punkte
+        // hatte, unsichtbar. Auf einem Ringnetz ist er das, was er immer war:
+        // eine Funktion, die nur vom Winkel abhängt — also ein Stern aus
+        // Speichen, die vom Mittelpunkt ausgehen. Im ersten Bild nach dem
+        // Umbau stand er als Radmuster in jedem Fleck.
+        //
+        // Buckel brauchen zwei Achsen. Die Wellenlänge muss dabei über dem
+        // Punktabstand liegen (radial 12 cm, am Rand quer 14 cm), sonst wird
+        // aus dem Relief Rauschen: 18 cm für die Polster, 11 cm für die
+        // Unruhe darauf.
+        let hoehe = 0.055 * Math.pow(1 - t * t, 0.65);
+        hoehe += (beulen(px * 5.5, py * 5.5) * 0.034 + beulen(px * 9.0 + 40, py * 9.0 - 17) * 0.013) * (1 - t * t);
+        // **Der Rand sinkt in den Sand.** Vorher endete das Moos bei genau
+        // null und stiess in einer Linie an den Kies — eine Messerkante. Ein
+        // Polster hat einen Fuss, der unter das umgebende Korn läuft.
+        hoehe -= 0.022 * Math.pow(t, 5.0);
         pos.setZ(v, hoehe);
       }
       pos.needsUpdate = true;
       mossGeo.computeVertexNormals();
     }
     bakeVertexShade(mossGeo, (x, y, z) => {
-      const rand2 = Math.min(1, Math.hypot(x, z) / mossR);
-      // Zum Rand hin heller und ausdünnend, dazu Flecken.
-      const saum = 1 + rand2 * rand2 * 0.35;
-      const fleck = 0.82 + hashNoise(x * 2.6, 0, z * 2.6) * 0.34;
+      const rand2 = Math.min(1, Math.hypot(x, y) / mossR);
+      // **Der Rand ist dunkler, nicht heller.** Vorher stand hier
+      // `1 + rand2² · 0,35`: Der Umriss war der HELLSTE Streifen der Fläche,
+      // und genau das ist die Signatur eines ausgestanzten Aufklebers. Ein
+      // Polster verschattet sich an seinem eigenen Fuss, und dort steht
+      // ausserdem dunkler Humus statt Moos. Gemessen war der Saum bei 1,028;
+      // er gehört unter 1.
+      //
+      // Auch der Fehler daneben: `hypot(x, z)` in einer Scheibe, die in der
+      // XY-Ebene liegt — z ist dort die Höhe, nicht die zweite Achse. Der
+      // Abstand vom Mittelpunkt war also gar nicht der Abstand.
+      const saum = 1 - Math.pow(rand2, 2.6) * 0.34;
+      // **Der Fleck war ein Speichenrad.** `hashNoise` liefert je
+      // Scheitelpunkt einen unabhängigen Wert. Auf einer Scheibe mit 45
+      // Punkten fiel das nicht auf; auf einem Ringnetz liegen die Punkte auf
+      // Speichen, und ein unabhängiger Wert je Punkt wird über die langen
+      // schmalen Dreiecke **radial verschmiert** — im Bild stand ein Wagenrad
+      // in jedem Fleck. Dieselbe Unterscheidung wie bei der Höhe: Für ein
+      // Feld über der Fläche braucht es ein Rauschen, keinen Hash.
+      // In Weltkoordinaten ausgewertet, damit die Flecken über die Grenze
+      // zwischen Fleck und Ableger hinweg weiterlaufen. Lokal ausgewertet
+      // trüge jedes Polster dasselbe Muster um seinen eigenen Mittelpunkt.
+      const fleck = 0.86 + fleckenRauschen((Math.cos(a) * r + x) * 3.6, (Math.sin(a) * r + y) * 3.6) * 0.5;
       return saum * fleck;
     });
     const moss = new THREE.Mesh(mossGeo, mossMat);
@@ -12866,6 +12964,55 @@ function createZenEnvironment() {
     moss.position.set(Math.cos(a) * r, -0.01, Math.sin(a) * r);
     moss.scale.set(1 + rand() * 0.6, 1, 0.7 + rand() * 0.5);
     moosTeile.push(moss);
+    // **Ableger, damit der Umriss nicht die ganze Geschichte ist.**
+    //
+    // Auch mit gewelltem Rand bleibt eine geschlossene Fläche eine
+    // geschlossene Fläche: Der Prüfer hat sie als „ausgestanzt" gelesen, und
+    // eine Welle mehr ändert daran nichts. Moos breitet sich in Ablegern aus —
+    // ein paar Handteller weiter, kleiner, flacher, manche schon
+    // zusammengewachsen. Sie brechen die Linie, an der Grün auf Sand trifft,
+    // in mehrere Linien auf.
+    //
+    // **Eigener Zufallsstrom.** Jede Ziehung aus `rand()` würde alles
+    // verschieben, was danach gebaut wird — Steine, Trittsteine, Bäume. Die
+    // Lehre steht im Insel-Log unter Paket H.
+    {
+      const ab = mulberry32(0x3f05a1 + i * 977);
+      const zahl = 3 + Math.floor(ab() * 4);
+      for (let k = 0; k < zahl; k++) {
+        const wa = ab() * Math.PI * 2;
+        const wr = mossR * (0.92 + ab() * 0.55);
+        const kr = mossR * (0.10 + ab() * 0.20);
+        const geo = ringScheibe(kr, 3, 18);
+        const umriss = welligerUmriss(4400 + i * 53 + k * 7, 0.3, 4);
+        const pos = geo.attributes.position;
+        for (let v = 0; v < pos.count; v++) {
+          const px = pos.getX(v);
+          const py = pos.getY(v);
+          const t = Math.min(1, Math.hypot(px, py) / kr);
+          if (v > 0) {
+            const f = umriss(Math.atan2(py, px));
+            pos.setXY(v, px * f, py * f);
+          }
+          pos.setZ(v, 0.030 * Math.pow(1 - t * t, 0.6) - 0.014 * Math.pow(t, 5.0));
+        }
+        pos.needsUpdate = true;
+        geo.computeVertexNormals();
+        scaleUV(geo, (2 * kr) / (18 * 0.55));
+        const ax = moss.position.x + Math.cos(wa) * wr * moss.scale.x;
+        const az = moss.position.z + Math.sin(wa) * wr * moss.scale.z;
+        bakeVertexShade(geo, (x, y) => {
+          const t = Math.min(1, Math.hypot(x, y) / kr);
+          return (
+            (1 - Math.pow(t, 2.6) * 0.34) * (0.86 + fleckenRauschen((ax + x) * 3.6, (az + y) * 3.6) * 0.5)
+          );
+        });
+        const ableger = new THREE.Mesh(geo, mossMat);
+        ableger.rotation.x = -Math.PI / 2;
+        ableger.position.set(ax, -0.012, az);
+        moosTeile.push(ableger);
+      }
+    }
     // Der Sand am Moos ist feucht: dunkler, gesättigter, und die Harke hört
     // dort auf. Ohne diesen Übergang liegt das Moos wie ein aufgeklebter
     // grüner Fleck auf trockenem Kies.

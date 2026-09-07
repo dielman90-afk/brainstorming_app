@@ -974,3 +974,142 @@ Zwei kleinere Befunde fielen dabei mit ab und sind ebenfalls behoben:
   Draw-Calls, die Schöpfe sind Instanzen.
 * **Zu viele Blätter.** 320 fallende Blätter sind kein Kirschbaum im Wind,
   sondern ein Schneesturm. Jetzt 90.
+
+## Durchlauf 13 — Der Prüfer sieht den Zen-Garten zum ersten Mal seit dem Umbau
+
+Nach dem Nachthimmel und der Himmelsinsel ist der Zen-Garten an der Reihe. Der
+Prüfer hat sechs Bilder bekommen, ausdrücklich mit der Ansage, was für eine
+Szene das ist (japanischer Garten, rein prozedural, bewusst stilisiert,
+Nachmittagslicht), und hat **fünfzehn Mängel** gemeldet, nach visueller Wirkung
+sortiert:
+
+1. Moosflächen sind flache Klebebilder
+2. Das Wasser ist eine tote milchige Scheibe ohne Spiegelung
+3. Es gibt keine Welt hinter dem Garten — leerer Sand bis zum Horizont
+4. Kein Objekt berührt den Boden (Torii-Fuß, Stämme, Trittsteine, Laternensockel)
+5. Das Laternenlicht leuchtet nichts an
+6. Der Bambus hat keine Halmknoten und liest sich nicht als Bambus
+7. Das Torii hat einen einzigen Farbton ohne Flächentrennung
+8. Der Sand ist zwei verschiedene Materialien; Aliasing in der Ferne; die
+   Harkung läuft unter den Steinen durch
+9. Die Terrassenkante der Sandfläche ist ungestaltet
+10. Die Baumkronen sind Alpha-Blobs ohne Gegenlicht
+11. Alle Steine sind derselbe Stein
+12. Zwei Jahreszeiten gleichzeitig (Sakura und Herbstahorn), zwei Farbausreißer
+13. Der Garten ist unbelebt
+14. Wolken als parallele Schlieren, harte helle Bande am Horizont
+15. Komposition von `a-eyelevel` und `d-aerial`
+
+Ausdrücklich gelobt und nicht anzutasten: das Sandrelief im Nahbereich, die
+weichen Laubschatten, der Farbklang, die Silhouette des Torii, die
+Luftperspektive auf den fernen Steinen, die unregelmäßige Setzung der
+Trittsteine.
+
+**Budgetlage vorweg** (`tools/metrics/zen-16.json`): 93 von 120 Draw-Calls,
+74 606 von 350 000 Dreiecken, 21,53 von 60 MB Textur. Dreiecke sind hier
+reichlich da, **Draw-Calls sind knapp** — 27 frei. Alles, was neu dazukommt,
+muss in ein bestehendes Mesh verschmelzen oder instanziert werden.
+
+## Paket A — Die Moosinseln hatten fünfundvierzig Punkte (Prüferbefund 1)
+
+Im Quelltext stand über dem Moos ein Absatz, der eine Kuppel mit Buckeln
+beschreibt, dazu ein gewellter Umriss und ein Feuchtsaum im Sand daneben. Im
+Bild lag trotzdem ein Abziehbild. Der Grund steht in einer einzigen Zeile:
+
+    const mossGeo = new THREE.CircleGeometry(mossR, 44);
+
+**`CircleGeometry` hat einen Punkt in der Mitte und 44 auf dem Rand. Dazwischen
+liegt nichts.** Jede Höhenfunktion wurde also an genau diesen 45 Stellen
+abgetastet, und weil der Rand definitionsgemäß auf null liegt, blieb von der
+Kuppel ein Kegel und von den Buckeln nichts. Der Kommentar war richtig, die
+Geometrie konnte ihn nicht tragen.
+
+### Gemessen
+
+`tools/moossaum.mjs` misst innerhalb der differenziellen Maske eines Knotens
+vier Zahlen: **Kantensprung** (Helligkeitsunterschied über die Umrisslinie),
+**Zackigkeit** (Randlänge geteilt durch die Wurzel der Fläche — für einen Kreis
+3,54, und kleiner geht es nicht), **Saum** (Helligkeit im Randstreifen geteilt
+durch die im Innern) und **Korn** (mittleres |L − Mittel(5×5)|, also
+Feinstruktur ohne die weichen Schattenverläufe).
+
+**Zwei eigene Fehler beim Messen, der zweite schlimmer als der erste.**
+
+* Mit Schlagschatten misst `Saum` nicht den Saum, sondern den Baum: Der
+  Laubschatten liegt in `c-torii` mitten auf der Fläche, also im Innern,
+  während die Ableger am Rand in der Sonne stehen. Der Rand kam auf 1,068 —
+  unabhängig davon, was die Scheitelfarben taten.
+* Der Ausweg, „nur die besonnten Bildpunkte zu zählen, also alles über dem
+  Mittelwert", war der schlimmere Fehler: **Ein dunkler Saum liegt unter dem
+  Mittelwert und wird von genau diesem Filter weggeworfen.** Die Zahl blieb bei
+  1,00. Aufgeflogen ist es an einer Probe mit verdreifachter Saumstärke: Der
+  Kantensprung stieg von 33,99 auf 47,59, die Scheitelfarbe kam also sehr wohl
+  im Bild an — nur nicht in meiner Messung. Ein Maß, das sein eigenes Signal
+  herausfiltert, misst nichts.
+
+Richtig ist `--ohne-werfer`: alle Schlagschatten aus, dann bleibt als
+Verdunklung nur, was zum Polster selbst gehört.
+
+Und der **Kantensprung ist zweideutig**, das gehört dazugesagt: Ein Abziehbild
+springt hart, ein Polster mit dunklem Kontaktsaum aber auch — der Saum *ist*
+ein dunkler Strich. Steigt er, während `Saum` unter 1 fällt, ist das ein
+gewonnener Kontaktschatten und kein verlorener Übergang.
+
+### Was geändert wurde
+
+* **`ringScheibe(r, ringe, segmente)`** statt `CircleGeometry`: acht Ringe zu 44
+  Segmenten, 353 Punkte und 704 Dreiecke je Fleck. Erst damit ist Relief
+  überhaupt darstellbar.
+* **Buckel aus einem Feld über zwei Achsen**, Wellenlängen 18 cm und 11 cm über
+  dem Punktabstand (radial 12 cm, quer am Rand 14 cm).
+* **Der Rand sinkt in den Sand** (−2,2 cm mit hoher Potenz), statt bei genau
+  null an den Kies zu stoßen.
+* **Der Saum ist dunkler statt heller.** Vorher stand dort `1 + rand2² · 0,35`:
+  Der Umriss war der *hellste* Streifen der Fläche — genau die Signatur eines
+  ausgestanzten Aufklebers. Direkt daneben ein zweiter Fehler: `hypot(x, z)` in
+  einer Scheibe, die in der XY-Ebene liegt. z ist dort die Höhe; der Abstand
+  vom Mittelpunkt war gar nicht der Abstand.
+* **Ableger**: drei bis sechs kleinere Polster am Rand jedes Flecks, aus einem
+  eigenen Zufallsstrom (sonst verschöbe sich alles, was danach gebaut wird), im
+  selben Mesh verschmolzen — **null zusätzliche Draw-Calls**.
+
+### Zwei Fehler, die erst der Umbau sichtbar gemacht hat
+
+Beide standen vorher schon im Code und waren auf 45 Punkten unsichtbar:
+
+* **Ein Speichenrad in jedem Fleck.** Die Höhe war mit `kissen(a · 1,7)`
+  moduliert — einer Funktion, die *nur vom Winkel abhängt*. Auf einem Ringnetz
+  ist das ein Stern aus Speichen. Gefallen; die Buckel kommen jetzt aus zwei
+  Achsen.
+* **Ein zweites Speichenrad aus der Farbe.** `hashNoise` liefert je
+  Scheitelpunkt einen unabhängigen Wert; auf einem Ringnetz liegen die Punkte
+  auf Speichen, und ein unabhängiger Wert je Punkt wird über die langen
+  schmalen Dreiecke **radial verschmiert**. Ersetzt durch ein weiches Feld, in
+  Weltmetern ausgewertet, damit die Flecken über die Grenze zwischen Fleck und
+  Ableger hinweg weiterlaufen.
+
+Dieselbe Unterscheidung also zweimal: Für ein Feld über einer Fläche braucht es
+ein Rauschen, keinen Hash. Sie stand seit dem Uferwulst des Teichs im Log.
+
+### Ergebnis
+
+Alle Zahlen mit `--ohne-werfer`, vorher → nachher:
+
+    Bild            Kantensprung   Zackigkeit      Saum        Korn
+    a-eyelevel     23,23 → 37,73  8,64 → 11,75  1,001 → 0,946  3,99 → 6,99
+    c-torii        26,99 → 40,64  4,73 →  7,80  1,008 → 0,943  2,87 → 4,78
+    d-aerial       22,85 → 39,95  7,34 →  9,48  1,019 → 0,966  3,86 → 6,81
+
+Die Zackigkeit steigt in `c-torii` um zwei Drittel: Das ist der Ausschlag der
+Ableger, die die eine Linie zwischen Grün und Sand in mehrere zerlegen. Der
+Saum fällt in allen drei Bildern unter 1, das Polster verschattet sich also
+endlich an seinem eigenen Fuß. Das Korn steigt um drei Viertel.
+
+### Kosten
+
+    Draw-Calls      93 → 93         unverändert
+    Dreiecke    74 606 → 79 576     (+4 970, 22,7 % des Budgets)
+    Textur       21,53 MB → 21,53   unverändert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 6 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
