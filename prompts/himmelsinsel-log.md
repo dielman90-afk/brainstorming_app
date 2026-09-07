@@ -2769,3 +2769,84 @@ und nichts anderes.
 Eine Zeile Shader, kein Draw-Call, kein Dreieck, kein Byte Textur. Zen-Prüfstand
 unverändert bei 93 / 74 606 / 21,53 MB, Insel bei 78 / 299 192 / 17,17 MB. Build
 grün, Konsole frei von Errors und Warnings.
+
+## Paket I — Freischwebende Felsen an der Inselkante (Prüferbefund 9)
+
+### Erst ein Fehlschlag beim Messen, und der gehört ins Protokoll
+
+Der erste Versuch, den Befund zu beziffern, war `tools/schwebeprobe.mjs`: Ein
+Block, der über die Kante ragt, lässt unter sich Himmel stehen — also den Himmel
+vom Bildrand her fluten und zählen, was eingeschlossen übrig bleibt. In
+`3-edge-down` fand das Werkzeug elf Löcher mit zusammen 3005 Bildpunkten. Nachgesehen
+waren es **legitime Himmelstaschen** zwischen der nahen und der fernen
+Inselkante, nicht Luft unter Felsen. Nach der Korrektur meldet es exakt dieselben
+3005 Bildpunkte — die Gegenprobe dafür, dass es den Befund nie gemessen hat.
+
+Das Werkzeug bleibt trotzdem im Baum: Es beantwortet eine sinnvolle Frage, nur
+nicht diese.
+
+### Gemessen wurde am Verzeichnis, nicht am Bild
+
+`shape.blocked` führt jeden belegten Platz mit Ort und Radius. Der Abstand jedes
+Eintrags zur dortigen Kante (`radius · outline(a)`) ist damit direkt auszulesen.
+Im ausgelieferten Stand:
+
+| | Anzahl von 25 |
+| --- | --- |
+| jenseits des Umrisses (> 1,00) | **6** |
+| jenseits von 0,96 | **11** |
+| äußerster Eintrag | **1,038** |
+
+0,96 ist die Linie, an der `shape.frei` schon jeden Bewuchs verweigert, weil dort
+die Grasnarbe abfällt. Sechs Blöcke standen jenseits des Umrisses überhaupt.
+
+### Die Ursache stand vier Zeilen über der Lehre
+
+    const rf = 0.92 + rand() * 0.12;    // 0,92 … 1,04
+
+Bei den Findlingen, vier Zeilen weiter unten, steht seit einem früheren Paket
+genau dieser Befund im Quelltext: „Ohne den Faktor ist 0,92 · radius in der Bucht
+das 1,5-fache der dortigen Kante — und der Block hängt frei im Himmel neben der
+Insel." Die Knöchel hatten `outline(a)` immer; was ihnen fehlte, war die
+Obergrenze.
+
+### Der Mittelpunkt genügt nicht
+
+Ein Mittelpunkt bei 0,96 reicht nicht: Ein Block mit Halbmaß 0,31 ragt von dort
+immer noch hinaus. Maßgeblich ist die **Außenflanke**, und die lässt sich erst
+rechnen, wenn das Halbmaß gezogen ist:
+
+    const rad = Math.min(kante * rf, kante - s * 1.15);
+
+Der Faktor 1,15 deckt die Streuung von `boulderGeometry` und die anschließende
+Skalierung bis 1,45 in x und z.
+
+Dazu: **zur Kante hin tiefer einsinken.** Ein Block, der am Saum nur zu einem
+Fünftel steckt, steht auf der Lippe statt in ihr. Die Einsenkung wächst deshalb
+mit `smoothstep(0.80, 0.98, rad/kante)` um bis zu 0,45 Halbmaße.
+
+### Ergebnis
+
+| | vorher | nachher |
+| --- | --- | --- |
+| jenseits des Umrisses | 6 | **0** |
+| jenseits von 0,96 | 11 | **2** |
+| äußerster Eintrag | 1,038 | **0,975** |
+
+Im Bild sitzen die Blöcke am Kantensaum jetzt **in** der Kante statt darauf.
+
+### Was sich sonst noch bewegt hat, und warum
+
+Die Prüfbilder ändern sich um 0,2 bis 5,7 Prozent der Bildpunkte. Der
+Zufallsstrom ist dabei **nicht** verschoben: Die Rinnenprüfung sitzt weiter vor
+der Ziehung des Halbmaßes und trifft dieselben Entscheidungen, Bäume und
+Findlinge werden also aus demselben Strom an denselben Stellen gezogen. Was sich
+ändert, sind die Einträge in `shape.blocked` — und `shape.frei` fragt sie ab.
+Blumen, Grashorste und Unterholz werden dadurch an anderen Stellen abgewiesen und
+sitzen anders. Das ist die Folge der Korrektur, nicht ein zweiter Eingriff.
+
+### Regression und Kosten
+
+93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert. Nachthimmel, Konstrukt und
+**alle sechs Zen-Bilder bitgleich** gegenüber dem Vorstand, Dojo Δmax 5 bei
+0,009 %. Build grün, Konsole frei von Errors und Warnings.

@@ -4627,12 +4627,29 @@ function buildIsland(
   // Felsknöchel am Kantensaum: teils versenkte Blöcke, die durch die Grasnarbe
   // stoßen. Sie lösen den durchgehenden grünen Wulst auf und verzahnen
   // Grasplatte und Fels – ohne sie liegt das Gras wie Glasur auf einer Torte.
+  // **Der Mittelpunkt darf an die Kante, der Block nicht darüber hinaus.**
+  //
+  // Der Prüfer meldet freischwebende Felsen an der Inselkante. Nachgemessen an
+  // `shape.blocked` — dem Verzeichnis aller belegten Plätze — im ausgelieferten
+  // Stand: Von 25 Einträgen sitzen **sechs jenseits des Umrisses**, der
+  // äußerste bei 1,038 der dortigen Kante, und elf jenseits von 0,96, also
+  // jenseits der Linie, an der `shape.frei` schon jeden Bewuchs verweigert.
+  //
+  // Die Ursache stand direkt hier: `rf = 0,92 + rand()·0,12` reicht bis
+  // **1,04**. Vier Zeilen weiter unten, bei den Findlingen, steht dieselbe
+  // Lehre schon im Quelltext („der Block hängt frei im Himmel neben der
+  // Insel") — sie war nur nie auf die Knöchel angewandt worden.
+  //
+  // Ein Mittelpunkt bei 0,96 genügt aber nicht: Ein Block mit Halbmaß 0,31
+  // ragt von dort aus immer noch über die Kante. Maßgeblich ist die
+  // **Außenflanke**, und die wird gerechnet, sobald das Halbmaß gezogen ist.
   const knuckles = Math.round(rocks * 1.8);
   for (let i = 0; i < knuckles; i++) {
     const a = rand() * TAU;
-    const rf = 0.92 + rand() * 0.12;
-    const kx = Math.sin(a) * radius * shape.outline(a) * rf;
-    const kz = Math.cos(a) * radius * shape.outline(a) * rf;
+    const rf = 0.90 + rand() * 0.10;
+    const kante = radius * shape.outline(a);
+    let kx = Math.sin(a) * kante * rf;
+    let kz = Math.cos(a) * kante * rf;
     // Nicht in die Rinne. Ein Knöchel genau auf der Lippe steht dem Bach im
     // Weg und teilt den Sturz – gemessen saß einer mittig im Abfluss und
     // spaltete das Band in zwei Zungen.
@@ -4640,9 +4657,17 @@ function buildIsland(
     const s = 0.11 + rand() * 0.20;
     const g = boulderGeometry(rand, s);
     g.scale(1.0 + rand() * 0.45, 0.55 + rand() * 0.45, 1.0 + rand() * 0.45);
-    // Tief eingesenkt: nur die Kuppe schaut heraus, wie anstehendes Gestein
+    // Die Außenflanke bleibt drin. Das Halbmaß mal 1,15, weil `boulderGeometry`
+    // um s streut und die anschließende Skalierung in x und z bis 1,45 geht.
+    const rad = Math.min(kante * rf, kante - s * 1.15);
+    kx = (kx / (kante * rf)) * rad;
+    kz = (kz / (kante * rf)) * rad;
+    // Tief eingesenkt: nur die Kuppe schaut heraus, wie anstehendes Gestein.
+    // Zur Kante hin tiefer — dort fällt der Boden weg, und ein Block, der dort
+    // nur zu einem Fünftel steckt, steht auf der Lippe statt in ihr.
     shape.blocked.push({ x: kx, z: kz, r: s * 1.7 });
-    const ky = shape.heightAt(kx, kz) - s * (0.15 + rand() * 0.3);
+    const saum = smoothstep(0.80, 0.98, rad / kante);
+    const ky = shape.heightAt(kx, kz) - s * (0.15 + rand() * 0.3 + 0.45 * saum);
     g.translate(kx, ky, kz);
     // Der Fuß geht in Erdreich über: Ohne den Farbverlauf schneidet der Block
     // mit einer harten, geraden Linie durch die Wiese und wirkt wie eingeclippt.
