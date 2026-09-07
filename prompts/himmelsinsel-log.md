@@ -2976,3 +2976,63 @@ und ich habe ihn ein zweites Mal gemacht.
 Alles beim Bauen gerechnet: 93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert.
 Alle Zen-Bilder, Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei
 0,007 %. Build grün, Konsole frei von Errors und Warnings.
+
+## Paket L — Vögel als schwarze Klingen (Prüferbefund 12)
+
+Ein früheres Paket hat die Vögel von `MeshBasicMaterial` auf Lambert umgestellt,
+weil beide Flügel sonst denselben Wert trugen (p05 63 / p50 63 — mehr als die
+Hälfte aller Punkte auf einem Wert). Der Prüfer meldet sie trotzdem als schwarze
+Klingen. Auf der Maske des Knotens `birds` in `4-aerial`:
+
+    Mittel 62,7   p05 32   p50 55   p95 157
+
+Ein Drittel des Tonwertumfangs liegt unter L 32, während der andere Flügel bei
+157 steht. Im vergrößerten Ausschnitt steht es nebeneinander **im selben Tier**:
+ein grauer Flügel, ein fast schwarzer Keil.
+
+### Ein gespiegelter Flügel ist innen außen
+
+Der zweite Flügel entsteht durch `scale.x = -1`. Eine Spiegelung dreht den
+Umlaufsinn der Dreiecke um; three sieht sie damit als Rückseiten und kehrt bei
+`DoubleSide` die Normale um. Der eine Flügel zeigt dem Licht also seine Ober-,
+der andere seine Unterseite — und bei einer Sonne, die 38,7 Grad hoch steht, wird
+aus dem einen eine graue Fläche und aus dem anderen ein schwarzer Keil.
+
+Das ist kein Beleuchtungsfehler der Szene, sondern eine Folge der Spiegelung, und
+es war durch die Umstellung auf Lambert **erst sichtbar geworden**: Ein
+unbeleuchtetes Material bemerkt eine umgedrehte Normale nicht.
+
+Ein Vogelflügel ist auf fünfzehn Bildpunkten eine dünne Membran; seine beiden
+Seiten sehen von außen gleich aus. Die Normale wird deshalb immer auf die
+Himmelsseite gedreht. Dann schattieren beide Flügel gleich, und die V-Stellung
+bleibt als feiner Unterschied erhalten statt als Kontrast von achtzig Stufen.
+
+### Ergebnis
+
+`4-aerial`, Maske des Knotens:
+
+| | vorher | nachher |
+| --- | --- | --- |
+| Mittel | 62,7 | **88,0** |
+| p05 | 32 | **72** |
+| p50 | 55 | **74** |
+| p95 | 157 | 167 |
+
+Gegen den Himmel bleiben sie Silhouetten, wie sie sollen: `5-backlight` Mittel
+117,6, `1-eyelevel` Mittel 89,7 — bei einem Himmel um 200.
+
+### Offen
+
+Der Flügel, der in `4-aerial` streifend gesehen wird, steht weiter bei L 74 gegen
+eine Wiese von 180. Das ist kein umgedrehter Schatten mehr, sondern die
+Silhouette einer Fläche ohne Dicke unter flachem Winkel — sie liest als
+schmaler dunkler Strich. Beheben ließe sich das nur mit einem Flügel, der Dicke
+hat, und das sind Dreiecke für ein Tier von fünfzig Bildpunkten. Steht als
+offener Punkt, nicht als erledigt.
+
+### Regression und Kosten
+
+Eine Zeile im Fragment-Shader der Vögel, sonst nichts. 93 / 74 606 / 21,53 MB im
+Zen-Prüfstand, unverändert. Alle Zen-Bilder, Nachthimmel und Konstrukt
+**bitgleich**, Dojo Δmax 4 bei 0,008 %. Build grün, Konsole frei von Errors und
+Warnings.

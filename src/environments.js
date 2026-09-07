@@ -3809,6 +3809,41 @@ function makeFlyers(rand, {
   };
 }
 
+// **Ein gespiegelter Fluegel ist innen aussen.**
+//
+// Der zweite Fluegel entsteht durch `scale.x = -1`. Eine Spiegelung dreht den
+// Umlaufsinn der Dreiecke um; three sieht sie damit als Rueckseiten und kehrt
+// bei `DoubleSide` die Normale um. Der eine Fluegel zeigt dem Licht also seine
+// Ober-, der andere seine Unterseite — und weil die Sonne 38,7 Grad hoch steht,
+// wird aus dem einen eine graue Flaeche und aus dem anderen ein **schwarzer
+// Keil**. Genau so hat der Pruefer es gemeldet: „Voegel als schwarze Klingen".
+// Im vergroesserten Ausschnitt von `4-aerial` steht es nebeneinander im selben
+// Tier.
+//
+// Ein Vogelfluegel ist auf fuenfzehn Bildpunkten eine duenne Membran; seine
+// beiden Seiten sehen von aussen gleich aus. Die Normale wird deshalb immer auf
+// die Himmelsseite gedreht — dann schattieren beide Fluegel gleich, und die
+// V-Stellung bleibt als feiner Unterschied erhalten, statt als Kontrast von
+// achtzig Stufen.
+function membranLicht(material) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    shader.fragmentShader = ersetzeImShader(
+      shader.fragmentShader,
+      '#include <normal_fragment_begin>',
+      `#include <normal_fragment_begin>
+       {
+         vec3 obenImBlick = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+         if (dot(normal, obenImBlick) < 0.0) normal = -normal;
+       }`
+    );
+  };
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () => `${vorherKey ? vorherKey() : ''}|membran`;
+  return material;
+}
+
 // Vögel: dunkle Silhouetten, die in der Ferne kreisen. Sie sind bewusst klein
 // und dunkel – ein Vogel am Himmel ist eine Andeutung, kein Modell.
 function makeBirds(rand) {
@@ -3836,7 +3871,9 @@ function makeBirds(rand) {
     // keine Glanzkeule, und der PBR-Pfad kostet ihn Shader-Zeit, die er nicht
     // zurueckzahlt. Die Falter tragen laengst ein beleuchtetes Material — die
     // Voegel waren der Ausreisser.
-    material: new THREE.MeshLambertMaterial({ color: 0x3a4753, side: THREE.DoubleSide }),
+    material: membranLicht(
+      new THREE.MeshLambertMaterial({ color: 0x46545f, side: THREE.DoubleSide })
+    ),
     name: 'birds',
     // Gemessen standen die Vögel bis zu sechzig Meter neben und zweiundzwanzig
     // Meter über der Insel – dort sind sie ein Punkt und tragen nichts bei.
