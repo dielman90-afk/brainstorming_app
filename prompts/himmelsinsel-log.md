@@ -2274,3 +2274,89 @@ Zen-Prüfstands, unverändert gegenüber dem Vorstand: Das Paket fügt weder ein
 Objekt noch ein Byte Textur hinzu, nur Rechenzeit im Fragment-Shader.
 Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei 0,010 %. Build grün,
 Konsole frei von Errors und Warnings.
+
+## Paket C — Die Stecknadeln: Grashorste in der richtigen Größe
+
+Die zweite Hälfte desselben Prüferbefunds. Paket B hat das *Tuch* beseitigt
+(Nachbarunterschied im vordersten Band 1,32 → 8,06); die *Stecknadeln* blieben:
+Die Blumen standen auf nackten Stielen auf einer Fläche, die keine senkrechte
+Ebene hat. Aus Augenhöhe ist eine Wiese aber gerade das — ein Feld, das nach oben
+steht und in dem etwas steckt. Eine bemalte Ebene kann das nicht leisten, wie
+fein sie gezeichnet ist.
+
+### Warum die Horste beim ersten Mal rausflogen — und was daran die Lehre war
+
+Sie standen schon einmal hier: 240 Stück aus je vier bis sechs gebogenen Halmen,
+bis **0,15 lokale Einheiten** hoch, bei WORLD_SCALE 4 also gut **60 cm**. Damit
+waren sie aus Augenhöhe die dominierende Form im Vordergrund und lasen als
+Schilf. Der Quelltext hielt danach fest: „Die Wiese trägt ihre Zeichnung ohnehin
+über die Bodenfarbe." Das war der falsche Schluss aus einem richtigen Befund —
+die Lehre war der **Maßstab**, nicht der Gedanke.
+
+Jetzt: 1,9 bis 4,0 cm lokal, also **7,6 bis 16 cm** in der Welt, und damit
+deutlich unter dem Blumenstiel von 22 cm. Der Horst umgibt den Fuß der Blume,
+statt sie zu verdecken.
+
+### Drei Entscheidungen, jede gegen einen gemessenen Fehlversuch
+
+**Der Fernbereich wird im Vertex-Shader zusammengezogen.** Ein Halm von 6 mm
+Breite ist auf 20 m ein Drittel Bildpunkt; daraus wird Gefunkel, und das steht
+als Befund 14 des Prüfers schon im Protokoll. Statt die Zahl zu senken (was die
+Nähe leer macht), werden Instanzen jenseits von 11 m auf Größe null gezogen —
+über die Entfernung der **Instanz**, nicht des Scheitelpunkts, sonst zerrt es
+einen Horst in sich zusammen statt ihn als Ganzes wegzunehmen. In `4-aerial` ist
+von den Horsten nichts zu sehen und nichts zu messen.
+
+**Zwei Segmente je Halm statt drei, und das ist eine Budgetentscheidung.** Mit
+drei Segmenten und 3600 Horsten stand die Insel bei **320 792** Dreiecken von
+350 000 — kein Spielraum mehr. Zwei kosten vier Dreiecke je Halm statt sechs. Die
+Biegung liegt dafür auf der oberen Hälfte; reines `t³` war zu viel, der Halm
+stand dann bis kurz unter die Spitze senkrecht und las als Stachel.
+
+**Flecken statt Gleichverteilung.** Gleichmäßig gestreut ergaben 3600 Horste
+überall dieselbe dünne Belegung — im Bild eine Fläche mit vereinzelten Spitzen
+darauf, nirgends Wiese. Eine echte Wiese ist fleckig. Dieselben Halme in 150
+Flecken von 0,4 bis 1,2 m gelegt ergeben Stellen, an denen wirklich Gras steht;
+die kahleren Stellen dazwischen trägt die Grasnarbe aus Paket B. Das kostet kein
+einziges Dreieck und ist der größte Sprung dieses Pakets.
+
+Dazu, aus demselben Grund: Die fünf Halme eines Horsts stiegen zuerst aus **einem
+Punkt** auf — eher Agave als Büschel. Ihre Füße stehen jetzt über einen Kreis von
+3 cm verteilt, die Biegung zeigt nach außen; ein Horst deckt damit rund 8 cm
+Boden.
+
+### Ergebnis
+
+`1-eyelevel`, unterstes Band (Boden 2,8 m entfernt):
+
+| Stand | sd | \|dx\| | Paare > 40 |
+| --- | --- | --- | --- |
+| vor Paket B | 5,49 | 1,95 | 0,000 % |
+| nur Grasnarbe (Paket B) | 6,70 | 4,49 | 0,000 % |
+| mit Horsten | **14,75** | **5,79** | 0,716 % |
+
+Die 0,716 % sind Halmkanten, keine Rauschspitzen: Der Wackeltest gibt einen
+Quotienten von **0,269** — die Silhouetten sind groß genug, dass ein Kameraversatz
+von 1,5 mm sie kaum ändert. (Zum Vergleich: die Mikrostruktur aus Paket B liegt
+bei 0,776, weil ihre Merkmale nur fünf Bildpunkte breit sind.)
+
+### Kosten
+
+| | vorher | nachher | Budget |
+| --- | --- | --- | --- |
+| Draw-Calls | 78 | **78** | 120 |
+| Dreiecke | 212 792 | **299 192** | 350 000 |
+| Texturspeicher | 11,83 MB | **11,83 MB** | 60 MB |
+
+Ein einziger InstancedMesh, kein zweiter Draw-Call: Die Horste werfen **keinen**
+Schatten. Eine Schattenkarte mit 2,6 cm je Texel ist ein Texel je fünf Halme und
+ergäbe Rauschen statt Schatten — und den Schattendurchgang hätte sie verdoppelt.
+
+**86 400 Dreiecke für eine Wiese sind ein Viertel des Gesamtbudgets, und das ist
+eine bewusste Wahl.** Was danach noch an Geometrie kommt (Rinde, Bachbett,
+Wasserfall), hat 50 808 Dreiecke Luft. Wird das eng, sind die Horste die erste
+Stelle, an der gekürzt wird — die Fleckenzahl ist dafür ein einzelner Parameter.
+
+Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 5 bei 0,010 %. Zen-Prüfstand
+unverändert bei 93 Draw-Calls / 74 606 Dreiecken / 21,53 MB. Build grün, Konsole
+frei von Errors und Warnings.

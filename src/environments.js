@@ -2326,6 +2326,209 @@ function addGrassDecoration(group, rand, shape) {
   return bluetenFuesse;
 }
 
+// --- Grashorste ------------------------------------------------------------
+//
+// **Die zweite Hälfte des Prüferbefunds, und die erste ließ sich mit Struktur
+// im Shader nicht lösen.**
+//
+// Sein Satz war: „ein grünes Tuch mit eingesteckten Stecknadeln". Das Halmfeld
+// im Bodenshader hat das Tuch beseitigt — der Nachbarunterschied im vordersten
+// Band stieg von 1,32 auf 8,06. Die Stecknadeln bleiben trotzdem: Die Blumen
+// stehen auf nackten Stielen auf einer Fläche, die keine senkrechte Ebene hat.
+// Aus Augenhöhe ist eine Wiese aber gerade das — ein Feld, das nach oben steht
+// und in dem etwas steckt. Eine bemalte Ebene kann das nicht leisten, wie fein
+// sie auch gezeichnet ist.
+//
+// **Und warum die Horste beim ersten Mal wieder rausflogen.** Sie standen hier
+// schon einmal: 240 Stück aus je vier bis sechs gebogenen Halmen, bis zu 0,15
+// lokalen Einheiten hoch — bei WORLD_SCALE 4 also gut **60 cm**. Damit waren
+// sie aus Augenhöhe die dominierende Form im Vordergrund und lasen als Schilf.
+// Die Lehre war der **Maßstab**, nicht der Gedanke: Ein Grashalm auf einer
+// gepflegten Wiese ist 10 bis 16 cm hoch, also 0,025 bis 0,040 lokal, und damit
+// deutlich **unter** dem Blumenstiel (0,055 lokal = 22 cm). Er soll den Fuß der
+// Blume umgeben, nicht sie verdecken.
+//
+// **Der Fernbereich wird im Vertex-Shader zusammengezogen.** Ein Halm von 6 mm
+// Breite ist auf 20 m ein Drittel Bildpunkt — daraus wird Gefunkel, und genau
+// das steht als Befund 14 des Prüfers schon im Protokoll. Statt die Zahl der
+// Horste zu senken (was die Nähe leer macht), werden Instanzen jenseits von
+// 11 m auf Größe null gezogen: Sie kosten dann keine Fläche mehr, keine
+// Abtastung und keinen Draw-Call extra, weil es weiterhin ein einziger ist.
+function halmGeometrie(hoehe, breite, biegung, drehung, fussX, fussZ) {
+  // **Zwei Segmente, und das ist eine Budgetentscheidung, keine Vorliebe.**
+  // Bei drei Segmenten und 3600 Horsten stand die Insel bei 320 792 Dreiecken
+  // von 350 000 — kein Spielraum mehr für Dichte. Zwei Segmente kosten vier
+  // Dreiecke je Halm statt sechs; der Knick, den man dabei theoretisch
+  // befürchtet, liegt auf halber Halmhöhe, und ein Halm ist aus einem Meter
+  // dreißig Bildpunkte hoch. Die Biegung ist dafür auf die obere Hälfte
+  // verlagert (t im Quadrat, gewichtet mit 0,45 + 0,55·t), damit der untere
+  // Teil fast gerade steht und die Spitze überhängt — so sieht ein Grashalm
+  // aus. Reines t hoch drei war zu viel des Guten: Der Halm stand bis kurz
+  // unter die Spitze senkrecht und las als Stachel.
+  const SEG = 2;
+  const cd = Math.cos(drehung);
+  const sd = Math.sin(drehung);
+  const punkt = (t, seite) => {
+    const w = breite * (1 - 0.85 * t) * 0.5 * seite;
+    const x = biegung * t * t * (0.45 + 0.55 * t);
+    const y = hoehe * t;
+    // Halmachse in x, Breite in z, dann um die Hochachse gedreht.
+    return [fussX + x * cd - w * sd, y, fussZ + x * sd + w * cd];
+  };
+  const pos = [];
+  const col = [];
+  // Dunkel am Grund, hell an der Spitze: Das ist die Selbstverschattung eines
+  // Büschels und zugleich das Einzige, was einem Halm von zehn Bildpunkten
+  // Höhe eine Richtung gibt.
+  const grund = new THREE.Color().setHSL(0.270, 0.46, 0.17);
+  const spitze = new THREE.Color().setHSL(0.264, 0.50, 0.33);
+  const farbe = new THREE.Color();
+  const lege = (t, seite) => {
+    const p = punkt(t, seite);
+    pos.push(p[0], p[1], p[2]);
+    farbe.copy(grund).lerp(spitze, t * t * 0.6 + t * 0.4);
+    col.push(farbe.r, farbe.g, farbe.b);
+  };
+  for (let i = 0; i < SEG; i++) {
+    const t0 = i / SEG;
+    const t1 = (i + 1) / SEG;
+    lege(t0, -1);
+    lege(t0, 1);
+    lege(t1, 1);
+    lege(t0, -1);
+    lege(t1, 1);
+    lege(t1, -1);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(col), 3));
+  geo.computeVertexNormals();
+  return geo;
+}
+
+// **Ein Horst ist ein Büschel, kein Stern.** Die erste Fassung ließ alle fünf
+// Halme aus einem einzigen Punkt aufsteigen; im Bild ergab das vereinzelte
+// Spitzen auf einer glatten Fläche — eher Agave als Wiese. Die Füße stehen
+// jetzt über einen Kreis von 3 cm verteilt (0,008 lokal), und die Biegung
+// zeigt vom Mittelpunkt nach außen. Ein Horst deckt damit rund 8 cm Boden
+// statt eines Punktes, und das kostet kein einziges Dreieck.
+function horstGeometrie(rand) {
+  const halme = [];
+  const N = 6;
+  for (let i = 0; i < N; i++) {
+    const hoehe = 0.019 + rand() * 0.021;
+    const biegung = (0.24 + rand() * 0.34) * hoehe;
+    const richtung = (i / N) * TAU + rand() * 0.9;
+    const d = 0.008 * Math.sqrt(rand());
+    halme.push(
+      halmGeometrie(
+        hoehe,
+        0.006 + rand() * 0.003,
+        biegung,
+        richtung,
+        Math.cos(richtung) * d,
+        Math.sin(richtung) * d
+      )
+    );
+  }
+  return mergeGeometries(halme);
+}
+
+// Gibt die Fusspunkte NICHT zurueck: Ein Horst von 12 cm wirft keinen Fleck,
+// den man auf diese Entfernung faende, und die Kontaktverdunklung der Blumen
+// sitzt ohnehin schon darunter.
+function addGrassTufts(group, shape) {
+  // **Eigener Zufallsstrom.** Jede zusätzliche rand()-Ziehung aus dem Strom der
+  // Insel verschiebt alles danach — Bäume, Steine, Vögel. Diese Lehre steht
+  // seit der Wasserfallfahne im Protokoll und kostet hier eine Zeile.
+  const hr = mulberry32(0x48f2c1);
+  const geo = horstGeometrie(hr);
+  const material = new THREE.MeshStandardMaterial({
+    roughness: 0.85,
+    metalness: 0,
+    vertexColors: true,
+    side: THREE.DoubleSide,
+  });
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader.replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+       {
+         // Entfernung der INSTANZ, nicht des Scheitelpunkts: Sonst zerrt die
+         // Ausblendung einen Horst in sich zusammen, statt ihn als Ganzes
+         // verschwinden zu lassen.
+         #ifdef USE_INSTANCING
+           vec4 hMitte = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+         #else
+           vec4 hMitte = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+         #endif
+         transformed *= 1.0 - smoothstep(7.0, 11.0, length(hMitte.xyz));
+       }`
+    );
+  };
+  material.customProgramCacheKey = () => 'insel-horst-v3';
+  addWind(material, { strength: 0.10, speed: 2.3 });
+
+  const ANZAHL = 3600;
+  const horste = new THREE.InstancedMesh(geo, material, ANZAHL);
+  horste.name = 'grass-tufts';
+  horste.userData.fullCount = ANZAHL;
+  horste.receiveShadow = true;
+  // Kein Werfer: Ein Schattenwurf verdoppelte den Draw-Call und legte auf
+  // 12-cm-Halme eine Schattenkarte mit 2,6 cm je Texel — das ist ein Texel je
+  // fünf Halme und ergibt Rauschen, keinen Schatten.
+  horste.castShadow = false;
+  const dummy = new THREE.Object3D();
+  const frei = (x, z) => !shape.frei || shape.frei(x, z, 0.03);
+  // **Flecken statt Gleichverteilung, und das ist eine Frage des Budgets.**
+  //
+  // 3600 Horste kosten 3600 · 6 · 4 = 86 400 Dreiecke; die Insel steht damit
+  // bei rund 299 000 von 350 000. Mehr geht nicht, und gleichmäßig gestreut
+  // ergäben sie überall dieselbe dünne Belegung — im Bild eine Fläche mit
+  // vereinzelten Spitzen darauf, nirgends Wiese.
+  //
+  // Eine echte Wiese ist ohnehin fleckig: dichte Büschel, dazwischen kurzer
+  // Rasen. Dieselben Halme in 150 Flecken von 0,4 bis 1,2 m gelegt ergeben
+  // deshalb Stellen, an denen wirklich Gras steht — und die kahleren Stellen
+  // dazwischen trägt die Grasnarbe im Bodenshader.
+  const flecke = [];
+  for (let i = 0; i < 150; i++) {
+    const a = hr() * TAU;
+    // sqrt für Gleichverteilung über die Fläche; 0,94 hält die Flecken von
+    // der Abbruchkante weg, wo die Narbe ohnehin in Zungen ausläuft.
+    const r = shape.radius * shape.outline(a) * Math.sqrt(hr()) * 0.94;
+    flecke.push({ x: Math.sin(a) * r, z: Math.cos(a) * r, r: 0.10 + hr() * 0.20 });
+  }
+  let gesetzt = 0;
+  for (let i = 0; i < ANZAHL; i++) {
+    let platz = null;
+    for (let versuch = 0; versuch < 8 && !platz; versuch++) {
+      const flecken = flecke[Math.floor(hr() * flecke.length)];
+      const a = hr() * TAU;
+      const d = Math.sqrt(hr()) * flecken.r;
+      const x = flecken.x + Math.cos(a) * d;
+      const z = flecken.z + Math.sin(a) * d;
+      if (frei(x, z)) platz = [x, shape.heightAt(x, z), z];
+    }
+    if (!platz) {
+      dummy.position.set(0, -999, 0);
+      dummy.scale.setScalar(0);
+      dummy.updateMatrix();
+      horste.setMatrixAt(i, dummy.matrix);
+      continue;
+    }
+    dummy.position.set(platz[0], platz[1] - 0.004, platz[2]);
+    dummy.rotation.set((hr() - 0.5) * 0.18, hr() * TAU, (hr() - 0.5) * 0.18);
+    dummy.scale.setScalar(0.8 + hr() * 0.55);
+    dummy.updateMatrix();
+    horste.setMatrixAt(i, dummy.matrix);
+    gesetzt++;
+  }
+  horste.instanceMatrix.needsUpdate = true;
+  group.add(horste);
+  return gesetzt;
+}
+
 // Sanft animiertes Wasser: hellblaue Fläche mit fließenden Strähnen (Canvas-Textur,
 // deren V-Offset über die Zeit scrollt).
 // **Der Grund, warum die Insel nie reproduzierbar war.**
@@ -4471,6 +4674,7 @@ function createIslandEnvironment() {
   const shape = main.userData.shape;
   const bluetenFuesse = addGrassDecoration(group, rand, shape);
   addUndergrowth(group, rand, shape, bluetenFuesse);
+  addGrassTufts(group, shape);
   const waterfall = makeWaterfall(rand, shape);
   group.add(waterfall.group);
   const birds = makeBirds(rand);
