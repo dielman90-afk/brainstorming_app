@@ -3505,7 +3505,7 @@ function makeWaterfall(rand, shape) {
         // dass ein voller Kern plus additive Mischung reines Weiss ergibt und
         // damit jede Form verliert.
         emissive: 0xcdeaf8,
-        emissiveIntensity: 0.5,
+        emissiveIntensity: 1.6,
         transparent: true,
         opacity: 0.95,
         side: THREE.DoubleSide,

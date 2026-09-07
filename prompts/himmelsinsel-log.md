@@ -3154,3 +3154,81 @@ reproduziere.
 
 **Offen.** Wenn der Prüfer beim nächsten Durchgang dieselbe Stelle wieder meldet,
 braucht es von ihm die Kamera und den Kasten, nicht die Beschreibung.
+
+## Paket O — Der Wasserfall als verstreute weiße Punkte (Prüferbefund 15)
+
+### Zuerst der Werkzeugfehler, der diese Sitzung fünfmal in die Irre geführt hat
+
+`tools/crop.mjs` nimmt `<x> <y>` als **Mitte** des Ausschnitts, nicht als linke
+obere Ecke. Das stand nirgends, und ich habe es die ganze Sitzung über als Ecke
+gelesen. Die Folgen stehen verstreut in den letzten Paketen:
+
+* der Stamm-Messkasten „vier Bildpunkte daneben",
+* der Wolkenkasten auf einer Gruppe, die sich gar nicht geändert hatte,
+* die Krone „zweihundert Bildpunkte daneben",
+* ein Messband über eine Schattenkante, das in **beiden** Ständen „kein
+  Uebergang" fand,
+* und beinahe der Befund „die Gegenlichtkamera zeigt nur Himmel", den nur die
+  Pixelstatistik rechtzeitig widerlegt hat.
+
+Jedes Mal habe ich den Fehler bei der Szene gesucht. `crop.mjs` sagt es jetzt im
+Kopfkommentar und nimmt zusätzlich `--kasten x0,y0,x1,y1` — genau das Format, in
+dem `knotenkasten.mjs` seine Masken meldet, mit zehn Prozent Rand. Wer eine Maske
+gemessen hat, soll sie nicht in Mittelpunkt und Breite umrechnen müssen.
+
+Dazu: `knotenkasten.mjs` prüfte nur auf `isMesh` und meldete für den Wasserfall
+„0 Netze" — er besteht aus Punktwolken und Sprites. Jetzt auch `isPoints`,
+`isSprite`, `isLine`.
+
+### Der Befund, mit dem richtigen Ausschnitt
+
+Mit `--kasten` auf die Maske von `waterfall-sheet` gelegt, ist der Prüfer sofort
+zu bestätigen: Der Sturz ist ein **dünner, blasser Kratzer aus einzelnen
+Punkten** neben der Felswand — kein Körper, keine Bahn.
+
+`tools/sturzprobe.mjs`, differenziell über alle sechs Prüfbilder:
+
+    waterfall-sheet   in 1 von 6 Bildern vorhanden
+    4-aerial          1226 px   Ausschlag Mittel 10,5   groesster 19
+
+Zehn Stufen gegen einen Himmel um L 200. Der Sturz ist da und **unsichtbar**; was
+man sieht, sind die Tropfen.
+
+Ein früheres Paket hat genau dies schon einmal angefasst und `emissiveIntensity`
+auf 0,5 gesetzt — gemessen 9,1. Der Schritt hat also 1,4 Stufen gebracht und die
+Ursache nicht beseitigt.
+
+### Ergebnis
+
+`emissiveIntensity` 0,5 → **1,6**:
+
+| | vorher | nachher |
+| --- | --- | --- |
+| Fläche | 1226 px | 1250 px |
+| Ausschlag Mittel | 10,5 | **20,5** |
+| größter Ausschlag | 19 | **34** |
+| Hochpass auf der Maske | 4,72 | 6,96 |
+
+Im Bild liest der Sturz jetzt als zusammenhängendes helles Band statt als
+Punktreihe. Ausgebrannt ist er nicht — der größte Ausschlag liegt bei 34 Stufen,
+weit unterhalb der Schwelle, an der die Sonnenscheibe des Zen-Gartens ihre Form
+verloren hat.
+
+### Offen
+
+**Der Sturz steht in fünf von sechs Prüfbildern gar nicht im Bild.** Das ist kein
+Materialfehler, sondern eine Frage der Kameras: Er hängt an der Inselkante, und
+nur die Totale sieht dorthin. Solange das so ist, misst dieser Auftrag ihn an
+einer einzigen Aufnahme. Ein siebter Prüfblick von unten wäre die ehrlichere
+Grundlage — das ist eine Änderung am Prüfstand und gehört in ein eigenes Paket.
+
+Er hängt außerdem weiterhin **neben** der Felswand statt an ihr, mit Himmel
+dazwischen. Ein früheres Paket hat dafür die Mittellinie an die Wand gelegt; im
+Luftbild reicht das sichtbar nicht. Offen.
+
+### Regression und Kosten
+
+Eine Zahl im Material, zwei Werkzeugkorrekturen. 93 / 74 606 / 21,53 MB im
+Zen-Prüfstand, unverändert. Alle Zen-Bilder, Nachthimmel und Konstrukt
+**bitgleich**, Dojo Δmax 6 bei 0,009 %. Build grün, Konsole frei von Errors und
+Warnings.

@@ -32,7 +32,10 @@ try {
     page.evaluate(({ name, an }) => {
       let n = 0;
       window.__app.scene.traverse((o) => {
-        if (o.isMesh && o.name === name) {
+        // Nicht nur `isMesh`: Der Wasserfall besteht aus Punktwolken und
+        // Sprites, und die waren mit der Mesh-Pruefung unsichtbar fuer dieses
+        // Werkzeug — es meldete „0 Netze" fuer Knoten, die im Bild stehen.
+        if ((o.isMesh || o.isPoints || o.isSprite || o.isLine) && o.name === name) {
           o.visible = an;
           n++;
         }
