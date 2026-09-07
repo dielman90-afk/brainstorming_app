@@ -2475,3 +2475,82 @@ Kein Objekt, kein Dreieck, kein Byte Textur, kein Draw-Call: 78 / 299 192 /
 11,83 MB, unverändert gegenüber Paket C. Nachthimmel und Konstrukt **bitgleich**,
 Dojo Δmax 4 bei 0,007 %, Zen-Prüfstand unverändert. Build grün, Konsole frei von
 Errors und Warnings.
+
+## Paket E — Der Bach ist ein Farbstreifen ohne Bett (Prüferbefund 5)
+
+Ein früheres Paket hat hier die **Oberfläche** bearbeitet: Kräuselung, weiches
+Ufer in der Deckkraft, Schaumsaum. Der Prüfer meldet den Bach trotzdem wieder, und
+sein Wort ist diesmal **Bett**. Der Querschnitt durch `2-waterfall` bei y = 405
+sagt, woran es liegt:
+
+| | vorher |
+| --- | --- |
+| Wiese links | L 169,4 (148 \| 180 \| 127) |
+| Wasser | L 180–194 (137 \| 194 \| 208) |
+| Wiese rechts | L 169,4 (148 \| 180 \| 127) |
+
+Das Wasser ist **heller** als seine Umgebung, der Übergang drei Bildpunkte breit,
+und links wie rechts steht exakt derselbe Grünton. Es gibt kein einziges dunkles
+Bildelement — kein Ufer, keinen nassen Saum, keine Rinne. Ein Bach in der Natur
+sitzt immer in einem dunkleren Rahmen; das ist der Grund, warum man ihn überhaupt
+als Vertiefung liest und nicht als aufgemalten Strich.
+
+### Der Abstand zum Bach als Attribut, nicht als Scheitelfarbe
+
+Das Ufer ist rund einen Meter breit, die Ringe der Deckfläche liegen 0,28 lokal
+(1,1 m) auseinander. Eine Uferfarbe an den Scheitelpunkten fände deshalb
+höchstens jeden zweiten Ring — genau die Falle, die schon die Grasnarbe
+verschluckt hat.
+
+Ein **Abstand** dagegen überlebt die Interpolation: Er läuft zwischen zwei
+Scheitelpunkten fast genau linear, und die scharfe Schwelle setzt der Shader je
+Bildpunkt. `buildIslandBody` schreibt deshalb `shape.riverDist` als
+Vertex-Attribut `bachAbstand`; ein Meter Ufer wird so auf einem Netz mit 1,1 m
+Maschenweite eine saubere Kante. Auf den Mini-Inseln liefert `riverDist` 99 —
+dort passiert nichts.
+
+### Drei Zutaten
+
+* **Nasser Kies statt Gras** in den letzten 0,6 m vor dem Wasser, dunkel und
+  fast entsättigt, zum Wasser hin noch dunkler. Die Uferlinie franst über
+  dasselbe Fleckenrauschen aus, das die Wiese trägt, damit sie keine zweite
+  gerade Kante wird.
+* **Korn auf dem Kies.** Aus der Kamera von `2-waterfall` liegt das nahe Ufer
+  fast in der Blickachse und zieht sich über ein Viertel der Bildbreite; ohne
+  eigene Zeichnung stand dort eine glatte braune Fläche — ein Schmutzfleck, kein
+  Kies. Zwei Lagen, 5 cm und 1,2 cm, an die Weltkoordinate gebunden wie die
+  Grasnarbe.
+* **Das Wasser wird durchsichtig.** Deckkraft 0,92 → 0,70. Bis zu diesem Paket
+  lag unter dem Wasser dieselbe Wiese wie daneben; ein durchsichtiger Bach hätte
+  grünes Gras gezeigt. Mit dem Kiesbett darunter wird aus der Durchsicht Tiefe.
+
+### Der Maßstab war beim ersten Anlauf wieder falsch
+
+Zuerst stand das Ufer auf `riverDist` 0,30 bis 0,64 lokal. Das Wasserband hat
+eine halbe Breite von 0,12 an der Quelle und 0,25 an der Lippe — der Streifen lag
+also nicht am Wasser, sondern **daneben**, vier Meter breit über der halben
+Wiese. Richtige Idee, falscher Maßstab, derselbe Fehler wie bei den Grashorsten
+eine Runde zuvor. Jetzt 0,145 bis 0,335 lokal, also 0,58 bis 1,34 m von der
+Lauflinie.
+
+### Ergebnis
+
+Derselbe Querschnitt, y = 405, jetzt über 180 Bildpunkte:
+
+    Wiese      169,9  168,8  167,5
+    Böschung   162,7  155,0  149,2  143,6  140,5  138,0
+    Wasser     165,6  167,8  168,5  166,8  166,6  167,0  171,9  174,8
+    Böschung   172,1  146,9  128,9  134,2  142,0  148,0  155,0
+    Wiese      160,4  164,2  165,5  167,2  168,9
+
+Tonwertumfang über den Querschnitt **25 → 46 Stufen**, und der Bach hat zum
+ersten Mal einen dunklen Rahmen: Minimum 128,9 am Ufer gegen 169,4 auf beiden
+Seiten vorher. Die Differenzkarte zeigt zwei Bänder entlang des Laufs und sonst
+nichts.
+
+### Regression und Kosten
+
+Kein Objekt, kein Draw-Call, kein Byte Textur; ein Float je Scheitelpunkt des
+Inselkörpers. 78 / 299 192 / 11,83 MB, unverändert. Nachthimmel und Konstrukt
+**bitgleich**, Dojo Δmax 6 bei 0,010 %, Zen-Prüfstand unverändert bei 93 /
+74 606 / 21,53 MB. Build grün, Konsole frei von Errors und Warnings.

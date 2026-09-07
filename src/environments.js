@@ -1527,16 +1527,20 @@ function grasMaterial() {
   });
   _inselGras.onBeforeCompile = (shader) => {
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vGrasOrt;')
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vGrasOrt;\nattribute float bachAbstand;\nvarying float vBachAbstand;'
+      )
       .replace(
         '#include <worldpos_vertex>',
-        '#include <worldpos_vertex>\nvGrasOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        '#include <worldpos_vertex>\nvGrasOrt = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvBachAbstand = bachAbstand;'
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
         '#include <common>',
         `#include <common>
          varying vec3 vGrasOrt;
+         varying float vBachAbstand;
          float grasHash(vec2 p) {
            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
          }
@@ -1771,6 +1775,52 @@ function grasMaterial() {
            // der Optik, und sie steht als solche hier.
            float weite = smoothstep(4.0, 26.0, tiefe) * (1.0 - smoothstep(30.0, 55.0, tiefe));
            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.55, 0.44), weite * 0.30);
+           // --- Das Ufer -------------------------------------------------
+           //
+           // Der Pruefer: „Der Bach ist ein gestrichener Farbstreifen ohne
+           // Bett." Der Querschnitt durch 2-waterfall bei y = 405 gibt ihm
+           // recht und sagt genauer, woran es liegt:
+           //
+           //     Wiese links   L 169,4     (148 | 180 | 127)
+           //     Wasser        L 180-194   (137 | 194 | 208)
+           //     Wiese rechts  L 169,4     (148 | 180 | 127)
+           //
+           // Das Wasser ist **heller** als seine Umgebung, der Uebergang drei
+           // Bildpunkte breit, und links wie rechts steht exakt derselbe
+           // Graston. Es gibt kein einziges dunkles Bildelement — kein Ufer,
+           // keinen nassen Saum, keine Rinne. Ein Bach in der Natur sitzt
+           // immer in einem dunkleren Rahmen; das ist der Grund, warum man ihn
+           // ueberhaupt als Vertiefung liest und nicht als aufgemalten Strich.
+           //
+           // Also ein nasser Uferstreifen: Kies und Schlick statt Gras, in den
+           // letzten anderthalb Metern vor dem Wasser. Er laeuft ueber
+           // dasselbe Fleckenrauschen aus, das schon die Wiese traegt, damit
+           // die Uferlinie keine zweite gerade Kante wird.
+           // **Die Breite ist die des Bandes, nicht geschaetzt.** Das
+           // Wasserband hat eine halbe Breite von 0,12 an der Quelle und 0,25
+           // an der Lippe (makeWaterfall). Der erste Anlauf setzte das Ufer auf
+           // 0,30 bis 0,64 lokal und legte damit einen vier Meter breiten
+           // Schlickstreifen ueber die halbe Wiese — richtige Idee, falscher
+           // Massstab, derselbe Fehler wie bei den Grashorsten.
+           float uferRand = 0.145 + fleck * 0.12 + korn * 0.05;
+           float nass = 1.0 - smoothstep(uferRand, uferRand + 0.19, vBachAbstand);
+           if (nass > 0.002) {
+             // Nasser Kies: dunkel, fast entsaettigt, leicht warm. Zum Wasser
+             // hin noch dunkler — das ist die Rinne, durch die das Wasser
+             // gleich hindurchscheint.
+             //
+             // **Kies braucht Korn, sonst ist er ein Schmutzfleck.** Aus der
+             // Kamera von 2-waterfall liegt das nahe Ufer fast in der
+             // Blickachse und zieht sich ueber ein Viertel der Bildbreite; ohne
+             // eigene Zeichnung steht dort eine glatte braune Flaeche. Zwei
+             // Lagen: Steine von 5 cm und Grus von 1,2 cm, beide an die
+             // Weltkoordinate gebunden wie die Grasnarbe.
+             float steine = grasFbm(w * 20.0) - 0.5;
+             float grus = grasNoise(drehF * w * 78.0) - 0.5;
+             vec3 kies = mix(vec3(0.29, 0.26, 0.22), vec3(0.15, 0.145, 0.135), nass);
+             kies *= 1.0 + steine * 0.50 + grus * 0.34 * ganzNah;
+             diffuseColor.rgb = mix(diffuseColor.rgb, kies, nass * 0.92);
+           }
          }`
       )
       .replace(
@@ -1843,7 +1893,7 @@ function grasMaterial() {
   // Ohne eigenen Schluessel teilt three das uebersetzte Programm mit jedem
   // anderen MeshStandardMaterial derselben Merkmale — und die Insel bekaeme
   // ihre Einspritzung nicht.
-  _inselGras.customProgramCacheKey = () => 'insel-gras-v8';
+  _inselGras.customProgramCacheKey = () => 'insel-gras-v9';
   return _inselGras;
 }
 
@@ -1953,9 +2003,9 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
 
   // --- Dreiecke in drei Eimer (Gras / Erde / Fels) einsortieren ---
   const buckets = [
-    { pos: [], nor: [], col: [] },
-    { pos: [], nor: [], col: [] },
-    { pos: [], nor: [], col: [] },
+    { pos: [], nor: [], col: [], bach: [] },
+    { pos: [], nor: [], col: [], bach: [] },
+    { pos: [], nor: [], col: [], bach: [] },
   ];
   const c = new THREE.Color();
   const push = (zone, j, i) => {
@@ -1968,6 +2018,18 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
     b.nor.push(n[0], n[1], n[2]);
     bodyColor(c, zone, shape, p, isTip ? 1 : Math.max(0, ringT[j]), (k / S) * TAU);
     b.col.push(c.r, c.g, c.b);
+    // **Der Abstand zum Bach als Attribut, nicht als Scheitelfarbe.**
+    //
+    // Das Ufer ist rund einen Meter breit; die Ringe der Deckflaeche liegen
+    // 0,28 lokal, also 1,1 m auseinander. Eine Uferfarbe an den Scheitelpunkten
+    // faende deshalb hoechstens jeden zweiten Ring — dieselbe Falle, die schon
+    // die Grasnarbe verschluckt hat.
+    //
+    // Ein **Abstand** dagegen ueberlebt die Interpolation: Er laeuft zwischen
+    // zwei Scheitelpunkten fast genau linear, und die scharfe Schwelle setzt
+    // der Shader je Bildpunkt. Ein Meter Ufer wird so auf einem Netz mit
+    // 1,1 m Maschenweite eine saubere Kante.
+    b.bach.push(shape.riverDist(p[0], p[2]));
   };
   const quad = (zone, j, i) => {
     push(zone, j, i);
@@ -2007,6 +2069,7 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   const pos = new Float32Array(total);
   const nor = new Float32Array(total);
   const col = new Float32Array(total);
+  const bach = new Float32Array(total / 3);
   let write = 0;
   let offset = 0;
   const groups = [];
@@ -2015,6 +2078,7 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
     pos.set(b.pos, write);
     nor.set(b.nor, write);
     col.set(b.col, write);
+    bach.set(b.bach, write / 3);
     const count = b.pos.length / 3;
     groups.push([offset, count, z]);
     write += b.pos.length;
@@ -2023,6 +2087,7 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
   geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  geo.setAttribute('bachAbstand', new THREE.BufferAttribute(bach, 1));
   // UVs für die Oberflächenkarten. Der Inselkörper hatte bisher gar keine – er
   // war deshalb im Nahbereich eine glatte Fläche: In der Bodennahaufnahme lag
   // ein Felsblock über 30 % der Bildfläche auf ±1 Tonwert konstant. Auf einer
@@ -2721,7 +2786,12 @@ function bachMaterial(karte, fliess, uhr) {
     roughness: 0.18,
     metalness: 0.1,
     transparent: true,
-    opacity: 0.92,
+    // **0,70 statt 0,92, weil es jetzt etwas zu sehen gibt.** Bis zu diesem
+    // Paket lag unter dem Wasser dieselbe Wiese wie daneben; ein
+    // durchsichtiger Bach haette dann gruenes Gras gezeigt. Mit dem Kiesbett
+    // darunter wird aus der Durchsicht Tiefe: in der Mitte, wo mehr Wasser
+    // steht, satter und dunkler, am flachen Rand heller.
+    opacity: 0.7,
     depthWrite: false,
   });
   m.onBeforeCompile = (shader) => {
@@ -2800,7 +2870,7 @@ function bachMaterial(karte, fliess, uhr) {
          }`
       );
   };
-  m.customProgramCacheKey = () => 'insel-bach-v1';
+  m.customProgramCacheKey = () => 'insel-bach-v2';
   return m;
 }
 
