@@ -3483,3 +3483,104 @@ die zweite die inneren Schöpfe dieses Pakets.
 Draw-Calls unverändert 78, Textur unverändert 17,17 MB. Alle Zen-Bilder,
 Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei 0,008 %. Build grün,
 Konsole frei von Errors und Warnings.
+
+## Paket T — Der Himmel wusste nicht, wo die Sonne steht (Prüferbefund 21)
+
+Der Prüfer hat das als **Verdacht** gemeldet, nicht als Befund: „Der
+Himmelsverlauf scheint der Sonne nicht zu folgen." Ein Verdacht ist kein Grund
+zu bauen und keiner, ihn abzutun — er ist ein Grund zu messen.
+
+### Gemessen: die Kuppel allein, ein Bildpunkt je Richtung
+
+`tools/himmelsazimut.mjs` blendet alles außer der Himmelskuppel aus, stellt die
+Kamera in den Mittelpunkt und blickt der Reihe nach in feste Richtungen. Der
+Bildpunkt in der Mitte **ist** dann die Farbe der Kuppel in dieser Richtung —
+kein Gelände, kein Nebel, kein Rechteck, in dem noch etwas anderes steckt. Die
+Ausgabe steht in Azimut **relativ zur Sonne**: 0 Grad heißt in die Sonne,
+180 Grad in ihren Rücken.
+
+Der erste Lauf meldete für jede Richtung und jede Höhe denselben Wert 248. Das
+war nicht der Himmel, sondern ein Fehler im Werkzeug: Alle fünf Umgebungen
+hängen gleichzeitig in der Szene, drei von ihnen haben eine Kuppel, und die
+Suche über `scene.traverse` fand als letzte die **weiße** Kuppel der
+Matrix-Umgebung. Seitdem sucht das Werkzeug nur in `env-<id>`.
+
+Stand 927a271, Sonne bei Azimut 36,9 Grad und 38,7 Grad Höhe:
+
+    Höhe über dem Horizont      0°     6°    14°    30°    60°
+    Spanne über den Azimut    1,51   1,77   2,06   3,18   2,06   Stufen von 255
+
+Und in der Zeile am Horizont standen die Werte von 90 bis 270 Grad **auf die
+Stufe genau gleich**: 207,6 | 207,6 | 207,6 | 207,6 | 207,6 | 207,6. Der
+Verdacht ist damit bestätigt und mehr als das: Der Verlauf lief ausschließlich
+über die Höhe. Die einzige Richtungsabhängigkeit kam vom weiten Sonnenhof
+(`0.22 * pow(dot(dir, sunDir), 2.2)`), und der ist außerhalb von 90 Grad
+rechnerisch null — jenseits davon war der Himmel eine Drehfläche.
+
+Anderthalb Stufen sind unter der Wahrnehmungsschwelle. In der Brille heißt das:
+Man dreht sich einmal um sich selbst, und der Himmel bleibt derselbe.
+
+### Was geändert wurde
+
+Ein neuer Block in `makeDome`, hinter `HAS_STREUUNG`:
+
+* **Die Abkehr von der Sonne dunkelt ab** — `smoothstep(0.45, -0.6, cosT)`, am
+  Horizont voll, ab rund 38 Grad Höhe auf ein Drittel, weil die Sichtstrecke
+  durch den Dunst unten am längsten ist.
+* **Ein Dunstkeil über der Sonne** verschiebt den Farbton ins Warme:
+  `pow(max(cosT, 0.0), 1.6)`, gemischt gegen 0xf6e8d2.
+
+**Warum abdunkeln und nicht aufhellen.** Das ist keine Geschmacksfrage, sondern
+die Lehre aus dem flachen Bereich von ACES, die in diesem Log schon dreimal
+steht (Wolken, Sonnenscheibe, Grasfase): Was rund dreißig Stufen über seiner
+Umgebung liegt, verliert dort seine Sättigung. Der Himmel steht am Horizont
+schon bei 209 — heller heißt dort blasser, nicht heller. Kontrast ist nur nach
+unten zu gewinnen. Der Sonnenrand bleibt deshalb, wie er war, und alles andere
+sinkt. Auch der Dunstkeil hellt nicht auf: Seine Farbe hat linear die
+Helligkeit 0,80 gegen 0,83 der Horizontfarbe, er macht den Himmel dort also
+wärmer und nicht heller.
+
+**`streuung` ist ein Zusatz und keine Änderung am Vorgabeverhalten.** Ohne den
+Wert fehlt das `#define`, die drei neuen Uniforms stehen auf 0, und die Kuppel
+rechnet Zeichen für Zeichen dasselbe wie vorher. Zen-Garten und Matrix laufen
+deshalb unverändert weiter — das ist unten auch gemessen und nicht nur
+behauptet.
+
+### Ergebnis
+
+    Höhe über dem Horizont      0°     6°    14°    30°    60°
+    vorher                    1,51   1,77   2,06   3,18   2,06
+    nachher                  56,08  56,08  57,46  50,11  17,77   Stufen
+
+Am Horizont: 209,7 in die Sonne, 153,6 in ihrem Rücken. Der Farbton dazu von
+R−B = −10,4 (warmes Blassweiß) auf −46,1 (mattes Blau).
+
+In `4-aerial` ist der Unterschied am deutlichsten: Der Himmel war eine Platte
+in einem Ton, jetzt läuft er von blassem Warmweiß rechts über der Sonne zu
+mattem Graublau links. Die Insel steht damit erstmals **in** einem Raum und
+nicht vor einer Fläche.
+
+### Regression und Budget
+
+Die Änderungskarte von `3-edge-down` zeigt genau die Himmelsfläche um die
+Silhouette der Insel herum und sonst nichts — kein Gelände, keine Pflanze, kein
+Fels hat sich um einen Wert verschoben.
+
+    Nachthimmel   bitgleich
+    Zen-Garten    bitgleich
+    Matrix        bitgleich
+    Dojo          Δmax 4 bei 0,009 %   (das bekannte Rauschband des Laubs)
+
+    Draw-Calls     78   unverändert
+    Dreiecke   320 405  unverändert
+    Textur      17,17 MB unverändert
+
+Build grün, Konsole frei von Errors und Warnings.
+
+### Damit ist die Prüferliste zur Insel abgearbeitet
+
+Befund 1 bis 21 sind durch. Drei Punkte bleiben ausdrücklich offen und stehen
+je an ihrer Stelle im Log: die Polygonkante im Steinschatten (nicht
+reproduzierbar), 64 Prozent des Kronenzitterns (braucht eine Hülle, die die
+Krone trägt) und die 62,9 Prozent nackter Stamm (braucht hängende Zweige in
+`branchInto`, was drei Umgebungen trifft).

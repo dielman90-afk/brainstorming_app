@@ -121,7 +121,11 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
     side: THREE.BackSide,
     depthWrite: false,
     fog: false,
-    defines: { ...(sun ? { HAS_SUN: '' } : {}), ...(clouds ? { HAS_CLOUDS: '' } : {}) },
+    defines: {
+      ...(sun ? { HAS_SUN: '' } : {}),
+      ...(clouds ? { HAS_CLOUDS: '' } : {}),
+      ...(sun?.streuung ? { HAS_STREUUNG: '' } : {}),
+    },
     uniforms: {
       cloudMap: { value: clouds ? clouds.map : null },
       cloudColor: { value: new THREE.Color(clouds ? clouds.color : 0xffffff) },
@@ -139,6 +143,23 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
       sunColor: { value: new THREE.Color(sun ? sun.color : 0xffffff) },
       sunTight: { value: sun ? sun.tight : 60 },
       sunBroad: { value: sun ? sun.broad : 3 },
+      // **Der Himmel weiss, wo die Sonne steht — bisher wusste er es nicht.**
+      //
+      // Gemessen mit `tools/himmelsazimut.mjs` am Stand 927a271: Die Kuppel
+      // allein, Kamera im Mittelpunkt, ein Bildpunkt je Richtung. Ueber die
+      // vollen 360 Grad des Azimuts betrug die Spanne der Helligkeit **1,5
+      // Stufen am Horizont und 3,2 in 30 Grad Hoehe** — und von 90 bis 270
+      // Grad von der Sonne weg standen die Werte auf die Stufe genau gleich
+      // (207,6 | 207,6 | ... | 207,6). Der Verlauf lief nur ueber die Hoehe;
+      // die einzige Richtungsabhaengigkeit kam vom weiten Sonnenhof, und der
+      // ist ausserhalb von 90 Grad rechnerisch null.
+      //
+      // `streuung` schaltet die Richtungsabhaengigkeit ein. Ohne den Wert
+      // bleibt die Kuppel exakt so, wie sie war — Zen-Garten und Matrix
+      // laufen deshalb unveraendert weiter.
+      streuTiefe: { value: sun?.streuung?.tiefe ?? 0 },
+      streuDunst: { value: sun?.streuung?.dunst ?? 0 },
+      dunstColor: { value: new THREE.Color(sun?.streuung?.farbe ?? 0xffffff) },
     },
     vertexShader: `
       varying vec3 vPos;
@@ -154,6 +175,9 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
       uniform vec3 sunColor;
       uniform float sunTight;
       uniform float sunBroad;
+      uniform float streuTiefe;
+      uniform float streuDunst;
+      uniform vec3 dunstColor;
       uniform sampler2D cloudMap;
       uniform vec3 cloudColor;
       uniform vec3 cloudLit;
@@ -167,6 +191,30 @@ function makeDome(topColor, horizonColor, bottomColor = horizonColor, radius = 4
         vec3 col = h > 0.0
           ? mix(horizonColor, topColor, pow(h, 0.8))
           : mix(horizonColor, bottomColor, pow(-h, 0.8));
+        #ifdef HAS_STREUUNG
+          // **Die Abkehr von der Sonne, nicht die Zuwendung zu ihr.**
+          //
+          // Ein klarer Himmel ist zur Sonne hin blass und warm (Vorwaerts-
+          // streuung am Dunst) und in ihrem Ruecken dunkler und matter. Der
+          // Umweg ueber das Abdunkeln ist kein Geschmack, sondern die Lehre
+          // aus dem flachen Bereich von ACES: Was rund dreissig Stufen ueber
+          // seiner Umgebung liegt, verliert dort seine Saettigung. Der Himmel
+          // steht am Horizont schon bei 209; heller heisst dann blasser, nicht
+          // heller. Kontrast ist hier nur nach unten zu gewinnen — der
+          // Sonnenrand bleibt also, wie er war, und alles andere sinkt.
+          {
+            float cosT = dot(dir, sunDir);
+            // Am Horizont voll, ab rund 38 Grad Hoehe auf ein Drittel: Die
+            // Sichtstrecke durch den Dunst ist unten am laengsten.
+            float unten = 1.0 - smoothstep(0.02, 0.62, max(h, 0.0));
+            float abkehr = smoothstep(0.45, -0.6, cosT);
+            col *= 1.0 - streuTiefe * abkehr * (0.30 + 0.70 * unten);
+            // Der Dunstkeil ueber der Sonne verschiebt nur den Farbton: seine
+            // Helligkeit liegt bei der der Horizontfarbe (linear 0,80 gegen
+            // 0,83), er macht den Himmel dort also waermer und nicht heller.
+            col = mix(col, dunstColor, streuDunst * pow(max(cosT, 0.0), 1.6) * unten);
+          }
+        #endif
         #ifdef HAS_CLOUDS
           // **Schleierwolken, gerechnet in der Kuppel — kein Draw-Call.**
           //
@@ -5229,6 +5277,7 @@ function createIslandEnvironment() {
       color: 0x4a3a1c,
       tight: 250,
       broad: 2.2,
+      streuung: { tiefe: 0.26, dunst: 0.55, farbe: 0xf6e8d2 },
     })
   );
 
