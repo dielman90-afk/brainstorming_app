@@ -2911,3 +2911,68 @@ Zwei zusätzliche Rauschabfragen im Fragment-Shader der Stämme, sonst nichts:
 93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert. Alle sechs Zen-Bilder,
 Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei 0,007 %. Build grün,
 Konsole frei von Errors und Warnings.
+
+## Paket K — Wolken als unbeschattete Watte (Prüferbefund 11)
+
+Ein früheres Paket hat die Wolken von flachen Papierblobs zu Ballenhaufen
+gemacht, ihnen einen Silberrand gegeben und die Sonnenrichtung in die
+Scheitelfarben gebacken. Der Prüfer meldet sie trotzdem als Watte. Tonwertumfang
+über alle Wolkenpixel (p05 bis p95):
+
+| Prüfbild | vorher |
+| --- | --- |
+| `1-eyelevel` | 57,3 |
+| `4-aerial` | 38,4 |
+| `3-edge-down` | 54,1 |
+
+### Ein Rechenfehler, der die Basisabdunklung geviertelt hat
+
+Es stand `maxY = max(|y|)` und `up = y / maxY`. Nach dem **Abflachen der
+Unterkante** — einem Schritt, den ein früheres Paket eingeführt hat — liegt der
+Boden aber bei −0,34·size, während der Gipfel bis +1,4·size reicht. `up`
+erreichte an der Basis damit nur **−0,24** statt −1, und der Term `+0,24·up` nahm
+dort sechs Hundertstel statt einem Viertel.
+
+Genau die Basis ist aber die Fläche, die man von unten sieht, und sie war fast so
+hell wie der Gipfel. `up` läuft jetzt über die tatsächliche Höhenspanne der
+Wolke, −1 an der Unterkante bis +1 am Gipfel.
+
+### Und die Wolke war als EIN Körper modelliert
+
+Die vorhandenen Terme sagen: Sonne vorn hell, hinten dunkel, oben heller. Das ist
+die Modellierung einer Kugel. Was fehlte, ist die Wolke als **Haufen** — die
+tiefen Kerben dort, wo ein Lappen den nächsten beschattet. Genau daraus besteht
+das Bild einer Kumuluswolke.
+
+Gerechnet wird es beim Bauen, nach demselben Muster wie die Kronenverdeckung: von
+jedem Scheitelpunkt fünf Schritte Richtung Sonne, und gezählt, wie viel
+Ballenmasse dabei durchquert wird. Zur Laufzeit kostet es nichts — kein
+Draw-Call, kein Dreieck, kein Byte Textur, keine Shader-Zeile.
+
+### Ergebnis
+
+| Prüfbild | vorher | nachher |
+| --- | --- | --- |
+| `1-eyelevel` | 57,3 | **70,7** |
+| `4-aerial` | 38,4 | **47,0** |
+| `3-edge-down` | 54,1 | **58,1** |
+
+Im Bild trennen sich die Lappen: Zwischen den Ballen steht jetzt eine Kerbe, die
+Unterkante ist als Schattenfläche zu erkennen, und der Silberrand sitzt auf einem
+Körper statt auf einer Fläche.
+
+### Was ich beim Messen falsch gemacht habe
+
+Der erste Messkasten lag auf einer Wolkengruppe, die sich nicht geändert hatte —
+n und alle Perzentile waren zwischen den beiden Ständen **bitgleich**, und ich
+war kurz davor zu schließen, der Eingriff greife nicht. Die Differenzkarte zeigte
+den Schwerpunkt der Änderung 200 Bildpunkte daneben. Seither wird der
+Wolkenanteil über eine Farbmaske über das **ganze** Bild gemessen und nicht über
+einen von Hand gesetzten Kasten. Derselbe Fehler wie beim Stamm eine Runde zuvor,
+und ich habe ihn ein zweites Mal gemacht.
+
+### Regression und Kosten
+
+Alles beim Bauen gerechnet: 93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert.
+Alle Zen-Bilder, Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei
+0,007 %. Build grün, Konsole frei von Errors und Warnings.

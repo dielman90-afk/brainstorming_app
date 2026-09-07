@@ -3943,6 +3943,9 @@ function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
   // `rand()` hier verschoebe jede Ziehung danach, und das hat die
   // Wasserfallfahne schon einmal 2952 Dreiecke gekostet.
   const versaetze = [];
+  // Mittelpunkt und Halbmesser jedes Ballens — gebraucht fuer die
+  // Selbstverschattung weiter unten.
+  const kugeln = [];
   const ballen = 3 + Math.floor(rand() * 2);
   const knospen = 7 + Math.floor(rand() * 6);
   // Wolken sind breit und flach, nicht kugelig.
@@ -3961,11 +3964,11 @@ function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
     const g = new THREE.SphereGeometry(s, gross ? 16 : 9, gross ? 12 : 7);
     // Knospen sitzen bevorzugt oben und außen auf den Ballen.
     const f = gross ? 0.55 : 1.0;
-    g.translate(
-      (rand() - 0.5) * spanX * f,
-      (gross ? (rand() - 0.5) * 0.5 : (rand() - 0.15) * 0.85) * size,
-      (rand() - 0.5) * spanZ * f
-    );
+    const bx = (rand() - 0.5) * spanX * f;
+    const by = (gross ? (rand() - 0.5) * 0.5 : (rand() - 0.15) * 0.85) * size;
+    const bz = (rand() - 0.5) * spanZ * f;
+    g.translate(bx, by, bz);
+    kugeln.push({ x: bx, y: by, z: bz, r: s });
     geos.push(g);
     // Grosse Ballen tragen die Masse und bleiben dicht beieinander; die kleinen
     // Knospen duerfen staerker streuen, weil sie die Silhouette aufbrechen.
@@ -4012,10 +4015,45 @@ function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
   // kommt aus Streuung, nicht aus N·L.
   const dir = sunDir ? sunDir.clone().normalize() : new THREE.Vector3(0, 1, 0);
   const pos = merged.attributes.position;
+  // Wie viel Wolke liegt zwischen diesem Punkt und der Sonne? Fuenf Schritte
+  // von 0,42 Groesseneinheiten reichen ueber den groessten Ballen hinaus; jeder
+  // Schritt zaehlt, wie tief er in einer Kugel steckt.
+  const schatten = new Float32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    const px = pos.getX(i);
+    const py = pos.getY(i);
+    const pz = pos.getZ(i);
+    let dicke = 0;
+    for (let k = 1; k <= 5; k++) {
+      const t = k * 0.42 * size;
+      const sx = px + dir.x * t;
+      const sy = py + dir.y * t;
+      const sz = pz + dir.z * t;
+      for (const b of kugeln) {
+        const d2 = (sx - b.x) ** 2 + (sy - b.y) ** 2 + (sz - b.z) ** 2;
+        if (d2 < b.r * b.r) dicke += 1 - Math.sqrt(d2) / b.r;
+      }
+    }
+    schatten[i] = Math.min(1, dicke * 0.45);
+  }
   const colors = new Float32Array(pos.count * 3);
   const c = new THREE.Color();
-  let maxY = 0;
-  for (let i = 0; i < pos.count; i++) maxY = Math.max(maxY, Math.abs(pos.getY(i)));
+  // **`up` muss auf die tatsaechliche Hoehe der Wolke bezogen werden.**
+  //
+  // Hier stand `maxY = max(|y|)` und `up = y / maxY`. Nach dem Abflachen der
+  // Unterkante liegt der Boden aber bei −0,34·size, waehrend der Gipfel bis
+  // +1,4·size reicht: `up` erreicht an der Basis nur **−0,24** statt −1, und
+  // die Basisabdunklung war damit auf ein Viertel des Gemeinten
+  // zusammengeschrumpft. Genau die Basis ist aber die Flaeche, die man von
+  // unten sieht — und sie war fast so hell wie der Gipfel.
+  let maxY = -Infinity;
+  let minY = Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const y = pos.getY(i);
+    if (y > maxY) maxY = y;
+    if (y < minY) minY = y;
+  }
+  const spanY = Math.max(1e-4, maxY - minY);
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i);
     const y = pos.getY(i);
@@ -4024,7 +4062,9 @@ function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
     // Wie stark diese Stelle der Sonne zugewandt ist (−1 … 1)
     const facing = (x * dir.x + y * dir.y + z * dir.z) / len;
     // Und wie weit oben sie liegt – Wolken sind unten grundsätzlich dichter.
-    const up = maxY > 0 ? y / maxY : 0;
+    // −1 an der Unterkante, +1 am Gipfel, bezogen auf die tatsaechliche
+    // Hoehenspanne dieser Wolke.
+    const up = ((y - minY) / spanY) * 2 - 1;
     // Grundhelligkeit: sonnenzugewandt heller, oben heller, Schattenseite tiefer.
     // Die Beträge gelten seit der Umstellung auf ein unbeleuchtetes Material
     // ALLEIN – vorher kam die Szenenbeleuchtung als Faktor obendrauf.
@@ -4042,6 +4082,22 @@ function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
     // Helligkeitsunterschied auf 46 sRGB-Stufen zusammenschnurrt. Oben mehr
     // draufzugeben bringt dort nichts; Kontrast entsteht nur nach unten.
     let f = 0.58 + 0.34 * Math.max(0, facing) + 0.24 * up - 0.42 * Math.max(0, -facing);
+    // **Selbstverschattung zwischen den Lappen.**
+    //
+    // Der Pruefer nennt die Wolken „unbeschattete Watte". Gemessen umfasst eine
+    // nahe Wolke in `3-edge-down` p05 216,5 bis p95 240,9 — vierundzwanzig
+    // Stufen von 255 auf der groessten Flaeche des Himmels. Eine Haufenwolke
+    // hat sechzig bis hundert.
+    //
+    // Die Terme darueber modellieren die Wolke als **einen** Koerper: Sonne
+    // vorn hell, hinten dunkel, oben heller. Was fehlt, ist die Wolke als
+    // Haufen — die tiefen Kerben dort, wo ein Lappen den naechsten beschattet.
+    // Genau daraus besteht das Bild einer Kumuluswolke.
+    //
+    // Gerechnet wird es beim Bauen, wie die Kronenverdeckung: Von jedem
+    // Scheitelpunkt aus fuenf Schritte Richtung Sonne, und gezaehlt, wie viel
+    // Ballenmasse dabei durchquert wird. Zur Laufzeit kostet es nichts.
+    f -= 0.52 * schatten[i];
     // Der Lappenversatz. Er sitzt VOR dem Silberrand, damit der Rand seine
     // volle Wirkung behaelt, und ist bewusst klein: Eine Haufenwolke ist in
     // sich hell, ihre Lappen unterscheiden sich um Nuancen, nicht um Stufen.
