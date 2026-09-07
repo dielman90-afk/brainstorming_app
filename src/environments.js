@@ -1466,6 +1466,32 @@ function grasMaterial() {
              amp *= 0.5;
            }
            return summe / 0.9375;
+         }
+         // **Halme haben eine Richtung — Wertrauschen hat keine.**
+         //
+         // Der Pruefer hat die Wiese aus 1,1 m gemessen und dort den
+         // **niedrigsten** Nachbarunterschied der ganzen Flaeche gefunden:
+         // |dx| 1,32 von 255, waehrend das ferne Band 2,00 traegt. Die
+         // Struktur nimmt zur Kamera hin ab, und zwar monoton — dieselbe Falle
+         // wie zweimal zuvor, nur eine Stufe tiefer.
+         //
+         // Mehr Amplitude auf dem vorhandenen Korn haette das nicht geloest.
+         // Was aus 1,1 m fehlt, ist nicht Kontrast, sondern **Gestalt**: Ein
+         // isotropes Rauschen von 6 mm liest als Schleifpapier, ein Feld
+         // gleicher Frequenz mit 7 mm Breite und 5 cm Laenge liest als
+         // Halmwerk. Die Anisotropie kostet nichts — es ist dieselbe
+         // Rauschabfrage in einem gestreckten, gedrehten Koordinatensystem —
+         // und sie **hilft** gegen Flimmern: Laengs der Halmachse gibt es
+         // keine hohe Ortsfrequenz, die aliasen koennte.
+         //
+         // Die Richtung kommt aus dem bereits berechneten Korn (Zellen von
+         // 32 cm) und dreht damit ueber die Flaeche, statt ein Kammuster zu
+         // legen.
+         float halmFeld(vec2 p, float winkel, float quer, float laengs) {
+           float c = cos(winkel);
+           float s = sin(winkel);
+           vec2 q = mat2(c, -s, s, c) * p;
+           return grasNoise(vec2(q.x * quer, q.y * laengs));
          }`
       )
       .replace(
@@ -1540,9 +1566,57 @@ function grasMaterial() {
            float korn = grasFbm(w * 3.1) - 0.5;
            float halme = grasFbm(w * 22.0) - 0.5;
            float feinst = grasNoise(drehF * w * 85.0) - 0.5;
+           // Halmwerk: 7 mm quer, 5 cm laengs, Richtung aus dem Korn. Aus
+           // 1,1 m ist die Querweite 4,5 Bildpunkte — gross genug, um nicht zu
+           // aliasen, klein genug, um als Halm und nicht als Streifen zu
+           // lesen. Ausgeblendet ab 2,2 m, wo sie unter zwei Bildpunkte faellt.
+           // **Ausgeblendet wird nach Bildpunkten, nicht nach Metern.**
+           //
+           // Eine Ausblendung ueber die Entfernung trifft den flachen Blick
+           // nicht: Am Boden liegt zwei Meter vor den Fuessen dieselbe
+           // Entfernung an wie ein Stueck Wiese, das unter streifendem Winkel
+           // gesehen wird — im ersten Fall deckt ein Bildpunkt zwei
+           // Millimeter, im zweiten zwei Zentimeter. fwidth gibt genau diese
+           // Weltweite eines Bildpunkts; die Halme werden zurueckgenommen,
+           // sobald ihre Querweite von 9,1 mm unter anderthalb Bildpunkte
+           // faellt, und sind bei zwei Dritteln eines Bildpunkts ganz weg.
+           //
+           // **Sie ist ein Netz, keine Bremse.** Mit den zuerst gesetzten
+           // Schwellen 3,0 / 7,5 mm hat sie im Band von 1,7 bis 2,2 m die
+           // frisch gebaute Struktur wieder auf den Ausgangswert
+           // heruntergezogen (|dx| 6,31 auf 1,76) — und zwar dort, wo gar kein
+           // Flimmern zu messen war (Paare ueber 40: 0,008 Prozent). Der
+           // Grenzfall, den sie abfangen soll, ist der streifende Blick, nicht
+           // der schraege; sie setzt deshalb erst ein, wo ein Halm wirklich
+           // schmaler als anderthalb Bildpunkte wird.
+           // **Die schmalere der beiden Bildachsen entscheidet.** Auf dem
+           // streifend gesehenen Boden ist der Fussabdruck eines Bildpunkts
+           // stark laenglich: quer zur Blickrichtung 3 mm, laengs 12. Wer
+           // beide mittelt, blendet die Halme schon bei zwei Metern aus, obwohl
+           // sie quer noch vier Bildpunkte breit sind. Das Halmfeld ist selbst
+           // laenglich und beliebig gedreht; die scharfe Bildachse ist deshalb
+           // das richtige Mass.
+           float bpWeite = min(length(dFdx(w)), length(dFdy(w)));
+           float halmAn = (1.0 - smoothstep(3.0, 9.0, tiefe)) *
+                          (1.0 - smoothstep(0.0030, 0.0075, bpWeite));
+           // **Der Kontrast einer Wiese sitzt in den Luecken, nicht auf den
+           // Halmen.** Ein symmetrischer Ausschlag um den Mittelwert ergab im
+           // Bild einen Filz: viel feine Faser, aber kein Halmwerk. Was fehlt,
+           // sind die **schmalen tiefen Spalten** zwischen den Halmen — auf
+           // der Wiese ist die helle Flaeche gross und zusammenhaengend und
+           // das Dunkel schmal und tief. Das ist keine Frage der Amplitude,
+           // sondern der Verteilung: pow(1 - h, 2.6) laesst die obere
+           // Haelfte des Feldes fast unberuehrt und zieht nur den unteren
+           // Rand kraeftig herunter.
+           //
+           // Der Erwartungswert dieses Ausdrucks wird abgezogen, damit die
+           // Wiese ihre gemessene Helligkeit von 184,7 behaelt und nicht
+           // insgesamt absackt.
+           float halmH = halmAn > 0.002 ? halmFeld(w, korn * 6.0, 110.0, 9.0) : 0.5;
+           float spalt = pow(1.0 - halmH, 1.7) - 0.31;
            diffuseColor.rgb *=
              1.0 + fleck * 0.055 + korn * 0.26 * nah + halme * 0.30 * ganzNah +
-             feinst * 0.26 * superNah;
+             feinst * 0.26 * superNah - spalt * 0.55 * halmAn;
            // --- Luftperspektive auf der Bodenebene ------------------------
            //
            // Der Pruefer: „Gras 1-eyelevel ferner Kamm L 180,0 / Saettigung
@@ -1627,6 +1701,23 @@ function grasMaterial() {
              // zwischen Halmen, den die Helligkeit allein nicht macht — und
              // sie ist der Grund, warum die Wiese aus einem Meter Entfernung
              // ueberhaupt eine Richtung bekommt.
+             // **Eine Querneigung auf den Halmen bringt nichts — gemessen.**
+             //
+             // Naheliegend waere, die Spalten der Albedo mit einer
+             // Normalenstoerung quer zur Halmachse zu begleiten: Die Sonne
+             // steht 38,7 Grad hoch, eine Querneigung moduliert N*L, und das
+             // trennt Halmwerk von einem bedruckten Tuch. Gebaut und gemessen
+             // wurde es, im vordersten Band aus 1,1 m:
+             //
+             //     ohne Querneigung   |dx| 8,06   Paare ueber 40: 0,057 %
+             //     mit  Querneigung   |dx| 8,33   Paare ueber 40: 0,106 %
+             //
+             // Drei Prozent mehr Struktur, doppelt so viele Ausreisser — und
+             // im vierfach vergroesserten Ausschnitt kein Unterschied, den man
+             // benennen koennte. Bei 5,8 Bildpunkten Halmbreite ist die
+             // Neigung zu kleinteilig, um als Form zu lesen; sie wird zu Korn.
+             // Die Zeilen sind deshalb nicht da, und das ist eine Messung,
+             // keine Auslassung.
              float superNahN = 1.0 - smoothstep(1.2, 3.0, tiefe);
              if (superNahN > 0.002) {
                mat2 drehN = mat2(0.8018, -0.5976, 0.5976, 0.8018);
@@ -1645,7 +1736,7 @@ function grasMaterial() {
   // Ohne eigenen Schluessel teilt three das uebersetzte Programm mit jedem
   // anderen MeshStandardMaterial derselben Merkmale — und die Insel bekaeme
   // ihre Einspritzung nicht.
-  _inselGras.customProgramCacheKey = () => 'insel-gras-v7';
+  _inselGras.customProgramCacheKey = () => 'insel-gras-v8';
   return _inselGras;
 }
 

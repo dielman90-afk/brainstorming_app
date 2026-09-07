@@ -2149,3 +2149,128 @@ der Wasserfallfahne im Protokoll.
 77 Draw-Calls (von 120), 212 792 Dreiecke, 11,83 MB Textur. Nachthimmel und
 Zen-Garten **bitgleich**, Dojo Δmax 6 bei 0,010 %. Build grün, Konsole frei von
 Errors und Warnings.
+
+## Paket B — Die Wiese hat keine Grasnarbe (Prüferbefund 1)
+
+Sein Satz: „Wer sich in der Brille hinhockt und die Grasnarbe ansieht, sieht
+**kein Gras**, sondern ein grünes Tuch mit eingesteckten Stecknadeln."
+
+### Bestätigt, und schlimmer als gedacht
+
+Mit dem neuen `tools/grasnarbe.mjs` (mittlerer Nachbarunterschied getrennt nach
+x und y, dazu der Anteil der Paare über 40 Stufen) über vier Bänder in
+`6-groundcover`. Die Entfernungen sind nicht geschätzt, sondern mit
+`tools/strahl.mjs` durch die Bildmitte gemessen: Der Boden liegt am unteren
+Bildrand **1,08 m** vor der Kamera und im obersten Band 2,2 m.
+
+| Band | Entfernung | Mittel | \|dx\| | \|dy\| | Paare > 40 |
+| --- | --- | --- | --- | --- | --- |
+| Vordergrund | 1,1 m | 185,1 | **1,32** | 1,99 | 0,000 % |
+| zweites | 1,4–1,7 m | 184,8 | 1,60 | 2,94 | 0,000 % |
+| drittes | 1,7–2,2 m | 183,6 | 1,73 | 3,64 | 0,000 % |
+| viertes | ab 2,2 m | 179,1 | 2,00 | 4,33 | 0,000 % |
+
+Die Struktur nimmt **zur Kamera hin ab**, monoton. Das ist derselbe Befund wie in
+den Paketen „Die Wiese trägt keine Modellierung" und „Wiesenstruktur sitzt in der
+Ferne", eine Vergrößerungsstufe tiefer — und beide Male hatte ich ihn für erledigt
+gehalten.
+
+### Warum mehr Amplitude nicht die Antwort war
+
+Der erste Anlauf hat den vorhandenen feinsten Maßstab (1,2 cm, isotropes
+Wertrauschen) verstärkt. Im vierfach vergrößerten Ausschnitt las das als **Filz**:
+viel feine Faser, keine Halme. Was aus 1,1 m fehlt, ist nicht Kontrast, sondern
+Gestalt.
+
+Neu ist deshalb ein **anisotropes** Feld: dieselbe Rauschabfrage in einem
+gedrehten, gestreckten Koordinatensystem — 9,1 mm quer, 111 mm längs. Die
+Richtung kommt aus dem bereits berechneten Korn (Zellen von 32 cm) und dreht damit
+über die Fläche, statt ein Kammuster zu legen. Kosten: eine Rauschabfrage, kein
+Texturspeicher.
+
+Der zweite Fehlversuch steckt in der Verteilung: Ein symmetrischer Ausschlag um
+den Mittelwert ergibt Faser. Auf einer Wiese ist die helle Fläche groß und
+zusammenhängend und das Dunkel **schmal und tief** — die Spalten zwischen den
+Halmen. `pow(1 - h, 1.7)` lässt die obere Hälfte des Feldes fast unberührt und
+zieht nur den unteren Rand herunter; der Erwartungswert wird abgezogen, damit die
+Wiese ihre Helligkeit behält. Mit `pow(..., 2.6)` und 5,7 mm Querweite wurden aus
+den Spalten **einzelne Bildpunkte**: 1,147 % der Nachbarpaare sprangen über 40
+Stufen, im Bild Pfeffer statt Gras. Breiter und weicher, und der Wert fiel auf
+0,057 %.
+
+### Ausgeblendet wird nach Bildpunkten, nicht nach Metern
+
+Eine Ausblendung über die Entfernung trifft den flachen Blick nicht: Auf dem
+streifend gesehenen Boden ist der Fußabdruck eines Bildpunkts stark länglich —
+quer zur Blickrichtung 3 mm, längs 12. `fwidth` gibt diese Weltweite. Zwei
+Lehren dazu, beide gemessen:
+
+* Wer **beide** Bildachsen mittelt (`0,5·(fwidth.x + fwidth.y)`), blendet die
+  Halme schon bei zwei Metern aus, obwohl sie quer noch vier Bildpunkte breit
+  sind — im Band 1,7–2,2 m fiel \|dx\| von 6,31 zurück auf 1,76, und zwar dort,
+  wo gar kein Flimmern zu messen war (0,008 % Paare über 40). Maßgeblich ist die
+  **schmalere** Bildachse: `min(length(dFdx(w)), length(dFdy(w)))`.
+* Die Entfernungsausblendung 1,4 → 3,4 m war für die Augenhöhenkamera falsch
+  gewählt: Dort liegt der Boden am unteren Bildrand **2,8 m** entfernt, das Feld
+  war also schon fast aus. Jetzt 3,0 → 9,0 m, mit der Bildpunktschwelle als Netz.
+
+### Ergebnis
+
+`6-groundcover`, dieselben vier Bänder:
+
+| Band | \|dx\| vorher | \|dx\| nachher | Paare > 40 nachher |
+| --- | --- | --- | --- |
+| 1,1 m | 1,32 | **8,06** | 0,057 % |
+| 1,4–1,7 m | 1,60 | **8,19** | 0,051 % |
+| 1,7–2,2 m | 1,73 | **8,34** | 0,080 % |
+| ab 2,2 m | 2,00 | **7,17** | 0,035 % |
+
+`1-eyelevel`, unteres Band (Boden 2,8 m entfernt): \|dx\| 1,92 → **4,90**, kein
+einziges Paar über 40. Die Totale `4-aerial` ist im Wiesenkasten **bitgleich** —
+dort ist das Feld vollständig ausgeblendet.
+
+### Was gemessen und dann wieder ausgebaut wurde
+
+Naheliegend wäre eine Normalenstörung quer zur Halmachse: Die Sonne steht 38,7°
+hoch, eine Querneigung moduliert N·L. Gebaut, gemessen, im vordersten Band:
+
+    ohne Querneigung   |dx| 8,06   Paare über 40: 0,057 %
+    mit  Querneigung   |dx| 8,33   Paare über 40: 0,106 %
+
+Drei Prozent mehr Struktur, doppelt so viele Ausreißer — und im vierfach
+vergrößerten Ausschnitt kein Unterschied, den man benennen könnte. Bei 5,8
+Bildpunkten Halmbreite ist die Neigung zu kleinteilig, um als Form zu lesen. Die
+Zeilen sind draußen; die Begründung steht als Messung im Quelltext, damit sie
+nicht in einem halben Jahr noch einmal gebaut wird.
+
+### Was damit **nicht** erledigt ist
+
+Der Prüferbefund hat zwei Hälften, und dieses Paket löst nur die erste. Im
+Augenhöhenbild liest die Wiese weiterhin als glattes Tuch, weil ihr die
+**vertikale** Ebene fehlt: Die Blumen stehen auf nackten Stielen, ohne
+irgendetwas um ihren Fuß. Das ist der Teil „eingesteckte Stecknadeln", und
+Mikrostruktur kann ihn nicht beheben — das braucht Grashorste, in der richtigen
+Größe. (Sie waren einmal da und flogen raus, weil sie mit 0,15 lokalen Einheiten
+= 0,6 m als Schilf lasen. Die Lehre war der Maßstab, nicht der Gedanke.) Nächstes
+Paket.
+
+### Wackeltest
+
+`tools/kamm.mjs --hoch`, Versatz 1,5 / 3,0 / 4,5 mm, Vordergrundband:
+Zittern 1,37 → 8,20, Quotient 0,200 → 0,776, max dL 12 → 55.
+
+Das ist ein **erwarteter** Anstieg und kein Flimmerbefund: Die Struktur ist an
+die Weltkoordinate gebunden, ein Kameraversatz von 1,5 mm verschiebt das Bild bei
+1,1 m um knapp einen Bildpunkt, und ein Merkmal von 5,8 Bildpunkten Breite ändert
+sich dabei rechnerisch um rund vier Fünftel seiner räumlichen Streuung. Der Wert,
+der Flimmern anzeigt, ist der Anteil einzelner Ausreißer, und der liegt überall
+unter 0,08 %. Der Vorzustand hatte einen Quotienten von 0,200, weil dort schlicht
+**nichts** war, das sich hätte ändern können.
+
+### Regression und Kosten
+
+93 Draw-Calls (von 120), 74 606 Dreiecke, 21,53 MB Textur — die Zahlen des
+Zen-Prüfstands, unverändert gegenüber dem Vorstand: Das Paket fügt weder ein
+Objekt noch ein Byte Textur hinzu, nur Rechenzeit im Fragment-Shader.
+Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei 0,010 %. Build grün,
+Konsole frei von Errors und Warnings.
