@@ -1543,3 +1543,71 @@ Warnings.
 * Sockel und Polster lesen als zwei Werkstoffe mit harter Trennlinie
   (Befund 15) — der Sockelkeder ist vorhanden, trägt aber nicht.
 * Die Rosette liest als Schokolade (Befund 12).
+
+---
+
+## Paket 19 — Die drei kleineren Sesselbefunde
+
+Befunde 6, 12 und 15 des Prüfers in einem Paket, weil sie dasselbe Möbel und
+dieselbe Ursache haben: **In einem Raum ohne Lichtrichtung trägt eine Wölbung
+nichts.** Was hier Form gibt, ist eine Kante oder ein Tiefenunterschied.
+
+### Innenkante Kissen/Lehne (Befund 6)
+
+„Die Sitzfläche trifft die Rückenplatte in einer scharfen rechtwinkligen
+Innenkante wie zwei Wände eines Kastens — kein Spalt, keine Kehle, kein
+Polsterwulst." Genau so war es gebaut: zwei Quader, die sich durchdringen. An
+einem echten Sessel liegt dort die Naht zwischen Sitz- und Rückenbahn, und die
+ist ein Wulst, kein Winkel.
+
+Jetzt ein liegender Schlauch quer über die Sitzbreite, Radius 26 mm.
+
+**Erster Anlauf daneben:** Ich habe ihn auf y = 0,40 gelegt, also auf halbe
+Kissenhöhe — vollständig **im** Kissen. Sichtbar war nichts. Die Kehle sitzt an
+der Oberkante: Kissenmitte 0,38 plus halbe Kissenhöhe 0,075 macht 0,455.
+
+### Sockel ohne Modellierung (Befund 15)
+
+Der Prüfer misst auf einem 60×50-Feld einen Umfang von 34 bis 43 Stufen bei
+einem mittleren Nachbarunterschied von 0,92 — „das untere Drittel des Sessels
+wirkt wie ein Loch". Eine senkrechte Fläche in einem Raum ohne Lichtrichtung hat
+überall dieselbe Normale; da ist nichts zu beleuchten.
+
+Was ihr Form gibt, ist auch hier die Verdeckung: Ein Sockel steht 24 cm über dem
+Boden, und je tiefer eine Stelle liegt, desto weniger Himmel sieht sie. Als
+Scheitelfarben, 0,45 an der Unterkante bis 1,0 an der Oberkante.
+
+| Sockel, Mittel je Höhendrittel | oben | Mitte | unten | Gefälle |
+| --- | --- | --- | --- | --- |
+| vorher | 46,9 | 43,6 | 41,9 | 5,0 |
+| Faktor 0,60 unten | 45,5 | 41,0 | 37,5 | 8,0 |
+| **Faktor 0,45 unten** | 44,8 | 39,9 | 35,4 | **9,4** |
+
+Neun Stufen sind nicht viel, und das ist ehrlich gesagt die Grenze des
+Verfahrens: Ein multiplikativer Faktor auf einen ohnehin dunklen Werkstoff
+(0x4c1216) ergibt wenige absolute Stufen. Was man im Bild sieht, ist trotzdem
+deutlich — der Sockel liest jetzt als Plinthe statt als Loch.
+
+**Und ein Anlauf daneben:** Ich habe zuerst die Kederschnur von 8 auf 11 mm
+verstärkt, weil der Prüfer „ohne Keder" meldet. Im Bild stand daraufhin ein
+dunkler Stab quer über die Sockelvorderseite — **derselbe Fehler, der in diesem
+Protokoll schon einmal steht** („las als vergessener Draht", Paket 3). Der Keder
+bleibt bei 8 mm; was dem Übergang fehlte, war die Modellierung darunter.
+
+### Rosette als Schokolade (Befund 12)
+
+„Eine weiche braune Blüte aus acht gewölbten Blobs, ohne Kante, ohne Glanzlicht,
+völlig streuend." Die Rosette besteht aus lauter Wölbungen — und Wölbungen
+tragen hier nichts. Was ihr fehlt, ist der **Tiefenunterschied**: An geschnitztem
+Holz ist der zurückliegende Teller dunkler als der Ring darüber, weil er weniger
+Himmel sieht.
+
+Jetzt in Scheitelfarben: Teller 0,58, Blätter 0,95, Buckel 1,12, Ring 1,18.
+
+### Regression und Kosten
+
+Draw-Calls 47 → **49** (der Sockel bekommt eigene Scheitelfarben und damit einen
+eigenen Werkstoff, die Rosette ebenfalls — beides je ein Netz für beide Sessel),
+Dreiecke 93 828 → **94 020**, Texturspeicher 1,98 MB. Zen, Nachthimmel und Insel
+**bitgleich**, Dojo Δmax 5 bei 0,010 %. Build grün, Konsole frei von Errors und
+Warnings.

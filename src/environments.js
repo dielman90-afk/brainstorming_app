@@ -12863,10 +12863,24 @@ function konstruktSesselWerkstoffe() {
     // Rosette ein eigenes Netz und damit ein Knoten, den `knotenwerte.mjs`
     // messen kann. Das kostet einen Draw-Call — bei 47 von 120 ist das der
     // billigste Messzugang, den diese Szene zu bieten hat.
+    // **Scheitelfarben statt eines einzigen Tons.**
+    //
+    // Der Pruefer liest die Rosette als „weiche braune Bluete ohne Kante, ohne
+    // Glanzlicht" — Vollmilchschokolade. Der Grund ist derselbe wie an der
+    // Kissenoberseite: In einem Raum ohne Lichtrichtung traegt eine Woelbung
+    // nichts, und die Rosette besteht aus lauter Woelbungen. Was ihr fehlt, ist
+    // nicht Relief, sondern **Tiefenunterschied**: An geschnitztem Holz ist der
+    // zurueckliegende Teller dunkler als der Ring darueber, weil er weniger
+    // Himmel sieht.
+    //
+    // Das steht in Scheitelfarben, aus demselben Grund wie beim Sitzkissen: Sie
+    // werden vor dem Verschmelzen berechnet und ueberleben das Backen der
+    // Matrix.
     const rosenholz = new THREE.MeshStandardMaterial({
       color: 0x4a2d18,
       roughness: 0.34,
       metalness: 0.05,
+      vertexColors: true,
     });
     // 0,5 und nicht 0,7: Bei 0,7 wurde aus der Rosette ein Messingmedaillon.
     // Poliertes Nussbaum faengt den Raum, es spiegelt ihn nicht.
@@ -13084,6 +13098,19 @@ function polsterKissen(breite, hoehe, tiefe, kante = 0.05, woelbung = 0.022, seg
 // eingeschalteten Scheitelfarben — die tragen die Verdeckung. Gemerkt und
 // nicht je Sessel geklont: `makeConstructArmchair` laeuft zweimal, und
 // `verschmelzeObjekte` gruppiert nach Werkstoff. Zwei Klone waeren zwei Netze.
+// Der Sockelwerkstoff ist `leatherDark` mit eingeschalteten Scheitelfarben —
+// dieselbe Bauart wie beim Kissen, und aus demselben Grund gemerkt statt je
+// Sessel geklont.
+let _konstruktSockel = null;
+function konstruktSockelLeder() {
+  if (!_konstruktSockel) {
+    const { leatherDark } = konstruktSesselWerkstoffe();
+    _konstruktSockel = leatherDark.clone();
+    _konstruktSockel.vertexColors = true;
+  }
+  return _konstruktSockel;
+}
+
 let _konstruktKissen = null;
 function konstruktKissenLeder() {
   if (!_konstruktKissen) {
@@ -13114,7 +13141,34 @@ function makeConstructArmchair() {
   const backZ = -D / 2 + BACK_T / 2;
 
   // Unterbau
-  const base = new THREE.Mesh(roundedBox(W, 0.28, D, 0.05), leatherDark);
+  // **Der Sockel trug keine Modellierung.**
+  //
+  // Der Pruefer misst auf einem 60x50-Feld einen Umfang von 34 bis 43 Stufen
+  // bei einem mittleren Nachbarunterschied von 0,92 — „das untere Drittel des
+  // Sessels wirkt wie ein Loch". Der Grund ist derselbe wie an der
+  // Kissenoberseite: eine senkrechte Flaeche in einem Raum ohne Lichtrichtung
+  // hat ueberall dieselbe Normale.
+  //
+  // Was ihr Form gibt, ist auch hier die Verdeckung: Ein Sockel steht 24 cm
+  // ueber dem Boden, und je tiefer eine Stelle liegt, desto weniger Himmel
+  // sieht sie. Als Scheitelfarben, weil `verschmelzeObjekte` die Matrix in die
+  // Geometrie backt und ein Shader die Sockelkoordinate danach nicht mehr
+  // kennt (die Lehre steht am Sitzkissen).
+  const baseGeo = roundedBox(W, 0.28, D, 0.05);
+  {
+    const pos = baseGeo.attributes.position;
+    const farben = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      // 0,45 an der Unterkante, 1,0 an der Oberkante. Der erste Anlauf stand
+      // auf 0,60 und ergab ueber die Sockelhoehe nur 8 Stufen Gefaelle —
+      // messbar, aber nicht das, was einem Sockel Form gibt.
+      const t = Math.max(0, Math.min(1, (pos.getY(i) + 0.14) / 0.28));
+      const f = 0.45 + 0.55 * t * t;
+      farben[i * 3] = farben[i * 3 + 1] = farben[i * 3 + 2] = f;
+    }
+    baseGeo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+  const base = new THREE.Mesh(baseGeo, konstruktSockelLeder());
   base.position.set(0, 0.24, 0);
   group.add(base);
 
@@ -13226,17 +13280,32 @@ function makeConstructArmchair() {
     const rosette = new THREE.Group();
     rosette.name = 'arm-rosette';
 
-    const teller = new THREE.Mesh(new THREE.CylinderGeometry(0.046, 0.046, 0.016, 20), rosenholz);
+    // Faerbt eine Geometrie gleichmaessig ein — der Tiefenunterschied steckt in
+    // der Zahl, nicht im Werkstoff.
+    const tiefe = (geo, f) => {
+      const n = geo.attributes.position.count;
+      const farben = new Float32Array(n * 3).fill(f);
+      geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+      return geo;
+    };
+
+    const teller = new THREE.Mesh(
+      tiefe(new THREE.CylinderGeometry(0.046, 0.046, 0.016, 20), 0.58),
+      rosenholz
+    );
     teller.rotateX(Math.PI / 2);
     rosette.add(teller);
 
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.045, 0.008, 8, 24), rosenholz);
+    const ring = new THREE.Mesh(
+      tiefe(new THREE.TorusGeometry(0.045, 0.008, 8, 24), 1.18),
+      rosenholz
+    );
     ring.position.z = 0.006;
     rosette.add(ring);
 
     for (let i = 0; i < 8; i++) {
       const w = (i / 8) * Math.PI * 2 + Math.PI / 8;
-      const blatt = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 6), rosenholz);
+      const blatt = new THREE.Mesh(tiefe(new THREE.SphereGeometry(0.011, 8, 6), 0.95), rosenholz);
       // Flach gedrueckt: Ein Blatt einer Schnitzrosette steht wenige
       // Millimeter vor, es ist keine aufgelegte Perle.
       blatt.scale.set(1.5, 1, 0.55);
@@ -13306,6 +13375,32 @@ function makeConstructArmchair() {
   seatKeder.position.set(0, 0.38, frontZ + 0.015 - 0.0275);
   group.add(seatKeder);
 
+  // **Polsterwulst in der Innenkante Kissen/Lehne.**
+  //
+  // Der Pruefer: „Die Sitzflaeche trifft die Rueckenplatte in einer scharfen
+  // rechtwinkligen Innenkante wie zwei Waende eines Kastens — kein Spalt, keine
+  // Kehle, kein Polsterwulst." Genau so war es gebaut: zwei Quader, die sich
+  // durchdringen. An einem echten Sessel liegt dort die Naht zwischen Sitz- und
+  // Rueckenbahn, und die ist ein Wulst, kein Winkel — sie ist die Stelle, an
+  // der beide Polster gegeneinanderdruecken.
+  //
+  // Ein liegender Schlauch quer ueber die Sitzbreite leistet das mit zwoelf
+  // Ringen: Er faengt oben Licht und legt darunter einen Schattenstreifen, und
+  // damit hat die Kehle eine Breite statt einer Linie.
+  {
+    const wulst = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.026, 0.026, seatW - 0.01, 12),
+      leather
+    );
+    wulst.rotation.z = Math.PI / 2;
+    // **y = 0,452 und nicht 0,40.** Der erste Anlauf lag auf halber
+    // Kissenhoehe und war damit vollstaendig IM Kissen — sichtbar war nichts.
+    // Die Kehle sitzt an der OBERKANTE des Kissens: Kissenmitte 0,38 plus halbe
+    // Kissenhoehe 0,075 macht 0,455, minus ein paar Millimeter Einsinken.
+    wulst.position.set(0, 0.452, frontZ0 + 0.012);
+    group.add(wulst);
+  }
+
   // Und einer auf der Oberkante des Unterbaus: Dort stiess vorher ein dunkler
   // Block mit harter waagerechter Kante an das Polster, was als zweites Moebel
   // las statt als Sockel desselben.
@@ -13315,6 +13410,13 @@ function makeConstructArmchair() {
   // vollstaendig im Korpus, und was herausschaute, war ein duenner dunkler
   // Strich quer ueber die Vorderseite. Er las als vergessener Draht, nicht als
   // Naht. Ein Keder muss AUF der Kante sitzen, nicht darin.
+  // **Bleibt bei 0,008.** Der Pruefer meldet die Trennlinie Sockel/Polster als
+  // „harte dunkle Linie ohne Keder", und der naheliegende Schluss war, die
+  // Schnur kraeftiger zu machen. Bei 0,011 stand sie als dunkler Stab quer
+  // ueber die Sockelvorderseite — genau der Fehler, der in diesem Protokoll
+  // schon einmal steht („las als vergessener Draht"). Eine Polsterschnur an
+  // dieser Stelle ist duenn; was dem Uebergang fehlt, ist nicht ihre Staerke,
+  // sondern die Modellierung des Sockels darunter (siehe gleich).
   const baseKeder = new THREE.Mesh(kederRing(W - 0.02, D - 0.02, 0.05), leatherDark);
   baseKeder.position.set(0, 0.381, 0);
   group.add(baseKeder);
