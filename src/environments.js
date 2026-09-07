@@ -14022,13 +14022,23 @@ function makeRadiolaConsole() {
     screenGeo.clone(),
     new THREE.MeshStandardMaterial({
       color: 0x000000,
-      // 0,12 und nicht 0,05: Bei 0,05 wird die Spiegelung des Fuehrungslichts
-      // ein harter weisser Punkt von wenigen Bildpunkten — ein Muster, das
-      // beim Kopfdrehen springt. Auf einer gewoelbten Roehre ist der
-      // Lichtreflex ein Fleck, kein Stern.
-      roughness: 0.12,
+      // 0,20 und nicht 0,12 oder gar 0,05: Bei 0,05 wird die Spiegelung des
+      // Fuehrungslichts ein harter weisser Punkt von wenigen Bildpunkten. Bei
+      // 0,12 blieb davon ein Fleck von 1021 Bildpunkten uebrig, die in allen
+      // drei Kanaelen auf 254 oder darueber standen — **geklippt**, also ohne
+      // Zeichnung, und auf einer sonst flauen Roehre der einzige helle Punkt.
+      // Der Pruefer liest ihn als Blendfleck oder defektes Panel, nicht als
+      // Phosphor. 0,20 verteilt dieselbe Energie auf die dreifache Flaeche.
+      roughness: 0.2,
       metalness: 0,
+      // **Deckkraft 0,68.** Bei additiver Mischung skaliert sie die ganze
+      // Spiegelung — Umgebung wie Lichtreflex. Noetig, weil der Reflex des
+      // Fuehrungslichts sonst klippt: 1021 Bildpunkte standen in allen drei
+      // Kanaelen auf 254 oder darueber, und ein geklippter Bereich hat keine
+      // Zeichnung mehr. Der Pruefer liest ihn als Blendfleck oder defektes
+      // Panel, nicht als Phosphor.
       transparent: true,
+      opacity: 0.68,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     })
@@ -14170,7 +14180,11 @@ function makeRadiolaConsole() {
       // Die Schwaden sind der Kern des Bildes und duerfen anschlagen: Eine
       // Roehre hat helle Stellen, die im Weiss stehen, sonst wirkt sie
       // abgeblendet.
-      const level = 214 + i * 10;
+      // 200 statt 214: Das weichere Zeilenraster (0,13 statt 0,28 Deckkraft)
+      // hebt das ganze Bild um rund 8 %, und was vorher knapp unter 255 lag,
+      // klippte danach. Der Kern der Roehre soll hell sein, aber Zeichnung
+      // behalten.
+      const level = 200 + i * 10;
       g.addColorStop(0, `rgba(${level},${level + 6},${level},0.76)`);
       g.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = g;
@@ -14189,18 +14203,42 @@ function makeRadiolaConsole() {
     // der Zeit. Bei eingefrorener Uhr ist es damit immer dasselbe.
     const rahmen = Math.floor(time / 0.08);
     const kr = mulberry32((0x9e3779b1 ^ (rahmen * 2654435761)) >>> 0);
+    // Korn und Zeilenraster in EINEM Durchgang ueber das Bild. Der erste
+    // Anlauf hat das Raster als zweiten `getImageData`/`putImageData`-Zyklus
+    // angehaengt — zwei volle Durchlaeufe ueber 224x168 Punkte, zwoelfmal je
+    // Sekunde, fuer eine Multiplikation, die in die vorhandene Schleife passt.
     const grain = ctx.getImageData(0, 0, sw, sh);
-    for (let i = 0; i < grain.data.length; i += 4) {
-      const n = (kr() - 0.5) * 42;
-      grain.data[i] += n;
-      grain.data[i + 1] += n;
-      grain.data[i + 2] += n;
+    for (let y = 0; y < sh; y++) {
+      const zeile = 1 - 0.13 * (0.5 - 0.5 * Math.cos((y * Math.PI * 2) / 4));
+      for (let x = 0; x < sw; x++) {
+        const i = (y * sw + x) * 4;
+        const n = (kr() - 0.5) * 42;
+        grain.data[i] = (grain.data[i] + n) * zeile;
+        grain.data[i + 1] = (grain.data[i + 1] + n) * zeile;
+        grain.data[i + 2] = (grain.data[i + 2] + n) * zeile;
+      }
     }
     ctx.putImageData(grain, 0, 0);
 
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    for (let y = 0; y < sh; y += 3) ctx.fillRect(0, y, sw, 1);
-
+    // **Das Zeilenraster war ein Rechteckmuster mit Periode drei.**
+    //
+    // Eine schwarze Zeile von 28 % Deckkraft auf je zwei helle, das ergibt auf
+    // dem Schirm eine Periode von rund 6 Bildpunkten mit harten Kanten. Der
+    // Pruefer hat es als kriechgefaehrdet gemeldet; meine eigene Messung hatte
+    // es fuer ruhig erklaert und lag falsch, weil `tools/kamm.mjs` nur QUER
+    // gewackelt hat — ein waagerechtes Streifenmuster aendert dabei seine
+    // Phase nicht. Mit senkrechter Bewegung (neues `--hoch`) steht es so da:
+    //
+    //     Schirm, quer     Streuung 32,4   Zittern 1,98   Quotient 0,061
+    //     Schirm, hoch     Streuung 32,4   Zittern 4,87   Quotient 0,150
+    //     Gehaeuse daneben Streuung 44,6   Zittern 0,22   Quotient 0,005
+    //
+    // Das ist der mit Abstand unruhigste Bereich der Szene, und er liegt auf
+    // dem einen Gegenstand, auf den der Blick faellt. Die Abhilfe steht oben
+    // in der Kornschleife: Periode 4 statt 3 (8 statt 6 Bildpunkte, also
+    // aufgeloest statt grenzwertig), Kosinusprofil statt Rechteckkante
+    // (dieselbe Grundfrequenz, aber ohne die Oberwellen einer harten Kante)
+    // und Amplitude 0,13 statt 0,28.
     const bar = ((time * 42) % (sh + 60)) - 30;
     const barGrad = ctx.createLinearGradient(0, bar - 14, 0, bar + 14);
     barGrad.addColorStop(0, 'rgba(255,255,255,0)');

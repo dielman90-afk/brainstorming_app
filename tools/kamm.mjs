@@ -1,6 +1,14 @@
 // **Flimmert ein feines Muster, wenn der Kopf sich bewegt?**
 //
-//   node tools/kamm.mjs [--env matrix] <shot> <x0,y0,x1,y1:Name> ...
+//   node tools/kamm.mjs [--env matrix] [--hoch] <shot> <x0,y0,x1,y1:Name> ...
+//
+// `--hoch` wackelt SENKRECHT statt quer. Das ist kein Zusatz, sondern eine
+// Luecke, die einen Befund verschluckt hat: Ein waagerechtes Streifenmuster
+// — das Zeilenraster der Bildroehre — aendert sich bei einer Querbewegung
+// ueberhaupt nicht, weil die Streifen mit der Kamera mitwandern, ohne ihre
+// Phase zu aendern. Gemessen wurde damit 0,47 („der ruhigste Bereich der
+// Szene"), und der Pruefer hat es trotzdem als kriechgefaehrdet gemeldet. Er
+// hatte recht: Die Messung hat in die falsche Richtung gewackelt.
 //
 // Ein Standbild kann diese Frage nicht beantworten. Ein Lamellenband mit zwei
 // Pixeln Strichbreite sieht im Einzelbild sauber aus und kriecht trotzdem,
@@ -25,7 +33,10 @@ import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockC
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'matrix');
-const rest = argv.filter((a, i) => a !== '--env' && argv[i - 1] !== '--env');
+const HOCH = argv.includes('--hoch');
+const rest = argv.filter(
+  (a, i) => a !== '--env' && a !== '--hoch' && argv[i - 1] !== '--env'
+);
 const shotName = rest[0];
 const BEREICHE = rest.slice(1).map((s) => {
   const [zahlen, name] = s.split(':');
@@ -48,16 +59,21 @@ try {
     process.stderr.write(`Kein Shot "${shotName}" in "${ENV}".\n`);
     process.exit(1);
   }
-  // Querrichtung: senkrecht auf Blickrichtung und Weltoben.
+  // Querrichtung: senkrecht auf Blickrichtung und Weltoben. Bei `--hoch`
+  // stattdessen einfach nach oben — ein Kopf nickt.
   const d = [shot.look[0] - shot.pos[0], shot.look[1] - shot.pos[1], shot.look[2] - shot.pos[2]];
-  const quer = [d[2], 0, -d[0]];
+  let quer = [d[2], 0, -d[0]];
   const len = Math.hypot(quer[0], quer[2]) || 1;
   quer[0] /= len;
   quer[2] /= len;
+  if (HOCH) quer = [0, 1, 0];
 
   const bilder = [];
   for (const s of SCHRITTE) {
-    const versetzt = { ...shot, pos: [shot.pos[0] + quer[0] * s, shot.pos[1], shot.pos[2] + quer[2] * s] };
+    const versetzt = {
+      ...shot,
+      pos: [shot.pos[0] + quer[0] * s, shot.pos[1] + quer[1] * s, shot.pos[2] + quer[2] * s],
+    };
     await lockCamera(page, versetzt, 6.0);
     await page.waitForTimeout(360);
     bilder.push(PNG.sync.read(await page.screenshot()));

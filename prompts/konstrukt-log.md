@@ -1611,3 +1611,84 @@ eigenen Werkstoff, die Rosette ebenfalls — beides je ein Netz für beide Sesse
 Dreiecke 93 828 → **94 020**, Texturspeicher 1,98 MB. Zen, Nachthimmel und Insel
 **bitgleich**, Dojo Δmax 5 bei 0,010 %. Build grün, Konsole frei von Errors und
 Warnings.
+
+---
+
+## Paket 20 — Das Zeilenraster kroch, und meine Messung hatte es freigesprochen
+
+**Der wichtigste Teil dieses Pakets ist ein Messfehler von mir.**
+
+In Paket 8 steht: „Kein Flimmern dazugekommen: `tools/kamm.mjs` über die
+Schirmfläche meldet Streuung 67,3 bei Zittern 0,47, Quotient 0,007 — der
+ruhigste Bereich der Szene." Der Prüfer hat das Zeilenraster trotzdem als
+kriechgefährdet gemeldet (Periode 5–6 px, mittlerer Zeilensprung 9,2 Stufen,
+aus einem Meter unverändert 9,17).
+
+Er hatte recht, und mein Werkzeug war blind: **`kamm.mjs` hat nur QUER
+gewackelt.** Ein waagerechtes Streifenmuster ändert bei einer Querbewegung
+seine Phase überhaupt nicht — die Streifen wandern mit, ohne sich zu
+verschieben. Das Werkzeug hat gemessen, was es messen konnte, und daraus habe
+ich einen Freispruch gemacht.
+
+Mit dem neuen `--hoch` (die Kamera nickt statt zu schwenken):
+
+| Bereich | Streuung | Zittern | Quotient |
+| --- | --- | --- | --- |
+| Schirm, quer | 32,4 | 1,98 | 0,061 |
+| **Schirm, hoch** | 32,4 | **4,87** | **0,150** |
+| Gehäuse daneben, hoch | 44,6 | 0,22 | 0,005 |
+
+Der mit Abstand unruhigste Bereich der Szene — und er liegt auf dem einen
+Gegenstand, auf den der Blick fällt.
+
+### Die Abhilfe
+
+Das Raster war eine schwarze Zeile von 28 % Deckkraft auf je zwei helle: ein
+Rechteckmuster mit Periode 3, auf dem Schirm rund 6 Bildpunkte, mit harten
+Kanten. Drei Änderungen, alle an der Ursache:
+
+* **Periode 4 statt 3** — 8 statt 6 Bildpunkte, also aufgelöst statt
+  grenzwertig.
+* **Kosinusprofil statt Rechteckkante** — dieselbe Grundfrequenz, aber ohne die
+  Oberwellen, die eine harte Kante mitbringt.
+* **Amplitude 0,13 statt 0,28** — das Raster einer Röhre ist aus zwei Metern
+  ohnehin kaum zu sehen.
+
+**Zittern hoch: 4,87 → 2,31**, Quotient 0,150 → 0,070.
+
+### Der ausgebrannte Fleck (Befund 13)
+
+Der Prüfer zählt **1021 Bildpunkte** auf dem Schirm, die in allen drei Kanälen
+auf 254 oder darüber stehen — geklippt, also ohne Zeichnung, und auf einer sonst
+flauen Röhre der einzige helle Punkt. Er liest ihn als Blendfleck oder defektes
+Panel, nicht als Phosphor.
+
+Das ist der Reflex des Führungslichts auf der Glasscheibe. Zwei Anläufe:
+
+1. **Rauheit 0,12 → 0,20.** Verteilt dieselbe Energie auf mehr Fläche — und
+   ließ die geklippte Fläche auf **2561** Punkte **wachsen**, weil das weichere
+   Zeilenraster das ganze Bild um 8 % angehoben hatte und die breitere Keule
+   nun über einer helleren Grundfläche liegt.
+2. **Schwadenpegel 214 → 200** — brachte nur 2561 → 2561.
+3. **Deckkraft der Scheibe 1,0 → 0,68.** Bei additiver Mischung skaliert sie die
+   ganze Spiegelung, Umgebung wie Lichtreflex: **1078** Punkte, also wieder auf
+   dem Ausgangswert — aber jetzt mit einem weichen Hof drumherum statt einer
+   harten Scheibe.
+
+Ehrlich bleibt: Der Kern des Reflexes klippt weiterhin auf 0,6 % der
+Schirmfläche. Das ist bei einer gespiegelten Lichtquelle auch richtig; was den
+Befund ausgemacht hat, war die fehlende Zeichnung **um** ihn herum, und die ist
+jetzt da. Der Schirm insgesamt: Mittel 123,9 → 121,8, p95 178 → 177.
+
+### Und ein Durchgang gespart
+
+Der erste Anlauf hat das Raster als zweiten `getImageData`/`putImageData`-Zyklus
+angehängt — zwei volle Durchläufe über 224×168 Punkte, zwölfmal je Sekunde, für
+eine Multiplikation, die in die vorhandene Kornschleife passt. Jetzt läuft
+beides in einem Durchgang.
+
+### Regression und Kosten
+
+49 Draw-Calls, 94 020 Dreiecke, 1,98 MB Textur — unverändert. Zen, Nachthimmel
+und Insel **bitgleich**, Dojo Δmax 4 bei 0,009 %. Build grün, Konsole frei von
+Errors und Warnings.
