@@ -3103,3 +3103,54 @@ Sechzehn Dreiecke je Blume, neunzig Blumen: 1440 Dreiecke, kein Draw-Call, kein
 Byte Textur. 93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert. Alle
 Zen-Bilder, Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei 0,007 %.
 Build grün, Konsole frei von Errors und Warnings.
+
+## Paket N — Steinschatten mit gerader Polygonkante (Prüferbefund 14): NICHT REPRODUZIERT
+
+Dieses Paket schließt nichts ab. Es hält fest, was ich gesucht und nicht gefunden
+habe, damit die nächste Runde nicht dieselbe Stunde noch einmal ausgibt.
+
+### Was ich gemessen und angesehen habe
+
+* `tools/wurfprobe.mjs` über `6-groundcover`, Kasten (100,250)–(1200,700):
+  `island-stones` verdunkelt **0,35 Prozent** der Bildfläche um im Mittel 26,3
+  Stufen. In diesem Prüfbild gibt es schlicht kaum Steinschatten zu betrachten.
+* `tools/knotenkasten.mjs` auf `island-shadows` in `1-eyelevel`: **121
+  Bildpunkte** in drei Stücken. Die weichen Kontaktflecken tragen dort nichts.
+* Drei freie Nahaufnahmen mit `tools/blick.mjs`, vier- bis sechsfach vergrößert.
+  Die Schattenkanten, die dort zu sehen sind — Busch auf Wiese, Findlingsgruppe
+  auf Wiese —, sind **weich und leicht gewellt**, keine Treppen und keine
+  geraden Polygonkanten.
+
+### Die eine strukturelle Auffälligkeit, und warum sie trotzdem bleibt
+
+Die Schattenkarte der Inselsonne steht auf **1024**, während Dojo und Mond 2048
+fahren. Auf einem Ortho von ±26,4 m sind das 5,2 cm je Texel — die plausible
+Ursache für eine Treppenkante, wenn es eine gäbe.
+
+Auf 2048 gestellt und dieselbe Nahaufnahme gerendert: **6,3 Prozent** der
+Bildpunkte ändern sich um mindestens zwei Stufen, und im vierfach vergrößerten
+Ausschnitt ist **kein Unterschied zu benennen**. Das deckt sich mit der Messreihe
+des Nachthimmels, wo die vierfache Karte zehn Prozent der Quantisierung gekauft
+hat. Vierfacher Speicher und vierfache Füllrate im Schattendurchgang für nichts
+Sichtbares ist auf einer mobilen Brille kein Handel — **zurückgestellt**, mit der
+Messung als Begründung im Quelltext.
+
+### Was ich falsch gemacht habe
+
+Ich habe in dieser Runde wieder Kästen von Hand gesetzt und dabei dreimal
+danebengelegen, obwohl `tools/knotenkasten.mjs` seit dem Vogelpaket genau dafür
+da ist. Ein Messband über eine Schattenkante, das ich zum Schluss legen wollte,
+fand in **beiden** Ständen „kein Uebergang" — also lag auch das Band falsch. Die
+Aussage dieses Pakets stützt sich deshalb auf die drei belastbaren Messungen oben
+und auf das Hinsehen, nicht auf ein Kantenmaß.
+
+### Woran es liegen könnte, dass ich ihn nicht finde
+
+Der Befund stammt aus einer Prüfrunde, die vor zwölf Paketen liegt; seither haben
+Felskarte, Erdband, Kronenverdeckung und das Gegenlicht die Beleuchtung dieser
+Flächen angefasst. Es ist gut möglich, dass er nebenbei erledigt wurde. Belegen
+kann ich das nicht — belegen kann ich nur, dass ich ihn im heutigen Stand nicht
+reproduziere.
+
+**Offen.** Wenn der Prüfer beim nächsten Durchgang dieselbe Stelle wieder meldet,
+braucht es von ihm die Kamera und den Kasten, nicht die Beschreibung.

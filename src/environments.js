@@ -5306,6 +5306,16 @@ function createIslandEnvironment() {
   // Schlagschatten nicht auffällt.
   sunlight.castShadow = true;
   const sh = sunlight.shadow;
+  // **1024 bleibt, und das ist nachgemessen.**
+  //
+  // Dojo und Mond fahren 2048; die Insel nicht. Naheliegend war, das
+  // anzugleichen — der Pruefer meldet Steinschatten mit gerader Polygonkante,
+  // und 1024 auf einem Ortho von 26,4 m sind 5,2 cm je Texel. Auf 2048 gestellt
+  // und dieselbe freie Nahaufnahme gerendert: 6,3 Prozent der Bildpunkte
+  // aendern sich um mindestens zwei Stufen, im vierfach vergroesserten
+  // Ausschnitt ist **kein Unterschied zu benennen**. Das deckt sich mit der
+  // Messreihe des Nachthimmels, wo die vierfache Karte zehn Prozent der
+  // Quantisierung gekauft hat. Auf einer mobilen Brille ist das kein Handel.
   sh.mapSize.set(1024, 1024);
   // Inselradius 5 lokal, Umriss bis 1,3 davon, mal WORLD_SCALE = 4.
   const HALF = 6.6 * WORLD_SCALE;
