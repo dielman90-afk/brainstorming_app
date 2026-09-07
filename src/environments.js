@@ -1165,8 +1165,22 @@ function addTree(rand, ctx, { x, y, z, scale = 1 }) {
     // `branchInto()` verzweigt rekursiv über drei Ebenen. Die Laubschöpfe
     // sitzen auf den **Zweigenden**, nicht als Kugel über allem – dadurch löst
     // sich die Silhouette auf und man sieht Äste durch die Krone.
+    // **Die Gabel sass zu hoch, und das ist gemessen.**
+    //
+    // `tools/lutscher.mjs` misst ueber die Spalten des Stammes, wie viel der
+    // Baumhoehe nackter Stamm ist — differenziell aus dem Ein- und Ausblenden
+    // von `island-holz` gegen `island-laub` und `island-krone`. Am vorderen
+    // Laubbaum in `1-eyelevel`: **66,8 Prozent**, 125 von 187 Bildpunkten. Ein
+    // Laubbaum in der Natur liegt bei einem Viertel bis zwei Fuenfteln; zwei
+    // Drittel kahler Stiel unter einer runden Masse sind genau das, was der
+    // Pruefer „Lutscher" nennt.
+    //
+    // Die Gabel sitzt deshalb bei 0,60 der Stammhoehe statt an ihrer Spitze.
+    // Damit der Baum dabei nicht schrumpft, werden die Aeste laenger — es ist
+    // dieselbe eine Ziehung, nur mit anderen Grenzen, der Zufallsstrom bleibt
+    // also unverschoben.
     const teile = [];
-    const oben = new THREE.Vector3(0, trunkHeight, 0);
+    const oben = new THREE.Vector3(0, trunkHeight * 0.48, 0);
     const nb = 3 + Math.floor(rand() * 2);
     for (let k = 0; k < nb; k++) {
       const az = (k / nb) * Math.PI * 2 + rand() * 0.9;
@@ -1175,16 +1189,25 @@ function addTree(rand, ctx, { x, y, z, scale = 1 }) {
         0.74,
         Math.sin(az) * 0.6
       ).normalize();
-      branchInto(teile, oben, dir, 0.34 + rand() * 0.14, 0.035, 2, rand);
+      branchInto(teile, oben, dir, 0.46 + rand() * 0.18, 0.035, 2, rand);
     }
     for (const t of teile) ctx.holz.add(place(t.geo), 0xffffff);
     // Heller oder dunkler Laubbaum: der Griff in die obere oder untere Hälfte
     // der gemeinsamen Palette.
     const slice = hell ? 3 : 0;
     for (const t of teile) {
-      if (t.depth > 0) continue;
+      // **Auch die vorletzte Astebene traegt Laub.** Bisher sassen die Schoepfe
+      // nur auf den aeussersten Zweigenden; die Krone war dadurch eine Schale
+      // mit einer glatten Unterseite. Ein Laubbaum ist innen belaubt, und man
+      // sieht die Aeste DURCH das Laub — dafuer muss auch dazwischen etwas
+      // stehen.
+      //
+      // Der Halbmesser der inneren Schoepfe ist fest und nicht gezogen: Eine
+      // zusaetzliche rand()-Ziehung hier verschoebe Steine, Blumen und Voegel.
+      if (t.depth > 1) continue;
       const p = punkt(t.tip.x, t.tip.y, t.tip.z);
-      ctx.laub.push([p[0], p[1], p[2], (0.17 + rand() * 0.06) * scale, slice]);
+      const r = t.depth === 0 ? 0.17 + rand() * 0.06 : 0.115;
+      ctx.laub.push([p[0], p[1], p[2], r * scale, slice]);
     }
   }
 }

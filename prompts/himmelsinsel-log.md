@@ -3418,3 +3418,68 @@ dort ordnet, ist der Boden selbst.
 Zwei Zahlen im Grasshader. 93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert.
 Alle Zen-Bilder, Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei
 0,009 %. Build grün, Konsole frei von Errors und Warnings.
+
+## Paket S — Laubbäume als Lutscher (Prüferbefund 20)
+
+### Der Befund als Zahl
+
+`tools/lutscher.mjs` misst über die Spalten des Stammes, wie viel der Baumhöhe
+nackter Stamm ist — differenziell aus dem Ein- und Ausblenden von `island-holz`
+gegen `island-laub` und `island-krone`. Am vorderen Laubbaum in `1-eyelevel`:
+**70,4 Prozent**. Ein Laubbaum in der Natur liegt bei einem Viertel bis zwei
+Fünfteln; zwei Drittel kahler Stiel unter einer Masse sind genau das, was der
+Prüfer „Lutscher" nennt.
+
+### Drei Anläufe beim Messen, und die ersten beiden waren falsch
+
+* **Minimum und Maximum von y über die Maske.** Ein Busch hinter dem Stamm
+  reicht damit tiefer als der Stamm selbst, und der nackte Stiel wurde zu
+  **0,0 Prozent** gerechnet — sichtbar falsch, das Bild zeigt zwei Drittel
+  Stange.
+* **Deckungsschwelle von vierzig Prozent je Zeile.** Misst nur den dichten Kern
+  der Krone und lässt ihren ganzen äußeren Bereich weg; ergab 74,3 gegen 70,5
+  Prozent, also einen Unterschied, der zur Hälfte aus der Definition kam.
+* **Perzentile, an der Standlinie abgeschnitten.** Ober- und Unterkante sind das
+  2. und 96. Perzentil der y-Werte, und Laub unterhalb des Stammfußes zählt
+  nicht mit — das gehört zu einem anderen Gewächs. Erst damit ist die Zahl
+  stabil.
+
+### Was geändert wurde
+
+**Die Gabel sitzt bei 0,48 der Stammhöhe statt an ihrer Spitze**, die Äste sind
+dafür länger, damit der Baum nicht schrumpft. Es ist dieselbe eine Ziehung mit
+anderen Grenzen — der Zufallsstrom bleibt unverschoben.
+
+**Auch die vorletzte Astebene trägt Laub.** Bisher saßen die Schöpfe nur auf den
+äußersten Zweigenden; die Krone war dadurch eine Schale mit glatter Unterseite.
+Ein Laubbaum ist innen belaubt, und man sieht die Äste *durch* das Laub — dafür
+muss auch dazwischen etwas stehen. Der Halbmesser der inneren Schöpfe ist fest
+und nicht gezogen, sonst verschöbe er Steine, Blumen und Vögel.
+
+### Ergebnis
+
+    nackter Stamm   70,4 % → 62,9 %
+
+Im Bild ist der Unterschied größer als die Zahl: Die Krone ist tiefer, die
+Verzweigung sichtbar, und der Baum steht nicht mehr auf einer Stange.
+
+**Weiter reicht es nicht.** 62,9 Prozent liegen immer noch deutlich über den
+25 bis 40 Prozent eines echten Laubbaums. Die Gabel noch tiefer zu setzen macht
+den Stamm stämmig statt den Baum glaubwürdig; was fehlt, sind **hängende
+Zweige**, die von der Krone nach unten am Stamm vorbeiwachsen. Das ist eine
+Änderung an `branchInto`, die alle drei Umgebungen mit Bäumen trifft, und
+gehört in ein eigenes Paket. Offen.
+
+### Kosten, und eine Warnung
+
+    Dreiecke   299 192 → 320 405 von 350 000
+
+Die inneren Schöpfe kosten **21 213 Dreiecke**. Die Insel liegt damit bei
+**91,5 Prozent** des Budgets; es bleiben 29 595 Dreiecke. Wer als Nächstes
+Geometrie hinzufügt, muss vorher hier nachsehen. Die erste Stelle zum Kürzen
+sind die Grashorste (86 400 Dreiecke, Fleckenzahl ist ein einzelner Parameter),
+die zweite die inneren Schöpfe dieses Pakets.
+
+Draw-Calls unverändert 78, Textur unverändert 17,17 MB. Alle Zen-Bilder,
+Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei 0,008 %. Build grün,
+Konsole frei von Errors und Warnings.
