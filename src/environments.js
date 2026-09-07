@@ -12818,6 +12818,74 @@ function makeWoodTexture(base, dark) {
 // nach Werkstoff zusammen, und zwei Saetze gleicher Werkstoffe ergeben doppelt
 // so viele Meshes wie einer.
 let _konstruktLeder = null;
+// --- Spiegelglättung an der Ledernarbung --------------------------------------
+//
+// **Das Leder funkelte, und Rauheit war das falsche Mittel dagegen.**
+//
+// Der Pruefer meldet „Streusalz": einzelne fast weisse Bildpunkte auf
+// dunkelrotem Grund, in Ketten entlang der Glanzkanten. Gemessen mit dem neuen
+// `tools/funken.mjs` (zaehlt Punkte, die ihr Viererumfeld um mehr als eine
+// Schwelle uebersteigen) auf der Armrolle in `b-sessel`:
+//
+//     Stand (Rauheit 0,45)   >Umfeld+15  0,859 %   >+25  0,353 %   groesster 64
+//     Rauheit 0,55           >Umfeld+15  0,316 %   >+25  0,048 %   groesster 42
+//     Rauheit 0,65           >Umfeld+15  0,042 %   >+25  0,005 %   groesster 42
+//
+// Rauheit raeumt die Funken weg — und nimmt dabei den Glanz mit, um den Paket 6
+// gerungen hat: Der Anteil ueber L 110 faellt von 0,89 % auf 0,30 %, das Korn im
+// hellsten Zwanzigstel von 8,3 auf 6,0. Das waere ein Tausch, kein Gewinn.
+//
+// Die Ursache ist nicht der Werkstoff, sondern die **Abtastung**: Eine
+// Normalenkarte, die sich innerhalb eines Bildpunkts stark aendert, liefert je
+// Bildpunkt eine zufaellige Normale statt eines Mittelwerts — und wo die
+// zufaellig zur Lichtquelle zeigt, entsteht ein Funke. Dagegen gibt es ein
+// Standardmittel: die Rauheit dort anheben, wo die Normale schnell variiert.
+//
+// three tut das bereits, aber nur fuer die **Geometrie**:
+//
+//     vec3 dxy = max( abs( dFdx( nonPerturbedNormal ) ), abs( dFdy( nonPerturbedNormal ) ) );
+//
+// `nonPerturbedNormal` ist die Flaechennormale ohne Karte. Ersetzt man sie
+// durch `normal` — die gestoerte —, erfasst derselbe Ausdruck genau die
+// Aenderung, die die Narbung einbringt. Das ist keine Erfindung, sondern das
+// uebliche Verfahren; es kostet keine Textur, keinen Aufruf und keinen
+// Durchgang.
+function narbenGlaettung(material, staerke = 1.0) {
+  const vorher = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    if (vorher) vorher.call(material, shader, renderer);
+    // **In `onBeforeCompile` sind die Bausteine noch NICHT eingesetzt.**
+    //
+    // Der erste Anlauf hat direkt auf den Text des Bausteins ersetzt — und die
+    // eingebaute Wache hat sofort angeschlagen: `shader.fragmentShader`
+    // enthaelt an dieser Stelle noch die Zeile `#include
+    // <lights_physical_fragment>`, three loest die Einschluesse erst DANACH
+    // auf. Wer einen Baustein aendern will, muss ihn selbst einsetzen.
+    //
+    // (Die uebrigen Ersetzungen in dieser Datei treffen deshalb entweder
+    // `#include`-Zeilen oder Code, der direkt im Hauptteil steht.)
+    const suchen =
+      'vec3 dxy = max( abs( dFdx( nonPerturbedNormal ) ), abs( dFdy( nonPerturbedNormal ) ) );';
+    const baustein = THREE.ShaderChunk.lights_physical_fragment;
+    if (!baustein.includes(suchen)) {
+      // Laut statt still: Aendert three den Baustein, faellt es hier auf und
+      // nicht erst an einem Bild, das seit Wochen funkelt.
+      throw new Error('narbenGlaettung: three-Baustein lights_physical_fragment hat sich geaendert');
+    }
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <lights_physical_fragment>',
+      baustein.replace(
+        suchen,
+        `vec3 dxy = max( abs( dFdx( normal ) ), abs( dFdy( normal ) ) ) * ${staerke.toFixed(2)};`
+      )
+    );
+  };
+  const vorherKey = material.customProgramCacheKey?.bind(material);
+  material.customProgramCacheKey = () =>
+    (vorherKey ? vorherKey() : '') + `|konstrukt-narbe-${staerke}`;
+  return material;
+}
+
 function konstruktSesselWerkstoffe() {
   if (!_konstruktLeder) {
     const { normalMap, roughnessMap } = leatherMaps();
@@ -12885,6 +12953,8 @@ function konstruktSesselWerkstoffe() {
     // 0,5 und nicht 0,7: Bei 0,7 wurde aus der Rosette ein Messingmedaillon.
     // Poliertes Nussbaum faengt den Raum, es spiegelt ihn nicht.
     rosenholz.userData.envStaerke = 0.5;
+    narbenGlaettung(leather);
+    narbenGlaettung(leatherDark);
     _konstruktLeder = { leather, leatherDark, wood, rosenholz };
   }
   return _konstruktLeder;

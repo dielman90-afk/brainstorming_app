@@ -1692,3 +1692,96 @@ beides in einem Durchgang.
 49 Draw-Calls, 94 020 Dreiecke, 1,98 MB Textur — unverändert. Zen, Nachthimmel
 und Insel **bitgleich**, Dojo Δmax 4 bei 0,009 %. Build grün, Konsole frei von
 Errors und Warnings.
+
+---
+
+## Paket 21 — Das Glanzgesprenkel auf dem Leder
+
+**Befund 8 des Prüfers:** „Einzelne fast weiße Pixel auf dunkelrotem Grund, in
+Ketten entlang der Glanzkanten. Kein Muster, keine Fläche — Streusalz."
+
+### Erst ein Werkzeug, das Funken zählt
+
+Der mittlere Nachbarunterschied sagt darüber nichts: Ein Bereich kann im Mittel
+ruhig sein und trotzdem voller einzelner Ausreißer stecken. Neues
+`tools/funken.mjs` zählt deshalb **Punkte, die ihr Viererumfeld um mehr als eine
+Schwelle übersteigen** — die Größe, die in Bewegung als Kribbeln erscheint.
+
+Auf der Armrolle in `b-sessel` (58 911 Punkte), im Stand: **0,859 %** über
+Umfeld+15, **0,353 %** über +25, größter Sprung 64.
+
+### Rauheit räumt sie weg — und nimmt den Glanz mit
+
+| Rauheit | > +15 | > +25 | größter | Glanz (> L 110) | Korn |
+| --- | --- | --- | --- | --- | --- |
+| 0,45 (Stand) | 0,859 % | 0,353 % | 64 | 0,89 % | 8,33 |
+| 0,55 | 0,316 % | 0,048 % | 42 | 0,30 % | 5,99 |
+| 0,65 | 0,042 % | 0,005 % | 42 | — | — |
+
+Das ist ein Tausch, kein Gewinn: Der Glanz, um den Paket 6 gerungen hat, fällt
+im selben Verhältnis.
+
+### Die Ursache ist die Abtastung, nicht der Werkstoff
+
+Eine Normalenkarte, die sich innerhalb eines Bildpunkts stark ändert, liefert je
+Bildpunkt eine **zufällige** Normale statt eines Mittelwerts — und wo die
+zufällig zur Lichtquelle zeigt, steht ein Funke. Dagegen gibt es ein
+Standardmittel: die Rauheit dort anheben, wo die Normale schnell variiert.
+
+three tut das bereits, aber nur für die Geometrie:
+
+```glsl
+vec3 dxy = max( abs( dFdx( nonPerturbedNormal ) ), abs( dFdy( nonPerturbedNormal ) ) );
+```
+
+`nonPerturbedNormal` ist die Flächennormale **ohne** Karte. Ersetzt man sie
+durch `normal` — die gestörte —, erfasst derselbe Ausdruck genau die Änderung,
+die die Narbung einbringt. Keine Textur, kein Aufruf, kein Durchgang.
+
+| | > +15 | > +25 | > +40 | größter | Glanz | Korn |
+| --- | --- | --- | --- | --- | --- | --- |
+| ohne | 0,859 % | 0,353 % | 0,088 % | 64 | 0,89 % | 8,33 |
+| **mit** | 0,579 % | **0,221 %** | 0,042 % | 63 | 0,55 % | 6,16 |
+
+Ein Drittel weniger Funken, und der Glanz kostet weniger als bei reiner
+Rauheit: Bei Rauheit 0,55 wären es 0,30 % Glanz für 0,048 % Funken, hier
+0,55 % Glanz für 0,221 %. Im Bild ist der Unterschied deutlich — die hellen
+Einzelpunkte auf der Armrolle sind weg, die Narbung bleibt.
+
+### Zwei Dinge, die dabei schiefgingen
+
+**Erstens, und das ist die eigentliche Lehre:** Der erste Anlauf hat direkt auf
+den Text des three-Bausteins ersetzt. Die eingebaute Wache hat sofort
+angeschlagen — **in `onBeforeCompile` sind die Bausteine noch nicht
+eingesetzt.** `shader.fragmentShader` enthält dort noch
+`#include <lights_physical_fragment>`; three löst die Einschlüsse erst danach
+auf. Wer einen Baustein ändern will, muss ihn selbst einsetzen. (Die übrigen
+Ersetzungen in dieser Datei treffen deshalb entweder `#include`-Zeilen oder
+Code, der direkt im Hauptteil steht — das war mir bis hierher nicht bewusst,
+es hat nur zufällig immer gepasst.)
+
+Dass die Wache angeschlagen hat statt still zu scheitern, ist das Verdienst von
+Paket 14: Dort hat eine stumme `String.replace` einen ganzen Messlauf entwertet,
+und seitdem wirft es.
+
+**Zweitens ein Messwert, der nichts wert war:** Die Zahlen, die ich zwischen dem
+Fehlschlag und seiner Behebung genommen habe (0,971 % / 0,575 %), stammen von
+einem Werkstoff, dessen Shader gar nicht übersetzt wurde. Sie stehen hier nur,
+damit klar ist, dass sie nicht zählen.
+
+### Was offen bleibt
+
+Aus **drei Metern** (`a-augenhoehe`, Sessel 120 px breit) ändert die Glättung
+nichts: 1,661 % → 1,674 % über Umfeld+15. Das ist kein Versagen des Mittels,
+sondern ein anderer Befund: Dort ist die Narbung längst wegmipgemappt, und was
+funkelt, sind **Kanten von Kleinteilen** — Keder, Knöpfe, Flügelkanten — gegen
+den maximal hellen Hintergrund. Das ist der Prüferbefund 14
+(„Silhouettenkanten fast unbehandelt, genau ein Zwischenpixel"), und dagegen
+hilft nur mehr Abtastung, nicht ein glatteres Material.
+
+### Regression und Kosten
+
+49 Draw-Calls, 94 020 Dreiecke, 1,98 MB Textur — unverändert; die Glättung ist
+eine geänderte Zeile im vorhandenen Shader. Zen, Nachthimmel und Insel
+**bitgleich**, Dojo Δmax 6 bei 0,011 %. Build grün, Konsole frei von Errors und
+Warnings.

@@ -184,6 +184,7 @@ try {
   };
 
   await messen('Stand', {});
+  for (const r of [0.5, 0.55, 0.6]) await messen(`rough ${r}`, { roughness: r });
   await messen('Stand erneut', {});
 } finally {
   await browser.close();
