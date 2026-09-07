@@ -1484,3 +1484,62 @@ die Summe nicht zu schwer wird.
 
 Zen, Nachthimmel und Insel **bitgleich**, Dojo Δmax 5 bei 0,009 %.
 Texturspeicher 1,98 MB. Build grün, Konsole frei von Errors und Warnings.
+
+---
+
+## Paket 18 — Der Sessel war ein Brettstapel
+
+Der schwerste Befund des Prüfers, und er hat ihn genau richtig benannt: „Ein
+Ohrensessel ist gerade dadurch definiert, dass Flügel, Rücken und Arm eine
+durchgehende Polsterhülle bilden. Hier sieht man an drei Stellen zwischen die
+Teile."
+
+### Acht Zentimeter Luft, quer über die ganze Sitzbreite
+
+Die Armrolle hatte die Tiefe `frontDepth` = 0,42 um `frontZ` = 0,0575, reichte
+also bis z = −0,153. Die Vorderseite der Lehne sitzt bei z = −0,23.
+
+**Dazwischen standen acht Zentimeter Luft**, über die volle Breite, an beiden
+Armen — und aus jeder Richtung, aus der man in den Sessel hineinsieht, sah man
+sie. Dasselbe für die Wange darunter.
+
+Beide sind jetzt 12 cm länger und wandern 6 cm nach hinten: Die Vorderkante
+bleibt, wo sie war, die Hinterkante steckt 4 cm in der Lehne.
+
+### Der Flügelschlitz war ein Rest des vorigen Pakets
+
+Paket 11 hat die Flügeldrehung von der Mitte auf die Hinterkante verlegt, damit
+die hintere äußere Ecke nicht mehr über die Lehne hinausragt. Was dabei blieb:
+Auch um die Hinterkante gedreht läuft die **Außenseite** des Flügels mit dem
+Winkel nach innen — bei 0,2 rad über 30 cm Flügeltiefe um **6,0 cm**. Die
+Lehnenflanke steht bei x = 0,44, die Flügelvorderkante damit bei 0,380, und
+dazwischen klafft von hinten-seitlich eine keilförmige Kerbe über die volle
+Flügelhöhe. Genau die meldet der Prüfer.
+
+Bei 0,09 rad sind es 2,7 cm. Das liest als Flare, nicht als Spalt.
+
+Das ist die zweite Runde an derselben Stelle, und die Lehre daraus ist
+unangenehm einfach: Ich habe in Paket 11 die **Ecke** korrigiert, die ich
+gerechnet hatte, und nicht nachgesehen, was der Winkel mit der ganzen **Fläche**
+macht. Derselbe Fehlertyp wie beim Horizont in Paket 16 — die Stelle prüfen und
+die Kurve übersehen.
+
+### Ergebnis
+
+Aus dem Sitzabstand (freier Blick, Position 0,1 | 1,35 | −3,35) liest der Sessel
+jetzt als ein Möbel: Die Flügel flankieren die Lehne, die Armrollen laufen
+darunter durch bis in die Lehne, und es gibt keine Blickrichtung mehr, aus der
+zwischen den Teilen Weiß steht.
+
+47 Draw-Calls, 93 828 Dreiecke, 1,98 MB Textur — alle unverändert; es sind zwei
+längere Körper und ein kleinerer Winkel. Zen, Nachthimmel und Insel
+**bitgleich**, Dojo Δmax 5 bei 0,008 %. Build grün, Konsole frei von Errors und
+Warnings.
+
+### Was am Sessel offen bleibt
+
+* Die Innenkante Sitzkissen / Lehne ist ein scharfer rechter Winkel ohne
+  Polsterwulst (Prüferbefund 6).
+* Sockel und Polster lesen als zwei Werkstoffe mit harter Trennlinie
+  (Befund 15) — der Sockelkeder ist vorhanden, trägt aber nicht.
+* Die Rosette liest als Schokolade (Befund 12).

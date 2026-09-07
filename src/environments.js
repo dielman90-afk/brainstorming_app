@@ -13166,20 +13166,49 @@ function makeConstructArmchair() {
     // Keil, der mit der Hoehe waechst — der Pruefer hat ihn als „tiefe harte
     // Spalte zwischen Wange und Lehne" gemeldet.
     wing.rotation.x = 0.07;
-    wing.rotation.y = -side * 0.2; // nach vorn nach innen gestellt
+    // **0,09 statt 0,2.** Auch nach der Drehung um die Hinterkante laeuft die
+    // AUSSENSEITE des Fluegels mit dem Winkel nach innen: bei 0,2 rad ueber
+    // 30 cm Fluegeltiefe um 6,0 cm. Die Lehnenflanke steht bei x = 0,44, die
+    // Fluegelvorderkante damit bei 0,380 — und dazwischen klafft von
+    // hinten-seitlich eine keilfoermige Kerbe ueber die volle Fluegelhoehe.
+    // Genau die meldet der Pruefer als „Schlitz zwischen Fluegel und
+    // Rueckenlehne". Bei 0,09 rad sind es 2,7 cm; das liest als Flare, nicht
+    // als Spalt.
+    wing.rotation.y = -side * 0.09; // nach vorn leicht nach innen gestellt
     group.add(wing);
   }
 
+  // **Wange und Armrolle reichen jetzt bis IN die Lehne.**
+  //
+  // Der Pruefer nennt es als schwersten Befund: „Die Armrolle ist ein liegender
+  // Zylinder, der hinten abrupt abbricht und weder Fluegel noch Ruecken
+  // erreicht." Nachgerechnet stimmt das aufs Zentimeter: Die Rolle hatte die
+  // Tiefe `frontDepth` = 0,42 um `frontZ` = 0,0575, reichte also bis
+  // z = -0,153 — und die Vorderseite der Lehne sitzt bei z = -0,23. Dazwischen
+  // standen **acht Zentimeter Luft**, quer ueber die ganze Sesselbreite, und
+  // aus jeder Richtung, aus der man in den Sessel hineinsieht, sah man sie.
+  //
+  // Ein Ohrensessel ist gerade dadurch definiert, dass Fluegel, Ruecken und Arm
+  // eine durchgehende Polsterhuelle bilden. Beide Teile werden deshalb um
+  // 12 cm laenger und wandern um 6 cm nach hinten: Die Vorderkante bleibt, wo
+  // sie war, und die Hinterkante steckt 4 cm in der Lehne.
+  const ARM_TIEFER = 0.12;
   for (const side of [-1, 1]) {
     // Wange
     const cheekH = ARM_TOP - CHEEK / 2 - 0.32;
-    const cheek = new THREE.Mesh(roundedBox(CHEEK, cheekH, frontDepth, 0.05), leather);
-    cheek.position.set(side * cheekX, 0.32 + cheekH / 2, frontZ);
+    const cheek = new THREE.Mesh(
+      roundedBox(CHEEK, cheekH, frontDepth + ARM_TIEFER, 0.05),
+      leather
+    );
+    cheek.position.set(side * cheekX, 0.32 + cheekH / 2, frontZ - ARM_TIEFER / 2);
     group.add(cheek);
 
     // Gerollte Armauflage
-    const arm = new THREE.Mesh(roundedBox(CHEEK, CHEEK, frontDepth, CHEEK / 2, 0.06), leather);
-    arm.position.set(side * cheekX, ARM_TOP - CHEEK / 2, frontZ);
+    const arm = new THREE.Mesh(
+      roundedBox(CHEEK, CHEEK, frontDepth + ARM_TIEFER, CHEEK / 2, 0.06),
+      leather
+    );
+    arm.position.set(side * cheekX, ARM_TOP - CHEEK / 2, frontZ - ARM_TIEFER / 2);
     group.add(arm);
 
     // --- Geschnitzte Rosette an der Stirnseite -----------------------------
