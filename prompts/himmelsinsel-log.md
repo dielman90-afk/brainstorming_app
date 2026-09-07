@@ -2456,6 +2456,19 @@ nur zu verdecken — dann könnte die Fernstufe die Karten ganz abschalten. Das 
 ein Umbau der Kronengeometrie und damit ein eigenes Paket, kein Nachtrag zu
 diesem.
 
+### Berichtigung an meiner eigenen Commit-Nachricht
+
+In der Nachricht zu `a2e5f59` steht für die ferne Krone „2,70 → 2,02, Quotient
+0,240 → 0,098". Das sind die Zahlen des Laufs mit **Bias 2,2**, nicht die des
+ausgelieferten Standes. Nachgemessen am gebauten Stand:
+
+    ferne Krone   Zittern 2,70 → 1,83   Quotient 0,240 → 0,125
+
+Das Zittern fällt also stärker als angegeben, der Quotient weniger. Der Fehler
+kam davon, dass ich die Zeile aus der Sweep-Tabelle übernommen habe, statt am
+fertigen Stand nachzumessen. Die Zahlen für die nahe Krone (3,20 / 0,063) sind
+richtig.
+
 ### Regression und Kosten
 
 Kein Objekt, kein Dreieck, kein Byte Textur, kein Draw-Call: 78 / 299 192 /
