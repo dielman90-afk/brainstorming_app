@@ -2554,3 +2554,75 @@ Kein Objekt, kein Draw-Call, kein Byte Textur; ein Float je Scheitelpunkt des
 Inselkörpers. 78 / 299 192 / 11,83 MB, unverändert. Nachthimmel und Konstrukt
 **bitgleich**, Dojo Δmax 6 bei 0,010 %, Zen-Prüfstand unverändert bei 93 /
 74 606 / 21,53 MB. Build grün, Konsole frei von Errors und Warnings.
+
+## Paket F — Kiel als geprägtes Leder, Erdband als reine Malerei (Prüferbefund 6)
+
+Zwei Hälften, zwei Ursachen, ein Paket.
+
+### Der Kiel: geprägtes Leder
+
+Im vierfach vergrößerten Ausschnitt von `3-edge-down` (400,300)–(600,400) ist es
+nicht zu übersehen: weiche, gerundete, wandernde Wülste ohne eine einzige Kante.
+
+Die Ursache steht in `cliffMaps()` aus dem Dojo-Satz — einer Summe aus
+gebrochenem Rauschen plus zwei Rissscharen. Für eine **Gartenmauer aus behauenem
+Stein** ist das genau richtig, und dort steht sie weiter. Eine Felsflanke von
+vierzig Metern ist etwas anderes: Fels bricht entlang von Flächen, was man sieht
+sind **ebene Facetten mit scharfen Kanten dazwischen**. Gerundetes Rauschen kann
+das nicht liefern, egal mit wie vielen Oktaven — es hat per Konstruktion keine
+Kante.
+
+Neu ist deshalb ein inselzugehöriges Feld: ein Zellenrauschen, bei dem jede Zelle
+nicht einen Buckel trägt, sondern eine **geneigte Ebene**. An der Zellgrenze
+springt die Neigung, und genau dort entsteht die Kante. Drei Lagen (75 cm, 30 cm,
+10 cm), gekachelt über Zellindizes modulo der Zellenzahl.
+
+**Drei Fehlversuche, alle gemessen:**
+
+* **Eine gemeinsame Materialinstanz für alle Inseln.** `addSkyRim` umhüllt
+  `onBeforeCompile`, und der Aufruf steht einmal je Insel — die Hüllen legten
+  sich übereinander, der Shader ging nicht durch, und im Bild stand dort, wo der
+  Kiel sein sollte, **der Himmel** (Kastenmittel 64,7 → 180,1). Genau dafür stand
+  am alten `cliffMaterial()` das `.clone()`, dessen Kommentar zwei Zeilen weiter
+  die Begründung nennt. Jetzt wieder eine Instanz je Aufruf; die Karten selbst
+  bleiben geteilt.
+* **Zellenzahlen 6, 18, 54.** Alle drei Gitter lagen aufeinander — jede
+  Zellgrenze der groben Lage war zugleich eine der feinen, und die Kanten liefen
+  als Treppe entlang der Achsen. Dieselbe Lehre wie bei der Grasnarbe, nur dass
+  sich eine Kachel nicht drehen lässt: jetzt 5, 13, 37 mit eigenen Versätzen.
+* **Neigung 0,55, Stufe 0,62.** Die Kanten waren da, die Flächen daneben aber
+  gleich hell — der mittlere Nachbarunterschied fiel von 1,37 auf **0,83**, die
+  Wand war flacher als das Leder davor. Eine Facette ohne Neigung ist kein
+  Bruchstück, sondern ein Umriss. Jetzt Neigung 1,9 und Stufe 0,34.
+
+### Das Erdband: reine Malerei, wörtlich
+
+Zwischen Grasnarbe und Fels läuft ein Band aus Erdreich um die ganze Insel. Sein
+Material war `new MeshStandardMaterial({ vertexColors, roughness: 1,
+flatShading })` — **keine Karte, keinerlei Relief.** Alles, was dort stand, war
+die Scheitelfarbe an einem Netz mit gut einem Meter Maschenweite.
+
+Erde ist nicht facettiert wie Fels und nicht gewellt wie Leder, sie ist
+**krümelig**. Dieselbe Zellmaschinerie, aber mit dem **Abstand** statt der
+Facettenebene: Schollen von 40 cm, Brocken von 14 cm, und einzelne Steine von
+5 cm, die nur in jeder dritten Zelle sitzen — sonst wäre es eine Pflasterung.
+
+### Ergebnis
+
+Mittlerer Nachbarunterschied, `3-edge-down`:
+
+| Bereich | vorher | nachher |
+| --- | --- | --- |
+| Kiel (380,240)–(700,420) | 1,37 | **1,98** |
+| Erdband (60,150)–(360,240) | 0,88 | **3,00** |
+
+Der Zwischenstand nach dem Felspaket allein zeigt 0,90 im Erdband — die beiden
+Änderungen sind sauber getrennt.
+
+### Regression und Kosten
+
+Zwei neue Kartenpaare zu je 512²: Texturspeicher 11,83 → **17,17 MB** von 60.
+Draw-Calls und Dreiecke unverändert (78 / 299 192). `cliffMaps()` und
+`cliffMaterial()` bleiben unangetastet — Nachthimmel und Konstrukt **bitgleich**,
+Dojo Δmax 4 bei 0,008 %, Zen-Prüfstand unverändert bei 93 / 74 606 / 21,53 MB.
+Build grün, Konsole frei von Errors und Warnings.

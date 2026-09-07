@@ -1897,6 +1897,231 @@ function grasMaterial() {
   return _inselGras;
 }
 
+// --- Fels der Insel: Facetten statt Falten ---------------------------------
+//
+// **Der Pruefer: „Der Kiel liest als praegegemustertes Leder."** Er hat recht,
+// und im vierfach vergroesserten Ausschnitt ist es nicht zu uebersehen: weiche,
+// gerundete, wandernde Wuelste ohne eine einzige Kante.
+//
+// Die Ursache steht in `cliffMaps()` aus dem Dojo-Satz. Deren Hoehenfeld ist
+// eine Summe aus gebrochenem Rauschen plus zwei Rissscharen — fuer eine
+// **Gartenmauer aus behauenem Stein** genau richtig, und dort steht sie auch
+// weiter. Eine Felsflanke von vierzig Metern ist etwas anderes: Fels bricht
+// entlang von Flaechen. Was man sieht, sind **ebene Facetten mit scharfen
+// Kanten dazwischen**, nicht ein gewelltes Kontinuum. Gerundetes Rauschen kann
+// das nicht liefern, egal mit wie vielen Oktaven — es hat per Konstruktion
+// keine Kante.
+//
+// Also ein eigenes Feld fuer die Insel, und der Dojo behaelt seines. Die
+// Bauart: ein Zellenrauschen (Worley), bei dem jede Zelle nicht einen Buckel
+// traegt, sondern eine **geneigte Ebene**. An der Zellgrenze springt die
+// Neigung, und genau dort entsteht die Kante. Zwei Lagen — 75 cm und 25 cm —
+// plus feines Korn.
+//
+// Die Kachelung bleibt erhalten, weil die Zellindizes modulo der Zellenzahl
+// gerechnet werden; ohne das haette die Karte eine sichtbare Naht, und eine
+// Naht auf einer vierzig Meter hohen Wand ist ein groesserer Fehler als der,
+// den dieses Feld behebt.
+let _inselFels = null;
+function inselFelsKarten() {
+  if (_inselFels) return _inselFels;
+  const size = 512;
+  const streu = (i, j, s) => {
+    const n = Math.sin(i * 127.1 + j * 311.7 + s * 74.7) * 43758.5453;
+    return n - Math.floor(n);
+  };
+  // Eine Lage Facetten. `dichte` ist die Zahl der Zellen je Kachel.
+  const facetten = (u, v, dichte, saat) => {
+    const fu = u * dichte;
+    const fv = v * dichte;
+    const iu = Math.floor(fu);
+    const iv = Math.floor(fv);
+    let best = 1e9;
+    let hoehe = 0;
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        const cu = iu + di;
+        const cv = iv + dj;
+        // Modulo fuer die Kachelung: Die Zelle am rechten Rand ist dieselbe
+        // wie die am linken.
+        const wu = ((cu % dichte) + dichte) % dichte;
+        const wv = ((cv % dichte) + dichte) % dichte;
+        const px = cu + 0.09 + 0.82 * streu(wu, wv, saat);
+        const py = cv + 0.09 + 0.82 * streu(wu, wv, saat + 1);
+        const d = (px - fu) ** 2 + (py - fv) ** 2;
+        if (d < best) {
+          best = d;
+          // **Eine Ebene, kein Buckel.** Der Hoehenwert der Zelle plus eine
+          // lineare Neigung — dadurch ist die Facette flach und die Grenze
+          // zur Nachbarzelle ein Knick.
+          // Der Stufenanteil macht die Kante, der Neigungsanteil macht den
+          // Helligkeitsunterschied ZWISCHEN zwei Facetten. Beim ersten Anlauf
+          // stand die Neigung auf 0,55 und die Stufe auf 0,62: Die Kanten waren
+          // da, die Flaechen daneben aber gleich hell — gemessen fiel der
+          // mittlere Nachbarunterschied von 1,37 auf 0,83, die Wand war flacher
+          // als das Leder davor. Eine Facette ohne Neigung ist keine Facette,
+          // sondern ein Umriss.
+          hoehe =
+            streu(wu, wv, saat + 2) * 0.34 +
+            ((fu - px) * (streu(wu, wv, saat + 3) - 0.5) +
+              (fv - py) * (streu(wu, wv, saat + 4) - 0.5)) *
+              1.9;
+        }
+      }
+    }
+    return hoehe;
+  };
+  const hoehe = (x, y) => {
+    const u = x / size;
+    const v = y / size;
+    // **Teilerfremde Zellenzahlen und eigene Versaetze.** Mit 6, 18 und 54
+    // lagen alle drei Gitter aufeinander — jede Zellgrenze der groben Lage war
+    // zugleich eine der feinen, und die Kanten liefen als Treppe entlang der
+    // Achsen. Dieselbe Lehre wie bei der Grasnarbe, nur dass eine Kachel sich
+    // nicht drehen laesst: 5, 13 und 37 haben keinen gemeinsamen Teiler, und
+    // ein Versatz je Lage verschiebt ihre Gitter gegeneinander.
+    let h =
+      facetten(u, v, 5, 11) * 0.50 +
+      facetten(u + 0.37, v + 0.13, 13, 53) * 0.30 +
+      facetten(u + 0.71, v + 0.59, 37, 97) * 0.20;
+    // Feines Korn, damit die Facetten nicht wie poliert wirken.
+    h += (streu(x, y, 7) - 0.5) * 0.05;
+    return Math.max(0, Math.min(1, h + 0.25));
+  };
+  const maps = heightToMaps({
+    size,
+    repeat: [1, 1],
+    // Mit 1,6 war die Wand messbar flacher als vorher (mittlerer
+    // Nachbarunterschied 1,37 auf 0,83) — die Kanten waren da, aber sie trugen
+    // nichts. Die Facette braucht Neigung, damit die Kante zwischen zwei
+    // verschieden hellen Flaechen sitzt und nicht zwischen zwei gleichen.
+    strength: 4.0,
+    height: hoehe,
+    roughness: (h) => 238 - h * 24,
+  });
+  _inselFels = { normalMap: maps.normalMap, roughnessMap: maps.roughnessMap };
+  return _inselFels;
+}
+
+// --- Das Erdband: bisher reine Malerei -------------------------------------
+//
+// Die zweite Haelfte desselben Pruefbefunds. Zwischen Grasnarbe und Fels
+// laeuft ein Band aus Erdreich um die ganze Insel — im Bild von `3-edge-down`
+// ueber ein Fuenftel der Inselflaeche. Sein Material war
+// `new MeshStandardMaterial({ vertexColors, roughness: 1, flatShading })`:
+// **keine Karte, keinerlei Relief.** Alles, was dort steht, ist die
+// Scheitelfarbe, und die haengt an einem Netz mit gut einem Meter Maschenweite.
+// „Reine Malerei" trifft es woertlich.
+//
+// Erde ist nicht facettiert wie Fels und nicht gewellt wie Leder: Sie ist
+// **kruemelig** — Schollen, dazwischen kleinere Brocken, und einzelne Steine,
+// die aus der Wand schauen. Deshalb dieselbe Zellmaschinerie wie beim Fels,
+// aber mit dem **Abstand** statt der Facettenebene: Ein Zellabstand ergibt
+// runde Kuppen, kein Kantengefuege.
+let _inselErde = null;
+function inselErdKarten() {
+  if (_inselErde) return _inselErde;
+  const size = 512;
+  const streu = (i, j, s) => {
+    const n = Math.sin(i * 269.5 + j * 183.3 + s * 41.9) * 43758.5453;
+    return n - Math.floor(n);
+  };
+  // Abstand zum naechsten Zellpunkt, gekachelt. `nurAnteil` laesst einen Teil
+  // der Zellen leer — daraus werden einzelne Steine statt einer Pflasterung.
+  const zellAbstand = (u, v, dichte, saat, nurAnteil = 1) => {
+    const fu = u * dichte;
+    const fv = v * dichte;
+    const iu = Math.floor(fu);
+    const iv = Math.floor(fv);
+    let best = 9;
+    for (let dj = -1; dj <= 1; dj++) {
+      for (let di = -1; di <= 1; di++) {
+        const cu = iu + di;
+        const cv = iv + dj;
+        const wu = ((cu % dichte) + dichte) % dichte;
+        const wv = ((cv % dichte) + dichte) % dichte;
+        if (nurAnteil < 1 && streu(wu, wv, saat + 5) > nurAnteil) continue;
+        const px = cu + 0.12 + 0.76 * streu(wu, wv, saat);
+        const py = cv + 0.12 + 0.76 * streu(wu, wv, saat + 1);
+        const d = (px - fu) ** 2 + (py - fv) ** 2;
+        if (d < best) best = d;
+      }
+    }
+    return Math.sqrt(best);
+  };
+  const kuppe = (d, r) => {
+    const t = Math.max(0, 1 - d / r);
+    return t * t * (3 - 2 * t);
+  };
+  const hoehe = (x, y) => {
+    const u = x / size;
+    const v = y / size;
+    // Schollen (rund 40 cm), Brocken (14 cm) und einzelne Steine (5 cm, nur
+    // jede dritte Zelle). Teilerfremde Zellenzahlen und eigene Versaetze, aus
+    // demselben Grund wie beim Fels.
+    let h =
+      kuppe(zellAbstand(u, v, 11, 3), 0.62) * 0.46 +
+      kuppe(zellAbstand(u + 0.29, v + 0.61, 31, 29), 0.55) * 0.28 +
+      kuppe(zellAbstand(u + 0.73, v + 0.17, 83, 71, 0.34), 0.34) * 0.20;
+    // Feiner Grus. Erde ohne Korn liest aus zwei Metern wieder als Anstrich.
+    h += (streu(x, y, 13) - 0.5) * 0.13;
+    return Math.max(0, Math.min(1, h + 0.08));
+  };
+  const maps = heightToMaps({
+    size,
+    repeat: [1, 1],
+    strength: 3.2,
+    height: hoehe,
+    // Erde ist durchgehend stumpf; die Kuppen sind allenfalls eine Spur
+    // glatter, weil Regen sie freilegt.
+    roughness: (h) => 248 - h * 18,
+  });
+  _inselErde = { normalMap: maps.normalMap, roughnessMap: maps.roughnessMap };
+  return _inselErde;
+}
+
+function inselErdMaterial() {
+  const { normalMap, roughnessMap } = inselErdKarten();
+  const mat = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    normalMap,
+    roughnessMap,
+    roughness: 1.0,
+    metalness: 0,
+    flatShading: true,
+  });
+  mat.normalScale = new THREE.Vector2(1.0, 1.0);
+  return mat;
+}
+
+// Das Material dazu. `cliffMaterial` liefert aus einem Cache und wird von Dojo
+// und Zen-Garten mitbenutzt — deshalb eine eigene Instanz statt eines
+// Austauschs der Karten am geteilten Objekt.
+//
+// **Je Aufruf ein neues Material, und das ist kein Versehen.** Der erste Anlauf
+// gab eine gemeinsame Instanz zurueck. `addSkyRim` umhuellt aber
+// `onBeforeCompile`, und der Aufruf steht einmal je Insel — die Huellen legten
+// sich uebereinander, der Shader ging nicht mehr durch, und im Bild stand
+// dort, wo der Kiel sein sollte, **der Himmel**. Genau dafuer stand vorher das
+// `.clone()` an `cliffMaterial()`, dessen Kommentar zwei Zeilen weiter unten
+// die Begruendung nennt: „ohne clone() bekaeme jede Insel dasselbe Objekt".
+// Die Karten selbst werden weiter geteilt; sie kosten den Speicher, nicht die
+// Materialhuelle.
+function inselFelsMaterial() {
+  const { normalMap, roughnessMap } = inselFelsKarten();
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    vertexColors: true,
+    normalMap,
+    roughnessMap,
+    metalness: 0,
+    roughness: 1,
+    flatShading: true,
+  });
+  mat.normalScale = new THREE.Vector2(1.2, 1.2);
+  return mat;
+}
+
 function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detail = 1 } = {}) {
   const S = Math.max(24, Math.round(seg * detail));
   const TR = Math.max(6, Math.round(topRings * detail));
@@ -2121,16 +2346,11 @@ function buildIslandBody(shape, { seg = 96, topRings = 18, sideRings = 36, detai
 
   const mesh = new THREE.Mesh(geo, [
     gras,
-    new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 1.0,
-      metalness: 0,
-      flatShading: true,
-    }),
+    inselErdMaterial(),
     // Felswandkarte, NICHT die Granitkarte des Dojo-Gartens: Deren
     // Absplitterungen sind auf einer vierzig Meter hohen Flanke ein sichtbares
     // Raster gleicher Dellen. Begründung ausführlich bei cliffMaps().
-    addSkyRim(cliffMaterial({ tone: 0xffffff, vertexColors: true }).clone(), {
+    addSkyRim(inselFelsMaterial(), {
       strength: 0.18,
       power: 4.0,
     }),
