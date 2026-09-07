@@ -906,8 +906,25 @@ const TRANS_BODY = /* glsl */ `
     float fBack = max( 0.0, dot( -fLight.direction, geometryNormal ) );
     float fWrap = pow( fBack, uTransPower );
     // Blickabhängigkeit: Ein Blatt leuchtet am stärksten, wenn man in die
-    // Sonne schaut. geometryViewDir zeigt zur Kamera.
-    float fView = max( 0.0, dot( geometryViewDir, fLight.direction ) );
+    // Sonne schaut.
+    //
+    // **Das Vorzeichen war falsch, und zwar gegen den eigenen Kommentar.**
+    // geometryViewDir zeigt VOM Fragment ZUR Kamera, fLight.direction vom
+    // Fragment zur Lichtquelle. Wer in die Sonne blickt, steht ihr gegenüber —
+    // die beiden Vektoren zeigen dann in entgegengesetzte Richtungen und ihr
+    // Skalarprodukt ist **negativ**. Mit max(0, dot(...)) lief der Effekt
+    // genau dort auf seinem Sockel von 0,40, wo er sein Maximum haben sollte,
+    // und auf Maximum, wenn die Sonne im Rücken steht.
+    //
+    // Gemessen auf der Insel in 5-backlight, wo die Kamera fast genau in die
+    // Sonne sieht (Blickachse mal Lichtrichtung = +0,913):
+    //
+    //     geometryViewDir · fLight.direction = -0,913  →  geklemmt auf 0
+    //
+    // Das ist die Erklärung für den Prüferbefund „das Gegenlichtbild ist vom
+    // Vorderlichtbild nicht zu unterscheiden": Es war nicht zu wenig Effekt,
+    // es war der Effekt am falschen Ort.
+    float fView = max( 0.0, -dot( geometryViewDir, fLight.direction ) );
     float fGlow = fWrap * mix( 0.40, 1.0, fView * fView );
     vec3 fTint = mix( diffuseColor.rgb, uTransColor, 0.5 );
     reflectedLight.directDiffuse += fTint * fLight.color * ( fGlow * uTranslucency * RECIPROCAL_PI );

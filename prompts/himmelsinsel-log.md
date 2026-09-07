@@ -2685,3 +2685,87 @@ Die Verdeckung ist eine Rechnung beim Bauen (O(n²) über die Schöpfe einer Ins
 und danach eine Instanzfarbe. Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 5
 bei 0,009 %, Zen-Prüfstand unverändert. Build grün, Konsole frei von Errors und
 Warnings.
+
+## Paket H — Das Gegenlichtbild ist keins (Prüferbefund 8)
+
+### Ein umgedrehtes Vorzeichen, gegen den eigenen Kommentar
+
+Das Laubmaterial hat einen Transluzenzterm, und der hat eine Blickabhängigkeit
+mit dem Kommentar: „Ein Blatt leuchtet am stärksten, wenn man in die Sonne
+schaut." Die Zeile darunter tat das Gegenteil:
+
+```
+float fView = max( 0.0, dot( geometryViewDir, fLight.direction ) );
+```
+
+`geometryViewDir` zeigt **vom Fragment zur Kamera**, `fLight.direction` vom
+Fragment **zur Lichtquelle**. Wer in die Sonne blickt, steht ihr gegenüber — die
+Vektoren zeigen dann auseinander und das Skalarprodukt ist **negativ**. Mit
+`max(0, …)` lief der Effekt genau dort auf seinem Sockel von 0,40, wo er sein
+Maximum haben sollte, und auf Maximum, wenn die Sonne im Rücken steht.
+
+Das neue `tools/gegenlicht.mjs` liest den Term aus, statt ihn zu vermuten, und
+misst zugleich differenziell, was er beiträgt. In `5-backlight`:
+
+    zur Sonne                     0,469 | 0,625 | -0,625
+    Blickachse                    0,691 | 0,274 | -0,669
+    Blickachse · Lichtrichtung   +0,913   (die Kamera sieht fast genau hinein)
+    geometryViewDir · lightDir   -0,913   →  geklemmt auf 0
+
+    Transluzenz x 0   Kastenmittel 39,3
+    Transluzenz x 1                51,8
+    Transluzenz x 3                68,0
+
+Der Term wirkt also — er wirkte nur an der falschen Stelle. Das ist die Erklärung
+für den Prüferbefund, und sie ist keine Geschmacksfrage: Es war nicht zu wenig
+Effekt, es war der Effekt am falschen Ort.
+
+### Ergebnis
+
+`5-backlight`, Kasten über der vorderen Konifere (880,40)–(1270,520), nur
+Laubpixel:
+
+| | vorher | nachher |
+| --- | --- | --- |
+| Mittel | 38,9 | **46,0** |
+| Anteil über L 110 | 0,86 % | **4,58 %** |
+| \|dx\| im ganzen Kasten | 19,80 | 22,49 |
+
+Im Bild leuchten die Nadeln am Silhouettenrand jetzt gelbgrün durch, statt als
+schwarze Masse zu stehen. Δ über das ganze Bild: 10,5 % der Bildpunkte ändern
+sich um mindestens 8 Stufen.
+
+### Dies ist die eine Änderung, die die anderen Umgebungen mitnimmt
+
+`foliageMaterial` bedient Dojo und Zen-Garten. Sonst gilt in diesem Auftrag: Ein
+auf der Insel gemessener Befund ist kein Freibrief, eine andere Umgebung zu
+verändern — beim Himmelssaum und bei der Kronenverdeckung steht es genau so im
+Protokoll. **Hier gilt es nicht**, und der Unterschied ist nicht Bequemlichkeit:
+Dort ging es um eine Abwägung, hier um ein Vorzeichen, das dem eigenen Kommentar
+widerspricht. Eine korrigierte Kopie für die Insel neben der falschen Fassung für
+alle anderen wäre die schlechtere Technik.
+
+Gemessen, was es dort bewirkt:
+
+| Prüfbild | ≥ 2 Stufen | ≥ 8 | Δmax |
+| --- | --- | --- | --- |
+| Zen `a-eyelevel` | 3,93 % | 3,65 % | 59 |
+| Zen `c-torii` | 2,21 % | 2,12 % | 64 |
+| Zen `e-sand` | 2,65 % | 2,53 % | 63 |
+| Zen `f-grove` | 1,64 % | 1,55 % | 60 |
+| Zen `b-pond` | 0,00 % | 0,00 % | 0 |
+| Dojo-Übersicht | 0,01 % | 0,00 % | 5 |
+| Nachthimmel, Konstrukt | 0,00 % | 0,00 % | 0 |
+
+Angesehen: Die Sakura im Zen-Garten steht gegen die tief stehende Sonne und
+leuchtet jetzt warm durch, statt stumpf zu bleiben. Das ist dort dieselbe
+Verbesserung wie auf der Insel — die Kamera des Zen-Gartens schaut ebenfalls ins
+Licht. `b-pond` ändert sich um **null** Bildpunkte: Dort steht kein Laub im
+Gegenlicht. Das ist die Gegenprobe dafür, dass die Änderung tut, was sie soll,
+und nichts anderes.
+
+### Regression und Kosten
+
+Eine Zeile Shader, kein Draw-Call, kein Dreieck, kein Byte Textur. Zen-Prüfstand
+unverändert bei 93 / 74 606 / 21,53 MB, Insel bei 78 / 299 192 / 17,17 MB. Build
+grün, Konsole frei von Errors und Warnings.
