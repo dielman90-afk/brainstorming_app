@@ -2850,3 +2850,64 @@ sitzen anders. Das ist die Folge der Korrektur, nicht ein zweiter Eingriff.
 93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert. Nachthimmel, Konstrukt und
 **alle sechs Zen-Bilder bitgleich** gegenüber dem Vorstand, Dojo Δmax 5 bei
 0,009 %. Build grün, Konsole frei von Errors und Warnings.
+
+## Paket J — Rinde ohne Struktur (Prüferbefund 10)
+
+Ein früheres Paket hat `rindenKorn()` gebaut, und der Prüfer meldet die Stämme
+trotzdem wieder als glatt. Am vorderen Stamm in `5-backlight`, Kasten im
+Stamminneren (1004,500)–(1022,566): mittlerer Nachbarunterschied **2,59** von 255
+bei einer Standardabweichung von 13,3. Ein Stamm auf acht Metern trägt damit
+weniger Zeichnung als die Wiese auf zwanzig.
+
+### Erst der falsche Kasten, dann der richtige
+
+Der erste Messkasten saß neben dem Stamm. Aufgefallen ist es erst, als eine
+Verdoppelung der Amplitude die Zahl um zwei Prozent bewegte. Die Maske kam
+danach differenziell: `island-holz` ausblenden und zählen, welche Bildpunkte sich
+ändern — 5941 Holzpixel, dichteste Blöcke bei (992,480) bis (1024,576). Mein
+Kasten lag bei x = 1028, also **vier Bildpunkte daneben**. Ohne die
+Differenzmaske hätte ich aus einer Messung neben dem Gegenstand geschlossen, der
+Shader laufe nicht.
+
+### Zwei Befunde, einer davon eine Entartung
+
+**Erstens die Koordinate.** Es stand `u = (x + z) · 26`, mit der Begründung, die
+Waagerechte des Weltorts laufe über die sichtbare Hälfte eines Stammes monoton.
+Das stimmt für die meisten Stämme und für manche gar nicht: Steht die sichtbare
+Flanke so, dass x und z sich gegenläufig ändern, bleibt x + z über die ganze
+Breite **konstant** — und der Stamm trägt exakt nichts. Zwei um 23 Grad
+gegeneinander gedrehte Projektionen beheben es; wo die eine entartet, läuft die
+andere voll durch. Kostet eine zweite Rauschabfrage und keinen Atan.
+
+**Zweitens, und das war der größere Anteil: die Amplitude.** Sie stand auf 0,30
+und 0,20. Eine Probe mit dem Fünffachen zeigte, dass der Shader durchaus läuft
+(|dx| 2,59 → 7,32) — er war nur zu leise. Gemessen über drei Stände:
+
+| Amplitude | \|dx\| im Stamminneren |
+| --- | --- |
+| 0,30 (Stand) | 2,59 |
+| 0,62 | 2,64 |
+| 2,00 | **5,27** |
+| 3,00 | 7,32 |
+
+Der Sprung von 0,30 auf 0,62 bringt nichts, weil die zwei gemittelten
+Rauschabfragen die Streuung wieder wegnehmen, die die höhere Amplitude bringt.
+Ausgeliefert ist 2,00 mit 1,00 auf der groben Lage; bei 3,00 beginnt die Rinde,
+über den Stamm zu kriechen statt ihn zu gliedern.
+
+Dazu eine dritte Lage für das Nahfeld — Schuppen von 1,2 cm, ausgeblendet
+zwischen 3 und 8 m, bevor sie unter einen Bildpunkt fallen.
+
+### Wackeltest
+
+`--dreh`, Viertelbildpunkte, Stamminneres: Zittern 2,13 bei einer Streuung von
+14,2, Quotient **0,150**, max dL 24. Zum Vergleich: die Wiese liegt bei 0,039,
+die Nadelkrone bei 0,063. Die Rinde ist gutmütig — ihre Merkmale sind zehn
+Bildpunkte breit.
+
+### Regression und Kosten
+
+Zwei zusätzliche Rauschabfragen im Fragment-Shader der Stämme, sonst nichts:
+93 / 74 606 / 21,53 MB im Zen-Prüfstand, unverändert. Alle sechs Zen-Bilder,
+Nachthimmel und Konstrukt **bitgleich**, Dojo Δmax 4 bei 0,007 %. Build grün,
+Konsole frei von Errors und Warnings.

@@ -4434,21 +4434,53 @@ function rindenKorn(material) {
            float tiefeR = length(vViewPosition);
            float nahR = 1.0 - smoothstep(9.0, 26.0, tiefeR);
            if (nahR > 0.002) {
-             // Winkel um die Stammachse mal Radius waere sauberer, kostet aber
-             // einen Atan je Bildpunkt. Die Waagerechte des Weltorts tut es
-             // genauso: Auf einem Zylinder von 20 cm Halbmesser laeuft sie
-             // ueber die sichtbare Haelfte monoton.
-             float u = (vRindeOrt.x + vRindeOrt.z) * 26.0;
+             // **Eine Projektion reicht nicht, und das ist gemessen.**
+             //
+             // Hier stand u = (x + z) * 26, mit der Begruendung, die
+             // Waagerechte des Weltorts laufe ueber die sichtbare Haelfte
+             // eines Stammes monoton. Das stimmt fuer die meisten Staemme und
+             // fuer manche gar nicht: Steht die sichtbare Flanke gerade so,
+             // dass x und z sich gegenlaeufig aendern, bleibt x + z ueber die
+             // ganze Breite **konstant** — und der Stamm traegt exakt nichts.
+             //
+             // Genau das war am vorderen Stamm in 5-backlight zu messen:
+             // mittlerer Nachbarunterschied 1,41 von 255 ueber die ganze
+             // Stammbreite, Standardabweichung 5,0. Der Pruefer nennt es
+             // „Rinde ohne Struktur", und er sieht damit nicht zu wenig
+             // Amplitude, sondern eine entartete Koordinate.
+             //
+             // Zwei um 23 Grad gegeneinander gedrehte Projektionen beheben es:
+             // Wo die eine entartet, laeuft die andere voll durch. Das kostet
+             // eine zweite Rauschabfrage und keinen Atan.
+             float uA = (vRindeOrt.x * 0.921 + vRindeOrt.z * 0.391) * 30.0;
+             float uB = (vRindeOrt.x * -0.391 + vRindeOrt.z * 0.921) * 30.0;
              float v = vRindeOrt.y * 3.4;
-             float furche = rindeNoise(vec2(u, v)) - 0.5;
-             float grob = rindeNoise(vec2(u * 0.31, v * 0.55)) - 0.5;
-             diffuseColor.rgb *= 1.0 + (furche * 0.30 + grob * 0.20) * nahR;
+             // Rinde ist laengs gefurcht: schmal quer, lang laengs. Dieselbe
+             // Anisotropie wie bei den Grashalmen, nur eine Groessenordnung
+             // groeber.
+             float furche = (rindeNoise(vec2(uA, v)) + rindeNoise(vec2(uB, v + 41.0))) * 0.5 - 0.5;
+             float grob =
+               (rindeNoise(vec2(uA * 0.28, v * 0.5)) + rindeNoise(vec2(uB * 0.28, v * 0.5 + 17.0))) *
+                 0.5 -
+               0.5;
+             // Schuppen fuer das Nahfeld: 1,2 cm quer, nur auf den ersten
+             // Metern, danach ausgeblendet, bevor sie unter einen Bildpunkt
+             // fallen.
+             float nahN = 1.0 - smoothstep(3.0, 8.0, tiefeR);
+             float schuppe =
+               nahN > 0.002
+                 ? (rindeNoise(vec2(uA * 2.9, v * 3.1)) + rindeNoise(vec2(uB * 2.9, v * 3.1 + 7.0))) *
+                     0.5 -
+                   0.5
+                 : 0.0;
+             diffuseColor.rgb *=
+               1.0 + (furche * 2.0 + grob * 1.0) * nahR + schuppe * 0.50 * nahN;
            }
          }`
       );
   };
   const vorherKey = material.customProgramCacheKey?.bind(material);
-  material.customProgramCacheKey = () => `${vorherKey ? vorherKey() : ''}|insel-rinde-v1`;
+  material.customProgramCacheKey = () => `${vorherKey ? vorherKey() : ''}|insel-rinde-v2`;
   return material;
 }
 
