@@ -1113,3 +1113,104 @@ endlich an seinem eigenen Fuß. Das Korn steigt um drei Viertel.
 
 Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 6 bei 0,011 %. Build
 grün, Konsole frei von Errors und Warnings.
+
+## Paket B — Der Teich spiegelte, nur nichts mit einer Form (Prüferbefund 2)
+
+Der Prüfer: „eine tote milchige Scheibe. Keinerlei Spiegelung — nicht vom
+Himmel, nicht vom Torii, nicht von der direkt danebenstehenden Laterne, nicht
+von den Ufersteinen. Keine Glanzlichter, keine Wellen. Und: der Teich ist als
+einziges Element kalt."
+
+### Der erste Verdacht war falsch, und die Messung hat es sofort gesagt
+
+Naheliegend war „das Wasser hat gar keine Umgebungskarte". `tools/spiegelanteil.mjs`
+hängt die Karte differenziell ab und wieder an; was sich ändert, ist die
+Spiegelung. In `b-pond`: **77 717 Bildpunkte, 8,43 % des Bildes, mittlere
+Änderung 109 Stufen.** Der Teich spiegelte also nicht nur, die Spiegelung war
+der größte Teil seiner Helligkeit.
+
+Nachgesehen, was in der Karte steht: `buildSkyEnvironment()` baut eine Kugel
+mit einem Himmels-Shader — ein Verlauf und eine Sonnenscheibe, sonst nichts.
+**Ein Verlauf, gespiegelt, bleibt ein Verlauf.** Der Garten kam in der Karte
+nicht vor.
+
+### Was geändert wurde
+
+**Die Karte ist jetzt eine Aufnahme des Gartens.** Beim ersten Sichtbarwerden
+sechs Bilder von der Mitte des Teichs aus, 35 cm über dem Wasser, durch den
+PMREM gefaltet. Ausgeblendet wird alles, was nicht zum Garten gehört (Karten,
+Tafel, die anderen vier Umgebungen) und alles, was auf dem Wasser liegt — die
+Wasserfläche selbst würde sich sonst spiegeln, Seerosen und Lotus stünden
+doppelt im Bild. Zur Laufzeit kostet das nichts: Es bleibt der eine Abgriff,
+den das Material ohnehin macht.
+
+**Ohne Tone-Mapping aufgenommen.** Der Renderer wendet ACES auch auf
+Renderziele an; eine so aufgenommene Karte trüge die Kurve schon in sich und
+bekäme sie beim Zeichnen ein zweites Mal.
+
+**`envMapIntensity` von 1,5 auf 1,0.** Gemessen an einer flachen Kamera über
+dem Teich: freier Himmel dicht über dem Horizont L 175 bis 181, Wasser L 210.
+**Ein Spiegel kann nicht heller sein als das, was er spiegelt.** Jetzt 195 —
+der Rest über dem Himmelswert ist der eigene Körper des Wassers und gehört
+dorthin.
+
+**Wärmere Wassertöne.** 0x5c7358 → 0x6d7448 und 0x11302f → 0x1d3026. Der
+Prüfer hatte recht: Die alten Werte waren blaugrün, während Sand, Stein, Holz
+und Himmel warm stehen.
+
+**Eine gerechnete Glanzbahn.** Eine enge Keule um die Halbrichtung zwischen
+Blick und Sonne, auf einer Fläche, deren Neigung aus zwei wandernden
+Wellenzügen kommt. Aus der Umgebungskarte kommt sie nicht: Der PMREM faltet die
+Sonnenscheibe bei Rauheit 0,09 zu einem weichen Fleck, und 256 Bildpunkte je
+Würfelseite sind für eine Scheibe von einem halben Grad viel zu grob.
+
+### Was ich versucht habe und was nicht ging
+
+**Ein erkennbares Spiegelbild von Torii und Laterne ist mit einer
+Umgebungskarte nicht zu haben, und das ist gemessen, nicht vermutet.** Probe:
+Rauheit 0, Clearcoat-Rauheit 0, Kräuselung aus, dazu ein Durchgang mit der
+**rohen** Würfelkarte statt der gefalteten. Das Bild war in allen drei Ständen
+bis auf den Bildpunkt dasselbe — eine weiße Fläche. Der Grund ist Geometrie und
+kein Fehler: Von den Winkeln, unter denen dieser Teich in den Prüfbildern zu
+sehen ist, zeigt die Spiegelrichtung in den hellen Horizontsaum des Himmels.
+Der Torii steht daneben, nicht dort.
+
+Ein echtes Spiegelbild bräuchte eine ebene Spiegelung oder einen
+Schablonendurchgang mit gespiegelten Kopien. Beides ist machbar — die vier
+lohnenden Gegenstände (Torii, Laterne, Ufersteine, Findlinge) sind bereits je
+ein verschmolzenes Netz, kosteten also vier Draw-Calls von 27 freien. **Offen,
+mit dieser Begründung**, nicht als „geht nicht" abgetan.
+
+**Die Glanzbahn ist in keinem der sechs Prüfbilder zu sehen** — auch das
+gemessen und nicht übersehen. Sie braucht eine Kamera, die über das Wasser
+**zur Sonne** blickt; alle sechs festen Kameras blicken von ihr weg. Der
+Nachweis, dass sie steht, ist deshalb ein freies Bild:
+`tools/shots/zen-19/x-glanzbahn.png`, Kamera bei (5,9 | 1,35 | 0,25). Dort
+läuft eine helle, von den Wellen zerlegte Lichtbahn über den Teich. Das gehört
+zu Prüferbefund 15 (Komposition): Keine der sechs Kameras nutzt das Gegenlicht
+über dem Wasser.
+
+### Ein Nebenbefund am Prüfstand
+
+`measure.mjs` hat `envMap` **in keiner Zählung** geführt. Aufgefallen ist es
+hier: Die größte einzelne Textur der Umgebung wechselte von einem
+Himmelsverlauf auf eine Aufnahme des Gartens, und der Texturwert blieb auf die
+zweite Stelle gleich. Die Karte wird jetzt getrennt ausgewiesen — **6 MB** beim
+Zen-Garten. Getrennt und nicht dazugerechnet, damit die Zahlen früherer Läufe
+vergleichbar bleiben; verschwiegen wird sie nicht mehr. Die alte Himmelskarte
+war gleich groß (`PMREMGenerator.fromScene` benutzt dieselbe Würfelgröße 256),
+das ist aus dem Quelltext von three abgeleitet und nicht gemessen.
+
+### Ergebnis
+
+    Spiegelanteil b-pond        8,43 % des Bildes, mittlere Aenderung 89,2
+    Wasser gegen Himmel      210 → 195   (Himmel ueber dem Horizont 175–181)
+    Ton                      blaugruen → olivgruen mit Bernsteinanteil
+    Glanzbahn                nicht vorhanden → vorhanden (nur gegen die Sonne)
+
+    Draw-Calls      93 → 93        unveraendert
+    Dreiecke    79 576 → 79 576    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert, dazu 6 MB Umgebungskarte
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.

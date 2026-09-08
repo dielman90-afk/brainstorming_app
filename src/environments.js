@@ -13177,10 +13177,23 @@ function createZenEnvironment() {
     const tiefUniforms = {
       // Flachwasser über Sand ist nicht sandfarben, sondern grünlich: Was
       // hindurchkommt, hat schon einen Zentimeter Wasser passiert.
-      uWasserFlach: { value: new THREE.Color(0x5c7358) },
-      uWasserTief: { value: new THREE.Color(0x11302f) },
-      uWasserSaum: { value: new THREE.Color(0x2f3a30) },
+      // **Wärmer als vorher.** Der Prüfer hat den Teich als „das einzige kalte
+      // Element der Szene" gemeldet, „wie aus einer anderen Beleuchtung
+      // ausgeschnitten". Er hatte recht: 0x5c7358 und 0x11302f sind
+      // blaugrüne Töne, während Sand, Stein, Holz und Himmel warm stehen.
+      // Flaches Wasser über warmem Sand in tief stehender Sonne ist olivgrün
+      // mit einem Bernsteinanteil, nicht petrolfarben.
+      uWasserFlach: { value: new THREE.Color(0x6d7448) },
+      uWasserTief: { value: new THREE.Color(0x1d3026) },
+      uWasserSaum: { value: new THREE.Color(0x3a3a28) },
+      // Die Glanzbahn der tief stehenden Sonne. Richtung ZUR Sonne.
+      uSonneZu: { value: new THREE.Vector3(...ZEN_SONNE).normalize() },
+      uGlanz: { value: new THREE.Color(0xffdca4) },
+      uZeit: { value: 0 },
     };
+    // `update()` weiter unten zählt die Zeit hoch; die Uniform-Objekte werden
+    // in den Shader hineinkopiert, nicht kopiert — ein Schreiben hier wirkt.
+    pondMat.userData.zenUniforms = tiefUniforms;
     const vorher = pondMat.onBeforeCompile;
     pondMat.onBeforeCompile = (shader, renderer) => {
       if (vorher) vorher.call(pondMat, shader, renderer);
@@ -13193,16 +13206,64 @@ function createZenEnvironment() {
       // „useProgram: program not valid". Also eine eigene Varying mit den
       // ungekachelten UVs der Scheibe.
       shader.vertexShader = shader.vertexShader
-        .replace('#include <common>', '#include <common>\n varying vec2 vTeichUv;')
-        .replace('#include <uv_vertex>', '#include <uv_vertex>\n vTeichUv = uv;');
+        .replace('#include <common>', '#include <common>\n varying vec2 vTeichUv;\n varying vec3 vTeichWelt;')
+        .replace('#include <uv_vertex>', '#include <uv_vertex>\n vTeichUv = uv;')
+        // Die Weltlage braucht die Glanzbahn: Ihre Wellen stehen im Garten und
+        // nicht auf der Scheibe, sonst wanderten sie mit dem Teich mit.
+        .replace(
+          '#include <worldpos_vertex>',
+          '#include <worldpos_vertex>\n vTeichWelt = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        );
       shader.fragmentShader = shader.fragmentShader
         .replace(
           '#include <common>',
           `#include <common>
            varying vec2 vTeichUv;
+           varying vec3 vTeichWelt;
            uniform vec3 uWasserFlach;
            uniform vec3 uWasserTief;
-           uniform vec3 uWasserSaum;`
+           uniform vec3 uWasserSaum;
+           uniform vec3 uSonneZu;
+           uniform vec3 uGlanz;
+           uniform float uZeit;`
+        )
+        // **Die Glanzbahn, analytisch statt aus der Umgebungskarte.**
+        //
+        // Gemessen hatte der Teich als hellsten Wert L 207 und zwischen dem
+        // 50. und 95. Perzentil ganze **neun Stufen** Unterschied — eine
+        // Fläche ohne einen einzigen Lichtpunkt. Aus der Umgebungskarte kommt
+        // er auch nicht: Der PMREM faltet die Sonnenscheibe bei Rauheit 0,09
+        // zu einem weichen Fleck, und die Karte ist mit 256 Bildpunkten je
+        // Seite viel zu grob für eine Scheibe von einem halben Grad.
+        //
+        // Also gerechnet: eine sehr enge Keule um die Halbrichtung zwischen
+        // Blick und Sonne, auf einer Wasserfläche, deren Neigung aus zwei
+        // wandernden Wellenzügen kommt. Genau das ist eine Glitzerbahn — sie
+        // zerfällt von selbst in einzelne Lichter, weil die Keule so eng ist,
+        // dass sie nur dort trifft, wo die Welle gerade richtig steht.
+        .replace(
+          '#include <opaque_fragment>',
+          `{
+             float wx = vTeichWelt.x;
+             float wz = vTeichWelt.z;
+             // Zwei Wellenzuege in verschiedener Richtung und Geschwindigkeit:
+             // ein einzelner waere eine wandernde Riffelung, erst zwei ergeben
+             // ein Muster, das entsteht und wieder vergeht.
+             vec3 n = vec3(0.0, 1.0, 0.0);
+             n.x += 0.20 * sin(wx * 5.3 + wz * 1.9 + uZeit * 0.9)
+                  + 0.11 * sin(wx * 11.3 - wz * 4.1 + uZeit * 1.7);
+             n.z += 0.20 * cos(wz * 4.7 - wx * 2.6 + uZeit * 1.1)
+                  + 0.11 * cos(wz * 9.1 + wx * 6.2 - uZeit * 1.4);
+             n = normalize(n);
+             vec3 blick = normalize(cameraPosition - vTeichWelt);
+             vec3 halb = normalize(blick + uSonneZu);
+             float keule = pow(max(dot(n, halb), 0.0), 150.0);
+             // Nur, wo Wasser steht: am äußersten Rand läuft die Fläche aus,
+             // und ein Glanzlicht auf trockenem Ufer wäre ein Fehler.
+             float rand2 = clamp(length(vTeichUv - 0.5) * 2.0, 0.0, 1.0);
+             outgoingLight += uGlanz * keule * 2.6 * (1.0 - smoothstep(0.9, 1.0, rand2));
+           }
+           #include <opaque_fragment>`
         )
         .replace(
           '#include <map_fragment>',
@@ -13258,7 +13319,7 @@ function createZenEnvironment() {
   // Unterschied zwischen Wasser und poliertem Blech.
   pondMat.roughness = 0.09;
   pondMat.normalScale.set(0.5, 0.5);
-  pondMat.envMapIntensity = 1.5;
+  pondMat.envMapIntensity = 1.0;
   // Das Wasser braucht etwas zu spiegeln. Ohne Environment-Map bleibt bei
   // Rauheit 0,05 nur die Grundfarbe übrig, und die ist absichtlich dunkel.
   pondMat.userData.needsEnv = true;
@@ -13670,6 +13731,60 @@ function createZenEnvironment() {
     },
   };
   let zenSky = null;
+  let zenSpiegel = null;
+
+  // **Sechs Bilder von der Mitte des Teichs, einmal.**
+  //
+  // Die Kamera steht 35 cm über dem Wasser — hoch genug, dass die Uferkrone
+  // nicht den halben Himmel verdeckt, tief genug, dass die Spiegelung von der
+  // Seite des Teichs aus stimmt. Ausgeblendet wird alles, was nicht zum Garten
+  // gehört (Karten, Whiteboard, die anderen Umgebungen) und alles, was **auf**
+  // dem Wasser liegt: Die Wasserfläche selbst würde sich sonst spiegeln, und
+  // Seerosen und Lotusblüten stünden doppelt im Bild.
+  //
+  // **Ohne Tone-Mapping.** Der Renderer wendet ACES auch auf Renderziele an;
+  // eine so aufgenommene Karte trüge die Kurve schon in sich und bekäme sie
+  // beim Zeichnen ein zweites Mal. Das Ergebnis wäre eine Spiegelung ohne
+  // Lichter — und gerade die Sonnenbahn auf dem Wasser lebt davon, dass sie
+  // im Linearen weit über 1 liegt.
+  function baueTeichSpiegel(renderer) {
+    const szene = group.parent;
+    if (!szene) return null;
+    const aussen = szene.children.map((k) => [k, k.visible]);
+    for (const [k] of aussen) k.visible = k === group;
+    const verdeckt = ['zen-wasser', 'zen-seerosen', 'zen-lotus'];
+    const innen = [];
+    group.traverse((o) => {
+      if (verdeckt.some((n) => o.name === n || o.name.startsWith(`${n}-`))) {
+        innen.push([o, o.visible]);
+        o.visible = false;
+      }
+    });
+    // Die Umgebungskarte der **vorigen** Umgebung hängt zu diesem Zeitpunkt
+    // noch an der Szene (main.js setzt sie erst nach diesem Haken). Sie würde
+    // die Aufnahme mitbeleuchten.
+    const umgebungVorher = szene.environment;
+    szene.environment = null;
+    const ziel = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
+    const kamera = new THREE.CubeCamera(0.1, 140, ziel);
+    kamera.position.set(pondCenter.x, 0.35, pondCenter.z);
+    szene.add(kamera);
+    const tonVorher = renderer.toneMapping;
+    const zielVorher = renderer.getRenderTarget();
+    renderer.toneMapping = THREE.NoToneMapping;
+    kamera.update(renderer, szene);
+    renderer.toneMapping = tonVorher;
+    renderer.setRenderTarget(zielVorher);
+    szene.remove(kamera);
+    szene.environment = umgebungVorher;
+    for (const [o, sichtbar] of innen) o.visible = sichtbar;
+    for (const [k, sichtbar] of aussen) k.visible = sichtbar;
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const karte = pmrem.fromCubemap(ziel.texture).texture;
+    pmrem.dispose();
+    ziel.dispose();
+    return karte;
+  }
 
   // Die Kronen bleiben dichter als das Bodenlaub: Sie stehen auf Augenhöhe und
   // sind das, was man zuerst sieht. Der Bambusschopf verträgt am meisten – er
@@ -13745,6 +13860,22 @@ function createZenEnvironment() {
     ensureEnvironment(renderer) {
       if (!zenSky && renderer) {
         zenSky = buildSkyEnvironment(renderer, ZEN_HIMMEL);
+        // **Der Teich hat gespiegelt — nur nichts, was eine Form hat.**
+        //
+        // Der Prüfer hat die Wasserfläche „eine tote milchige Scheibe" genannt
+        // und aufgezählt, was fehlt: keine Spiegelung des Torii, der Laterne
+        // daneben, der Ufersteine, kein Glanzlicht, kein Ton des Abendlichts.
+        // Nachgesehen war die Karte da (`envMap` gesetzt, Rauheit 0,09,
+        // Clearcoat 1) — sie enthielt nur den **Himmel**: einen Verlauf mit
+        // einer Sonnenscheibe darin, gebaut aus einem Shader auf einer Kugel.
+        // Ein Verlauf, gespiegelt, bleibt ein Verlauf. Das Wasser hat also
+        // gespiegelt und trotzdem nach Farbe ausgesehen.
+        //
+        // Was der Garten braucht, ist eine Karte **des Gartens**. Sie entsteht
+        // hier einmal, beim ersten Sichtbarwerden: sechs Bilder von der Mitte
+        // des Teichs aus, durch den PMREM gefaltet. Zur Laufzeit kostet das
+        // nichts — es bleibt der eine Abgriff, den das Material ohnehin macht.
+        zenSpiegel = baueTeichSpiegel(renderer);
         // Nur das Wasser bekommt die Karte, nicht die ganze Szene.
         //
         // `scene.environment` gälte für **jedes** Standardmaterial hier, und
@@ -13752,7 +13883,9 @@ function createZenEnvironment() {
         // des 40-m-Sandes, der bei Rauheit 0,95 nichts davon hat. Gemessen war
         // die IBL im Dojo mit knapp 25 % der teuerste Posten der Frame-Zeit.
         // Der Teich ist die eine Fläche, die ohne Spiegelung nicht funktioniert.
-        pondMat.envMap = zenSky;
+        // Der Himmel bleibt der Rückfall: Wenn die Gruppe (noch) nicht in
+        // einer Szene hängt, gibt es nichts aufzunehmen.
+        pondMat.envMap = zenSpiegel ?? zenSky;
         pondMat.needsUpdate = true;
       }
       return this.environment;
@@ -13772,6 +13905,8 @@ function createZenEnvironment() {
       // Die beiden Kräuselungslagen wandern gegeneinander; updateWater() kennt
       // Richtung und Tempo, hier steht nur noch die Zeit.
       updateWater(pondMat, time);
+      // Und die Glanzbahn: Sie rechnet ihre Wellen selbst, aus derselben Uhr.
+      if (pondMat.userData.zenUniforms) pondMat.userData.zenUniforms.uZeit.value = time;
       // **Ohne diesen Aufruf steht der Wind still.** `foliageMaterial()` legt
       // die Zeit in einem gemeinsamen Uniform-Satz ab; `updateFoliage()` ist
       // das Einzige, was ihn hochzählt. Im Dojo tut das exterior.js – wer die

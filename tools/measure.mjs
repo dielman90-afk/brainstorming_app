@@ -72,6 +72,16 @@ try {
     // Gezählt wird deshalb, was die Umgebung selbst gebaut hat. Die App
     // markiert ihre eigenen Gruppen mit `userData.nichtUmgebung`; die werden
     // getrennt ausgewiesen, nicht verschwiegen.
+    // **Umgebungskarten werden getrennt ausgewiesen, nicht mitgezaehlt.**
+    //
+    // `envMap` stand in keiner der beiden Schluesselreihen unten. Das ist beim
+    // Zen-Teich aufgefallen, dessen Karte von einem Himmelsverlauf auf eine
+    // Aufnahme des Gartens gewechselt ist: Der Texturwert blieb auf die
+    // zweite Stelle gleich, obwohl sich die groesste einzelne Textur der
+    // Umgebung geaendert hatte. Getrennt und nicht dazugerechnet, damit die
+    // Zahlen frueherer Laeufe vergleichbar bleiben — verschwiegen wird sie
+    // nicht mehr.
+    const karteTex = new Map();
     const werkzeugTex = new Map();
     const werkzeuge = [];
     const zaehleTeilbaum = (wurzel, ziel) => {
@@ -106,6 +116,12 @@ try {
       }
       const mats = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
       for (const m of mats) {
+        if (m.envMap && !karteTex.has(m.envMap.uuid)) {
+          const bild = m.envMap.image || {};
+          // PMREM-Karten liegen als CubeUV-Tafel vor: ein Bild, halbe
+          // Gleitkommazahl je Kanal, ohne eigene Mipkette.
+          karteTex.set(m.envMap.uuid, Math.round((bild.width || 0) * (bild.height || 0) * 8));
+        }
         for (const key of ['map', 'alphaMap', 'emissiveMap', 'normalMap', 'roughnessMap', 'aoMap', 'bumpMap']) {
           addTex(m[key]);
         }
@@ -119,6 +135,8 @@ try {
     for (const b of textures.values()) bytes += b;
     let wBytes = 0;
     for (const b of werkzeugTex.values()) wBytes += b;
+    let kBytes = 0;
+    for (const b of karteTex.values()) kBytes += b;
     return {
       envTriangles: Math.round(triangles),
       envNodes: meshes,
@@ -126,6 +144,7 @@ try {
       textureBytes: bytes,
       textureMB: +(bytes / 1048576).toFixed(2),
       werkzeugMB: +(wBytes / 1048576).toFixed(2),
+      umgebungskarteMB: +(kBytes / 1048576).toFixed(2),
       werkzeuge: werkzeuge.map((w) => w.name || '(namenlos)'),
     };
   }, envId);
@@ -182,6 +201,7 @@ try {
     programs: Math.max(...shots.map((s) => s.programs)),
     textureMB: result.static.textureMB,
     werkzeugMB: result.static.werkzeugMB,
+    umgebungskarteMB: result.static.umgebungskarteMB,
     renderMsMean: +(shots.reduce((s, v) => s + v.renderMsMean, 0) / shots.length).toFixed(2),
     renderMsWorst: Math.max(...shots.map((s) => s.renderMsMean)),
   };
@@ -202,6 +222,11 @@ try {
   if (result.static.werkzeugMB > 0) {
     process.stdout.write(
       `dazu Werkzeuge ${String(result.static.werkzeugMB).padStart(7)} MB (${result.static.werkzeuge.join(', ')}) — nicht Teil der Umgebung\n`
+    );
+  }
+  if (result.static.umgebungskarteMB > 0) {
+    process.stdout.write(
+      `dazu Umgebungskarte ${String(result.static.umgebungskarteMB).padStart(5)} MB — bis Zen-Paket B in keiner Zaehlung enthalten\n`
     );
   }
   process.stdout.write(`renderMs     ${String(result.summary.renderMsWorst).padStart(9)} (Software-Rasterizer, nur Vergleichswert)\n`);
