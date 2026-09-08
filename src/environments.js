@@ -12679,16 +12679,33 @@ function makeBambooGrove(rand, cx, cz) {
   // Windterm des Materials mit, nicht über die Halmdrehung; das reicht, weil
   // ein Bambusschopf ohnehin stärker schwingt als sein Rohr.
   const { cards: laubMat } = bambooMaterials();
-  // Zwei Schöpfe je Halm statt eines großen – dieselbe Begründung wie bei den
-  // Kronen: Eine aufgelöste Silhouette entsteht aus Anzahl, nicht aus Größe.
+  // **Bambuslaub haengt in Faechern, nicht in Kugeln.**
+  //
+  // Prüferbefund 4: „Die Bambusblätter sind Kohlköpfe." Er hat recht, und der
+  // Grund ist grundsätzlich: `cardCluster` verteilt die Karten auf einer
+  // **Fibonacci-Kugelschale**. Was dabei entsteht, ist ein Ball — für eine
+  // Ahornkrone genau richtig, für Bambus falsch. Ein Bambusschopf besteht aus
+  // Seitenzweigen, an denen die Blätter in einer Ebene sitzen und nach unten
+  // hängen: flache Fächer, gestaffelt über das obere Drittel des Halms.
+  //
+  // Der Atlas bleibt unangetastet. Er zeichnet schon Büschel schmaler Blätter
+  // (Breite zu Länge 1 : 11), und er wird vom Dojo mitbenutzt — eine Änderung
+  // dort ginge in eine Umgebung hinein, die in diesem Paket nicht ansteht.
+  // Geändert wird nur die **Anordnung**, und die steht hier:
+  //
+  //   * `squash: 0.3` macht aus der Kugelschale eine Linse. Die Karten sitzen
+  //     dann in einer flachen Scheibe statt auf einem Ball.
+  //   * Drei Schöpfe je Halm statt zwei, weiter herunter gestaffelt.
+  //   * Jeder Schopf ist breiter als hoch und um eine waagerechte Achse
+  //     gekippt — ein Fächer, der zur Seite und nach unten hängt.
   const schopf = new THREE.InstancedMesh(
-    cardCluster({ count: 34, radius: 1, seed: 0xba3b, kind: 'bamboo', cardScale: 0.8 }),
+    cardCluster({ count: 18, radius: 1, seed: 0xba3b, kind: 'bamboo', cardScale: 0.74, squash: 0.45 }),
     laubMat,
-    stalks.length * 2
+    stalks.length * 4
   );
   applyFoliageMaterial(schopf, laubMat);
   schopf.name = 'zen-bambus-laub';
-  schopf.userData.fullCount = stalks.length * 2;
+  schopf.userData.fullCount = stalks.length * 4;
   {
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
@@ -12698,19 +12715,30 @@ function makeBambooGrove(rand, cx, cz) {
     // über das obere Drittel verteilt ansetzt.
     stalks.forEach((s, i) => {
       const sp = s.userData.spitze;
-      for (let k = 0; k < 2; k++) {
-        const t = 1 - k * 0.22;
-        q.setFromEuler(new THREE.Euler(0, i * 1.3 + k * 2.4, 0));
+      for (let k = 0; k < 4; k++) {
+        const t = 1 - k * 0.145;
+        // Der Fächer haengt zur Seite und nach unten. Die Neigung wechselt je
+        // Schopf, sonst stuenden drei gleich gekippte Scheiben uebereinander
+        // und man laese eine Treppe. Die Drehreihenfolge ist YXZ, damit das
+        // Kippen NACH dem Ausrichten wirkt: Erst zeigt der Faecher in seine
+        // Richtung, dann faellt er nach unten.
+        const gier = i * 1.3 + k * 2.4;
+        const neige = 0.5 + ((i * 7 + k * 3) % 5) * 0.13;
+        q.setFromEuler(new THREE.Euler(neige, gier, 0, 'YXZ'));
+        // Der Ansatz sitzt seitlich am Halm, nicht auf ihm: Ein Seitenzweig
+        // geht ab, und das Laub beginnt eine Handbreit daneben.
+        const aus = 0.1 + k * 0.05;
         m.compose(
           new THREE.Vector3(
-            s.position.x + sp.x * s.scale.x * t + (k - 0.5) * 0.13,
-            sp.y * s.scale.y * t - 0.1,
-            s.position.z + sp.z * s.scale.z * t + (k - 0.5) * 0.11
+            s.position.x + sp.x * s.scale.x * t + Math.cos(gier) * aus,
+            sp.y * s.scale.y * t - 0.08 - k * 0.03,
+            s.position.z + sp.z * s.scale.z * t + Math.sin(gier) * aus
           ),
           q,
-          new THREE.Vector3(0.28, 0.3, 0.28)
+          // Breiter als hoch: 0,27 zu 0,20. Der Ball war 0,28 zu 0,30.
+          new THREE.Vector3(0.27, 0.2, 0.27)
         );
-        schopf.setMatrixAt(i * 2 + k, m);
+        schopf.setMatrixAt(i * 4 + k, m);
       }
     });
     schopf.instanceMatrix.needsUpdate = true;

@@ -2761,3 +2761,75 @@ Zone, die der Nebel betrifft. Budget unverändert: 95 Draw-Calls, 96 744
 Dreiecke, 21,86 MB. Konsole sauber.
 
 Bildstand `tools/shots/zen-39`.
+
+---
+
+## Paket W — Der Bambus hatte Kohlköpfe, weil sein Laub auf einer Kugel sass
+
+Prüferbefund 4: *„Die Bambusblätter sind Kohlköpfe."* Der Grund ist
+grundsätzlich und stand nicht im Bambuscode, sondern in `cardCluster`: Die
+Funktion verteilt die Blattkarten auf einer **Fibonacci-Kugelschale**. Was dabei
+entsteht, ist ein Ball — für eine Ahornkrone richtig, für Bambus falsch. Ein
+Bambusschopf besteht aus Seitenzweigen, an denen die Blätter in einer Ebene
+sitzen und nach unten hängen: flache Fächer, gestaffelt über das obere Drittel
+des Halms, mit Himmel dazwischen.
+
+### Der Atlas bleibt unangetastet, und zwar mit Grund
+
+Der naheliegende Verdacht war der Blattatlas. Er stimmt nicht: Die Zeichnung
+legt schon Büschel schmaler Blätter an, Breite zu Länge 1 : 11
+(`w(u) = pow(sin(PI·u^0.58), 0.8) · 0.082`). Und er wird von `src/dojo/exterior.js`
+mitbenutzt — eine Änderung dort ginge in eine Umgebung hinein, die in diesem
+Paket nicht ansteht. Geändert wird nur die Anordnung, und die steht in
+`makeBambooGrove` in `environments.js`. `squash` ist an `cardCluster` bereits ein
+Parameter; es musste kein geteilter Code angefasst werden.
+
+### Zwei Anläufe, und der erste war der Gegenfehler
+
+**Anlauf 1** — `squash: 0.3`, drei Schöpfe je Halm, Maßstab (0,40 | 0,15 | 0,40),
+Neigung 0,34 bis 0,70 rad. Ergebnis im Bild: keine Kohlköpfe mehr, dafür
+**flache Teller auf Stöcken**. Die Scheiben standen zu waagerecht, waren zu
+breit und liefen zu einer geschlossenen Decke zusammen. Der Ball war zu
+kompakt, das hier war zu flach — beides ist derselbe Fehler, nämlich eine
+geschlossene Masse ohne Zwischenraum.
+
+**Anlauf 2** — der Schlüssel war nicht die Form des einzelnen Schopfs, sondern
+**dieselbe Blattmenge auf mehr und kleinere Schöpfe**:
+
+    Karten je Schopf   34 → 18
+    cardScale        0,80 → 0,74
+    squash           0,82 → 0,45
+    Schöpfe je Halm     2 → 4, gestaffelt in Schritten von 0,145
+    Maßstab   (0,28|0,30|0,28) → (0,27|0,20|0,27)
+    Neigung             — → 0,5 bis 0,98 rad, wechselnd je Schopf
+    Ansatz              — → seitlich am Halm (0,10 bis 0,25 m), nicht auf ihm
+
+Im Bild stehen jetzt die Halme mit Knoten und Verjüngung frei, und darüber
+liegt eine lichte Krone aus einzeln lesbaren Fächern mit Himmel dazwischen.
+
+Die Drehreihenfolge ist `YXZ`, damit das Kippen **nach** dem Ausrichten wirkt:
+erst zeigt der Fächer in seine Richtung, dann fällt er nach unten. Mit der
+Vorgabe `XYZ` kippten alle Fächer in dieselbe Weltrichtung, unabhängig von
+ihrer Ausrichtung.
+
+**Kosten:** Draw-Calls unverändert 95 (die Schöpfe sind nach wie vor **eine**
+Instanz), Dreiecke 96 744 → 96 952. 18 Karten auf 52 Instanzen sind 1872
+Dreiecke gegen vorher 34 auf 26, also 1768 — die Verteilung ist praktisch
+umsonst. Textur 21,86 MB. Konsole sauber.
+
+**Regression:** Insel, Matrix, Nachthimmel bitgleich. Dojo Δmax 6 an einem
+Punkt; der geteilte Atlas und `cardCluster` selbst sind unberührt. In den
+Zen-Kameras 1,8 bis 11,0 % geänderte Bildpunkte — der Hain steht in `c-torii`
+gross im Bild, und sein **Schattenwurf** auf dem Sand ändert sich mit, was den
+Schwerpunkt der Abweichung auf den Boden zieht.
+
+Bildstand `tools/shots/zen-41`.
+
+### Was offen bleibt
+
+Die einzelnen Blattspreiten lesen aus der Nähe noch rundlicher, als Bambus sie
+hat. Das liegt an der Zeichnung im Atlas und an der Abtastung: Eine Spreite ist
+im Prüfbild rund acht mal drei Bildpunkte gross, und der Alphaschwellwert
+schneidet die Spitzen. Auf der Quest mit rund 23 px je Grad gegen 10,3 hier
+ist dieselbe Spreite doppelt so breit abgetastet. Eine Änderung am Atlas beträfe
+das Dojo mit; sie gehört in dessen Paket, nicht hierher.
