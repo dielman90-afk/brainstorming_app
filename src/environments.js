@@ -14504,7 +14504,33 @@ function createZenEnvironment() {
     id: 'zen',
     name: '🪷 Zen-Garten',
     background: new THREE.Color(0xe9d3ae),
-    fog: new THREE.Fog(0xecd9bb, 20, 46),
+    // **Endweite 62 statt 46 — die Farbe bleibt.**
+    //
+    // Prüferbefund 14: „Der Nebel frisst den Mittelgrund." Gemessen in
+    // `a-eyelevel` gegen ein Himmelsband unmittelbar über der Hügelkante:
+    // Hügel L 175,8, Himmel L 162,6. **Die ferne Erde stand dreizehn Stufen
+    // ÜBER dem Himmel darüber** und konnte damit gar nicht als Erde lesen,
+    // nur als Dunstbank.
+    //
+    // Der naheliegende Griff — eine dunklere Nebelfarbe — ist der falsche.
+    // Die Horizontfarbe der Kuppel ist absichtlich dieselbe wie die
+    // Nebelfarbe (siehe `makeDome` oben): Der Saum läuft bis dorthin, wo der
+    // Nebel gesättigt ist, und ein anders getönter Himmel setzte dort die
+    // Horizontlinie als Kante ins Bild. Gemessen kostete 0xc7b18f zwar die
+    // Ferne zurück (Differenz −10,4), aber eben um diesen Preis.
+    //
+    // Die Endweite hat die Nebenwirkung nicht. Die Hügel stehen bei 33 bis
+    // 45 m; mit 46 waren sie zu 50 bis 96 Prozent Nebel, mit 62 nur noch zu
+    // 33 bis 63. Sie behalten ihre eigene Farbe, ohne dass sich der Ton
+    // verschiebt, bei dem Boden und Himmel zusammentreffen:
+    //
+    //     far 46   Huegel 175,8   Himmel 162,6   Differenz  +13,2
+    //     far 55   Huegel 156,0   Himmel 162,6   Differenz   −6,7
+    //     far 62   Huegel 145,3   Himmel 162,6   Differenz  −17,3
+    //     far 82   Huegel 129,1   Himmel 162,6   Differenz  −33,5
+    //
+    // 82 gibt den Hügeln bereits wieder Sättigung und nimmt ihnen die Ferne.
+    fog: new THREE.Fog(0xecd9bb, 20, 62),
     group,
 
     // **Die Grundleuchte der App wird für diese Umgebung heruntergenommen.**

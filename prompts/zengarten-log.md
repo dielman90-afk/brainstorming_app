@@ -2697,3 +2697,67 @@ rund fünfunddreissig.
 **Werkzeugfehler nebenbei:** `castShadow` auf einer *Gruppe* ist wirkungslos —
 der Wurf hängt an den Meshes darunter. Der erste Lauf meldete deshalb „Koi
 wirft 0 px", und das war kein Befund, sondern der Fehler.
+
+---
+
+## Paket V — Die ferne Erde stand über dem Himmel
+
+Prüferbefund 14: *„Der Nebel frisst den Mittelgrund."* Vier Spalten durch
+`a-eyelevel`, Himmel oben, Hügel unten:
+
+    x=400   Himmel y=300  L 172,0     Huegel y=360  L 199,9
+    x=900   Himmel y=300  L 169,6     Huegel y=340  L 203,2
+
+Sauberer gemessen mit `tools/fernsicht.mjs` — Maske der Hügel differenziell,
+Himmelsband **derselben Spalten** zwölf bis vierunddreissig Zeilen darüber (ein
+festes Rechteck hätte an manchen Spalten Hügel und an anderen Wolken erwischt):
+
+    Huegel 34 753 px   L 175,8
+    Himmel 24 426 px   L 162,6
+    Differenz          +13,2
+
+**Die ferne Erde stand dreizehn Stufen über dem Himmel darüber.** Damit kann
+sie gar nicht als Erde lesen, nur als Dunstbank — und genau das war der Befund.
+
+### Der naheliegende Griff ist der falsche
+
+Eine dunklere Nebelfarbe bringt die Ferne zurück, und die Reihe zeigt es auch:
+
+    0xecd9bb  Differenz +13,2
+    0xdfcbab  Differenz  +4,9
+    0xd3bd9c  Differenz  −3,2
+    0xc7b18f  Differenz −10,4
+
+Nur ist die Nebelfarbe hier gebunden. Die Horizontfarbe der Himmelskuppel ist
+absichtlich dieselbe (der Kommentar an `makeDome` sagt, warum): Der Sandsaum
+läuft bis dorthin, wo der Nebel gesättigt ist, und träfe dort ein anders
+getönter Himmel auf den Boden, stünde die Horizontlinie als Kante im Bild. Im
+Probebild mit 0xc7b18f war das auch prompt zu sehen — und dazu ein heller
+Streifen am Hügelfuss, weil dessen Scheitelfarben in die **alte** Nebelfarbe
+auslaufen. Man hätte drei Stellen zugleich nachziehen müssen.
+
+### Die Endweite hat die Nebenwirkung nicht
+
+Sie lässt den Hügeln mehr von ihrer eigenen Farbe, ohne den Ton zu verschieben,
+bei dem Boden und Himmel zusammentreffen. Die Hügel stehen bei 33 bis 45 m; mit
+`far = 46` waren sie zu 50 bis 96 Prozent Nebel, mit 62 nur noch zu 33 bis 63.
+
+    far 46   Huegel 175,8   Differenz  +13,2
+    far 55   Huegel 156,0   Differenz   −6,7
+    far 62   Huegel 145,3   Differenz  −17,3
+    far 70   Huegel 137,0   Differenz  −25,6
+    far 82   Huegel 129,1   Differenz  −33,5
+
+Gewählt: **62**. Bei 82 bekommen die Hügel im Bild wieder Sättigung und
+verlieren damit die Ferne; bei 55 ist der Unterschied zu klein, um eine
+Kammlinie zu tragen. Im Bild steht jetzt über die ganze Breite ein Höhenzug mit
+Kuppen und Sätteln statt einer weissen Leere, und der Sandsaum läuft weiter
+ohne Naht in den Himmel.
+
+**Regression:** Insel, Matrix, Nachthimmel bitgleich. Dojo Δmax 8 an einem
+Punkt. In den Zen-Kameras 3,3 bis 5,5 % geänderte Bildpunkte, in `d-aerial`
+24,9 % — dort ist fast das ganze Bild Boden jenseits von 20 m, also genau die
+Zone, die der Nebel betrifft. Budget unverändert: 95 Draw-Calls, 96 744
+Dreiecke, 21,86 MB. Konsole sauber.
+
+Bildstand `tools/shots/zen-39`.
