@@ -13171,7 +13171,11 @@ function createZenEnvironment() {
       // Enger als vor dem Schlagschatten: Der gefälschte Fleck ist jetzt
       // Kontaktverdunklung — die Verschattung des Himmelslichts unmittelbar am
       // Objekt —, nicht mehr der Ersatz für den Schatten selbst.
-      const sh = makeBlobShadow(size * 0.95, 0.55);
+      // **Weiter als der Stein, nicht enger.** Bei 0,95 lag die ganze Scheibe
+      // unter dem Findling und war unsichtbar; gemessen kamen alle dreizehn
+      // Kontaktverdunklungen in `c-torii` zusammen auf **1055 Bildpunkte**.
+      // Sichtbar ist nur, was ueber die Kante hinausschaut.
+      const sh = makeBlobShadow(size * 1.2, 0.8);
       sh.position.set(px, 0.015, pz);
       kontaktschatten.push(sh);
     }
@@ -13238,6 +13242,19 @@ function createZenEnvironment() {
     step.rotation.z = (rand() - 0.5) * 0.09;
     step.scale.set(1 + rand() * 0.24, 1, 0.8 + rand() * 0.25);
     trittsteine.push(step);
+    // **Auch ein Trittstein braucht seinen Fuss.** Der Pruefer hat sie als
+    // „extrudierte Prismen, obenauf liegend, praktisch ohne Kontaktschatten"
+    // gemeldet — und er hatte recht: In der Liste der dreizehn
+    // Kontaktverdunklungen kamen sie ueberhaupt nicht vor. Enger als der Stein
+    // ist falsch, weiter als der Stein ist richtig: Sichtbar ist nur der Saum,
+    // der ueber die Kante hinausschaut.
+    // 1,5 war zu weit: Im Bild stand ein Schmierfleck rund um den Stein statt
+    // eines Ansatzes an ihm. Eine Kontaktverdunklung ist eng und dunkel, nicht
+    // weit und blass.
+    const trittSchatten = makeBlobShadow(groesse * 1.18, 0.8);
+    trittSchatten.position.set(step.position.x, 0.008, step.position.z);
+    trittSchatten.scale.multiply(new THREE.Vector3(step.scale.x, 1, step.scale.z));
+    kontaktschatten.push(trittSchatten);
   }
   group.add(...verschmelzeObjekte(trittsteine, 'zen-trittsteine'));
 
@@ -13690,7 +13707,7 @@ function createZenEnvironment() {
   sakura.add(sakuraKrone.blobs, sakuraKrone.karten);
   sakura.position.set(-4.5, 0, 2.5);
   group.add(sakura);
-  const sakuraShadow = makeBlobShadow(0.7, 0.5);
+  const sakuraShadow = makeBlobShadow(0.9, 0.66);
   sakuraShadow.position.set(-4.4, 0.015, 2.5);
   kontaktschatten.push(sakuraShadow);
 
@@ -13698,7 +13715,7 @@ function createZenEnvironment() {
   const maple = makeMaple(rand);
   maple.position.set(4.8, 0, 3.2);
   group.add(maple);
-  const mapleShadow = makeBlobShadow(0.55, 0.5);
+  const mapleShadow = makeBlobShadow(0.72, 0.66);
   mapleShadow.position.set(4.8, 0.015, 3.2);
   kontaktschatten.push(mapleShadow);
 
@@ -13715,22 +13732,27 @@ function createZenEnvironment() {
   //
   // Sträucher als Mittelgrundmasse. Sie stehen in Gruppen, nicht in einer
   // Reihe, und lassen Lücken zwischen sich.
-  group.add(
-    // Näher herangerückt, seit die Mauer fehlt: Auf 9 bis 11 m standen sie an
-    // ihr; ohne sie wären es Klumpen weit draußen im leeren Kies. Auf 6 bis 8 m
-    // begrenzen sie den gestalteten Teil des Gartens, ohne ihn zu schließen.
-    makeKarikomi(rand, [
-      [-6.9, -5.3, 1.0, 0.85],
-      [-5.8, -6.4, 0.72, 0.6],
-      [-7.9, -4.0, 0.8, 0.66],
-      [1.2, -8.2, 1.15, 0.95],
-      [2.5, -7.7, 0.85, 0.7],
-      [-3.4, -8.1, 0.95, 0.78],
-      [-8.2, 0.4, 1.05, 0.88],
-      [-7.8, 1.9, 0.7, 0.55],
-      [5.6, -6.3, 0.9, 0.72],
-    ])
-  );
+  // Näher herangerückt, seit die Mauer fehlt: Auf 9 bis 11 m standen sie an
+  // ihr; ohne sie wären es Klumpen weit draußen im leeren Kies. Auf 6 bis 8 m
+  // begrenzen sie den gestalteten Teil des Gartens, ohne ihn zu schließen.
+  const karikomiPlaetze = [
+    [-6.9, -5.3, 1.0, 0.85],
+    [-5.8, -6.4, 0.72, 0.6],
+    [-7.9, -4.0, 0.8, 0.66],
+    [1.2, -8.2, 1.15, 0.95],
+    [2.5, -7.7, 0.85, 0.7],
+    [-3.4, -8.1, 0.95, 0.78],
+    [-8.2, 0.4, 1.05, 0.88],
+    [-7.8, 1.9, 0.7, 0.55],
+    [5.6, -6.3, 0.9, 0.72],
+  ];
+  group.add(makeKarikomi(rand, karikomiPlaetze));
+  // Auch die Schnitthecken standen ohne Fuss auf dem Kies.
+  for (const [kx, kz, kr] of karikomiPlaetze) {
+    const sh = makeBlobShadow(kr * 1.12, 0.72, 0.01);
+    sh.position.set(kx, 0.01, kz);
+    kontaktschatten.push(sh);
+  }
 
   // Bambushain (wiegt in update)
   const bamboo = makeBambooGrove(rand, -6.5, -3.5);
@@ -13741,7 +13763,7 @@ function createZenEnvironment() {
   const lantern = makeLantern();
   lantern.position.set(1.6, 0, -1.8);
   group.add(lantern);
-  const lanternShadow = makeBlobShadow(0.26, 0.6);
+  const lanternShadow = makeBlobShadow(0.33, 0.85);
   lanternShadow.position.set(1.6, 0.015, -1.8);
   kontaktschatten.push(lanternShadow);
   const torii = makeTorii();
@@ -13755,7 +13777,7 @@ function createZenEnvironment() {
   // links und rechts davon und damit außerhalb. Kontaktverdunklung gehört an
   // den **Fuß**, nicht in den Schwerpunkt.
   for (const sx of [-1, 1]) {
-    const fuss = makeBlobShadow(0.42, 0.6);
+    const fuss = makeBlobShadow(0.5, 0.85);
     const wx = -2 + Math.cos(0.35) * sx * 1.2;
     const wz = -9 - Math.sin(0.35) * sx * 1.2;
     fuss.position.set(wx, 0.015, wz);

@@ -1286,3 +1286,59 @@ Beides wäre wieder ein Schritt Richtung Hof; der Hügelzug ist bewusst das
 Äußerste, was ohne Widerspruch zur Nutzerentscheidung geht. Wenn der Garten
 enger gefasst werden soll, ist das eine Frage an den Nutzer und keine, die ich
 entscheide.
+
+## Paket D — Kein Gegenstand hatte einen Fuß (Prüferbefund 4)
+
+Der Prüfer, wörtlich: „Das direkte Sonnenlicht ist da und wirft brauchbare
+lange Schatten — aber die **kurze Verschattung im Kontaktbereich** fehlt
+komplett, und genau die entscheidet darüber, ob ein Objekt steht oder schwebt."
+Aufgezählt: Torii-Fuß, Sakura-Stamm, Trittsteine, Ufersteine, Laternensockel.
+
+### Gemessen, bevor gebaut wurde
+
+`tools/knotenwerte.mjs --maske` auf `zen-kontaktschatten`: In `c-torii` kamen
+**alle dreizehn** Kontaktverdunklungen des Gartens zusammen auf **1055
+Bildpunkte** in zwei winzigen Flecken. In `e-sand`, der Nahsicht auf die
+Trittsteine, waren es **399**.
+
+Zwei Gründe, beide im Code nachlesbar:
+
+* **Die Trittsteine hatten überhaupt keine.** In der Liste der dreizehn kamen
+  sie nicht vor; ebenso wenig die neun Schnitthecken.
+* **Die vorhandenen waren enger als ihr Gegenstand.** Die Findlinge trugen
+  `size * 0.95` — die ganze Scheibe lag *unter* dem Stein und war unsichtbar.
+  Sichtbar ist nur, was über die Kante hinausschaut.
+
+### Was geändert wurde
+
+Kontaktverdunklung für die sieben Trittsteine (mit der Streckung des Steins)
+und die neun Schnitthecken; die vorhandenen weiter und kräftiger. Alle sitzen
+im selben verschmolzenen Netz — **null zusätzliche Draw-Calls**.
+
+Ein Zwischenstand war zu weit: `groesse * 1.5` ergab im Bild einen Schmierfleck
+rund um den Stein statt eines Ansatzes an ihm. Eine Kontaktverdunklung ist eng
+und dunkel, nicht weit und blass — jetzt 1,18-fach bei Deckkraft 0,8.
+
+### Ergebnis
+
+    Bild          Punkte in der Maske        p05 (dunkelste Stellen)
+    c-torii        1 055 →  2 053             96 → 46
+    e-sand           399 →  9 902             48 → 26
+    a-eyelevel     5 754 → 17 949             97 → 36
+
+Die Fläche verdreifacht bis verfünfundzwanzigfacht sich, und die dunkelsten
+Stellen sinken um 50 bis 60 Stufen: Der Ansatz ist jetzt eine dunkle Linie am
+Fuß und nicht mehr ein Hauch unter dem Gegenstand.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 360 → 94 392    (+32)
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 7 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen aus diesem Befund:** Die Ufersteine sitzen im Uferwulst und im Wasser,
+nicht auf dem Kies — für sie ist die Kontaktverdunklung das falsche Mittel; der
+Prüfer meint dort die Wasserlinie (Halbkugeln, die abgeschnitten werden statt
+einzusinken). Und dass die Harkspur ungebrochen unter den Steinen durchläuft,
+gehört zu Befund 8 und steht dort noch aus.
