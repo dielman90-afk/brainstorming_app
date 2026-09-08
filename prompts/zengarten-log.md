@@ -1788,3 +1788,69 @@ grün, Konsole frei von Errors und Warnings.
 Alpha-Test der Blattkarten; ein weicherer Übergang hieße Alpha-Blending, und
 das hieße Sortierung — für eine Krone aus überlappenden Karten ist das kein
 kleiner Schritt.
+
+## Paket K — Jeder Stein war derselbe Stein, in der Form (Prüferbefund 11)
+
+Der Prüfer: „Glatte, abgerundete Kartoffelformen, alle in derselben
+Achsproportion, alle in dunklem Braunschwarz, ohne Kanten, Bruchflächen,
+Schichtung oder Charakter. In einem Zen-Garten ist der einzelne Stein das
+kompositorische Hauptmotiv — hier sind es austauschbare Kiesel."
+
+Der **Ton** war in einem früheren Durchlauf schon gestreut (fünf Grundtöne,
+nach einer Messung von G/R und B/R über alle Findlinge). Die **Form** nicht:
+
+    weatheredStoneGeometry(new THREE.IcosahedronGeometry(size, 1), rand() * 1000, {
+      amount: 0.26,
+      frequency: 2.2,
+      bevel: 0.3,
+
+Diese drei Zahlen standen für alle sieben Findlinge, alle sechzehn Ufersteine,
+alle sieben Trittsteine und die Laternensteine auf demselben Wert. `bevel: 0.3`
+ist dabei der Grund, warum jeder Stein rund war: Er nimmt die Kante zurück.
+
+### Was geändert wurde
+
+Die drei Formzahlen kommen jetzt aus dem Samen, der ohnehin gezogen wird —
+**keine neue Ziehung**, denn jede würde alles verschieben, was danach im Garten
+gebaut wird:
+
+    amount      0,18 … 0,40   von gedrungen bis zerklüftet
+    frequency   1,5  … 3,7    grobe Bruchflächen gegen kleinteilige Verwitterung
+    bevel       0,12 … 0,42   der wichtigste: kleiner Wert laesst die Kante stehen
+
+Dazu ist die Grundfläche nicht mehr rund: `scale.x` und `scale.z` laufen von
+0,78 bis 1,28, aus demselben Strom. Ein Findling hat eine Länge und eine
+Breite.
+
+### Ergebnis, und warum die naheliegende Zahl hier in die Irre führt
+
+    zen-findlinge (c-torii, ohne Schlagschatten)
+                       Zackigkeit    Kantensprung
+    vorher                5,61          49,49
+    nachher               5,78          46,11
+
+Der Umriss aller Findlinge zusammen wird um drei Prozent unruhiger — wenig.
+**Und ein einzelner Stein wurde messbar glatter:** Über den vorderen Findling
+in `c-torii` fiel der Nachbarunterschied von |dx| 1,68 auf 1,47 und die
+Streuung von 27,3 auf 23,1.
+
+Das ist kein Rückschritt, sondern genau der Punkt: Dieser Stein hat aus seinem
+Samen einen niedrigen `amount` gezogen und ist jetzt der ruhige unter den
+sieben. Wer die Wirkung dieses Pakets an einem Stein misst, misst die
+Ziehung. Sichtbar wird sie erst über mehrere — in `d-aerial` haben die beiden
+Blöcke rechts der Mitte jetzt eine scharfe Gratlinie und eine ebene
+Bruchfläche, wo vorher zwei Kiesel lagen.
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 4 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen aus diesem Befund:** die „harten weißen Glanzflecken" auf mehreren
+Felsen, die der Prüfer als ausgefressene Spekular-Punkte beschrieben hat. In
+den aktuellen Bildern finde ich sie nicht wieder; ob sie an den genannten
+Stellen je standen oder ob ein früheres Paket sie beseitigt hat, ist nicht
+geklärt. Und die Ufersteinkette ist weiterhin gleichmäßig verteilt — die
+Streuung sitzt jetzt in der Form, nicht im Abstand.

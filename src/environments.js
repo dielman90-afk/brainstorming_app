@@ -12149,10 +12149,29 @@ function makeZenStone(rand, size, color = 0x8b8680) {
   // und steht seit Runde 6 im Werkzeugkasten: gerichtete Verwitterung,
   // zurückgenommene Kanten, ein Knickwinkel, ab dem eine Kante scharf bleibt,
   // und Würfelprojektion für die Körnung.
-  const geo = weatheredStoneGeometry(new THREE.IcosahedronGeometry(size, 1), rand() * 1000, {
-    amount: 0.26,
-    frequency: 2.2,
-    bevel: 0.3,
+  // **Jeder Stein war derselbe Stein — in der Form, nicht nur im Ton.**
+  //
+  // Der Prüfer: „Glatte, abgerundete Kartoffelformen, alle in derselben
+  // Achsproportion, ohne Kanten, Bruchflächen, Schichtung oder Charakter. In
+  // einem Zen-Garten ist der einzelne Stein das kompositorische Hauptmotiv —
+  // hier sind es austauschbare Kiesel." Der Ton war in einem früheren Paket
+  // schon gestreut (fünf Grundtöne), die **Form** nicht: `amount`,
+  // `frequency` und `bevel` standen für alle sieben Findlinge, sechzehn
+  // Ufersteine und die Trittsteine auf denselben drei Zahlen.
+  //
+  // Der Same wird ohnehin gezogen; aus ihm kommen jetzt auch die drei
+  // Formzahlen. **Keine neue Ziehung** — jede würde alles verschieben, was
+  // danach im Garten gebaut wird.
+  const formSame = rand() * 1000;
+  const sr = mulberry32(Math.floor(formSame) + 1);
+  const geo = weatheredStoneGeometry(new THREE.IcosahedronGeometry(size, 1), formSame, {
+    // 0,18 bis 0,40: von fast gedrungen bis stark zerklüftet.
+    amount: 0.18 + sr() * 0.22,
+    // 1,5 bis 3,7: grobe Bruchflächen gegen kleinteilige Verwitterung.
+    frequency: 1.5 + sr() * 2.2,
+    // 0,12 bis 0,42 — der wichtigste der drei. Ein kleiner Wert lässt die
+    // Kante stehen; 0,3 für alle war der Grund, warum jeder Stein rund war.
+    bevel: 0.12 + sr() * 0.3,
     // Feiner als die Vorgabe von 0,4 m: Diese Steine sind 0,3 bis 0,7 m groß,
     // eine Kachel von 40 cm liefe genau einmal über den ganzen Stein und wäre
     // damit von einer Farbfläche nicht zu unterscheiden.
@@ -12173,6 +12192,10 @@ function makeZenStone(rand, size, color = 0x8b8680) {
 
   const stone = new THREE.Mesh(geo, zenGranite());
   stone.scale.y = 0.55 + rand() * 0.3;
+  // Und die Grundfläche ist nicht rund: Ein Findling hat eine Länge und eine
+  // Breite. Aus demselben Strom, also wieder ohne neue Ziehung.
+  stone.scale.x = 0.78 + sr() * 0.5;
+  stone.scale.z = 0.78 + sr() * 0.5;
   stone.rotation.set(rand(), rand() * Math.PI * 2, rand());
   return stone;
 }
