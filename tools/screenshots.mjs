@@ -42,7 +42,11 @@ try {
   for (const shot of SHOTS) {
     await lockCamera(page, shot, 6.0);
     await page.waitForTimeout(450);
-    await page.screenshot({ path: path.join(outDir, `${shot.name}.png`) });
+    // Dieselbe Geduld wie im Regressionsdurchgang unten: Das Dojo ist die
+    // teuerste der fuenf Umgebungen, und unter SwiftShader hat ein Einzelbild
+    // davon die Vorgabe von 30 s gerissen und den ganzen Durchlauf abgebrochen.
+    // Reine Harness-Geduld, kein Aussagewert ueber die Laufzeit auf der Quest.
+    await page.screenshot({ path: path.join(outDir, `${shot.name}.png`), timeout: 120000 });
     process.stdout.write(`✓ ${shot.name}  (${shot.title})\n`);
   }
 

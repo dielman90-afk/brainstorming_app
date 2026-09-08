@@ -299,11 +299,73 @@ export const KONSTRUKT_SHOTS = [
   },
 ];
 
+// Feste Kameras des Dojo. Massstab 1:1. Halle x −6…6, z −6,5…7,5, Wandkrone
+// 3,05 m; die Sonne steht bei (15,3 | 3,9 | 6,5) und zielt auf (0 | 0,85 | 0,5),
+// also aus Ostsuedost unter 10,5°. Sie faellt damit durch die Shoji-Front im
+// Osten (x = +6) — der Schattenriss der Bambushalme auf dem Papier ist die
+// halbe Lichtstimmung dieses Raums, und zwei der sechs Kameras stehen dafuer.
+// DIESE WERTE DUERFEN SICH UEBER ALLE DURCHLAEUFE NICHT AENDERN.
+export const DOJO_SHOTS = [
+  {
+    name: 'a-halle',
+    title: 'Augenhoehe die Halle entlang',
+    pos: [0, 1.6, 5.5],
+    look: [0, 1.5, -6.5],
+    fov: 70,
+  },
+  {
+    name: 'b-shoji',
+    title: 'Ostfront mit dem Schattenriss des Hains',
+    pos: [-3.5, 1.6, 1.5],
+    look: [6.0, 1.5, -0.5],
+    fov: 68,
+  },
+  {
+    name: 'c-engawa',
+    title: 'Durch die Suedfront in den Karesansui',
+    pos: [0.5, 1.6, 5.4],
+    look: [1.5, 0.4, 13.0],
+    fov: 70,
+  },
+  {
+    // **Es gibt keine Totale von aussen, und das ist keine Nachlaessigkeit.**
+    // Die Kulisse ist ein Zylindermantel bei r = 46 m, und zwischen Gebaeude
+    // und Mantel steht ein geschlossener Wald. Drei Anlaeufe von schraeg oben
+    // (13|9|16), (20|15|22) und (11|6,5|13) standen alle IM Laub — der erste
+    // im Bambus, der zweite mitten zwischen den Kronen. Wer hier eine Totale
+    // will, muss die Kamera aus der Welt herausnehmen, und dann zeigt sie
+    // etwas, das kein Betrachter je sieht.
+    //
+    // Stattdessen die Suedfront vom Kiesbett aus: Sie zeigt Fassade, Engawa,
+    // Ranma und durch die offene Tuer die ganze Halle bis zur Tokonoma.
+    name: 'd-suedfront',
+    title: 'Suedfront vom Kiesbett, Blick durch die Halle',
+    pos: [0, 1.7, 11.0],
+    look: [0, 1.9, 0],
+    fov: 72,
+  },
+  {
+    name: 'e-tatami',
+    title: 'Nahaufnahme Matten und Diele',
+    pos: [1.2, 0.42, 2.6],
+    look: [-2.2, 0.05, -3.2],
+    fov: 60,
+  },
+  {
+    name: 'f-gegenlicht',
+    title: 'Aus der Nordwestecke in die Sonne',
+    pos: [-4.5, 1.7, -4.5],
+    look: [8.0, 2.4, 3.5],
+    fov: 72,
+  },
+];
+
 export const ENV_SHOTS = {
   island: SHOTS,
   zen: ZEN_SHOTS,
   night: PLANET_SHOTS,
   matrix: KONSTRUKT_SHOTS,
+  dojo: DOJO_SHOTS,
 };
 
 export function shotsFor(envId) {
