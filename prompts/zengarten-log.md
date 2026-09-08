@@ -1552,3 +1552,90 @@ grün, Konsole frei von Errors und Warnings.
 Beides bräuchte entweder zusätzliche Geometrie an jeder Kante oder einen
 eigenen Shader-Term; die Frage ist, ob ein Tor in dieser Entfernung das trägt.
 Nicht angefasst.
+
+## Paket H — Die Harke lief unter allem durch (Prüferbefund 8, erste Hälfte)
+
+Der Prüfer hat unter Nummer 8 vier Dinge zusammengefasst. Zwei davon sind hier
+erledigt, zwei stehen noch aus.
+
+### „Die Harkung ignoriert die Steine"
+
+Wörtlich: „In `d-aerial` laufen die konzentrischen Ringe ungebrochen unter dem
+Ahorn, den Felsen und den Moosgruppen durch. In einem Karesansui gibt es keine
+Ringe unter einem Stein — es gibt Ringe **um** ihn herum."
+
+Zur Hälfte war das schon gelöst: Um jede Steingruppe und um den Teich liegt ein
+Ringband, und innerhalb seines Innenradius wird nicht geharkt
+(`naht *= smoothstep(-0.12, 0.02, f)`). Um Moos und Teichufer hört die Spur
+über `uSandFeucht` auf. **Nicht** gelöst war es für die beiden Bäume und die
+sieben Trittsteine — und genau die hat der Prüfer benannt.
+
+`uSandFeucht` konnte das nicht leisten: Es unterbricht die Harke **und** färbt
+den Kies dunkler und gesättigter. Richtig am Moos, falsch unter einem
+Baumstamm. Dazu waren seine sechs Plätze vergeben (Teich plus fünf
+Moosinseln). Neu ist deshalb `uSandKahl` mit zwölf Plätzen: Ort, Halbmesser,
+Stärke — Harke aus, Farbe unberührt. Der Auslauf ist mit 22 cm eng gehalten;
+ein weicher Übergang über einen halben Meter sähe aus, als wäre die Rille dort
+verweht, und eine Harke, die um einen Stein herumgeführt wird, hört an seinem
+Rand auf.
+
+Die Änderungskarte von `d-aerial` zeigt genau die sieben Trittsteine, den Fuß
+der Sakura und den Fuß des Ahorns — und sonst nichts.
+
+### „Die Harklinien zerfallen in gepunktete, gestrichelte Muster"
+
+Der zweite Teil, und hier war die Ursache eine einzige Zahl:
+
+    float scharf = 1.0 - smoothstep(0.10, 0.34, w);
+
+`w` ist der Anteil einer Rillenperiode, den ein Bildpunkt überdeckt. 0,34 heißt
+**drei Bildpunkte je Periode** — genau der Bereich, in dem ein Streifenmuster
+in Punkte und Striche zerfällt. Die Spur stand also bis unmittelbar an die
+Nyquist-Grenze.
+
+Jetzt 0,09 bis 0,26, also Schluss bei knapp vier Bildpunkten je Periode:
+
+    a-eyelevel, Kasten 960,395–1275,445     |dx|    |dy|    Anteil >40
+    vorher                                  2,61    6,21      2,29 %
+    nachher                                 1,44    4,21      1,24 %
+
+**Ein erster Anlauf mit 0,07 bis 0,20 war zu scharf.** Im Bild war die ganze
+rechte Bildhälfte ohne Spur — auch dort, wo sie vorher sauber stand. Das
+Sandrelief im Nahbereich ist das, was der Prüfer ausdrücklich gelobt hat, und
+es darf nicht mitbezahlen.
+
+### Und ein Teil des Befunds ist nicht reproduzierbar
+
+„In VR wird das kriechen und flimmern; es ist die auffälligste Bildstörung der
+Szene." `tools/kamm.mjs --dreh` dreht die Kamera um Bruchteile eines
+Bildpunktes — die einzige Messung, die in der Ferne noch etwas sagt:
+
+    Bereich        Streuung   Zittern   Quotient
+    Harke fern       29,9      0,98      0,033
+    Harke nah        37,1      1,32      0,036
+
+Der ferne Bereich zittert **weniger** als der nahe. Die Punktierung war da und
+ist behoben; dass sie kriecht, ist gemessen nicht belegt.
+
+### Was aus Befund 8 offen bleibt
+
+* **„Der Sand ist zwei verschiedene Materialien"** mit einer sichtbaren Grenze
+  auf derselben durchgehenden Fläche. Die Grenze ist genau die eben verschobene
+  Ausblendung; ob sie jetzt als Übergang liest oder immer noch als Kante, ist
+  eine eigene Messung wert.
+* **Der Mustersprung** in `d-aerial` links oben, wo ein Bogensatz aufhört und
+  ein anderer anfängt.
+
+### Kosten
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Und zum vierten Mal in dieser Sitzung:** ein Backtick in einem
+GLSL-Kommentar innerhalb eines Template-Literals. `tools/shaderlint.mjs` als
+`prebuild` hat ihn gefangen, bevor ein Bild entstanden ist — ohne ihn wäre der
+Fehler als „Seite lädt nicht" aufgetreten.

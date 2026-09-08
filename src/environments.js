@@ -10993,6 +10993,16 @@ function sandMaterial() {
     uSandRinge: { value: [new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4(), new THREE.Vector4()] },
     // xz Mittelpunkt, z Radius, w Stärke – Feuchtezonen an Moos und Teich
     uSandFeucht: { value: Array.from({ length: 6 }, () => new THREE.Vector4()) },
+    // **Wo nicht geharkt wird, ohne dass der Sand feucht wäre.**
+    //
+    // `uSandFeucht` kann das nicht: Es unterbricht die Harke **und** färbt den
+    // Kies dunkler und gesättigter — richtig am Moos und am Teichufer, falsch
+    // unter einem Baumstamm. Und seine sechs Plätze sind vergeben (Teich plus
+    // fünf Moosinseln). Der Prüfer hat gemeldet, dass die Ringe ungebrochen
+    // unter dem Ahorn, der Sakura und den Trittsteinen durchlaufen — „in einem
+    // Karesansui gibt es keine Ringe unter einem Stein, es gibt Ringe **um**
+    // ihn herum". Genau dafür ist das hier: (x, z, Halbmesser, Stärke).
+    uSandKahl: { value: Array.from({ length: 12 }, () => new THREE.Vector4()) },
     uSandGerade: { value: new THREE.Vector2(Math.cos(0.42), Math.sin(0.42)) },
     uSandTeilung: { value: 0.225 },
     uSandTiefe: { value: 0.026 },
@@ -11027,6 +11037,7 @@ function sandMaterial() {
          varying vec3 vSandWelt;
          uniform vec4 uSandRinge[4];
          uniform vec4 uSandFeucht[6];
+         uniform vec4 uSandKahl[12];
          uniform vec2 uSandGerade;
          uniform float uSandTeilung;
          uniform float uSandTiefe;
@@ -11062,6 +11073,18 @@ function sandMaterial() {
              naht *= smoothstep(0.0, 0.09, abs(f - uSandRinge[i].w));
              // Innerhalb der Insel selbst wird nicht geharkt.
              naht *= smoothstep(-0.12, 0.02, f);
+           }
+
+           // --- Kahle Stellen: Baumfuesse, Trittsteine ------------------------
+           //
+           // Der Auslauf ist mit 22 cm eng gehalten. Ein weicher Uebergang
+           // ueber einen halben Meter saehe aus, als waere die Rille dort
+           // verweht; eine Harke, die um einen Stein herumgefuehrt wird, hoert
+           // an seinem Rand auf.
+           for (int i = 0; i < 12; i++) {
+             if (uSandKahl[i].w <= 0.0) continue;
+             float dk = length(p - uSandKahl[i].xy);
+             naht *= mix(1.0, 1.0 - uSandKahl[i].w, 1.0 - smoothstep(uSandKahl[i].z, uSandKahl[i].z + 0.22, dk));
            }
 
            // --- Feuchte an Moos und Teich ------------------------------------
@@ -11104,7 +11127,22 @@ function sandMaterial() {
            // genau dort Schwebungen gefunden. Jetzt ist die feine Spur bei 0,34
            // vollständig weg, also deutlich vor Nyquist.
            float w = fwidth(s);
-           float scharf = 1.0 - smoothstep(0.10, 0.34, w);
+           // **0,10 bis 0,34 liess die Harke bis an die Nyquist-Grenze stehen.**
+           //
+           // Die Weite w ist der Anteil einer Rillenperiode, den ein Bildpunkt
+           // ueberdeckt. 0,34 heisst drei Bildpunkte je Periode — genau der
+           // Bereich, in dem ein Streifenmuster in Punkte und Striche
+           // zerfaellt. Der Pruefer hat es in der Augenhoehenkamera rechts
+           // aussen gefunden: Die Harklinien zerfallen dort in gepunktete,
+           // gestrichelte Muster.
+           //
+           // Ein erster Anlauf mit 0,07 bis 0,20 war zu scharf: Gemessen fiel
+           // der Nachbarunterschied im NAHBEREICH von 5,64 auf 5,30, und im
+           // Bild war die ganze rechte Bildhaelfte ohne Spur — auch dort, wo
+           // sie vorher sauber stand. Das Sandrelief im Nahbereich ist das
+           // Beste an dieser Szene und darf nicht mitbezahlen. Jetzt endet die
+           // Spur bei knapp vier Bildpunkten je Periode.
+           float scharf = 1.0 - smoothstep(0.09, 0.26, w);
 
            // **Asymmetrisches Profil.** Eine Harkzinke schiebt das Korn zur
            // Seite: Die eine Flanke ist steil, die andere läuft flach aus.
@@ -11128,7 +11166,7 @@ function sandMaterial() {
            // breit, wird also erst siebenmal weiter draußen unterabtastbar und
            // hält die Ferne besetzt.
            float sGrob = phi / (uSandTeilung * 7.0);
-           float scharfGrob = 1.0 - smoothstep(0.10, 0.34, fwidth(sGrob));
+           float scharfGrob = 1.0 - smoothstep(0.09, 0.26, fwidth(sGrob));
            float hGrob = 0.5 - 0.5 * cos(6.2831853 * sGrob);
            float kammGrob = hGrob * hGrob * (3.0 - 2.0 * hGrob);
            float dGrob = 6.0 * hGrob * (1.0 - hGrob) * 3.1415927 * sin(6.2831853 * sGrob);
@@ -13056,6 +13094,8 @@ function createZenEnvironment() {
   sandMat.userData.sandUniforms.uSandRinge.value[1].set(4.0, 1.5, 0.95, 2.1);
   sandMat.userData.sandUniforms.uSandRinge.value[2].set(1.0, -4.5, 1.1, 2.4);
   sandMat.userData.sandUniforms.uSandRinge.value[3].set(3.2, -1.2, 2.35, 3.1);
+  const kahlZonen = sandMat.userData.sandUniforms.uSandKahl.value;
+  let kahlIndex = 0;
   const feuchtZonen = sandMat.userData.sandUniforms.uSandFeucht.value;
   // Der Teich ist die stärkste Feuchtequelle; das Ufer bleibt dunkel.
   // Enger als vorher: Mit 2,3 m plus 0,75 m Auslauf reichte der unbeharkte
@@ -13367,6 +13407,10 @@ function createZenEnvironment() {
     trittSchatten.position.set(step.position.x, 0.008, step.position.z);
     trittSchatten.scale.multiply(new THREE.Vector3(step.scale.x, 1, step.scale.z));
     kontaktschatten.push(trittSchatten);
+    // Die Harke wird um den Stein herumgefuehrt, nicht darunter durch.
+    if (kahlIndex < kahlZonen.length) {
+      kahlZonen[kahlIndex++].set(step.position.x, step.position.z, groesse * 1.25, 1.0);
+    }
   }
   group.add(...verschmelzeObjekte(trittsteine, 'zen-trittsteine'));
 
@@ -13821,6 +13865,7 @@ function createZenEnvironment() {
   group.add(sakura);
   const sakuraShadow = makeBlobShadow(0.9, 0.66);
   sakuraShadow.position.set(-4.4, 0.015, 2.5);
+  if (kahlIndex < kahlZonen.length) kahlZonen[kahlIndex++].set(-4.5, 2.5, 0.62, 1.0);
   kontaktschatten.push(sakuraShadow);
 
   // Ahorn (Momiji) als Farbkontrast gegenüber der Sakura
@@ -13829,6 +13874,7 @@ function createZenEnvironment() {
   group.add(maple);
   const mapleShadow = makeBlobShadow(0.72, 0.66);
   mapleShadow.position.set(4.8, 0.015, 3.2);
+  if (kahlIndex < kahlZonen.length) kahlZonen[kahlIndex++].set(4.8, 3.2, 0.54, 1.0);
   kontaktschatten.push(mapleShadow);
 
   // --- Einfassung: Mauer und Sträucher --------------------------------------
