@@ -2535,3 +2535,88 @@ Bildstand `tools/shots/zen-36`.
 `materials.js` vorhanden, aber nicht exportiert. Zur Laufzeit fängt das die
 Rückfallkopie am Dateiende (`MAT.pfbm ?? fallbackPfbm`), es ist also kein
 Fehler, aber es ist eine Warnung. Gehört ins Dojo-Paket.
+
+---
+
+## Paket T — Die Koi waren fünf Stufen vom Wasser entfernt
+
+Prüferbefund 17: *„kaum Leben unter Wasser."* Das ist eine Behauptung über
+Bildpunkte, und `tools/teichleben.mjs` macht sie zur Zahl — jede Lebensregung
+im Teich einzeln abschalten, Bild vergleichen, Fläche und Abhebung zählen:
+
+    b-pond      Fläche      Abhebung
+    Seerosen    5232 px     17,2 Stufen
+    Koi 0        413 px      5,2 Stufen
+    Koi 1        377 px      4,6 Stufen
+
+    e-sand      Koi 0          6 px     Koi 1   0 px
+
+Zwei Fische sind da, seit Langem, mit gebogenem Körper, Flossen und Augen. Sie
+waren nur nicht zu sehen: Ein Fisch, der sich um fünf Stufen vom Wasser
+unterscheidet, ist nicht da. Und die Ursache war **das Absorptionsmodell aus
+Paket S** — mein eigener Eingriff von vorhin. Der Weg-Faktor `pfad` machte bei
+20° Blickhöhe aus 3,4 einen effektiven Koeffizienten von 9,9; die Deckkraft
+stand über den Koi bei 0,89, es kamen elf Prozent von ihnen durch.
+
+### Der eigentliche Denkfehler: Trübung ist nicht Tiefe
+
+Beer-Lambert mit Koeffizient 3,4 beschreibt eine Wassersäule von Metern. Der
+Teich hier ist keine dreissig Zentimeter tief; reines Wasser absorbiert auf
+dieser Strecke praktisch nichts. Was den Grund eines Gartenteichs verdeckt, ist
+Schwebstoff und die Spiegelung an der Oberfläche — und Letztere steht seit
+Paket S ohnehin schon im Fresnelterm. Der Koeffizient war also doppelt gezählt
+und um eine Größenordnung zu hoch.
+
+Die Reihe (`tools/teichprobe.mjs`, Trübung als Uniform, damit die Quelle
+während des Messlaufs unangetastet bleibt) fährt beide Forderungen zugleich —
+`b-pond` für die Koi, `a-eyelevel` für den Durchblick, der bei streifendem
+Blick klein bleiben soll:
+
+    Trueb  Sockel      Koi 0   Koi 1   Wasser L   Sätt.   Durchblick a
+    3,4  0,44/0,86       5,2     4,6      104,9   19,3%           7,5
+    1,8  0,36/0,78       8,4     7,5      110,6   23,6%          11,5
+    1,2  0,30/0,72      11,4     9,9      113,7   26,7%          14,6
+    0,8  0,26/0,66      14,6    12,6      116,0   29,4%          17,5
+    0,5  0,22/0,58      18,2    16,0      117,5   31,9%          20,7
+
+Gewählt: **0,8 / 0,26 / 0,66**. Die Seerosen lesen bei 17 bis 20 Stufen, und
+das ist der Maßstab: Bei 14,6 und 12,6 stehen die Koi in derselben Größenordnung
+wie die Blätter, die im Bild unstrittig da sind.
+
+### Der Durchblick steigt — und das war die richtige Richtung
+
+Zuerst hielt ich den steigenden Durchblick bei streifendem Blick für den Preis.
+Er ist es nicht, und die Sechs-Kamera-Messung sagt, warum:
+
+                    Sättigung          Ton
+    Kamera      Paket S → T       Paket S → T      Durchblick
+    a-eyelevel   13,0 → 20,2 %     49° → 46°      7,6 → 17,5
+    b-pond       18,1 → 29,6 %     68° → 50°     12,9 → 27,9
+    c-torii      14,1 → 25,0 %     74° → 52°      9,8 → 24,1
+    d-aerial     26,2 → 37,6 %     71° → 49°     11,4 → 27,5
+    e-sand       15,1 → 19,2 %     54° → 50°      6,0 → 12,7
+    f-grove      16,8 → 26,6 %     46° → 41°      8,6 → 18,7
+
+    Ton-Spannweite ueber die sechs Kameras:  28° → 11°
+
+Das Farbigste im Teich liegt darunter — der Beckengrund steht bei 45 bis 52 %
+Sättigung. Ihn durchscheinen zu lassen ist der Weg zur Farbe, nicht der Preis
+dafür. Und die **Ton-Spannweite fällt von 28° auf 11°**: Genau das war der
+zweite Teil von Befund 2, *„wechselt die Farbe mit dem Blickwinkel
+unmotiviert"*. Der Farbwechsel ist weg; was bleibt, ist ein Helligkeitswechsel
+(147,8 streifend gegen 114,6 steil) bei gleichbleibendem Ton — und das ist
+genau, wie Fresnel aussieht.
+
+Das Verhältnis Durchblick steil zu streifend steht bei 27,9 zu 12,7, also 2,2.
+Vor Paket S waren es 9,5 zu 10,8 — es stand verkehrt herum.
+
+**Regression:** Insel, Matrix, Nachthimmel bitgleich. Dojo Δmax 5 an einem Punkt
+(0,009 % ≥ 2, die zeitgetriebene Tsukubai-Kräuselung). Budget unverändert: 95
+Draw-Calls, 96 744 Dreiecke, 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-37`.
+
+### Was dabei sichtbar wurde und noch offen ist
+
+Im Nahbild liegt das Seerosenblatt ohne Kontaktschatten auf dem Wasser
+(Prüferbefund 16). Das steht als Nächstes an.

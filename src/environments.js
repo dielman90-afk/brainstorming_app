@@ -12987,6 +12987,10 @@ function makeKoi(variant) {
   };
   bodyMat.customProgramCacheKey = () => 'zen-koi-koerper';
   const body = new THREE.Mesh(bodyGeo, bodyMat);
+  // Benannt, damit der Harness ihn abschalten kann: „kaum Leben unter Wasser"
+  // ist nur dann eine Zahl, wenn man messen kann, wie viele Bildpunkte die
+  // Fische ueberhaupt beitragen.
+  body.name = 'koi-koerper';
   // Fische sind seitlich schmal und hochrückig – ohne das bliebe die Drehfigur
   // ein Schlauch.
   body.scale.set(0.6, 1.18, 1);
@@ -13653,6 +13657,14 @@ function createZenEnvironment() {
       uWasserTief: { value: new THREE.Color(0x1d3026) },
       uWasserSaum: { value: new THREE.Color(0x3a3a28) },
       // Die Glanzbahn der tief stehenden Sonne. Richtung ZUR Sonne.
+      // **Trübung, nicht Tiefe.** Was den Grund eines Gartenteichs verdeckt,
+      // ist nicht die Wassersäule — die ist hier keine dreissig Zentimeter
+      // hoch und absorbiert praktisch nichts —, sondern Schwebstoff und die
+      // Spiegelung an der Oberfläche. Die drei Zahlen sind Koeffizient,
+      // Deckkraftsockel am Ufer und Deckkraftsockel in der Mitte; sie stehen
+      // als Uniform, damit `tools/teichprobe.mjs` sie durchfahren kann, ohne
+      // dass dafuer die Quelle angefasst und der Messlauf entwertet wird.
+      uWasserTrueb: { value: new THREE.Vector3(0.8, 0.26, 0.66) },
       uSonneZu: { value: new THREE.Vector3(...ZEN_SONNE).normalize() },
       uGlanz: { value: new THREE.Color(0xffdca4) },
       uZeit: { value: 0 },
@@ -13689,6 +13701,7 @@ function createZenEnvironment() {
            uniform vec3 uWasserFlach;
            uniform vec3 uWasserTief;
            uniform vec3 uWasserSaum;
+           uniform vec3 uWasserTrueb;
            uniform vec3 uSonneZu;
            uniform vec3 uGlanz;
            uniform float uZeit;
@@ -13760,7 +13773,7 @@ function createZenEnvironment() {
              float pfad = 1.0 / max(einfall, 0.18);
              // Der Grund verschwindet nicht linear, sondern nach Beer-Lambert:
              // in den ersten Zentimetern viel, danach kaum noch.
-             float deckung = 1.0 - exp(-3.4 * tief * pfad);
+             float deckung = 1.0 - exp(-uWasserTrueb.x * tief * pfad);
              diffuseColor.rgb = mix(uWasserFlach, uWasserTief, deckung);
              // Der Saum unmittelbar an der Wasserlinie
              float saum = smoothstep(0.86, 1.0, rand);
@@ -13797,10 +13810,10 @@ function createZenEnvironment() {
              // physikalisch richtig — was streifend wirklich den Grund
              // verdeckt, ist der lange Weg durch das Wasser weiter oben.
              float fresnel = 0.02 + 0.98 * pow(1.0 - einfall, 5.0);
-             // Die Grundwerte gehen herunter (0,62/0,96 → 0,44/0,86), weil
-             // der Fresnelanteil sie bei streifendem Blick ohnehin auf 1
-             // zieht. Ohne diese Senkung wäre die Platte nur noch dichter.
-             diffuseColor.a = mix(mix(0.44, 0.86, deckung), 1.0, fresnel)
+             // Die Grundwerte gehen herunter, weil der Fresnelanteil sie bei
+             // streifendem Blick ohnehin auf 1 zieht. Ohne diese Senkung wäre
+             // die Platte nur noch dichter.
+             diffuseColor.a = mix(mix(uWasserTrueb.y, uWasserTrueb.z, deckung), 1.0, fresnel)
                * (1.0 - smoothstep(0.965, 1.0, rand) * 0.6);
            }`
         );
@@ -14011,6 +14024,7 @@ function createZenEnvironment() {
   const kois = [];
   for (let i = 0; i < 2; i++) {
     const koi = makeKoi(i);
+    koi.name = `zen-koi-${i}`;
     koi.userData.radius = 0.62 + i * 0.34;
     koi.userData.speed = (0.3 + rand() * 0.12) * (i % 2 ? 1 : -1);
     koi.userData.phase = rand() * 6.28;
