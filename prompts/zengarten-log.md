@@ -2833,3 +2833,110 @@ im Prüfbild rund acht mal drei Bildpunkte gross, und der Alphaschwellwert
 schneidet die Spitzen. Auf der Quest mit rund 23 px je Grad gegen 10,3 hier
 ist dieselbe Spreite doppelt so breit abgetastet. Eine Änderung am Atlas beträfe
 das Dojo mit; sie gehört in dessen Paket, nicht hierher.
+
+---
+
+## Paket X — Zwei Schattenbefunde nachgemessen: einer offen, einer widerlegt
+
+Kein Eingriff in diesem Paket, zwei neue Werkzeuge und fünf Messungen.
+
+### Befund 7: „Der Sakura-Schatten ist ein strukturloser Fleck"
+
+Zuerst brauchte es ein Mass. `tools/laubschatten.mjs` misst drei Dinge im
+differenziell gewonnenen Schattenfleck: Fläche, **Randanteil** (Umfang zu
+Fläche) und die **Löcher** — unverschattete Bereiche, die ringsum von Schatten
+umgeben sind, ermittelt durch Flutfüllung des Unverschatteten vom Bildrand her.
+
+Der Randanteil allein hätte in die Irre geführt:
+
+    Flaeche      13 701 px
+    Randanteil     33,6 %   (ein geschlossener Fleck dieser Groesse haette 3,0 %)
+
+Elffach so viel Rand wie eine Scheibe — das klingt nach aufgelöst. Die Löcher
+sagen etwas anderes:
+
+    Loecher   420,  zusammen 1186 px = 8,7 % der Schattenflaeche
+              groesstes 25 px, Median 3 px
+
+**Median drei Bildpunkte.** Das ist Rauschen am Alphaschwellwert, kein Lichtfleck.
+91,3 Prozent des Schattens sind ungebrochene Verschattung; der hohe Randanteil
+kommt von einem stark gelappten Umriss, nicht von Sprenkelung. Der Befund
+stimmt also, und jetzt mit einer Zahl.
+
+**Drei Hebel gemessen, keiner trägt:**
+
+| Eingriff | Löcheranteil | Median |
+| --- | --- | --- |
+| Stand | 8,7 % | 3 px |
+| Hüllkörper aus dem Schattenpass | 8,7 % | 3 px |
+| Alphaschwelle des Tiefenmaterials 0,42 → 0,88 | 8,7 % | 3 px |
+| Kronendichte 70 → 44 Karten je Ansatz | 8,4 % | 3 px |
+
+* **Der Hüllkörper ist für den Schatten belanglos.** Ohne ihn misst der Fleck
+  13 695 statt 13 701 Bildpunkte — sechs. Sein Schatten liegt vollständig
+  innerhalb dessen, den die Karten ohnehin werfen. Die Vermutung, er fülle die
+  Lücken zu, ist damit erledigt.
+* **Die Alphaschwelle des Tiefenmaterials bewegt gar nichts** — vier Werte von
+  0,42 bis 0,88 ergaben bis auf die letzte Stelle dieselben Zahlen. Der Grund
+  ist der Atlas: Er wird mit gefüllten Pfaden auf ein Canvas gezeichnet, das
+  Alpha ist also 0 oder 255 mit einem Bildpunkt Übergang. Eine höhere Schwelle
+  hat schlicht nichts zum Verwerfen. Die uebliche Technik, einen Laubschatten
+  ueber das Tiefenmaterial auszuduennen, greift hier nicht.
+* **Die Kronendichte auch nicht.** 484 statt 770 Karten sind 0,3 Prozentpunkte.
+
+Was bliebe, ist eine Krone, die **wirklich offen** ist — über mehr Volumen
+verteilt, mit Lücken von zehn bis dreissig Zentimetern. Das ist derselbe
+Eingriff, den Paket R schon als offen notiert hat, und aus demselben Grund:
+Er ändert die Silhouette jedes Baums in drei Umgebungen. **Offen, mit drei
+gemessenen Sackgassen mehr.**
+
+### Befund 12: „Neutralgraue Schatten ohne kühles Indirektlicht" — widerlegt
+
+`tools/schattenton.mjs` misst Ton und Sättigung derselben Bildpunkte einmal
+verschattet und einmal nicht, und schaltet danach jedes Licht der sichtbaren
+Umgebung einzeln ab, um zu sehen, wer den Schatten füllt.
+
+    beleuchtet   rgb 203,181,147   L 182,9   Ton 36,3°   Saettigung 27,4 %
+    im Schatten  rgb 143,133,116   L 134,1   Ton 38,4°   Saettigung 19,2 %
+
+Neutralgrau wäre eine Sättigung nahe null; gemessen sind 19,2 Prozent. Und das
+kühle Indirektlicht ist da — es ist sogar der Hauptfüller:
+
+    HemisphereLight #b3cdf0 1,05      56,9 Stufen von 134
+    DirectionalLight #ffd9a0 4,1       3,7
+    DirectionalLight #ffcf9c 0,5       4,1
+    PointLight #ffb765 1,9             0,0
+
+Ohne das Hemisphärenlicht steigt die Sättigung im Schatten von 19,2 auf
+**45,0 Prozent** — es ist also genau das, was den warmen Sand entsättigt.
+
+**Kräftiger blau geht — wäre aber falsch.** Die Reihe über die Himmelsfarbe:
+
+    0xb3cdf0   Schatten Saett 19,2 %  Ton  38,4°     beleuchtet Saett 27,4 %
+    0x86ace8   Schatten Saett 11,1 %  Ton  33,0°     beleuchtet Saett 27,2 %
+    0x5a8ce0   Schatten Saett  4,3 %  Ton 343,8°     beleuchtet Saett 27,4 %
+
+Die beleuchtete Fläche bleibt fast unberührt, der Schatten kippt bis ins Blaue.
+Nur: **Die Kuppel, die diese Szene beleuchtet, ist gar nicht so blau.**
+Gemessen im Bild über die Höhe:
+
+    ~35° Hoehe   (121,140,158)   Saettigung 23,4 %   Ton 209°
+    ~24°         (142,147,150)   Saettigung  5,9 %
+    ~11°         (161,156,145)   fast neutral
+    ~2°          (186,166,136)   warm
+
+Der Himmel erreicht **nirgends mehr als 23,4 Prozent** blaue Sättigung, und
+unterhalb von 24° ist er neutral bis warm. Ein Hemisphärenlicht integriert die
+ganze obere Halbkugel; sein Ergebnis kann nicht blauer sein als deren blauester
+Punkt. Mit 25,4 Prozent Sättigung steht `0xb3cdf0` bereits **über** dem, was
+die Kuppel hergibt. Es blauer zu stellen hiesse, die Schatten gegen den Himmel
+zu färben, der sie wirft.
+
+### Nebenbefund: Die aufgelegten Kontaktschatten sind sauber
+
+    beleuchtet   Ton 37,8°   Saettigung 26,4 %
+    darunter     Ton 37,8°   Saettigung 26,5 %   −19,3 Stufen
+
+Ein reines Multiplizieren: dunkler, ohne den Ton anzufassen. Trotz
+`toneMapped: false` und grauer Textur entsteht dort **kein** grauer Schleier.
+Auch das war ein Verdacht, und auch er trägt nicht.
