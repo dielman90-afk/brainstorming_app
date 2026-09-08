@@ -13866,6 +13866,22 @@ function createZenEnvironment() {
     [0.14, 2.34, 0.62, 0.34],
     [-0.88, 2.14, 0.22, 0.3],
     [0.62, 2.16, -0.56, 0.3],
+    // **Drei weitere Ansaetze, und warum sie Ansaetze sind und keine Zweige.**
+    //
+    // Der Pruefer: „Kein Astwerk innerhalb der Krone — die Aeste brechen
+    // abrupt an der Blob-Kante ab." Er hat recht, und der naheliegende Weg ist
+    // hier schon einmal gegangen und wieder verworfen worden: `astwerk()`
+    // hatte Nebenzweige, und der Kommentar dort sagt, warum sie fielen — „wo
+    // das ausserhalb der Blattmasse lag, stand ein abstehender Stab in der
+    // Luft. Ein Ast, der ins Nichts zeigt, ist schlimmer als gar keiner."
+    //
+    // Ein Ansatz ist der Ausweg: Er bringt seinen Ast **und** seinen Schopf
+    // mit, kann also nirgends ins Nichts zeigen. Diese drei sitzen weiter
+    // aussen und tiefer als die acht davor und sind kleiner — sie brechen die
+    // geschlossene Masse auf, ohne die Form des Baums zu aendern.
+    [0.98, 2.62, -0.12, 0.26],
+    [-0.74, 2.88, -0.08, 0.24],
+    [0.08, 2.0, -0.34, 0.24],
   ];
   // Stamm und Astwerk in **einem** Mesh: ein Ast zu jedem Kronenansatz plus je
   // ein Nebenzweig. Alle Koordinaten sind Weltkoordinaten des Baums, der Stamm

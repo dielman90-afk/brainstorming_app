@@ -1716,3 +1716,75 @@ den leuchtenden Saum auf der Gratlinie misst. Ich habe es überschrieben. Das
 Original ist aus dem Git wiederhergestellt, das neue heißt
 `tools/bodennaht.mjs`. Wer ein Werkzeug anlegt, sieht vorher nach, ob der Name
 frei ist.
+
+## Paket J — Die Krone: der Kern des Befunds ist widerlegt (Prüferbefund 10)
+
+Der Prüfer hat vier Dinge zusammengefasst, und der schwerste Vorwurf war
+dieser: „In `f-grove` steht **die Sonne direkt hinter dem Baum**, trotzdem ist
+die Krone auf der Kameraseite gleichmäßig hell wie frontal beleuchtet — keine
+Verdunkelung, kein Randlicht, keine Durchleuchtung. Das indirekte Licht ist so
+flach eingestellt, dass die Lichtrichtung im Laub verschwindet."
+
+### Gemessen: die Durchleuchtung ist da, und sie steht nahe ihrem Maximum
+
+`tools/gegenlicht.mjs` liest den Blickterm des Laub-Shaders aus und setzt die
+Transluzenz differenziell auf 0, auf den Stand und auf das Dreifache:
+
+    Blickachse * Lichtrichtung        +0,912   (in die Sonne — der Pruefer
+                                               hatte mit der Geometrie recht)
+    geometryViewDir * lightDir        −0,912   → fView = 0,912, fView² = 0,83
+
+    Staerke der Transluzenz    Mittel im Kronenkasten
+    x 0                        139,0
+    x 1                        155,3
+    x 3                        164,0
+
+Die Durchleuchtung trägt also **16,3 Stufen** bei, und der Blickterm steht bei
+83 Prozent seines Höchstwerts. Der Befund „keine Durchleuchtung" ist damit
+widerlegt. Er ist auch erklärbar: Bis zum Insel-Paket, in dem das Vorzeichen
+dieses Terms korrigiert wurde, lief er tatsächlich auf seinem Sockel — die
+Korrektur steht in `src/dojo/foliage.js` und gilt für alle drei Umgebungen mit
+Laub.
+
+**Zwei eigene Fehler auf dem Weg dorthin.** `gegenlicht.mjs` ist an der Insel
+entstanden und hatte `env-island` an zwei Stellen fest verdrahtet. Im
+Zen-Garten hat es damit die Uniforms der **unsichtbaren** Insel verstellt und
+den Garten gemessen — und meldete folgerichtig für x0, x1 und x3 denselben
+Wert auf die Nachkommastelle. Das sah aus wie „die Transluzenz wirkt gar
+nicht" und war ein Fehler im Messgerät. Dasselbe galt für die Leuchte, aus der
+die Sonnenrichtung gelesen wird: Sie kam aus der Insel, und der Blickterm las
+sich als −0,044 statt −0,912.
+
+### Was von dem Befund bleibt, und was daran geändert ist
+
+Richtig bleibt: „Kein Astwerk innerhalb der Krone — die Äste brechen abrupt an
+der Blob-Kante ab." Der naheliegende Weg dagegen ist hier schon einmal gegangen
+und wieder verworfen worden: `astwerk()` hatte Nebenzweige, und der Kommentar
+dort sagt, warum sie fielen — „wo das außerhalb der Blattmasse lag, stand ein
+abstehender Stab in der Luft. Ein Ast, der ins Nichts zeigt, ist schlimmer als
+gar keiner."
+
+Ein **Kronenansatz** ist der Ausweg: Er bringt seinen Ast *und* seinen Schopf
+mit, kann also nirgends ins Nichts zeigen. Drei neue, weiter außen und tiefer
+als die acht davor und kleiner:
+
+    zen-sakura-karten (f-grove, ohne Schlagschatten)
+                        Zackigkeit    innen-aussen
+    vorher                 15,76         −12,68
+    nachher                17,30          −5,12
+
+Die Silhouette wird um zehn Prozent unruhiger, und der Tonabstand der Krone zu
+dem, was sie umgibt, sinkt von 12,7 auf 5,1 Stufen — sie liest weniger als
+ausgestanzte Fläche.
+
+    Draw-Calls      95 → 95        unveraendert (die Schoepfe sind Instanzen)
+    Dreiecke    94 392 → 96 744    (+2 352)
+    Textur       21,86 → 21,86 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen:** Die treppigen Alpha-Ränder an der Silhouette. Sie kommen vom
+Alpha-Test der Blattkarten; ein weicherer Übergang hieße Alpha-Blending, und
+das hieße Sortierung — für eine Krone aus überlappenden Karten ist das kein
+kleiner Schritt.

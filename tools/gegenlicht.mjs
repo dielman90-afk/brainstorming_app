@@ -1,7 +1,7 @@
 // **Wirkt die Transluzenz im Gegenlicht — und wirkt sie in der richtigen
 // Richtung?**
 //
-//   node tools/gegenlicht.mjs [<shot>] [<x0,y0,x1,y1>]
+//   node tools/gegenlicht.mjs [--env island|zen] [<shot>] [<x0,y0,x1,y1>]
 //
 // Der Pruefer meldet, das Gegenlichtbild sei vom Vorderlichtbild nicht zu
 // unterscheiden. Die Frage dahinter ist nicht „ist die Szene hell genug", sondern
@@ -13,9 +13,22 @@
 // Blickrichtung und Lichtrichtung, wie ihn der Shader sieht. Steht er auf null,
 // laeuft der Effekt auf seinem Sockel, egal wie gross die Staerke ist.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import {
+  shotsFor,
+  envArg,
+  startServer,
+  launchBrowser,
+  openApp,
+  selectEnv,
+  lockCamera,
+  ladeThree,
+} from './harness-common.mjs';
 
-const argv = process.argv.slice(2);
+const argv0 = process.argv.slice(2);
+// **`--env`, weil derselbe Blickterm in jeder Umgebung mit Laub steckt.** Das
+// Werkzeug ist an der Insel entstanden; der Zen-Garten hat dieselbe Frage.
+const ENV = envArg(argv0, 'island');
+const argv = argv0.filter((a, i) => a !== '--env' && argv0[i - 1] !== '--env');
 const shotName = argv[0] ?? '5-backlight';
 const K = argv[1] ? argv[1].split(',').map(Number) : [880, 40, 1270, 520];
 
@@ -25,15 +38,15 @@ const server = await startServer();
 const browser = await launchBrowser();
 try {
   const { page } = await openApp(browser);
-  await selectEnv(page, 'island');
+  await selectEnv(page, ENV);
   await ladeThree(page);
-  const shot = shotsFor('island').find((s) => s.name === shotName);
+  const shot = shotsFor(ENV).find((s) => s.name === shotName);
   await lockCamera(page, shot, 6.0);
 
-  const blick = await page.evaluate(() => {
+  const blick = await page.evaluate((gruppe) => {
     const T = window.__THREE;
     const { camera, scene } = window.__app;
-    const g = scene.children.find((c) => c.name === 'env-island');
+    const g = scene.children.find((c) => c.name === gruppe);
     let licht = null;
     g.traverse((o) => {
       if (o.isDirectionalLight && !licht) licht = o;
@@ -53,11 +66,17 @@ try {
       punktViewDir: +zurKamera.dot(zurSonne).toFixed(3),
       punktBlickInSonne: +blickAchse.dot(zurSonne).toFixed(3),
     };
-  });
+  }, `env-${ENV}`);
 
+  // **`env-${ENV}` und nicht `env-island`.** Hier stand die Insel fest
+  // verdrahtet. Im Zen-Garten hat das Werkzeug damit die Uniforms der
+  // **unsichtbaren** Insel verstellt und den Garten gemessen — und meldete
+  // folgerichtig fuer x0, x1 und x3 denselben Wert auf die Nachkommastelle.
+  // Das sah aus wie der Befund „die Transluzenz wirkt gar nicht" und war ein
+  // Fehler im Messgeraet.
   const stelle = (faktor) =>
-    page.evaluate((faktor) => {
-      const g = window.__app.scene.children.find((c) => c.name === 'env-island');
+    page.evaluate(({ faktor, gruppe }) => {
+      const g = window.__app.scene.children.find((c) => c.name === gruppe);
       let n = 0;
       g.traverse((o) => {
         const mats = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
@@ -71,7 +90,7 @@ try {
         }
       });
       return n;
-    }, faktor);
+    }, { faktor, gruppe: `env-${ENV}` });
 
   process.stdout.write(
     `${shotName}, Kasten ${K.join(',')}\n\n` +
