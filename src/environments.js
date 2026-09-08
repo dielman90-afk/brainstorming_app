@@ -13691,7 +13691,24 @@ function createZenEnvironment() {
            uniform vec3 uWasserSaum;
            uniform vec3 uSonneZu;
            uniform vec3 uGlanz;
-           uniform float uZeit;`
+           uniform float uZeit;
+           // Die gekraeuselte Wasseroberflaeche an einer Weltstelle. Zwei
+           // Wellenzuege in verschiedener Richtung und Geschwindigkeit; ein
+           // einzelner waere eine wandernde Riffelung, erst zwei ergeben ein
+           // Muster, das entsteht und wieder vergeht.
+           //
+           // Sie steht als Funktion da, weil zwei Stellen dieselbe Normale
+           // brauchen: die Glanzbahn und die blickwinkelabhaengige Deckkraft.
+           // Zwei getrennte Rechnungen liefen auseinander, sobald eine von
+           // beiden angefasst wird.
+           vec3 teichNormale(vec2 w, float t) {
+             vec3 n = vec3(0.0, 1.0, 0.0);
+             n.x += 0.20 * sin(w.x * 5.3 + w.y * 1.9 + t * 0.9)
+                  + 0.11 * sin(w.x * 11.3 - w.y * 4.1 + t * 1.7);
+             n.z += 0.20 * cos(w.y * 4.7 - w.x * 2.6 + t * 1.1)
+                  + 0.11 * cos(w.y * 9.1 + w.x * 6.2 - t * 1.4);
+             return normalize(n);
+           }`
         )
         // **Die Glanzbahn, analytisch statt aus der Umgebungskarte.**
         //
@@ -13710,17 +13727,7 @@ function createZenEnvironment() {
         .replace(
           '#include <opaque_fragment>',
           `{
-             float wx = vTeichWelt.x;
-             float wz = vTeichWelt.z;
-             // Zwei Wellenzuege in verschiedener Richtung und Geschwindigkeit:
-             // ein einzelner waere eine wandernde Riffelung, erst zwei ergeben
-             // ein Muster, das entsteht und wieder vergeht.
-             vec3 n = vec3(0.0, 1.0, 0.0);
-             n.x += 0.20 * sin(wx * 5.3 + wz * 1.9 + uZeit * 0.9)
-                  + 0.11 * sin(wx * 11.3 - wz * 4.1 + uZeit * 1.7);
-             n.z += 0.20 * cos(wz * 4.7 - wx * 2.6 + uZeit * 1.1)
-                  + 0.11 * cos(wz * 9.1 + wx * 6.2 - uZeit * 1.4);
-             n = normalize(n);
+             vec3 n = teichNormale(vTeichWelt.xz, uZeit);
              vec3 blick = normalize(cameraPosition - vTeichWelt);
              vec3 halb = normalize(blick + uSonneZu);
              float keule = pow(max(dot(n, halb), 0.0), 150.0);
@@ -13738,9 +13745,22 @@ function createZenEnvironment() {
              // Normierter Abstand zur Mitte der Scheibe: 0 = Mitte, 1 = Ufer.
              float rand = clamp(length(vTeichUv - 0.5) * 2.0, 0.0, 1.0);
              float tief = 1.0 - rand;
+             // **Der Weg durch das Wasser ist nicht die Tiefe.** Beer-Lambert
+             // rechnet mit der Strecke, die das Licht im Wasser zuruecklegt,
+             // und die ist Tiefe geteilt durch den Sinus des Blickwinkels.
+             // Streifend ueber den Teich hinweg ist sie ein Vielfaches der
+             // senkrechten Tiefe, und deshalb sieht man dann nur Himmel.
+             // Genau dieser Faktor fehlte: Die Deckung hing allein am Radius
+             // auf der Scheibe, in jeder Kamera gleich.
+             float einfall = clamp(dot(normalize(cameraPosition - vTeichWelt),
+                                       teichNormale(vTeichWelt.xz, uZeit)), 0.0, 1.0);
+             // Gedeckelt bei 0,18: Ohne Deckel geht der Weg am Horizont gegen
+             // unendlich, und der aeusserste Saum der Scheibe waere schlagartig
+             // undurchsichtig statt auslaufend.
+             float pfad = 1.0 / max(einfall, 0.18);
              // Der Grund verschwindet nicht linear, sondern nach Beer-Lambert:
              // in den ersten Zentimetern viel, danach kaum noch.
-             float deckung = 1.0 - exp(-3.4 * tief);
+             float deckung = 1.0 - exp(-3.4 * tief * pfad);
              diffuseColor.rgb = mix(uWasserFlach, uWasserTief, deckung);
              // Der Saum unmittelbar an der Wasserlinie
              float saum = smoothstep(0.86, 1.0, rand);
@@ -13755,9 +13775,33 @@ function createZenEnvironment() {
              // Ufer las — im Bild ein breiter sandfarbener Streifen zwischen
              // Wasser und Uferkieseln, der wie ein halb abgelassener Teich
              // aussah. Es war kein Pegelproblem, sondern ein Deckungsproblem:
-             // Auch flaches Wasser tönt, was darunter liegt. 0,62 lässt den
-             // Grund noch durch, färbt ihn aber sichtbar ein.
-             diffuseColor.a = mix(0.62, 0.96, deckung) * (1.0 - smoothstep(0.965, 1.0, rand) * 0.6);
+             // Auch flaches Wasser tönt, was darunter liegt.
+             //
+             // **Und dann noch der Blickwinkel — das fehlte ganz.** Gemessen
+             // war der Durchblick auf den Beckengrund in allen sechs Kameras
+             // gleich: 9,5 bis 12,2 Stufen, flach über den Teich hinweg
+             // genauso wie senkrecht von oben hinein, Verhältnis 1,1. Genau
+             // das ist eine Milchglasplatte. Auf Wasser ist das Verhältnis
+             // ein Vielfaches: streifend sieht man nur den Himmel, senkrecht
+             // den Grund. Die Deckkraft hing bis hier ausschließlich am
+             // Radius auf der Scheibe und gar nicht an der Kamera — deshalb
+             // konnte die Helligkeitsschwankung über die Kameras (54 Stufen)
+             // gar nicht als Fresnel lesen: Es fehlte die Gegenprobe, das
+             // Auftauchen des Grundes bei steilem Blick.
+             //
+             // Schlick mit F0 = 0,02 auf der gekräuselten Normale, nicht auf
+             // der geometrischen: Sonst wäre der Übergang eine saubere
+             // Ellipse quer über den Teich statt einer von den Wellen
+             // aufgebrochenen Zone. Schlick allein trug uebrigens zu wenig:
+             // Bei 11,5 Grad Blickhoehe steht er auf 0,34, und das ist auch
+             // physikalisch richtig — was streifend wirklich den Grund
+             // verdeckt, ist der lange Weg durch das Wasser weiter oben.
+             float fresnel = 0.02 + 0.98 * pow(1.0 - einfall, 5.0);
+             // Die Grundwerte gehen herunter (0,62/0,96 → 0,44/0,86), weil
+             // der Fresnelanteil sie bei streifendem Blick ohnehin auf 1
+             // zieht. Ohne diese Senkung wäre die Platte nur noch dichter.
+             diffuseColor.a = mix(mix(0.44, 0.86, deckung), 1.0, fresnel)
+               * (1.0 - smoothstep(0.965, 1.0, rand) * 0.6);
            }`
         );
     };
@@ -13786,6 +13830,26 @@ function createZenEnvironment() {
   pondMat.roughness = 0.09;
   pondMat.normalScale.set(0.5, 0.5);
   pondMat.envMapIntensity = 1.0;
+  // **Wasser hat eine Grenzfläche, nicht zwei.** `waterMaterial()` kommt aus
+  // dem Dojo, wo es das Tsukubai-Becken trägt: dunkler Stein unter einem
+  // Wasserfilm. Dort ist `clearcoat: 1` genau richtig, denn es sind wirklich
+  // zwei Schichten. Ein Gartenteich ist keine beschichtete Oberfläche, und die
+  // zweite Spiegelkeule war der Grund, warum die Fläche als Milchglas las.
+  //
+  // Gemessen in `b-pond`, Maske 77 305 Bildpunkte:
+  //
+  //   Ist-Stand        L 130,9   Sättigung 13,2 %   Hochpass 0,90
+  //   clearcoat 0      L 109,3   Sättigung 18,1 %   Hochpass 0,94
+  //
+  // Die Lackschicht nahm also Farbe UND Feinstruktur — sie hat nichts
+  // aufgebrochen, sie hat zugedeckt. Der Hochpass steigt beim Abschalten,
+  // das ist die Gegenprobe: Hier geht kein Kräuselmuster verloren.
+  pondMat.clearcoat = 0;
+  // three rechnet ohne Angabe mit Brechungsindex 1,5 (F0 = 0,04, Glas).
+  // Wasser steht bei 1,333 und damit F0 = 0,02 — halb so viel Spiegelung bei
+  // senkrechtem Blick, unverändert viel bei streifendem. Genau diese Spreizung
+  // ist es, die eine Wasserfläche von einer Platte unterscheidet.
+  pondMat.ior = 1.333;
   // Das Wasser braucht etwas zu spiegeln. Ohne Environment-Map bleibt bei
   // Rauheit 0,05 nur die Grundfarbe übrig, und die ist absichtlich dunkel.
   pondMat.userData.needsEnv = true;

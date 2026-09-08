@@ -2404,3 +2404,134 @@ damit in die Silhouette jedes Baums in drei Umgebungen — kein Nachziehen einer
 Zahl. **Offen, mit dieser Begründung.**
 
 Kein Eingriff in diesem Paket. Draw-Calls 95, Dreiecke 96 744, Textur 21,86 MB.
+
+---
+
+## Paket S — Der Teich war eine Milchglasplatte, und zwar aus drei Gründen
+
+Prüferbefund 2 der zweiten Runde: *„Das Wasser ist eine opake Milchglasplatte …
+Schlimmer: die Fläche wechselt die Farbe mit dem Blickwinkel unmotiviert — in
+`a` fast reinweiß-hellgrau, in `c` blaugrau-grün, in `b` graugrün. Das liest
+nicht als Fresnel, sondern als Fehler."*
+
+Die drei Punktproben aus dem Bericht treffen in `a-eyelevel` Laub statt Wasser,
+also war zuerst eine Maske nötig. `tools/wasserton.mjs` erzeugt sie
+differenziell — Wasserfläche aus, Bild, an, Bild — und misst darin Ton,
+Sättigung, Perzentile und, mit `--durchblick`, wie viel vom Beckengrund
+überhaupt durchkommt.
+
+### Befund 1: Die Deckkraft hing gar nicht an der Kamera
+
+    Durchblick auf den Beckengrund, Stufen:
+    a-eyelevel 10,5   b-pond 12,2   c-torii 9,5
+    d-aerial    9,5   e-sand 10,8   f-grove 12,0
+
+`a-eyelevel` blickt unter 11,5° über den Teich, `d-aerial` unter 31° hinein.
+Auf Wasser ist das ein Unterschied um ein Vielfaches; hier war das Verhältnis
+**1,1**. Genau das ist eine Milchglasplatte, und es erklärt auch die zweite
+Hälfte des Befunds: Die Helligkeit schwankte über die Kameras um 54 Stufen,
+aber ohne die Gegenprobe — ohne dass bei steilem Blick der Grund auftaucht —
+kann das gar nicht als Fresnel lesen.
+
+Der Grund stand in einer Zeile: `diffuseColor.a` hing allein am Radius auf der
+Scheibe. Zwei Dinge kamen dazu, und die Reihenfolge ist lehrreich:
+
+* **Schlick allein trägt zu wenig.** Mit F0 = 0,02 auf der gekräuselten
+  Normale steht der Fresnelanteil bei 11,5° Blickhöhe auf 0,34. Das ist
+  physikalisch richtig — Wasser reflektiert streifend eben nur ein Drittel —
+  und der Durchblick bewegte sich kaum (10,5 → 11,0).
+* **Der Weg durch das Wasser ist die eigentliche Größe.** Beer-Lambert rechnet
+  mit der Strecke, nicht mit der Tiefe, und die ist Tiefe geteilt durch den
+  Sinus des Blickwinkels. Streifend das Fünffache. Erst mit diesem Faktor
+  kippte die Messung:
+
+      Durchblick nachher:
+      a-eyelevel  7,6   b-pond 12,9   c-torii  9,8
+      d-aerial   11,4   e-sand  6,0   f-grove  8,6
+
+  Verhältnis steil zu streifend jetzt **2,15** statt 0,90 — vorher stand es
+  sogar verkehrt herum.
+
+### Befund 2: Vier Fünftel des Bildes waren Spiegelung
+
+Die zweite Messung (`--zutaten`) teilt das Bild der Fläche auf:
+
+    Kamera        voll   Lackschicht   Umgebungskarte gesamt   ohne beides
+    a-eyelevel   175,6         22,9                   144,8          38,7
+    b-pond       130,9         21,6                    86,3          47,8
+    d-aerial     109,3         14,6                    54,0          57,0
+    e-sand       174,9         19,4                   156,9          34,0
+
+Die Umgebungskarte lieferte **49 bis 90 Prozent** des gesamten Bildes. Eine
+Fläche, die zu so einem Anteil aus einer glatten Himmelsspiegelung besteht,
+landet im flachen Bereich der ACES-Kurve und verliert dort ihre Farbe — dieselbe
+Lehre wie bei Wolken, Sonnenscheibe und Grasfase. Und die Gegenprobe stand
+gleich daneben:
+
+    Teichfläche   Sättigung  8,7 bis 19,0 %
+    Beckengrund   Sättigung 45 bis 52 %, Ton 35–39° (warmer Sand)
+
+Das Farbigste im ganzen Teich lag darunter und wurde von einem grauen Schleier
+zugedeckt.
+
+### Befund 3: Wasser hat eine Grenzfläche, nicht zwei
+
+`waterMaterial()` stammt aus dem Dojo, wo es das Tsukubai-Becken trägt: dunkler
+Stein unter einem Wasserfilm. Dort ist `clearcoat: 1` richtig — es sind wirklich
+zwei Schichten. Ein Gartenteich ist keine beschichtete Oberfläche, und die
+zweite Spiegelkeule war der Schleier.
+
+Der Verdacht, sie trage die Kräuselung (sie hält die zweite Normalkarte), ließ
+sich messen. `tools/wasserprobe.mjs` legt die Maske einmal fest und fährt dann
+eine Reihe von Materialständen durch, mit einem Hochpass gegen die vier
+Nachbarn als Strukturmaß — `b-pond`, 77 305 Bildpunkte:
+
+    Ist-Stand            L 130,9   Umfang 70   Sättigung 13,2 %   Hochpass 0,90
+    ior 1.333            L 128,2   Umfang 73   Sättigung 13,8 %   Hochpass 0,90
+    clearcoat 0.35       L 117,8   Umfang 67   Sättigung 15,9 %   Hochpass 0,91
+    clearcoat 0          L 109,3   Umfang 66   Sättigung 18,1 %   Hochpass 0,94
+    envInt 0.6           L 107,4   Umfang 64   Sättigung 16,6 %   Hochpass 0,85
+    ior+cc0+env0.55      L  84,2   Umfang 70   Sättigung 23,9 %   Hochpass 0,94
+
+Der Hochpass **steigt** beim Abschalten der Lackschicht. Sie hat also nichts
+aufgebrochen, sie hat zugedeckt — hier geht kein Kräuselmuster verloren. Der
+grobe Regler `envMapIntensity` dagegen nimmt Struktur mit (0,90 → 0,85) und
+schied damit aus, obwohl er die Sättigung ähnlich hebt. Ohne den Hochpass hätte
+ich vermutlich ihn genommen.
+
+Gewählt: `clearcoat = 0` und `ior = 1.333` (three rechnet ohne Angabe mit 1,5,
+also Glas). `envMapIntensity` bleibt bei 1,0.
+
+### Ergebnis über alle sechs Kameras
+
+    Sättigung          vorher → nachher
+    a-eyelevel   12,7 % → 13,0 %
+    b-pond       14,1 % → 18,1 %
+    c-torii      10,6 % → 14,1 %
+    d-aerial     19,0 % → 26,2 %
+    e-sand       15,5 % → 15,1 %
+    f-grove      16,8 % → 16,8 %
+
+    Binnenkontrast p95−p05, d-aerial  45 → 64
+    Helligkeit streifend (a) 175,6 → 150,7, steil (d) 119,3 → 89,1
+
+Die Spreizung zwischen streifendem und steilem Blick beträgt jetzt 62 Stufen
+und hat endlich ihre Gegenprobe: streifend ein heller Spiegel, steil dunkles,
+farbiges Wasser mit sichtbarem Grund. Das ist der Unterschied zwischen „wechselt
+unmotiviert die Farbe" und Fresnel.
+
+**Regression:** Insel, Matrix und Nachthimmel bitgleich (Δmax 0). Dojo Δmax 4 an
+einem Punkt, 0,010 % der Bildpunkte ≥ 2 — die zeitgetriebene Kräuselung des
+Tsukubai, nicht dieser Eingriff; das Dojo-Material ist unberührt, geändert wird
+nur die Zen-Instanz nach dem Aufruf. Budget unverändert: 95 Draw-Calls,
+96 744 Dreiecke, 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-36`.
+
+### Nebenbefund, noch offen
+
+`npm run build` meldet seit Längerem `IMPORT_IS_UNDEFINED` für `pfbm`,
+`grainAt` und `colorTexture` in `src/dojo/ground.js` — die Namen sind in
+`materials.js` vorhanden, aber nicht exportiert. Zur Laufzeit fängt das die
+Rückfallkopie am Dateiende (`MAT.pfbm ?? fallbackPfbm`), es ist also kein
+Fehler, aber es ist eine Warnung. Gehört ins Dojo-Paket.
