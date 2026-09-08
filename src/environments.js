@@ -12310,7 +12310,15 @@ let _bambooMat = null;
 let _bambooCards = null;
 function bambooMaterials() {
   if (!_bambooMat) {
-    _bambooMat = weatheredWoodMaterial({ tone: 0x9fbc63, vertexColors: false });
+    // **`vertexColors: true`, und das ist der ganze Befund.** Der Prüfer hat
+    // gemeldet, der Bambus habe „keine Halmknoten — das eine Merkmal, an dem
+    // Bambus erkannt wird". Geometrisch waren sie da: an jedem Internodium
+    // eine Scheibe. Nur ist die 16 % breiter als der Halm, und ein Halm ist
+    // aus sechs Metern acht Bildpunkte breit — die Scheibe also einen
+    // Bildpunkt. Was einen Nodus lesbar macht, ist nicht die Ausbuchtung,
+    // sondern der **dunkle Ring** und die helle Wachsbinde darüber. Beides ist
+    // Farbe, und Farbe überlebt die Verkleinerung.
+    _bambooMat = weatheredWoodMaterial({ tone: 0x9fbc63, vertexColors: true });
     _bambooCards = foliageMaterial({
       atlas: leafAtlas('bamboo'),
       // Aufgehellt. Der Bambusatlas hat Grundton [86 | 112 | 52] und ist für
@@ -12343,6 +12351,34 @@ function makeBambooStalk(rand) {
   // Neigungsrichtung und -stärke je Halm
   const neigA = rand() * Math.PI * 2;
   const neig = 0.05 + rand() * 0.13;
+  // **Ein Farbton je Halm — ohne eine einzige neue Ziehung.**
+  //
+  // Der Prüfer: „Alle Halme haben denselben Durchmesser, dieselbe Farbe."
+  // Der Durchmesser stimmte schon (0,036 bis 0,052, dazu die Skalierung des
+  // Hains), die Farbe nicht. Der Same kommt aus den Werten, die ohnehin
+  // gezogen wurden: Eine zusätzliche Ziehung aus `rand()` würde alles
+  // verschieben, was danach im Garten gebaut wird.
+  const tr = mulberry32((Math.floor(radUnten * 1e5 + neigA * 1e3) & 0xffff) + 1);
+  const halmTon = new THREE.Color().setHSL(0.17 + tr() * 0.08, 0.10 + tr() * 0.14, 0.5 + tr() * 0.06);
+  // Um 1,0 herum, damit die Scheitelfarbe den Grundton des Materials **tönt**
+  // und nicht ersetzt: Ein Wert von 0,5 wäre ein halb so heller Halm.
+  const tonR = 0.82 + halmTon.r * 0.36;
+  const tonG = 0.82 + halmTon.g * 0.36;
+  const tonB = 0.82 + halmTon.b * 0.36;
+  // Ein Stück Halm einfärben. `band` ist 1 im Internodium, dunkel am Nodus,
+  // hell in der Wachsbinde darüber.
+  const faerbe = (geo, band) => {
+    const pos = geo.attributes.position;
+    const farben = new Float32Array(pos.count * 3);
+    for (let v = 0; v < pos.count; v++) {
+      const f = band(pos.getY(v));
+      farben[v * 3] = tonR * f;
+      farben[v * 3 + 1] = tonG * f;
+      farben[v * 3 + 2] = tonB * f;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    return geo;
+  };
   let y = 0;
   let x = 0;
   let z = 0;
@@ -12358,6 +12394,17 @@ function makeBambooStalk(rand) {
     const dx = Math.cos(neigA) * versatz;
     const dz = Math.sin(neigA) * versatz;
     const c = new THREE.CylinderGeometry(r1, r0, segH, 7);
+    // Die Wachsbinde sitzt im untersten Zehntel des Internodiums, direkt über
+    // dem Nodus, und läuft nach oben aus. Der Zylinder steht zu diesem
+    // Zeitpunkt noch mittig um y = 0.
+    faerbe(c, (vy) => {
+      const oben = vy / segH + 0.5; // 0 unten, 1 oben
+      // Wachsbinde: hell direkt über dem Nodus, nach 16 % des Internodiums aus.
+      const wachs = 1 + (1 - smoothstep(0.0, 0.16, oben)) * 0.26;
+      // Und knapp unter dem nächsten Nodus wird der Halm wieder etwas dunkler,
+      // damit der Ring nicht aus dem Nichts kommt.
+      return wachs * (1 - smoothstep(0.86, 1.0, oben) * 0.12);
+    });
     c.rotateZ(-Math.cos(neigA) * neig * t * 1.3);
     c.rotateX(Math.sin(neigA) * neig * t * 1.3);
     c.translate(x + dx / 2, y + segH / 2, z + dz / 2);
@@ -12365,7 +12412,11 @@ function makeBambooStalk(rand) {
     x += dx;
     z += dz;
     y += segH;
-    const knot = new THREE.CylinderGeometry(r1 * 1.16, r1 * 1.16, 0.026, 7);
+    // Der Nodus: etwas kräftiger als vorher (1,16 → 1,24 und 2,6 → 3,2 cm),
+    // vor allem aber **dunkel**. Aus sechs Metern ist genau dieser Ring das,
+    // was den Halm gegliedert erscheinen lässt.
+    const knot = new THREE.CylinderGeometry(r1 * 1.24, r1 * 1.24, 0.032, 7);
+    faerbe(knot, () => 0.58);
     knot.translate(x, y, z);
     geos.push(knot);
   }

@@ -1410,3 +1410,74 @@ stehen, nicht als erledigt.
 
 Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 7 bei 0,008 %. Build
 grün, Konsole frei von Errors und Warnings.
+
+## Paket F — Der Bambus hatte Halmknoten, man sah sie nur nicht (Prüferbefund 6)
+
+Der Prüfer: „Die Halme sind glatte grüne Röhren **ohne Halmknoten** — das ist
+das eine Merkmal, an dem Bambus erkannt wird, und es fehlt. Alle Halme haben
+denselben Durchmesser, dieselbe Farbe."
+
+### Nachgesehen statt geglaubt
+
+Geometrisch waren die Nodien da: `makeBambooStalk` setzt an jedes Internodium
+eine Scheibe. Sie ist aber nur **16 % breiter** als der Halm und 2,6 cm hoch —
+und ein Halm ist aus sechs Metern acht Bildpunkte breit. Die Scheibe war also
+einen Bildpunkt breiter als das Rohr.
+
+Was einen Nodus lesbar macht, ist nicht die Ausbuchtung, sondern der **dunkle
+Ring** und die helle Wachsbinde darüber. Beides ist Farbe, und Farbe überlebt
+die Verkleinerung. Nur konnte der Halm gar keine tragen:
+
+    _bambooMat = weatheredWoodMaterial({ tone: 0x9fbc63, vertexColors: false });
+
+Auch der Durchmesser-Vorwurf war zur Hälfte falsch: Die Halme sind 0,036 bis
+0,052 dick und der Hain skaliert sie zusätzlich mit 0,8 bis 1,4. Die **Farbe**
+war tatsächlich für alle dieselbe.
+
+### Was geändert wurde
+
+* `vertexColors: true` auf dem Halmwerkstoff.
+* Am Nodus ein dunkler Ring (Faktor 0,58), darüber eine helle Wachsbinde
+  (+26 %, nach 16 % des Internodiums aus), knapp unter dem nächsten Nodus
+  wieder etwas dunkler, damit der Ring nicht aus dem Nichts kommt.
+* Die Scheibe etwas kräftiger: 1,16 → 1,24 fach, 2,6 → 3,2 cm.
+* **Ein Farbton je Halm, ohne eine einzige neue Ziehung.** Der Same kommt aus
+  `radUnten` und `neigA` — Werten, die ohnehin gezogen wurden. Eine
+  zusätzliche Ziehung aus `rand()` hätte alles verschoben, was danach im
+  Garten gebaut wird.
+
+Alles davon ist Farbe auf vorhandener Geometrie: **null zusätzliche Dreiecke,
+null Draw-Calls.**
+
+### Ergebnis
+
+`tools/grasnarbe.mjs` über die Halme in `c-torii` (Kasten 165,380–330,470):
+
+    Nachbarunterschied    |dx|          |dy|
+    vorher                6,76          4,51
+    nachher               6,77          5,26
+
+Der **senkrechte** Unterschied steigt um 17 Prozent, der waagerechte bleibt auf
+die zweite Stelle gleich. Genau das ist die Unterschrift eines Nodus: eine
+waagerechte Gliederung. Wäre beides gestiegen, hätte ich Rauschen hinzugefügt
+statt Ringe.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Was aus diesem Befund offen bleibt, und ein Fund nebenbei
+
+Der Prüfer hat am selben Punkt auch das Laub bemängelt: „runde, kohlartige
+Klumpen, auf die Halme aufgespießt, statt schmaler, lanzettlicher
+Bambusblätter in Fächern." Das ist ein anderer Eingriff — es betrifft den
+Blattatlas und die Anordnung der Karten — und steht noch aus.
+
+**Und der Hain kostet dreizehn Draw-Calls von fünfundneunzig.** Jeder Halm ist
+ein eigenes Netz, weil `update()` ihn einzeln dreht. Verschmolzen, mit dem
+Wiegen im Scheitel-Shader wie beim Laub, wären das zwölf Draw-Calls weniger —
+die größte einzelne Reserve, die der Garten hat. Notiert für den Fall, dass
+ein späteres Paket den Platz braucht.
