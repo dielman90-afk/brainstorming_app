@@ -12171,6 +12171,31 @@ function makeLantern() {
   glow.position.y = 0.68;
   glow.scale.set(1.1, 1.1, 1);
   group.add(glow);
+  // **Und eine Lampe, die etwas anleuchtet.**
+  //
+  // Der Prüfer: „Der Schein ist eine kreisrunde, symmetrische, weiche Scheibe,
+  // die hinter der Laterne im Bild klebt. Sie erhellt weder die Dachunterseite
+  // noch den Pfosten, noch die unmittelbar angrenzenden Steine, das Moos oder
+  // das Wasser 30 cm darunter." Bis hierher war der Schein zwei Dinge, die
+  // beide nur sich selbst zeigen: ein unbeleuchteter Kasten und ein additives
+  // Bildchen davor.
+  //
+  // Eine Punktleuchte kostet keinen Draw-Call, sondern eine Schleifenrunde je
+  // Fragment in den Standardmaterialien der Umgebung. Ohne Schatten — ein
+  // Schattenwurf dieser Leuchte hieße eine zweite Schattenkarte, und bei
+  // Tageslicht sähe man ihn ohnehin nicht.
+  //
+  // Die Reichweite ist knapp gehalten (2,6 m): Sie soll den Sockel, das Dach
+  // von unten, die Steine daneben und den Teichrand erreichen und dort
+  // aufhören. Am späten Nachmittag ist eine Steinlaterne kein Scheinwerfer.
+  // 3,2 war zu viel: Der Sockel leuchtete heller als der besonnte Kies daneben
+  // und die Dachunterseite las als zweite Lichtquelle. Bei Tageslicht ist eine
+  // Steinlaterne ein Akzent, kein Scheinwerfer.
+  const licht = new THREE.PointLight(0xffb765, 1.9, 2.6, 2);
+  licht.position.y = 0.67;
+  licht.castShadow = false;
+  licht.name = 'zen-laternenlicht';
+  group.add(licht);
   return group;
 }
 
@@ -13889,8 +13914,22 @@ function createZenEnvironment() {
   function baueTeichSpiegel(renderer) {
     const szene = group.parent;
     if (!szene) return null;
+    // **Die Leuchten der App bleiben an.** Der erste Anlauf hat blind alle
+    // Kinder der Szene ausgeblendet — darunter das Grundlicht und die
+    // Hemisphärenaufhellung, die in `main.js` an der Szene hängen und nicht an
+    // der Umgebung. Zwei Folgen, und die zweite habe ich erst über eine
+    // Nebenzahl gefunden:
+    //
+    //   * Die Aufnahme entstand ohne einen Teil des Lichts und war zu dunkel.
+    //   * Eine andere Zahl von Leuchten ist eine andere Shader-Fassung. Der
+    //     Prüfstand meldete daraufhin **55 statt 32 Programmen** — jedes
+    //     Material des Gartens wurde ein zweites Mal übersetzt, und das ist
+    //     genau die Sorte Kosten, die in der Brille als Ruckler beim Betreten
+    //     ankommt. Aufgefallen ist es, weil ich den Sprung zunächst der
+    //     Punktleuchte der Steinlaterne zugeschrieben hatte; die Zahlenreihe
+    //     der Läufe zeigte, dass er ein Paket früher entstanden war.
     const aussen = szene.children.map((k) => [k, k.visible]);
-    for (const [k] of aussen) k.visible = k === group;
+    for (const [k] of aussen) k.visible = k === group || k.isLight === true;
     const verdeckt = ['zen-wasser', 'zen-seerosen', 'zen-lotus'];
     const innen = [];
     group.traverse((o) => {

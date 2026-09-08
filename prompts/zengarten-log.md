@@ -1342,3 +1342,71 @@ nicht auf dem Kies — für sie ist die Kontaktverdunklung das falsche Mittel; d
 Prüfer meint dort die Wasserlinie (Halbkugeln, die abgeschnitten werden statt
 einzusinken). Und dass die Harkspur ungebrochen unter den Steinen durchläuft,
 gehört zu Befund 8 und steht dort noch aus.
+
+## Paket E — Das Laternenlicht leuchtete nichts an (Prüferbefund 5)
+
+Der Prüfer: „Der Schein ist eine kreisrunde, symmetrische, weiche Scheibe, die
+hinter der Laterne im Bild klebt. Sie erhellt weder die Dachunterseite noch den
+Pfosten, noch die unmittelbar angrenzenden Steine, das Moos oder das Wasser
+30 cm darunter. Damit ist offensichtlich, dass es ein aufgeklebtes Sprite ist."
+
+Er hatte recht bis auf die Wortwahl: Es waren **zwei** aufgeklebte Dinge, die
+beide nur sich selbst zeigen — ein unbeleuchteter Kasten
+(`MeshBasicMaterial`, `toneMapped: false`) und ein additives Bildchen davor.
+Eine Lichtquelle gab es nicht.
+
+### Was geändert wurde
+
+Eine Punktleuchte im Lichtkasten, 0xffb765, Reichweite 2,6 m, Abfall
+quadratisch, **ohne Schatten**. Sie kostet keinen Draw-Call, sondern eine
+Schleifenrunde je Fragment in den Standardmaterialien der Umgebung.
+
+Ein erster Anlauf mit Stärke 3,2 war zu viel: Der Sockel leuchtete heller als
+der besonnte Kies daneben, und die Dachunterseite las als zweite Lichtquelle.
+Bei Tageslicht ist eine Steinlaterne ein Akzent, kein Scheinwerfer — jetzt 1,9.
+
+    Bild          Bildpunkte, die sich aendern     mittlere Aenderung
+    b-pond              12,4 % (>=2 Stufen)              1,30
+    c-torii              7,5 %                            0,77
+    f-grove              2,2 %                            0,28
+
+Sockel, Zwischenplatte, Dachunterseite, die Steine daneben und der Teichrand
+liegen jetzt im Schein.
+
+### Eine Korrektur am vorigen Paket, gefunden über eine Nebenzahl
+
+Der Prüfstand meldete nach dieser Änderung **55 Shader-Programme** statt der 32
+vom Ausgangsstand, und der erste Gedanke war: die neue Leuchte. **Falsch.** Die
+Zahlenreihe der Läufe zeigt, dass der Sprung ein Paket früher entstanden ist —
+beim Teichspiegel:
+
+    zen-16  32 Programme   (Ausgangsstand)
+    zen-19  55             (Paket B, Teichspiegel)
+    zen-20  55             (Paket C)
+    zen-21  55             (Paket D)
+    zen-22  55             (Paket E, Punktleuchte)
+
+Die Punktleuchte kostet also **kein einziges** zusätzliches Programm. Der
+Teichspiegel kostet 23, und das ist genau die Sorte Kosten, die in der Brille
+als Ruckler beim Betreten des Gartens ankommt.
+
+Zwei Programme davon sind gefunden und behoben: Die Aufnahme hatte blind alle
+Kinder der Szene ausgeblendet, **darunter das Grundlicht und die
+Hemisphärenaufhellung**, die in `main.js` an der Szene hängen und nicht an der
+Umgebung. Eine andere Zahl von Leuchten ist eine andere Shader-Fassung — und
+die Aufnahme entstand außerdem ohne einen Teil des Lichts. Jetzt bleiben die
+Leuchten an: 55 → 53.
+
+**Die übrigen 21 sind nicht erklärt.** Zwei Verdachte habe ich geprüft und
+beide ausgeschlossen, jeder mit einem eigenen Messlauf: das abgeschaltete
+Tone-Mapping während der Aufnahme (53 mit **und** ohne) und der Farbraum des
+Renderziels (55 mit `SRGBColorSpace` wie ohne). Es bleibt als offener Posten
+stehen, nicht als erledigt.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert
+    Programme       55 → 53        (32 im Ausgangsstand, 21 unerklaert)
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 7 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
