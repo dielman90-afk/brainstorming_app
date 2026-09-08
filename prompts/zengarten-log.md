@@ -2008,3 +2008,71 @@ grün, Konsole frei von Errors und Warnings.
 **Offen:** die gefallenen Blätter auf dem Sand, die der Prüfer als „winzige
 flache Farbtupfer, eher wie Schmutz" beschrieben hat. Sie sind dasselbe
 Alphatest-Problem eine Stufe kleiner und stehen noch aus.
+
+## Paket N — Die harte Bande am Horizont, und eine Änderung, die wieder ging (Prüferbefund 14)
+
+Der Prüfer hat zwei Dinge gemeldet. Eines ist behoben, beim anderen bin ich
+gescheitert und habe die Änderung zurückgenommen.
+
+### Die Bande am Horizont — und sie war meine eigene
+
+„Der Horizont selbst ist keine Auflösung, sondern eine harte helle Bande: Sand
+und Himmel treffen auf einer scharfen Linie mit einem weißlichen Saum darüber
+aufeinander."
+
+Gemessen in `a-eyelevel`, Mittelwert über die Spalten 880 bis 1150:
+
+    y      348    351    354    357    360    363    369    372
+    L    180,7  179,5  178,0  175,0  171,9  170,2  197,5  192,4
+
+Ein Sprung von **27,3 Stufen auf sechs Bildzeilen**. Und die Ursache ist nicht
+die, die der Prüfer vermutet hat, sondern **der Hügelzug aus Paket C**: Seine
+Füße liegen bei y = −0,35 und schneiden den Saum in einer geraden Linie, und
+weil die Hügel mit L 170 bis 189 dunkler sind als der genebelte Boden davor
+(197,5), stand dort eine Kante. Ich habe sie selbst gebaut, zwei Pakete vorher,
+und im Bild von Paket C nicht gesehen.
+
+Ein Hügelzug in 40 m Entfernung hat keinen sichtbaren Fuß — er beginnt dort, wo
+der Dunst aufhört, ihn zu verschlucken. Die untersten dreißig Prozent der Kuppen
+laufen jetzt in die Nebelfarbe 0xecd9bb, dieselbe, die `scene.fog` trägt. Das
+ist kein Ersatz für Nebel, sondern seine Fortsetzung: Der Nebel sättigt erst bei
+46 m, die Füße stehen bei 33.
+
+    y      348    351    354    357    360    363    366    369
+    L    180,7  179,5  178,6  181,7  184,5  188,3  193,5  198,5
+
+    groesster Sprung im Band   27,3 → 6,7 Stufen
+
+### Und eine Änderung, die ich zurückgenommen habe
+
+„Die Wolken sind ausschließlich dünne, exakt waagerechte, parallele Schlieren in
+immer derselben Stärke und Größe — keine Ballung, keine Maßstabsvariation."
+
+Der Ansatz: eine Modulation der Wolkenstärke über den Azimut mit **einem**
+Umlauf. Die schließt sich von selbst (keine senkrechte Naht) und sollte aus dem
+gleichmäßigen Schleier eine bewölkte und eine offene Himmelshälfte machen.
+Gebaut, gemessen — und wieder entfernt:
+
+    Wolkenkorn (Hochpass) in einer Rundumsicht, freie Himmelsrichtungen
+    Azimut       0     30     60     90    120    150    180
+    vorher    0,381     —      —   0,216     —      —   0,209
+    nachher   0,299  0,161  0,162  0,166  0,198  0,189  0,187
+
+Das Verhältnis zwischen der wolkigsten und der klarsten Richtung bleibt bei
+1,8 — **die Ballung ist in der Messung nicht zu sehen.** Was messbar ist: rund
+zwanzig Prozent weniger Wolke insgesamt. Eine Änderung, die ich nicht als
+Verbesserung zeigen kann, deren Preis aber messbar ist, gehört nicht in den
+Code; auch der ungenutzte Uniform-Satz nicht. Zurückgenommen, mit den Zahlen.
+
+**Was ich nicht ausgeschlossen habe:** dass die Ballung wirkt und mein Maß sie
+nicht sieht. Das Wolkenband liegt zwischen 3 und 25 Grad über dem Horizont, die
+Messkästen greifen bei 14 bis 27 Grad — also nur den oberen Rand. Ein Maß, das
+den ganzen Streifen erfasst, könnte anders ausfallen. Solange es das nicht gibt,
+bleibt der Befund offen und der Code unverändert.
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,010 %. Build
+grün, Konsole frei von Errors und Warnings.

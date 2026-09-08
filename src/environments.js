@@ -11911,10 +11911,25 @@ function makeFerneHuegel() {
       const farben = new Float32Array(pos.count * 3);
       const oben = new THREE.Color(0x8e9468);
       const unten = new THREE.Color(0x555a3c);
+      // **Der Fuss loest sich im Dunst auf.**
+      //
+      // Im ersten Anlauf standen die Huegel auf einer harten waagerechten
+      // Linie: Ihr Fuss liegt bei y = −0,35 und schneidet den Saum, und weil
+      // sie mit L 170 bis 189 dunkler sind als der genebelte Boden davor
+      // (197,5), stand dort ein Sprung von 27 Stufen auf sechs Bildzeilen. Ein
+      // Huegelzug in 40 m Entfernung hat keinen sichtbaren Fuss — er beginnt
+      // dort, wo der Dunst aufhoert, ihn zu verschlucken.
+      //
+      // Die untersten dreissig Prozent laufen deshalb in die Nebelfarbe
+      // (0xecd9bb — dieselbe, die `scene.fog` traegt). Das ist kein Ersatz fuer
+      // Nebel, sondern seine Fortsetzung: Der Nebel selbst saettigt erst bei
+      // 46 m, die Fuesse stehen aber schon bei 33.
+      const nebel = new THREE.Color(0xecd9bb);
       const c = new THREE.Color();
       for (let v = 0; v < pos.count; v++) {
         const t = THREE.MathUtils.clamp(pos.getY(v) / kh, 0, 1);
         c.copy(unten).lerp(oben, Math.pow(t, 0.55));
+        c.lerp(nebel, 1 - smoothstep(0.0, 0.3, t));
         farben[v * 3] = c.r;
         farben[v * 3 + 1] = c.g;
         farben[v * 3 + 2] = c.b;
