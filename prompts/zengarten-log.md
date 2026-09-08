@@ -2332,3 +2332,75 @@ Regel für mich, damit es ein sechstes Mal nicht gibt: **In GLSL-Kommentaren
 keine Backticks für Bezeichner** — der Name wird ausgeschrieben oder in
 Anführungszeichen gesetzt. Der Preis dafür, sie zu vergessen, ist eine Seite,
 die nicht lädt, und die Fehlermeldung sagt „missing ) after argument list".
+
+## Paket R — Das Durchlicht im Laub: drei Hebel gemessen, keiner trägt
+
+Der Prüfer hat in beiden Runden dasselbe gemeldet: „Die Sonne steht direkt
+hinter der Sakura, trotzdem gibt es keinerlei Durchleuchten. Kein warmes
+Aufglühen, kein Transluzenz-Saum." In Paket J hatte ich das mit Zahlen als
+widerlegt bezeichnet — der Blickterm steht bei 0,83 seines Höchstwerts, die
+Transluzenz trägt 16,3 Stufen bei. **Diese Bewertung war zu schnell.** Dass er
+den Effekt zweimal nicht sieht, heißt: sechzehn Stufen sind zu wenig. Das ist
+ein anderer Befund als „fehlt", und er stand damit wieder offen.
+
+Drei Hebel kommen dafür in Frage. Alle drei sind gebaut, gemessen und wieder
+zurückgenommen.
+
+### Hebel 1: mehr Stärke — die Kurve lässt es nicht zu
+
+    uTranslucency   x0     x1     x3
+    Kronenmittel   139,0  155,3  164,0
+
+Die dreifache Stärke bringt **8,7 Stufen**. Die Krone liegt bei L 155 im
+flachen Teil der ACES-Kurve; dort kauft mehr Radianz kaum noch Helligkeit.
+Dieselbe Lehre steht in allen drei Logs.
+
+### Hebel 2: den Sockel senken — der Term ist schon geklemmt
+
+`fGlow = fWrap * mix(0.40, 1.0, fView²)`. Der Sockel sagt, wie viel Leuchten
+ein Blatt auch dann bekommt, wenn die Sonne im Rücken der Kamera steht. 0,40
+auf 0,12 gesenkt, gemessen an zwei Kameras im selben Abstand vom Baum:
+
+    Gegenlicht    164,1 → 163,8
+    Vorderlicht   147,1 → 146,9
+
+**Nichts.** Und der Grund steht im Code: `fWrap = pow(fBack, uTransPower)` mit
+`fBack = max(0, dot(-L, N))`. Bei einem vorderlichtigen Blatt zeigt die Normale
+zum Licht, `fBack` ist null, und dann ist der Sockel gleichgültig. Er greift nur
+für Blätter, deren Normale vom Licht weg zeigt — und für die entscheidet
+ohnehin der Blickterm. Der Sockel ist kein Hebel, er ist ein Nachkommastelle.
+
+### Hebel 3: Kronenverdeckung — die Krone ist zu flach dafür
+
+`verdeckung: 1.0`, der auf der Insel gemessene und gebaute Mechanismus.
+Bandweise über die Sakura-Krone in `f-grove`, oben nach unten:
+
+    vorher    170,2  163,0  162,9  195,2  187,6  142,7   Spanne 52,5
+    nachher   171,1  163,7  162,7  195,3  187,6  142,7   Spanne 52,6
+
+Ebenfalls nichts, und auch dafür gibt es einen Grund: Die Verdeckung zählt, wie
+viel Laub **senkrecht über** einem Schopf steht. Die Insel hat kegelförmige
+Kronen von mehreren Metern Höhe; die Sakura hier ist eine flache Kuppel von
+einem Meter (Ansätze zwischen y = 2,00 und 3,04). Kaum ein Schopf hat andere
+über sich, und was übrig bleibt, zieht die Mittelwertnormierung wieder ab.
+
+### Warum keiner greift — die eigentliche Messung
+
+    Himmel hinter der Krone   Mittel 156   p50 161   p95 176
+    Krone (eigene Maske)      Mittel 151   p50 142   p95 207, max 221
+
+Die hellsten siebzehn Prozent der Krone liegen **über** dem 95. Perzentil des
+Himmels dahinter. Der Saum ist also da. Was fehlt, ist der Gegenpol: Krone und
+Himmel haben praktisch denselben Mittelwert (151 gegen 156). Ein Gegenlichtbaum
+liest, weil er dunkel ist und nur seine Ränder glühen — hier steht er in
+derselben Tonlage wie sein Hintergrund, und der Hintergrund ist der helle
+Dunsthimmel um eine tief stehende Sonne.
+
+**Der Hebel wäre also nicht mehr Leuchten, sondern eine dunklere Krone** — und
+das heißt: weniger Blattkarten, größere Lücken, mehr sichtbarer Hüllkörper.
+Gemessen deckt die Kartenschicht die Hülle fast vollständig ab (19 669 gegen
+1 167 Bildpunkte in `f-grove`). Das ist ein Eingriff in die Kronendichte und
+damit in die Silhouette jedes Baums in drei Umgebungen — kein Nachziehen einer
+Zahl. **Offen, mit dieser Begründung.**
+
+Kein Eingriff in diesem Paket. Draw-Calls 95, Dreiecke 96 744, Textur 21,86 MB.
