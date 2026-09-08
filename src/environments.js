@@ -11758,6 +11758,122 @@ function makeKarikomi(rand, plaetze) {
   return mesh;
 }
 
+// **Die Ferne — und warum es keine Mauer ist.**
+//
+// Der Prüfer hat als dritten Punkt gemeldet: „Es gibt keine Welt hinter dem
+// Garten. Ringsum bis zum Horizont vollkommen leerer, strukturloser Sand.
+// Keine Einfassung, keine Mauer, keine Hecke, kein Hain im Rücken, keine
+// Hügel, keine Ferne." Er hat recht, und trotzdem darf die naheliegende
+// Antwort hier nicht kommen.
+//
+// **`makeGartenmauer()` steht im Code, gebaut und geprüft, und ist in fünf
+// Zeilen wieder einzuhängen — sie ist in Durchlauf 12 auf ausdrücklichen
+// Zuruf des Nutzers herausgenommen worden.** Der Grund steht im Log: Sie hat
+// geleistet, was sie sollte, aber sie hat den Garten geschlossen; aus dem
+// offenen Kiesfeld unter weitem Himmel wurde ein Hof. Diese Entscheidung
+// gehört dem Nutzer und nicht dem Prüfer.
+//
+// Was der Befund im Kern verlangt, ist aber etwas anderes als eine Einfassung:
+// eine **Tiefenstaffelung**. Vordergrund, Mittelgrund, dann nichts — die
+// Luftperspektive hatte nichts zu staffeln. Ein Hügelzug in 30 bis 44 m
+// leistet genau das und schließt nichts: Er steht im Nebelbereich (20 bis
+// 46 m), wird also zu drei Vierteln in die Dunstfarbe gezogen, und er ist mit
+// 2,5 bis 6 m so niedrig, dass der Himmel offen bleibt.
+//
+// Ein Draw-Call, weil alles in ein Netz verschmilzt. Der Zen-Garten hat 93 von
+// 120 belegt; das ist die Zahl, an der sich hier alles entscheidet.
+function makeFerneHuegel() {
+  // **Eigener Zufallsstrom.** Jede Ziehung aus dem Strom des Gartens würde
+  // alles verschieben, was danach gebaut wird — Steine, Trittsteine, Bäume,
+  // Blüten. Die Lehre steht im Insel-Log unter Paket H.
+  const rand = mulberry32(0x5e17a0);
+  const teile = [];
+  // Der Ring ist nicht gleichmäßig besetzt: Zwölf Gruppen mit gestörtem
+  // Winkel und wechselndem Abstand, dazu drei Lücken, durch die der Blick
+  // hinausläuft. Ein geschlossener Kranz wäre wieder eine Mauer.
+  const luecken = [2, 6, 9];
+  for (let i = 0; i < 12; i++) {
+    if (luecken.includes(i)) {
+      // Die Ziehungen trotzdem verbrauchen, damit eine Änderung an den Lücken
+      // nicht alles Nachfolgende verschiebt.
+      rand();
+      rand();
+      rand();
+      rand();
+      continue;
+    }
+    const a = (i / 12) * Math.PI * 2 + (rand() - 0.5) * 0.34;
+    // **33 bis 45 m, nicht 30 bis 44.** Im ersten Anlauf stand der Ring bei
+    // 30 m, und weil die Augenhöhenkamera bei z = +6 steht, lag die nächste
+    // Gruppe 24 m vor ihr — groß genug, um als Kuppe im Mittelgrund zu lesen
+    // statt als Ferne. Der Nebel endet bei 46 m; weiter hinaus geht nicht,
+    // dort verschwindet alles vollständig.
+    const r = 33 + rand() * 12;
+    const breite = 9 + rand() * 8;
+    // Flacher als der erste Anlauf: 2,5 bis 6 m ergaben Halbkugeln am
+    // Horizont. Ein Hügelrücken ist breit und niedrig.
+    const hoehe = 2.0 + rand() * 2.2;
+    // Drei bis fünf ineinanderlaufende Kuppen je Gruppe: Ein Hügel ist keine
+    // Halbkugel, und zwei sich überschneidende lesen als Rücken mit Sattel.
+    const kuppen = 4 + Math.floor(rand() * 3);
+    for (let k = 0; k < kuppen; k++) {
+      const versatz = (k / Math.max(1, kuppen - 1) - 0.5) * breite;
+      const kr = breite * (0.32 + rand() * 0.24);
+      // Die Höhen der Kuppen einer Gruppe müssen weit auseinanderliegen,
+      // sonst steht eine Reihe gleich hoher Buckel da.
+      const kh = hoehe * (0.42 + rand() * 0.78);
+      const geo = new THREE.SphereGeometry(kr, 12, 8);
+      const pos = geo.attributes.position;
+      const beule = welligerUmriss(5300 + i * 41 + k * 7, 0.18, 4);
+      for (let v = 0; v < pos.count; v++) {
+        const px = pos.getX(v);
+        const py = pos.getY(v);
+        const pz = pos.getZ(v);
+        const f = beule(Math.atan2(pz, px));
+        pos.setXYZ(v, px * f, Math.max(0, py) * (kh / kr) * f, pz * f * 0.72);
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+      // **Scheitelfarben statt einer Karte.** In 30 bis 44 m ist ein Texel
+      // kleiner als ein Bildpunkt, und der Nebel zieht ohnehin drei Viertel
+      // der Farbe heraus. Was noch liest, ist der Verlauf von der dunklen
+      // Flanke zum lichten Rücken — und der steht in den Scheitelfarben.
+      const farben = new Float32Array(pos.count * 3);
+      const oben = new THREE.Color(0x8e9468);
+      const unten = new THREE.Color(0x555a3c);
+      const c = new THREE.Color();
+      for (let v = 0; v < pos.count; v++) {
+        const t = THREE.MathUtils.clamp(pos.getY(v) / kh, 0, 1);
+        c.copy(unten).lerp(oben, Math.pow(t, 0.55));
+        farben[v * 3] = c.r;
+        farben[v * 3 + 1] = c.g;
+        farben[v * 3 + 2] = c.b;
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+      // Die Kuppen stehen quer zur Blickrichtung, damit die Gruppe als Rücken
+      // liest und nicht als Reihe von Kugeln hintereinander.
+      geo.rotateY(a + Math.PI / 2);
+      geo.translate(
+        Math.cos(a) * r + Math.cos(a + Math.PI / 2) * versatz,
+        -0.35,
+        Math.sin(a) * r + Math.sin(a + Math.PI / 2) * versatz
+      );
+      teile.push(geo.index ? geo.toNonIndexed() : geo);
+    }
+  }
+  const mesh = new THREE.Mesh(
+    mergeGeometries(teile),
+    new THREE.MeshStandardMaterial({ vertexColors: true, color: 0xffffff, roughness: 0.95, metalness: 0 })
+  );
+  mesh.name = 'zen-ferne';
+  // Weder werfen noch empfangen: In dieser Entfernung ist der Schattenwurf
+  // ausserhalb des Ortho-Rahmens der Sonne, und ein Empfaenger mehr kostet im
+  // Schattendurchgang, ohne dass man es sieht.
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  return mesh;
+}
+
 // Der Saum jenseits des Kiesbetts.
 //
 // **Das Kiesbett endet bei 20 m, und der Nebel fängt bei 20 m an.** Damit
@@ -12790,6 +12906,7 @@ function createZenEnvironment() {
 
   // Der Saum liegt unter allem anderen und wird zuerst gezeichnet.
   group.add(makeSandSaum());
+  group.add(makeFerneHuegel());
 
   // Das Kiesbett. Radius unverändert 20 m; die Harkspur entsteht jetzt
   // rechnerisch aus der Weltposition, siehe `sandMaterial()`.

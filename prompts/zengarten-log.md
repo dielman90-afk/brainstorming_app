@@ -1214,3 +1214,75 @@ das ist aus dem Quelltext von three abgeleitet und nicht gemessen.
 
 Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
 grün, Konsole frei von Errors und Warnings.
+
+## Paket C — Eine Ferne, aber keine Mauer (Prüferbefund 3)
+
+Der Prüfer: „`d-aerial` zeigt es unbarmherzig: eine Handvoll Objekte auf einem
+winzigen Fleck, ringsum bis zum Horizont vollkommen leerer, strukturloser Sand.
+Keine Einfassung, keine Mauer, keine Hecke, kein Hain im Rücken, keine Hügel,
+keine Ferne. Ein Zen-Garten ist definitionsgemäß ein umschlossener Raum."
+
+### Die naheliegende Antwort ist hier verboten
+
+`makeGartenmauer()` steht im Code, gebaut und geprüft, und ist in fünf Zeilen
+wieder einzuhängen. Sie ist in **Durchlauf 12 auf ausdrücklichen Zuruf des
+Nutzers** herausgenommen worden; der Grund steht dort: Sie hat geleistet, was
+sie sollte, aber sie hat den Garten geschlossen — aus dem offenen Kiesfeld
+unter weitem Himmel wurde ein Hof. Diese Entscheidung gehört dem Nutzer, nicht
+dem Prüfer, und sie wird hier nicht rückgängig gemacht.
+
+Der Befund hat trotzdem einen Kern, und der ist nicht die Einfassung, sondern
+die **Tiefenstaffelung**: Vordergrund, Mittelgrund, dann nichts. Die
+Luftperspektive hatte nichts zu staffeln.
+
+### Was geändert wurde
+
+Ein **Hügelzug in 33 bis 45 Metern**, aus vier bis sechs ineinanderlaufenden
+Kuppen je Gruppe, neun Gruppen mit drei Lücken, alles in **einem** Netz. Er
+schließt nichts:
+
+* Er steht im Nebelbereich (20 bis 46 m) und wird zu drei Vierteln in die
+  Dunstfarbe gezogen.
+* Er ist 2,0 bis 4,2 m hoch und lässt den Himmel offen.
+* Drei Lücken, durch die der Blick hinausläuft.
+
+Scheitelfarben statt einer Karte: In dieser Entfernung ist ein Texel kleiner
+als ein Bildpunkt. Was noch liest, ist der Verlauf von der dunklen Flanke zum
+lichten Rücken.
+
+**Eigener Zufallsstrom**, sonst verschöbe sich alles, was danach gebaut wird.
+Die Lücken verbrauchen ihre Ziehungen trotzdem — eine Änderung an ihnen darf
+den Rest nicht verschieben.
+
+### Zwei Anläufe
+
+Der erste stand bei 30 bis 44 m mit Höhen von 2,5 bis 6 m. Zwei Fehler,
+beide im Bild:
+
+* Die Augenhöhenkamera steht bei z = +6; die nächste Gruppe lag damit **24 m**
+  vor ihr und las als Kuppe im Mittelgrund statt als Ferne.
+* 6 m Höhe auf 8 m Breite ergeben Halbkugeln. Ein Hügelrücken ist breit und
+  niedrig; und die Kuppen einer Gruppe müssen weit auseinanderliegende Höhen
+  haben, sonst steht eine Reihe gleich hoher Buckel da.
+
+### Ergebnis
+
+    Bild            Punkte   Mittel   p05   p50   p95
+    a-eyelevel      34 954    168,2    89   182   218
+    c-torii         39 313    152,1    83   155   209
+
+Der Zug belegt also gut vier Prozent des Bildes und liegt im Tonwert zwischen
+dem Sand davor und dem Himmel darüber — genau die Schicht, die gefehlt hat.
+
+    Draw-Calls      93 → 95        (2 von 27 freien)
+    Dreiecke    79 576 → 94 360    (27 % des Budgets)
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,009 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Was offen bleibt:** Der Prüfer wollte auch einen Hain im Rücken und ein Dach.
+Beides wäre wieder ein Schritt Richtung Hof; der Hügelzug ist bewusst das
+Äußerste, was ohne Widerspruch zur Nutzerentscheidung geht. Wenn der Garten
+enger gefasst werden soll, ist das eine Frage an den Nutzer und keine, die ich
+entscheide.
