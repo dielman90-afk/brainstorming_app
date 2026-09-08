@@ -11307,7 +11307,21 @@ function makeSandBett(radius, ringe = 44, segmente = 160, aussparung = null) {
       }
     }
     innen.push(drin);
-    pos.push(x, 0, z);
+    // **Der Rand faellt ab, statt abzubrechen.**
+    //
+    // Das Kiesbett war eine flache Scheibe bei y = −0,02, der Saum
+    // dahinter ein Ring bei y = −0,06. Zwischen beiden stand damit eine
+    // **vier Zentimeter hohe Stufe** auf dem ganzen Umfang — aus 1,7 m
+    // Augenhoehe in 20 m Entfernung zwei Bildpunkte, also genau der harte
+    // Strich, den der Pruefer als „scharfe, unbehandelte Facettenkante" und
+    // als „erhoehtes Plateau" gemeldet hat. Gemessen sprang die Helligkeit
+    // ueber die Umrisslinie des Saums um 25 Stufen.
+    //
+    // Jetzt neigt sich das Bett ueber die aeusseren acht Prozent seines
+    // Halbmessers um dieselben vier Zentimeter nach unten und trifft den Saum
+    // buendig. Ein Kiesbett hat ohnehin eine Boeschung, keine Wand.
+    const rr = Math.hypot(x, z);
+    pos.push(x, -0.04 * smoothstep(radius * 0.92, radius, rr), z);
     uv.push(x / (radius * 2) + 0.5, z / (radius * 2) + 0.5);
   };
   setze(0, 0);
@@ -11924,6 +11938,21 @@ function makeSandSaum() {
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const farben = new Float32Array(pos.count * 3);
+  // **Dieser Wert ist richtig, und ich habe ihn zweimal falsch veraendert.**
+  //
+  // Der Pruefer hat an der Naht bei 20 m „eine harte Stufe quer durch das
+  // Bild" gesehen. Ich habe daraufhin den Saum ueber die differenzielle Maske
+  // gemessen (`tools/moossaum.mjs`) und einen Unterschied von +22,8 Stufen
+  // abgelesen — und danach in zwei Schritten auf 0xc0b496 und 0xa59b81
+  // abgedunkelt.
+  //
+  // Beide Schritte waren falsch. Die Maske eines Rings beruehrt aussen den
+  // HIMMEL und innen den Kies; ihr Mittelwert mischt zwei Naehte, von denen
+  // nur eine gemeint war. Erst ein schraeger Blick auf die Stelle selbst
+  // (`tools/bodennaht.mjs`) hat es entschieden: Mit dem urspruenglichen Wert
+  // stehen Kies und Saum bei rund 189 Stufen — der Ton stimmte von Anfang an.
+  // Sichtbar ist die Naht nicht als Farb-, sondern als **Strukturgrenze**:
+  // gekoerntes Bett gegen glatten Ring.
   const nah = new THREE.Color(0xd9cba9); // Kiesfarbe am Innenrand
   // **Kein Grün.** Der erste Anlauf ließ den Saum in stumpfes Grün laufen —
   // gedacht als Bewuchs außerhalb des Gartens, im Bild ein grüner Streifen
@@ -11944,9 +11973,39 @@ function makeSandSaum() {
     farben[i * 3 + 2] = c.b * f;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  // **Derselbe Werkstofftyp wie das Kiesbett — das war der Kern des Befunds.**
+  //
+  // Der Pruefer hat unter Nummer 8 geschrieben: „Der Sand ist zwei
+  // verschiedene Materialien", und unter Nummer 9: „eine harte Stufe quer
+  // durch das Bild". Beides zeigte auf dieselbe Naht bei 20 m, und beides war
+  // woertlich wahr: Das Kiesbett ist ein `MeshStandardMaterial` mit Rauheit
+  // 0,95, der Saum war ein `MeshLambertMaterial`. Zwei verschiedene
+  // Reflexionsmodelle geben unter demselben Licht verschiedene Tonwerte — die
+  // Kante entsteht dann, ohne dass eine Farbe oder eine Hoehe sie erklaeren
+  // koennte. Nachgemessen sprang die Helligkeit ueber die Umrisslinie um 25
+  // Stufen, und der Saum stand 22,8 Stufen HELLER als der Kies.
+  // **Und dieselbe Koernung.** Das Kiesbett traegt die Kornkarte des Sandes,
+  // der Saum trug gar keine — nur eine Scheitelstreuung mit einer Wellenlaenge
+  // von sieben Metern. Genau das ist die Grenze, die der Pruefer gesehen hat:
+  // „der Wechsel geschieht auf derselben durchgehenden Flaeche und ist als
+  // Grenze sichtbar". Die Karte laeuft ueber den Ring mit derselben
+  // Weltgroesse weiter wie ueber das Bett.
+  const kornKarte = sandMaps().grainMap.clone();
+  kornKarte.needsUpdate = true;
+  // Die UV-Spanne 0..1 einer `RingGeometry` deckt den doppelten
+  // Aussenhalbmesser ab, also 104 m. Fuer 0,7 m je Kachel — dieselbe
+  // Kachelgroesse wie im Kiesbett — sind das 148,6 Wiederholungen.
+  kornKarte.repeat.set(104 / 0.7, 104 / 0.7);
   const mesh = new THREE.Mesh(
     geo,
-    new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xffffff })
+    new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      color: 0xffffff,
+      normalMap: kornKarte,
+      normalScale: new THREE.Vector2(0.9, 0.9),
+      roughness: 0.95,
+      metalness: 0,
+    })
   );
   mesh.name = 'zen-saum';
   mesh.position.y = -0.06;

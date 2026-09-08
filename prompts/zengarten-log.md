@@ -1639,3 +1639,80 @@ grün, Konsole frei von Errors und Warnings.
 GLSL-Kommentar innerhalb eines Template-Literals. `tools/shaderlint.mjs` als
 `prebuild` hat ihn gefangen, bevor ein Bild entstanden ist — ohne ihn wäre der
 Fehler als „Seite lädt nicht" aufgetreten.
+
+## Paket I — Die Naht bei zwanzig Metern (Prüferbefund 9 und die zweite Hälfte von 8)
+
+Der Prüfer hat dieselbe Linie zweimal gemeldet: als „der Sand ist zwei
+verschiedene Materialien … der Wechsel geschieht auf derselben durchgehenden
+Fläche und ist als Grenze sichtbar" (8) und als „eine harte Stufe quer durch
+das Bild … eine scharfe, unbehandelte Facettenkante" (9).
+
+### Drei Ursachen waren möglich, und ich habe alle drei falsch gewichtet
+
+**Erstens war da tatsächlich eine Stufe.** Das Kiesbett ist eine flache Scheibe
+bei y = −0,02, der Saum dahinter ein Ring bei y = −0,06 — **vier Zentimeter**
+auf dem ganzen Umfang, aus 1,7 m Augenhöhe in 20 m Entfernung zwei Bildpunkte.
+Das Bett neigt sich jetzt über die äußeren acht Prozent seines Halbmessers um
+dieselben vier Zentimeter nach unten und trifft den Saum bündig.
+
+**Zweitens waren es buchstäblich zwei Werkstoffe.** Das Bett ist ein
+`MeshStandardMaterial` mit Rauheit 0,95, der Saum war ein
+`MeshLambertMaterial`. Zwei Reflexionsmodelle geben unter demselben Licht
+verschiedene Tonwerte. Jetzt beide `MeshStandardMaterial`.
+
+**Drittens — und das ist es tatsächlich — fehlte dem Saum die Körnung.** Das
+Bett trägt die Kornkarte des Sandes, der Saum trug gar keine, nur eine
+Scheitelstreuung mit einer Wellenlänge von sieben Metern. Die Karte läuft
+jetzt über den Ring mit derselben Kachelgröße weiter (0,7 m), also 148,6
+Wiederholungen über die UV-Spanne einer `RingGeometry`, die den doppelten
+Außenhalbmesser abdeckt.
+
+### Und zwei eigene Fehlgriffe, die teurer waren als der Befund
+
+**Ich habe den Saum zweimal abgedunkelt, und beide Male zu Unrecht.**
+`tools/moossaum.mjs` misst den Unterschied über die Umrisslinie einer
+differenziellen Maske und meldete +22,8 Stufen. Daraufhin habe ich
+0xd9cba9 → 0xc0b496 → 0xa59b81 gezogen.
+
+Der Fehler steckt im Maß: **Die Maske eines Rings berührt außen den Himmel und
+innen den Kies.** Ihr Mittelwert mischt zwei Nähte, von denen nur eine gemeint
+war — der helle Himmel außen hat den Wert nach oben gezogen, und ich habe
+innen dagegen angearbeitet. Nach dem zweiten Schritt stand der Saum 38 Stufen
+zu dunkel.
+
+**Der zweite Fehlgriff war das Werkzeug dagegen.** Ein Blick senkrecht von oben
+schien der saubere Weg — keine Perspektive, kein Himmel. Er ist es nicht:
+`lockCamera` setzt `camera.up` fest auf (0, 1, 0), und bei senkrechtem Blick
+steht das parallel zur Blickrichtung. `lookAt` ist dort entartet, und die
+Bildorientierung fällt zufällig aus. Zwei Läufe desselben Standes lieferten
+170,8 und 148,5 für dieselbe Fläche — einen Unterschied, den ich beinahe einer
+Farbänderung zugeschrieben hätte, die diese Fläche gar nicht berührt.
+
+`tools/bodennaht.mjs` blickt deshalb aus 45 Grad: steil genug, dass die Naht
+nicht verschmiert, weit genug von der Senkrechten, dass `up` eindeutig bleibt.
+Damit war es in einem Lauf entschieden.
+
+### Ergebnis
+
+    Sprung ueber die Naht bei r = 20 m (tools/bodennaht.mjs, 45 Grad)
+    Ausgangsstand                       5,0 Stufen
+    nachher                             2,4 Stufen
+
+Der Tonsprung war also von Anfang an klein — **fünf Stufen**, nicht zweiund­
+zwanzig. Sichtbar war die Naht als **Strukturgrenze**: gekörntes Bett gegen
+glatten Ring. Genau die ist geschlossen.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,86 MB  (+0,33 fuer die Kornkarte des Saums)
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,010 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Und noch ein eigener Fehler
+
+`tools/naht.mjs` gab es bereits — ein Werkzeug aus dem Nachthimmel-Auftrag, das
+den leuchtenden Saum auf der Gratlinie misst. Ich habe es überschrieben. Das
+Original ist aus dem Git wiederhergestellt, das neue heißt
+`tools/bodennaht.mjs`. Wer ein Werkzeug anlegt, sieht vorher nach, ob der Name
+frei ist.

@@ -100,7 +100,7 @@ try {
 
   const voll = await bild();
   process.stdout.write(
-    `${ENV} / ${shotName}${OHNE_WERFER ? '  (ohne alle Schlagschatten)' : ''}\n${'Knoten'.padEnd(16)}${'Punkte'.padStart(8)}${'Kantensprung'.padStart(14)}${'Zackigkeit'.padStart(12)}${'Saum'.padStart(8)}${'Korn'.padStart(8)}\n`
+    `${ENV} / ${shotName}${OHNE_WERFER ? '  (ohne alle Schlagschatten)' : ''}\n${'Knoten'.padEnd(16)}${'Punkte'.padStart(8)}${'Kantensprung'.padStart(14)}${'innen-aussen'.padStart(14)}${'Zackigkeit'.padStart(12)}${'Saum'.padStart(8)}${'Korn'.padStart(8)}\n`
   );
   for (const name of KNOTEN) {
     await sichtbar(name, false);
@@ -150,6 +150,10 @@ try {
     // Kantensprung: innen (Abstand 0) gegen den Nachbarn ausserhalb.
     let sprung = 0;
     let sn = 0;
+    // Zusaetzlich der VORZEICHENBEHAFTETE Unterschied: `Kantensprung` sagt
+    // nur, wie hart die Linie ist, nicht, welche Seite heller steht. Fuer
+    // einen Uebergang, den man ANGLEICHEN will, ist genau das die Zahl.
+    let seite = 0;
     for (const i of kante) {
       const x = i % W;
       const y = (i / W) | 0;
@@ -162,6 +166,7 @@ try {
         const j = (y + dy) * W + (x + dx);
         if (j < 0 || j >= W * H || maske[j]) continue;
         sprung += Math.abs(L(voll, x, y) - L(voll, x + dx, y + dy));
+        seite += L(voll, x, y) - L(voll, x + dx, y + dy);
         sn++;
       }
     }
@@ -190,7 +195,7 @@ try {
       }
     const saum = innenN ? randS / randN / (innenS / innenN) : NaN;
     process.stdout.write(
-      `${name.padEnd(16)}${String(n).padStart(8)}${(sn ? sprung / sn : 0).toFixed(2).padStart(14)}${(kante.length / Math.sqrt(n)).toFixed(2).padStart(12)}${saum.toFixed(3).padStart(8)}${(korn / kornN).toFixed(3).padStart(8)}\n`
+      `${name.padEnd(16)}${String(n).padStart(8)}${(sn ? sprung / sn : 0).toFixed(2).padStart(14)}${(sn ? seite / sn : 0).toFixed(2).padStart(14)}${(kante.length / Math.sqrt(n)).toFixed(2).padStart(12)}${saum.toFixed(3).padStart(8)}${(korn / kornN).toFixed(3).padStart(8)}\n`
     );
   }
 } finally {
