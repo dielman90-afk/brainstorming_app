@@ -12672,10 +12672,13 @@ function mapleMaterials() {
   if (!_mapleCards) {
     _mapleCards = foliageMaterial({
       atlas: leafAtlas('maple'),
-      // Ahornlaub im Herbst ist der Fall, für den der Transluzenzterm gebaut
-      // ist – ein rotes Blatt gegen die Sonne leuchtet, statt dunkel zu werden.
+      // Ahornlaub ist der Fall, für den der Transluzenzterm gebaut ist – ein
+      // rotes Blatt gegen die Sonne leuchtet, statt dunkel zu werden.
       translucency: 0.85,
-      transColor: 0xd98f45,
+      // **Rosé statt Bernstein.** Siehe die Farbwahl der Krone weiter unten:
+      // Der Baum ist vom Herbst in den Frühling gewechselt, und das
+      // Gegenlicht eines jungen Blattes ist rosarot, nicht orange.
+      transColor: 0xe0837a,
       windStrength: 0.07,
     });
   }
@@ -12713,8 +12716,24 @@ function makeMaple(rand) {
     // Heller als die Werte des Dojo-Gartens, aus denen sie stammen: Dort steht
     // der Ahorn im Schatten eines Vordachs, hier in der offenen
     // Nachmittagssonne. Unverändert übernommen war er ein brauner Klumpen.
-    farben: [0x9c3f22, 0xb0512a, 0x8a3520],
-    kartenFarben: [0xf2cfa8, 0xffdcb0, 0xe6bd98, 0xf8d4a4],
+    //
+    // **Und jetzt Frühling statt Herbst — das ist eine Entscheidung, keine
+    // Fehlerbehebung.** Der Prüfer: „Blühende Sakura (Frühling) und leuchtend
+    // orangeroter Ahorn (Herbst) stehen zehn Meter auseinander. Das bricht den
+    // ‚ein Ort, eine Zeit'-Test bei einem japanischen Garten sofort." Er hat
+    // recht, und der Ausweg kostet den Farbakzent nicht: Es gibt japanische
+    // Ahorne, deren **Austrieb** karmesinrot ist — 'Deshojo' und
+    // 'Shindeshojo' treiben im April in einem Rot, das später ins Grüne
+    // umschlägt. Ein solcher Baum steht neben einer blühenden Kirsche in
+    // derselben Woche.
+    //
+    // Der Unterschied zum Herbstlaub ist der Farbton: weg vom Orange (rund
+    // 20 Grad) hin zum Karmesin (rund 355 bis 5 Grad), und die Kartenfarben
+    // von cremeorange auf rosé. Der Prüfer hat am selben Punkt „deutlich
+    // lauter und deutlich rauschiger modelliert als alles andere" bemängelt;
+    // die neuen Töne sind eine Spur weniger gesättigt.
+    farben: [0x8e3034, 0xa03d3e, 0x7c262c],
+    kartenFarben: [0xe6a3a0, 0xf0b4ad, 0xd99190, 0xecafa7],
   });
   krone.blobs.name = 'zen-ahorn-blobs';
   krone.karten.name = 'zen-ahorn-karten';

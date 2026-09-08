@@ -1854,3 +1854,68 @@ den aktuellen Bildern finde ich sie nicht wieder; ob sie an den genannten
 Stellen je standen oder ob ein früheres Paket sie beseitigt hat, ist nicht
 geklärt. Und die Ufersteinkette ist weiterhin gleichmäßig verteilt — die
 Streuung sitzt jetzt in der Form, nicht im Abstand.
+
+## Paket L — Zwei Jahreszeiten zehn Meter auseinander (Prüferbefund 12)
+
+Der Prüfer: „Blühende Sakura (Frühling) und leuchtend orangeroter Ahorn
+(Herbst) stehen zehn Meter auseinander. Das bricht den ‚ein Ort, eine Zeit'-Test
+bei einem japanischen Garten sofort. Zusätzlich sind genau diese beiden
+Elemente die einzigen gesättigten Farben der Szene und fallen aus dem sonst
+sehr disziplinierten Sand-Salbei-Oliv-Klang heraus."
+
+### Das ist eine Entscheidung und keine Fehlerbehebung — deshalb steht sie hier
+
+Der Widerspruch ist echt, und der naheliegende Ausweg wäre, einen der beiden
+Bäume aufzugeben. Das kostet den einzigen Farbakzent der Szene neben dem Torii.
+
+Es gibt einen dritten Weg, und er ist botanisch und nicht erfunden: Japanische
+Ahorne der Sorten **'Deshojo'** und **'Shindeshojo'** treiben im April in einem
+Karmesinrot aus, das erst später ins Grüne umschlägt. Ein solcher Baum steht
+neben einer blühenden Kirsche in derselben Woche. Der Unterschied zum
+Herbstlaub liegt im Farbton: weg vom Orange bei rund 20 Grad, hin zum Karmesin
+bei 355 bis 5 Grad.
+
+    Hüllkörper    0x9c3f22 0xb0512a 0x8a3520  →  0x8e3034 0xa03d3e 0x7c262c
+    Blattkarten   cremeorange                 →  rosé
+    Gegenlicht    0xd98f45 (Bernstein)        →  0xe0837a (Rosé)
+
+**Der Nebeneffekt ist die halbe Antwort auf den zweiten Teil des Befunds.** Der
+Prüfer hat das Magenta der Lotusblüten als „Signalton, der im Abendlicht
+nirgendwo eine Entsprechung hat" bemängelt. Jetzt hat er eine: Der Ahorn steht
+in derselben Familie.
+
+### Ergebnis
+
+Gemessen in `d-aerial` über den Farbton aller Bildpunkte mit einer Sättigung
+über 0,45 (die Zahlen enthalten auch das Torii und die warmen Sandschatten,
+sind also nicht der Baum allein):
+
+    Farbtonband        vorher   nachher
+    orange   10–40°     6840     5399
+    rot     350–10°     3711     4985
+    mittlere Saettigung  0,746    0,735
+
+Rund 1400 Bildpunkte wandern vom Orange ins Rot, und die Sättigung in diesem
+Bereich sinkt leicht.
+
+    Bild        geaenderte Bildpunkte
+    d-aerial          0,42 %
+    a-eyelevel        0,07 %   (nur der aeusserste rechte Bildrand)
+    b-pond, c-torii, e-sand, f-grove   bitgleich
+
+**Und das ist selbst ein Befund:** Der Ahorn kommt in **zwei von sechs** festen
+Kameras überhaupt vor, in einer davon nur mit dem Rand seiner Krone. Ein Baum,
+der als einer von zwei Farbakzenten geführt wird, steht damit in zwei Dritteln
+der Prüfbilder außerhalb. Das gehört zu Befund 15 (Komposition) und steht dort
+noch aus.
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 7 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Falls der Frühlingsahorn nicht gewollt ist:** Es sind drei Farbwerte und eine
+Gegenlichtfarbe in `mapleMaterials()` und `makeMaple()`; die alten stehen im
+Commit daneben.
