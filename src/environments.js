@@ -11512,8 +11512,26 @@ function makeBluetenblaetter(rand, quellen, anzahl = 90) {
   const geo = new THREE.PlaneGeometry(0.062, 0.078);
   const mat = new THREE.MeshLambertMaterial({
     map: blattTextur(),
+    // **Ein rosa Blütenblatt, das weiß im Bild steht.** Der Prüfer hat die
+    // fliegenden Blätter als „tote Pixel oder Staub auf der Linse" gemeldet,
+    // und die Vergrößerung gab ihm recht: ein cremefarbenes Quadrat von zwei
+    // Bildpunkten, ohne Form und ohne Rosa.
+    //
+    // Die Ursache ist kein Farbfehler — die Karte ist rosa (255|228|238 bis
+    // 246|178|203). Es ist der **Alphatest zusammen mit den Mipmaps**: Auf
+    // sechs Bildpunkten Kantenlänge greift die Karte in eine Mipstufe, in der
+    // die Deckkraft über die durchsichtige Umgebung gemittelt ist. Bei einer
+    // Schwelle von 0,45 fällt fast das ganze Blatt weg, übrig bleibt der
+    // dichteste Kern — und ein Kern von zwei Bildpunkten trägt weder Form noch
+    // Farbe. Dieselbe Falle, die weiter oben die Harkspur in Punkte zerlegt
+    // hat, nur an der Deckkraft statt an der Helligkeit.
+    //
+    // 0,22 statt 0,45: Das Blatt bleibt bis in kleine Maßstäbe ganz. Der
+    // Farbton kommt zusätzlich aus `color`, damit auch der eine überlebende
+    // Bildpunkt rosa ist und nicht die weiße Vorgabe des Werkstoffs.
+    color: 0xf6b7cb,
     transparent: true,
-    alphaTest: 0.45,
+    alphaTest: 0.22,
     side: THREE.DoubleSide,
     // Ebene Fläche: der zweite Durchgang für die Rückseiten zeichnet dieselben
     // Pixel noch einmal.
@@ -14065,12 +14083,47 @@ function createZenEnvironment() {
   // Scheitelfarbe statt in dreizehn Materialien.
   group.add(verschmelzeSchatten(kontaktschatten, 'zen-kontaktschatten'));
 
-  // Warm glühende Staubpartikel im tiefen Sonnenlicht
-  const DUST = 70;
+  // **Warm glühende Staubpartikel — und warum sie als tote Bildpunkte gelesen
+  // wurden.**
+  //
+  // Der Prüfer hat sie für Blütenblätter gehalten: „Die fliegenden Partikel
+  // erscheinen weiß statt rosa und in großer Entfernung vor dem Himmel — dort
+  // lesen sie sich als tote Pixel oder Staub auf der Linse." Die Verwechslung
+  // ist der Befund: Es sind gar keine Blütenblätter (deren Maske ist an den
+  // genannten Stellen leer), es ist dieser Staub.
+  //
+  // Drei Dinge machten ihn zu Bildfehlern:
+  //
+  //   * **Er stand überall.** ±12 m und bis 3,3 m Höhe heisst: die Hälfte
+  //     schwebt über der Horizontlinie und wird gegen den hellen Himmel
+  //     gezeichnet. Ein Staubkorn ist additiv — gegen einen Himmel von L 190
+  //     ist es in der Natur unsichtbar. Sichtbar wird Staub im Gegenlicht vor
+  //     einem dunklen Grund.
+  //   * **Er wurde nicht kleiner mit der Entfernung.** `fog: false` und
+  //     additives Mischen: ein Korn in 20 m war so hell wie eines in 2 m, nur
+  //     eben zwei Bildpunkte gross — und zwei helle Bildpunkte im Himmel sind
+  //     ein toter Bildpunkt.
+  //   * **Siebzig Stück** ueber diese Flaeche ergeben ein Sternenfeld, kein
+  //     Flirren.
+  //
+  // Jetzt: ±7 m, Hoehe 0,25 bis 1,5 m — also unterhalb der Horizontlinie der
+  // Augenhoehenkamera —, fuenfundvierzig statt siebzig, dafuer groesser.
+  // **Die Zahl der Ziehungen bleibt bei siebzig, auch wenn nur
+  // fuenfundvierzig Koerner gezeichnet werden.**
+  //
+  // Der erste Anlauf hat die Schleife auf 45 verkuerzt. Das sind fuenf
+  // Ziehungen je Korn, also **125 Ziehungen weniger** — und damit verschiebt
+  // sich alles, was danach aus demselben Strom gebaut wird. Gemessen: 18 bis
+  // 50 Prozent geaenderte Bildpunkte in allen sechs Kameras, statt der
+  // erwarteten paar Staubkoerner. Die Lehre steht seit dem Insel-Log an drei
+  // Stellen, und ich bin trotzdem hineingelaufen.
+  const DUST_ZIEHUNGEN = 70;
+  const DUST = 45;
   const dustPos = new Float32Array(DUST * 3);
   const dustMeta = [];
-  for (let i = 0; i < DUST; i++) {
-    dustMeta.push({ x: (rand() - 0.5) * 24, y: 0.3 + rand() * 3, z: (rand() - 0.5) * 24, sp: 0.1 + rand() * 0.2, ph: rand() * 6.28 });
+  for (let i = 0; i < DUST_ZIEHUNGEN; i++) {
+    const eintrag = { x: (rand() - 0.5) * 14, y: 0.25 + rand() * 1.25, z: (rand() - 0.5) * 14, sp: 0.1 + rand() * 0.2, ph: rand() * 6.28 };
+    if (i < DUST) dustMeta.push(eintrag);
   }
   const dustGeo = new THREE.BufferGeometry();
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
@@ -14079,7 +14132,9 @@ function createZenEnvironment() {
     new THREE.PointsMaterial({
       map: makeGlowTexture('rgba(255,240,210,0.9)', 'rgba(255,220,170,0.4)', 32),
       color: 0xffe6c0,
-      size: 0.08,
+      // 0,12 statt 0,08: Ein Korn soll im Nahbereich mehrere Bildpunkte
+      // breit sein. Was nur einen belegt, ist kein Staub, sondern Rauschen.
+      size: 0.12,
       transparent: true,
       opacity: 0.7,
       depthWrite: false,
@@ -14089,6 +14144,9 @@ function createZenEnvironment() {
     })
   );
   dust.frustumCulled = false;
+  // Ein Name, damit die Maske dieses Knotens messbar ist. Ohne ihn hat mich
+  // die Suche nach den weissen Punkten drei Laeufe gekostet.
+  dust.name = 'zen-staub';
   group.add(dust);
 
   // Zarter, tief liegender Bodennebel (langsam driftende Weichnebel-Sprites)

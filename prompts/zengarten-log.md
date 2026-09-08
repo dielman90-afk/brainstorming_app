@@ -1919,3 +1919,92 @@ grün, Konsole frei von Errors und Warnings.
 **Falls der Frühlingsahorn nicht gewollt ist:** Es sind drei Farbwerte und eine
 Gegenlichtfarbe in `mapleMaterials()` und `makeMaple()`; die alten stehen im
 Commit daneben.
+
+## Paket M — Die weißen Punkte waren kein Blütenblatt (Prüferbefund 13)
+
+Der Prüfer hat unter „Der Garten ist unbelebt" fünf Dinge aufgezählt. Drei
+davon sind nachgesehen und stimmen nicht, eines stimmt und ist behoben.
+
+### Was nicht stimmt
+
+**„Keine Fische im Teich."** Doch: `koi-flossen` und `koi-augen` sind in
+`b-pond` mit 29 und 14 Bildpunkten im Bild. Sie sind klein und liegen unter
+der Wasserfläche — dass man sie übersieht, ist ein Kompositionshinweis, aber
+kein fehlendes Element.
+
+**„Kein Windzeichen im Laub, alle Halme und Kronen stehen perfekt senkrecht."**
+Der Wind steht im Scheitel-Shader des Laubs (`windStrength` 0,085 für die
+Sakura, 0,07 für den Ahorn, 0,11 für den Bambus), und `updateFoliage(time)`
+zählt ihn im `update()` dieser Umgebung hoch. **Ein Standbild kann das nicht
+zeigen**, und der Prüfstand friert die Zeit auf 6,0 ein. Der Befund ist aus
+einem Standbild nicht zu erheben — weder als richtig noch als falsch.
+
+**„Die fliegenden Partikel erscheinen weiß statt rosa."** Die Blütenblätter
+sind rosa (Karte von 255|228|238 bis 246|178|203). Die weißen Punkte, die er
+an fünf Bildkoordinaten angegeben hat, sind **gar keine Blütenblätter**: Die
+differenzielle Maske von `zen-blueten` ist an diesen Stellen leer.
+
+### Was es wirklich war
+
+Ein Knotentest über alle Kinder der Umgebungsgruppe — jedes einzeln
+ausgeblendet, gemessen wird der eine Bildpunkt — hat es gefunden: Es sind die
+**Staubpartikel**, ein `THREE.Points` ohne Namen. Siebzig additive Körner über
+±12 m und bis 3,3 m Höhe, `fog: false`, Größe 0,08.
+
+Drei Dinge machten daraus Bildfehler:
+
+* **Sie standen überall.** Die Hälfte schwebte über der Horizontlinie und wurde
+  gegen den hellen Himmel gezeichnet. Ein Staubkorn ist additiv — gegen einen
+  Himmel von L 190 ist es in der Natur unsichtbar. Sichtbar wird Staub im
+  Gegenlicht vor einem **dunklen** Grund.
+* **Sie wurden mit der Entfernung nicht schwächer.** Ohne Nebel und additiv war
+  ein Korn in 20 m so hell wie eines in 2 m — nur zwei Bildpunkte groß. Zwei
+  helle Bildpunkte im leeren Himmel sind ein toter Bildpunkt.
+* **Siebzig Stück** über diese Fläche ergeben ein Sternenfeld.
+
+Jetzt ±7 m, Höhe 0,25 bis 1,5 m (also unter der Horizontlinie der
+Augenhöhenkamera), fünfundvierzig gezeichnet, Größe 0,12. Und der Knoten heißt
+`zen-staub` — ohne Namen hat mich die Suche drei Läufe gekostet.
+
+Nebenbei am selben Punkt: Der Alphatest der Blütenblätter stand auf 0,45. Auf
+sechs Bildpunkten Kantenlänge greift die Karte in eine Mipstufe, in der die
+Deckkraft über die durchsichtige Umgebung gemittelt ist; bei 0,45 fällt fast
+das ganze Blatt weg. 0,22 statt 0,45, dazu ein rosa `color` — die Fläche der
+Blätter in `a-eyelevel` steigt von 1215 auf 2236 Bildpunkten.
+
+### Ergebnis
+
+    isolierte Lichtpunkte im freien Himmel (a-eyelevel, Kasten 850,60-1270,330)
+    vorher     21
+    nachher     2
+
+    Blattflaeche zen-blueten (a-eyelevel)   1215 → 2236 Bildpunkte
+
+### Und ein Fehler von mir, der teurer war als der Befund
+
+Der erste Anlauf hat die Staubschleife von 70 auf 45 verkürzt. Das sind fünf
+Ziehungen je Korn, also **125 Ziehungen weniger** aus dem Zufallsstrom des
+Gartens — und damit verschiebt sich alles, was danach daraus gebaut wird.
+Gemessen: **18 bis 50 Prozent geänderte Bildpunkte in allen sechs Kameras**
+statt der erwarteten paar Staubkörner. Die Schleife zieht jetzt weiter
+siebzigmal und zeichnet fünfundvierzig.
+
+Diese Lehre steht seit dem Insel-Log an drei Stellen, und ich bin trotzdem
+hineingelaufen. Aufgefallen ist sie nur, weil der Regressionsvergleich zu jedem
+Paket gehört; ohne ihn wäre eine stillschweigend umgebaute Szene entstanden.
+
+    Bild        geaenderte Bildpunkte (nach der Korrektur)
+    a-eyelevel        0,49 %
+    f-grove           0,51 %
+    b-pond            0,19 %
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 7 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen:** die gefallenen Blätter auf dem Sand, die der Prüfer als „winzige
+flache Farbtupfer, eher wie Schmutz" beschrieben hat. Sie sind dasselbe
+Alphatest-Problem eine Stufe kleiner und stehen noch aus.
