@@ -12165,7 +12165,34 @@ function zenGranite() {
     // Streiflicht einer tief stehenden Sonne hat auf seinen oberen Rundungen
     // sehr wohl einen breiten, stumpfen Glanz. Der Wert skaliert die
     // Rauheitskarte, die Streuung zwischen matt und glatt bleibt also erhalten.
-    _zenGranit.roughness = 0.66;
+    //
+    // **0,80 statt 0,66 — der Preis von 0,66 war ein weisses Blatt.** Der
+    // Pruefer hat in `e-sand` am linken Bildrand einen Trittstein gefunden,
+    // dessen Deckflaeche reines Weiss ohne jede Zeichnung ist, direkt neben
+    // einer fast schwarzen Seitenflaeche. Gemessen: **27,7 Prozent der
+    // Steinflaeche auf 255 geklippt**, Median 212 gegen p05 26.
+    //
+    // Die Ursache ist eine Kette: Die Kamera steht 45 cm ueber dem Boden, sie
+    // sieht die Deckflaeche also fast von der Kante — bei streifendem Blick
+    // steigt der Fresnel-Anteil gegen eins —, und die Sonne hat Staerke 4,1.
+    // Bei Rauheit 0,66 ist die Glanzkeule breit genug, dass diese Flaeche
+    // vollstaendig darin liegt. Ein Durchgang ueber alle Leuchten hat es
+    // bestaetigt: ohne die Hauptsonne faellt der Median von 212 auf 56, jede
+    // andere Leuchte aendert nichts.
+    //
+    // Gemessene Reihe, Kasten 0,455-74,495 in `e-sand`:
+    //
+    //     Rauheit   Median   Anteil 255
+    //     0,66        212      27,7 %
+    //     0,80        210       0,0 %
+    //     0,95        192       0,0 %
+    //     1,00        181       0,0 %
+    //
+    // 0,80 nimmt das Ausbrennen vollstaendig weg und kostet zwei Stufen. Und
+    // die Lichtspitze, um derentwillen 0,66 gewaehlt wurde, geht dabei nicht
+    // verloren: Auf den Findlingen liegt der Anteil ueber L 230 bei 0,66 wie
+    // bei 0,80 auf 0,00 Prozent — die Spitze war dort ohnehin nie.
+    _zenGranit.roughness = 0.8;
     // Ein schmaler Himmelssaum an der Silhouettenkante. Kleiner Betrag, hoher
     // Exponent: Auf einer flach schattierten Fläche wird ein weicher
     // Fresnel-Saum sonst zur **Flächen**helligkeit statt zur Kante, und alles

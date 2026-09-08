@@ -2157,3 +2157,101 @@ Budget: **95 von 120 Draw-Calls, 96 744 von 350 000 Dreiecken, 21,86 von 60 MB
 Textur** (dazu 6 MB Umgebungskarte, die bis Paket B in keiner Zählung stand).
 Die größte einzelne Reserve bleibt der Bambushain: dreizehn Draw-Calls, weil
 jeder Halm ein eigenes Netz ist.
+
+## Zweite Prüferrunde — was er von selbst als besser meldet, und was er neu findet
+
+Der Prüfer hat die sechs Bilder ein zweites Mal beurteilt, **ohne seine alte
+Liste**. Was er dabei ungefragt als verbessert nennt, ist die verlässlichste
+Auskunft über die fünfzehn Pakete:
+
+> „Der Sand im Nahbereich … das beste Material der Szene. **Klarer Fortschritt
+> gegenüber meinem früheren Eindruck.**"
+> „Weiche Schatten mit Halbschatten und stellenweise Blattdurchbrüchen … **Auch
+> das deutlich besser als früher.**"
+> „Die Komposition in `d`: Die Diagonale Bambushain → Teich mit Laterne → Ahorn
+> führt den Blick … **Die Anordnung ist gut**; ihr fehlt nur die Fassung."
+
+Sein Urteil in Zahlen: Boden 80 %, Licht 65 %, Wasser und Vegetation 35 %,
+Ortsdefinition 20 % gegenüber einem sehr guten stilisierten Echtzeit-Renderer.
+
+### Zwei seiner Befunde sind nachgemessen und falsch
+
+**„Das Torii wirft keinen Schatten."** Er hat bei (560,380) nachgesehen, also
+direkt unter dem Tor. Differenziell gemessen — `castShadow` aus und wieder an —
+wirft es sehr wohl: **3496 Bildpunkte, mittlere Verdunklung 59,7 Stufen,
+größte 132**, mit dem Schwerpunkt bei (867,408). Die Sonne steht tief und
+links; der Schatten liegt neun Meter weiter rechts, nicht unter dem Bauwerk.
+Auch die Laterne wirft (587 Bildpunkte, 11,5 Stufen) — schwächer, aber
+vorhanden.
+
+**„Keine Durchleuchtung im Laub."** Steht schon unter Paket J mit Zahlen; der
+Blickterm liegt bei 0,83 seines Höchstwerts, die Transluzenz trägt 16,3
+Stufen. Dass er den Effekt trotzdem nicht sieht, heißt: **16 Stufen sind zu
+wenig**, um im Gegenlicht als Glühen zu lesen. Das ist ein anderer Befund als
+„fehlt", und er steht damit wieder offen.
+
+## Paket P — Ein Trittstein war ein weißes Blatt Papier
+
+Sein Befund 5, und der beste des zweiten Durchgangs: „Die Deckfläche dieses
+Steins ist geklipptes Weiß ohne jede Zeichnung, direkt daneben eine fast
+schwarze Seitenfläche."
+
+Gemessen im Kasten 0,455–74,495 von `e-sand`: **27,7 Prozent der Fläche auf 255
+geklippt**, Median 212 gegen p05 26. Und im Ausgangsstand `zen-16` stand
+dasselbe da (Median 219, p95 255) — der Fehler ist alt und war fünfzehn Pakete
+lang unter meiner Nase.
+
+### Die Ursache, in drei Schritten gemessen
+
+Ein Durchgang über alle Leuchten der Umgebung, jede einzeln auf null:
+
+    alles an                  Median 212   Anteil 255: 27,7 %
+    ohne HemisphereLight      Median 204   Anteil 255: 26,2 %
+    ohne die Hauptsonne       Median  56   Anteil 255:  0,0 %
+    ohne das Fuelllicht       Median 212   Anteil 255: 27,7 %
+    ohne die Punktleuchte     Median 212   Anteil 255: 27,7 %
+    ohne die App-Leuchten     Median 208   Anteil 255: 27,3 %
+
+Es ist allein die Hauptsonne mit Stärke 4,1. Die Kette dahinter: Die Kamera
+steht 45 cm über dem Boden und sieht die Deckfläche **fast von der Kante** —
+bei streifendem Blick geht der Fresnel-Anteil gegen eins —, und bei Rauheit
+0,66 ist die Glanzkeule breit genug, dass die ganze Fläche darin liegt.
+
+### Was geändert wurde
+
+`zenGranite().roughness` von 0,66 auf 0,80. Die Reihe:
+
+    Rauheit   Median   Anteil 255
+    0,66        212      27,7 %
+    0,80        210       0,0 %
+    0,95        192       0,0 %
+    1,00        181       0,0 %
+
+0,80 nimmt das Ausbrennen vollständig weg und kostet zwei Stufen im Median. Und
+die Lichtspitze, um derentwillen 0,66 einmal gewählt wurde, geht nicht
+verloren: Auf den Findlingen liegt der Anteil über L 230 bei 0,66 **wie** bei
+0,80 auf 0,00 Prozent — die Spitze war dort ohnehin nie.
+
+    Trittstein in e-sand    Mittel 170,8 → 163,5   p95 255 → 246   max 255 → 254
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Die Liste der zweiten Runde, für den nächsten Durchgang
+
+Neu oder wieder gemeldet, nach seiner Reihung: 1 keine Umgrenzung (und sein
+neues Argument dazu: „dann müsste der Sand außerhalb aufhören, geharkt zu sein
+— dass die Rillen bis zum Horizont durchlaufen, macht daraus einen Fehler statt
+einer Aussage"), 2 Wasser als Milchglasplatte mit unmotiviertem Farbwechsel
+zwischen den Kameras, 3 Alpha-Treppenkanten und zu schwaches Durchlicht im
+Laub, 4 Bambusblätter als Kugeln, **5 erledigt**, 6 geklonte Trittsteine, 7
+Sakura-Schatten als strukturloser Klecks mit Banding, 8 widerlegt, 9 Harkrillen
+an den Trittsteinen und ein Systemsprung im Harkbild, 10 zu große und zu helle
+Punkt-Sprites bis auf die fernen Hügel, 11 Moos mit gerader Plattenkante, 12
+neutralgraue Schatten ohne kühles Indirektlicht, 13 speckiger Glanz auf den
+Steinen, 14 Nebel frisst den Mittelgrund, 15 Laternenschein als flache Scheibe,
+16 Seerosen ohne Kontaktschatten, 17 kaum Leben unter Wasser.
