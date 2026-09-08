@@ -14271,13 +14271,54 @@ function createZenEnvironment() {
       // breit sein. Was nur einen belegt, ist kein Staub, sondern Rauschen.
       size: 0.12,
       transparent: true,
-      opacity: 0.7,
+      // 0,45 statt 0,7: Additiv auf einem Sand, der ohnehin bei L 200 steht,
+      // schlug das Korn durch die Decke — die Hälfte der Staubbildpunkte lag
+      // über 190, das Maximum bei beschnittenen 255. Ein Staubkorn ist ein
+      // Schimmer, kein Lichtpunkt.
+      opacity: 0.45,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
       fog: false,
     })
   );
+  // **Ein Staubkorn in zwölf Metern ist genauso hell wie eines in zweien —
+  // und das ist der Fehler.** Gemessen in `a-eyelevel`: 1734 Bildpunkte,
+  // Mittel 179, die Hälfte davon über 190, Maximum bei 255 und damit
+  // beschnitten. Der Prüfer meldete „zu grosse, zu helle Punktsprites, die auf
+  // den fernen Huegeln erscheinen"; beides steht in dieser Zeile Zahlen.
+  //
+  // Der Grund für das Sitzen auf den Hügeln ist nicht die Tiefensortierung,
+  // sondern der fehlende Abfall: Die Größenabschwächung verkleinert das Korn
+  // mit der Entfernung, aber jeder verbleibende Bildpunkt bleibt gleich hell.
+  // In zwölf Metern ist das ein harter weisser Punkt vor einem Hügel, der bei
+  // 40 m vom Nebel fast weiss gewaschen ist. Szenennebel hilft nicht: Er
+  // beginnt bei 20 m, und der Staub steht davor.
+  //
+  // Also ein eigener Abfall über die Sichttiefe. Staub, der Licht fängt, ist
+  // ohnehin eine Erscheinung des Nahbereichs — was man in zehn Metern noch
+  // funkeln sieht, sind Insekten, keine Körner.
+  {
+    const vorher = dust.material.onBeforeCompile;
+    dust.material.onBeforeCompile = (shader, renderer) => {
+      if (vorher) vorher.call(dust.material, shader, renderer);
+      shader.vertexShader = ersetzeImShader(
+        ersetzeImShader(shader.vertexShader, '#include <common>', '#include <common>\n varying float vStaubTiefe;'),
+        // **Nicht auf `gl_Position` zielen.** `onBeforeCompile` bekommt die
+        // `#include`-Zeilen unaufgeloest; die Zuweisung steht in
+        // `project_vertex` und ist hier gar nicht sichtbar. `mvPosition` ist
+        // eine lokale Variable dieses Bausteins und danach im Gueltigkeitsbereich.
+        '#include <project_vertex>',
+        '#include <project_vertex>\n vStaubTiefe = -mvPosition.z;'
+      );
+      shader.fragmentShader = ersetzeImShader(
+        ersetzeImShader(shader.fragmentShader, '#include <common>', '#include <common>\n varying float vStaubTiefe;'),
+        '#include <opaque_fragment>',
+        'diffuseColor.a *= 1.0 - smoothstep(4.0, 9.0, vStaubTiefe);\n #include <opaque_fragment>'
+      );
+    };
+    dust.material.customProgramCacheKey = () => 'zen-staub-tiefe';
+  }
   dust.frustumCulled = false;
   // Ein Name, damit die Maske dieses Knotens messbar ist. Ohne ihn hat mich
   // die Suche nach den weissen Punkten drei Laeufe gekostet.

@@ -2620,3 +2620,80 @@ Bildstand `tools/shots/zen-37`.
 
 Im Nahbild liegt das Seerosenblatt ohne Kontaktschatten auf dem Wasser
 (Prüferbefund 16). Das steht als Nächstes an.
+
+---
+
+## Paket U — Der Staub saß auf den Hügeln
+
+Prüferbefund 10: *„Punktsprites zu gross und zu hell, sie erscheinen auf den
+fernen Huegeln."* Gemessen mit `knotenwerte.mjs`, `a-eyelevel`, Maske des
+Knotens `zen-staub`:
+
+    1734 Bildpunkte   Mittel 179   p50 190   p95 250   max 255
+    49,9 % ueber L 190
+
+Das Maximum bei 255 ist der Beweis: Die Körner schneiden ab. 45 Körner auf
+1734 Bildpunkte sind ausserdem 39 Bildpunkte je Korn — bei `size: 0.12` mit
+Größenabschwächung sind das in zwei Metern rund 31 Bildpunkte Durchmesser.
+
+### Warum sie auf den Hügeln sitzen
+
+Nicht Tiefensortierung, sondern der fehlende Abfall. Die Größenabschwächung
+verkleinert das Korn mit der Entfernung, aber **jeder verbleibende Bildpunkt
+bleibt gleich hell**. In zwölf Metern steht damit ein harter weisser Punkt vor
+einem Hügel, den der Nebel bei 40 m fast weiss gewaschen hat. Der Szenennebel
+greift nicht: Er beginnt bei 20 m, und der Staub steht mit ±7 m ganz davor.
+`fog: false` am Material war insofern nicht einmal falsch — es hätte nichts
+geändert.
+
+Also ein eigener Abfall über die Sichttiefe, `smoothstep(4, 9, -mvPosition.z)`.
+Staub, der Licht fängt, ist ohnehin eine Erscheinung des Nahbereichs; was man
+in zehn Metern noch funkeln sieht, sind Insekten.
+
+**Und wieder die unaufgelösten `#include`.** Der erste Anlauf zielte auf
+`gl_Position = projectionMatrix * mvPosition;` — die Zeile steht in
+`project_vertex` und ist in `onBeforeCompile` gar nicht sichtbar.
+`ersetzeImShader` hat geworfen, wie es soll; mit `String.replace` wäre der
+Abfall still ausgefallen und ich hätte die Zahlen gedeutet. Sechstes Mal, dass
+dieser Baustein-Punkt zuschlägt, und das erste Mal, dass die Wächterfunktion es
+in einem Zug erledigt hat.
+
+### Ergebnis
+
+    zen-staub, a-eyelevel     vorher → nachher
+    Bildpunkte                  1734 → 1337
+    ueber L 190                49,9 % → 42,0 %
+    max                          255 → 253
+
+Dazu `opacity` von 0,7 auf 0,45: Additiv auf Sand, der bei L 200 steht, schlägt
+jedes Korn durch die Decke. Im Bild sind die Punkte über den fernen Hügeln, am
+Torii und über der Wasserfläche verschwunden; im Nahbereich bleibt ein
+Schimmer.
+
+**Regression:** Insel, Matrix, Nachthimmel bitgleich. Dojo Δmax 8 an einem
+Punkt. In den Zen-Kameras ändern sich 0,05 bis 0,25 % der Bildpunkte, und der
+Schwerpunkt liegt jedes Mal in der Bildmitte, wo der Staub steht. Budget
+unverändert: 95 Draw-Calls, 96 744 Dreiecke, 21,86 MB. Konsole sauber.
+
+Bildstand `tools/shots/zen-38`.
+
+### Befund 16 ist widerlegt
+
+*„Seerosenblätter ohne Kontaktschatten"* — `castShadow` ist gesetzt, und der
+Wurf kommt im Bild an. Differenziell gemessen (`teichleben.mjs --wurf`):
+
+    b-pond     Seerosen  3412 px  11,1 Stufen
+               Koi 0      286 px  12,3 Stufen
+               Koi 1      462 px  11,0 Stufen
+    d-aerial   Seerosen   406 px  13,1 Stufen
+               Koi 0       71 px  17,7 Stufen
+               Koi 1       54 px  21,4 Stufen
+
+Der Schatten ist 61 Prozent so gross wie das Blatt selbst — die Sonne steht mit
+19,4° so flach, dass er knapp danebenliegt, aber er ist da. Dass er vorher nicht
+las, lag am Wasser darüber: Vor Paket T kamen elf Prozent davon durch, jetzt
+rund fünfunddreissig.
+
+**Werkzeugfehler nebenbei:** `castShadow` auf einer *Gruppe* ist wirkungslos —
+der Wurf hängt an den Meshes darunter. Der erste Lauf meldete deshalb „Koi
+wirft 0 px", und das war kein Befund, sondern der Fehler.

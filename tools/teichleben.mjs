@@ -16,6 +16,12 @@ import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockC
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'zen');
 const rest = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--env');
+// **Wurf**: Wie viel Schatten hängt an dem Ding? Prüferbefund 16 lautete, die
+// Seerosenblätter lägen ohne Kontaktschatten auf dem Wasser. `castShadow` ist
+// gesetzt — die Frage ist also nicht, ob geworfen wird, sondern ob im Bild
+// etwas davon ankommt. Das ist der Unterschied zwischen zwei Bildern mit und
+// ohne Wurf, schwellenfrei.
+const WURF = argv.includes('--wurf');
 
 const lum = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
 // Was im Teich lebt oder schwimmt. Namen wie im Baum.
@@ -82,9 +88,47 @@ try {
             lum(ohne.data[i], ohne.data[i + 1], ohne.data[i + 2])
         );
       }
+      let wurf = '';
+      if (WURF) {
+        await page.evaluate(
+          ({ name, gruppe }) => {
+            const g = window.__app.scene.children.find((c) => c.name === gruppe);
+            g.traverse((o) => {
+              // `castShadow` auf einer Gruppe ist wirkungslos — der Wurf haengt
+              // an den Meshes darunter. Beim ersten Anlauf meldete das Werkzeug
+              // deshalb „Koi wirft 0 px", und das war kein Befund, sondern
+              // dieser Fehler.
+              if (o.name === name) o.traverse((k) => (k.castShadow = false));
+            });
+          },
+          { name, gruppe: `env-${ENV}` }
+        );
+        const ohneWurf = await bild();
+        await page.evaluate(
+          ({ name, gruppe }) => {
+            const g = window.__app.scene.children.find((c) => c.name === gruppe);
+            g.traverse((o) => {
+              if (o.name === name) o.traverse((k) => (k.castShadow = true));
+            });
+          },
+          { name, gruppe: `env-${ENV}` }
+        );
+        let wn = 0;
+        let ws = 0;
+        for (let i = 0; i < mit.data.length; i += 4) {
+          const d = Math.abs(
+            lum(mit.data[i], mit.data[i + 1], mit.data[i + 2]) -
+              lum(ohneWurf.data[i], ohneWurf.data[i + 1], ohneWurf.data[i + 2])
+          );
+          if (d < 2) continue;
+          wn++;
+          ws += d;
+        }
+        wurf = `   Wurf ${String(wn).padStart(5)} px  ${(wn ? ws / wn : 0).toFixed(1).padStart(5)} Stufen`;
+      }
       process.stdout.write(
         `   ${name.padEnd(16)} ${String(n).padStart(6)} px   ` +
-          `Abhebung ${(n ? summe / n : 0).toFixed(1).padStart(5)} Stufen\n`
+          `Abhebung ${(n ? summe / n : 0).toFixed(1).padStart(5)} Stufen${wurf}\n`
       );
     }
   }
