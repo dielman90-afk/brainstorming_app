@@ -2076,3 +2076,84 @@ bleibt der Befund offen und der Code unverändert.
 
 Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,010 %. Build
 grün, Konsole frei von Errors und Warnings.
+
+## Paket O — Komposition: gemessen, und dann nicht entschieden (Prüferbefund 15)
+
+Der Prüfer: „`c-torii` ist gut komponiert. `a-eyelevel` dagegen legt den
+Horizont fast mittig und lässt die obere Bildhälfte vollständig leer. `d-aerial`
+zeigt, dass die Anlage in der Fläche keine Ordnung hat — die Objekte liegen als
+lockere Traube ohne Achse, ohne Blickbeziehung Torii→Teich, ohne Wegführung,
+die irgendwo hinführt. Der Weg der Trittsteine endet im Nichts."
+
+### Was gemessen ist
+
+Fläche jedes Merkmals in jeder festen Kamera, in Bildpunkten seiner eigenen
+differenziellen Maske:
+
+    Merkmal            a-eye   b-pond  c-torii  d-aerial  e-sand  f-grove
+    zen-torii           8 693  24 495   18 552   10 442   14 722   8 894
+    zen-wasser         12 178  77 347   70 957    7 526    6 426   6 525
+    zen-trittsteine    23 437  23 209    6 791    1 993   37 195  12 090
+    zen-laterne-stein   1 635   9 349    8 091      903    2 579   3 382
+    zen-sakura-karten  28 024       –        –   10 323    3 976  19 669
+    zen-ahorn-karten      611       –        –    4 953        –       –
+
+**Vier Merkmale stehen in allen sechs Bildern** — Torii, Wasser, Trittsteine,
+Laterne. So haltlos, wie der Befund klingt, ist die Anlage also nicht: Sie hat
+einen Kern, den man aus jeder Richtung sieht.
+
+**Der Ahorn ist der Ausreißer.** Er kommt in **zwei von sechs** Kameras vor, in
+einer davon mit 611 Bildpunkten — dem äußersten rechten Bildrand. Ein Baum, der
+als einer von zwei Farbakzenten gebaut ist, steht in zwei Dritteln der
+Prüfbilder außerhalb.
+
+### Was ich nicht ändere, und warum
+
+**Die Bildausschnitte sind eingefroren.** In `harness-common.mjs` steht über den
+Zen-Kameras: „DIESE WERTE DÜRFEN SICH ÜBER ALLE DURCHLÄUFE NICHT ÄNDERN – sonst
+sind die Vergleichsbilder wertlos." Der Befund an `a-eyelevel` — Horizont
+mittig, obere Bildhälfte leer — ist damit nicht mein Fehler zu beheben, sondern
+eine Eigenschaft des Prüfstands. Ein besserer Ausschnitt wäre eine **zusätzliche**
+Kamera, kein geänderter.
+
+**Und die Anlage umzustellen ist keine Messfrage.** Den Ahorn in die Blickachse
+zu rücken oder den Trittsteinpfad vom Torii zur Laterne zu führen, sind
+Entscheidungen über den Garten, nicht Korrekturen an ihm — dieselbe Art
+Entscheidung wie die Gartenmauer, die in Durchlauf 12 auf Zuruf gefallen ist.
+Zwei Dinge sprechen dagegen, sie allein zu treffen:
+
+* Der Trittsteinpfad trägt `e-sand` (37 195 Bildpunkte, die größte Fläche eines
+  Merkmals in irgendeinem Bild) und `a-eyelevel` (23 437). Ihn zum Torii zu
+  verlegen nimmt beiden Bildern ihren Vordergrund.
+* Der Ahorn steht bei (4,8 | 3,2), also hinter allen Bodenkameras. Ihn nach
+  vorn zu holen ändert die Silhouette jeder einzelnen Ansicht.
+
+**Beides liegt damit beim Nutzer.** Die Zahlen dafür stehen oben; die Änderung
+selbst ist in beiden Fällen klein — eine Position und eine Pfadgleichung.
+
+    Kein Eingriff in diesem Paket. Draw-Calls 95, Dreiecke 96 744,
+    Textur 21,86 MB.
+
+## Stand nach fünfzehn Befunden
+
+Prüferbefunde 1 bis 15 sind abgearbeitet: elf behoben, zwei widerlegt (die
+Durchleuchtung der Kronen, „ein Rotton" am Torii), eine Änderung nach der
+Messung zurückgenommen (die Wolkenballung), eine Entscheidung an den Nutzer
+zurückgegeben (die Komposition).
+
+Ausdrücklich offen, jeweils mit Begründung an ihrer Stelle im Log:
+
+* Ein erkennbares Spiegelbild im Teich (braucht eine ebene Spiegelung oder
+  einen Schablonendurchgang — die Umgebungskarte kann es nicht).
+* Die treppigen Alpha-Ränder der Blattkarten (bräuchte Alpha-Blending und
+  damit Sortierung).
+* Kantenlichter und Fasen am Torii.
+* Der Mustersprung im Harkbild links oben in `d-aerial`.
+* Die gefallenen Blätter auf dem Sand als „Schmutz".
+* Die Ufersteinkette mit gleichmäßigem Abstand.
+* Und 21 der 23 zusätzlichen Shader-Programme, die der Teichspiegel kostet.
+
+Budget: **95 von 120 Draw-Calls, 96 744 von 350 000 Dreiecken, 21,86 von 60 MB
+Textur** (dazu 6 MB Umgebungskarte, die bis Paket B in keiner Zählung stand).
+Die größte einzelne Reserve bleibt der Bambushain: dreizehn Draw-Calls, weil
+jeder Halm ein eigenes Netz ist.
