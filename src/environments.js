@@ -12254,17 +12254,32 @@ function makeTorii() {
     pillar.translate(sx * span * 0.5, h / 2, 0);
     teile.push(pillar);
   }
+  // **Die Maserung war auf den Balken um das Zehnfache gestreckt.**
+  //
+  // Die Pfosten bekamen `scaleUV(pillar, 3)`, die Balken gar nichts. Eine
+  // `BoxGeometry` spannt ihre UVs einmal über jede Fläche — auf dem 3,75 m
+  // langen Kasagi lag also **eine** Kachel, auf dem Pfosten daneben drei über
+  // 3,2 m. Dasselbe Holz, zwei Maßstäbe, und auf dem Balken eine Maserung, die
+  // so lang gezogen war, dass sie als gleichmäßige Fläche las. Das ist die
+  // Hälfte des Befunds „das Torii hat kein Material".
+  //
+  // Die Karte wiederholt sich intern [1, 3]; ein UV-Schritt von 1 sind also
+  // drei Kacheln in der Höhe und eine in der Breite. Für rund 0,35 m je Kachel
+  // muss ein Balken über `laenge / 0.35` UV-Einheiten laufen.
+  const korn = (geo, laenge, hoehe) => scaleUV(geo, laenge / 0.35, hoehe / (0.35 * 3));
   // Kasagi: der geschwungene Deckbalken
-  teile.push(balken(span + 1.35, 0.26, 0.44, 0.3, 0.42).translate(0, h + 0.09, 0));
+  teile.push(korn(balken(span + 1.35, 0.26, 0.44, 0.3, 0.42), span + 1.35, 0.26).translate(0, h + 0.09, 0));
   // Shimaki: der flachere Balken darunter
-  teile.push(balken(span + 1.15, 0.17, 0.36, 0.24, 0.34).translate(0, h - 0.11, 0));
+  teile.push(korn(balken(span + 1.15, 0.17, 0.36, 0.24, 0.34), span + 1.15, 0.17).translate(0, h - 0.11, 0));
   // Nuki: der Riegel stößt durch die Pfosten hindurch
-  teile.push(new THREE.BoxGeometry(span + 0.62, 0.2, 0.3).translate(0, h - 0.78, 0));
+  teile.push(korn(new THREE.BoxGeometry(span + 0.62, 0.2, 0.3), span + 0.62, 0.2).translate(0, h - 0.78, 0));
   // Gakuzuka: die Strebe zwischen Nuki und Shimaki
-  teile.push(new THREE.BoxGeometry(0.19, 0.62, 0.24).translate(0, h - 0.42, 0));
+  teile.push(korn(new THREE.BoxGeometry(0.19, 0.62, 0.24), 0.19, 0.62).translate(0, h - 0.42, 0));
   // Kusabi: die Keile, die den Nuki im Pfosten halten
   for (const sx of [-1, 1]) {
-    teile.push(new THREE.BoxGeometry(0.075, 0.3, 0.34).translate(sx * (span * 0.5 + 0.2), h - 0.78, 0));
+    teile.push(
+      korn(new THREE.BoxGeometry(0.075, 0.3, 0.34), 0.075, 0.3).translate(sx * (span * 0.5 + 0.2), h - 0.78, 0)
+    );
   }
 
   const geo = mergeGeometries(teile.map((g) => (g.index ? g.toNonIndexed() : g)));
@@ -12286,6 +12301,27 @@ function makeTorii() {
       f *= 0.84 + Math.min(1, y / h) * 0.22;
       // Feine Streuung, damit keine Fläche gleichförmig ist
       f *= 0.94 + hashNoise(pos.getX(v) * 3.3, y * 3.3, pos.getZ(v) * 3.3) * 0.12;
+      // **Die Fugen.** Der Prüfer: „keine Verdunkelung in den
+      // Balkenanschlüssen". Vier verschieden ausgerichtete Flächen, die sich
+      // berühren, brauchen dort einen Ansatz — sonst ist das Tor ein einziger
+      // Körper, dem jemand Kanten hineingezeichnet hat. Die Anschlüsse eines
+      // Myōjin-Torii stehen fest, es sind vier: der Nuki durch beide Pfosten,
+      // der Shimaki auf beiden Pfostenköpfen, der Kasagi auf dem Shimaki und
+      // die Gakuzuka zwischen beiden.
+      const x = pos.getX(v);
+      const px = Math.abs(x) - span * 0.5;
+      const fuge = (naeheX, naeheY, weiteX, weiteY, tiefe) =>
+        tiefe * (1 - smoothstep(0, weiteX, Math.abs(naeheX))) * (1 - smoothstep(0, weiteY, Math.abs(naeheY)));
+      let dunkel = 0;
+      // Nuki im Pfosten
+      dunkel = Math.max(dunkel, fuge(px, y - (h - 0.78), 0.26, 0.19, 0.42));
+      // Shimaki auf dem Pfostenkopf
+      dunkel = Math.max(dunkel, fuge(px, y - (h - 0.2), 0.32, 0.15, 0.36));
+      // Kasagi auf dem Shimaki, über die ganze Breite
+      dunkel = Math.max(dunkel, fuge(0, y - (h - 0.02), 3.0, 0.085, 0.3));
+      // Gakuzuka zwischen Nuki und Shimaki
+      dunkel = Math.max(dunkel, fuge(x, y - (h - 0.42), 0.19, 0.36, 0.32));
+      f *= 1 - dunkel;
       farben[v * 3] = f;
       farben[v * 3 + 1] = f * (0.97 + Math.max(0, ny) * 0.05);
       farben[v * 3 + 2] = f * (0.94 + Math.max(0, ny) * 0.09);

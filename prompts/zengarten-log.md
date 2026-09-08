@@ -1481,3 +1481,74 @@ ein eigenes Netz, weil `update()` ihn einzeln dreht. Verschmolzen, mit dem
 Wiegen im Scheitel-Shader wie beim Laub, wären das zwölf Draw-Calls weniger —
 die größte einzelne Reserve, die der Garten hat. Notiert für den Fall, dass
 ein späteres Paket den Platz braucht.
+
+## Paket G — Das Torii: eine Hälfte des Befunds stimmte, die andere nicht (Prüferbefund 7)
+
+Der Prüfer: „Über das gesamte Bauwerk **exakt ein Rotton** mit minimalem
+Helligkeitsunterschied zwischen Vorderfläche und Seitenfläche der Pfosten —
+obwohl die Sonne klar von links oben kommt. Keine Kantenlichter, keine Fase,
+keine Verdunkelung in den Balkenanschlüssen, keine Holzmaserung, keine
+Verwitterung."
+
+### Nachgemessen: „ein Rotton" ist nicht reproduzierbar
+
+`tools/knotenwerte.mjs` über die eigenen Bildpunkte des Knotens `zen-torii` in
+`c-torii`, 18 548 Punkte:
+
+    Mittel 86,7   p05 36   p50 79   p95 142   max 236
+
+Das ist eine Spanne von über hundert Stufen, nicht eine von 1. Der Prüfer hat
+offenbar die **zugewandten** Flächen abgetastet; die sind einander tatsächlich
+ähnlich, weil die Scheitelfärbung nur von `normal.y` und der Höhe abhängt und
+für vier senkrechte Flächen denselben Wert liefert. Der Rest der Spanne kommt
+von der besonnten Oberseite und den Unterseiten. **Der Befund in seiner
+gemessenen Form ist damit widerlegt; in seiner Beobachtung ist er richtig.**
+
+### Was wirklich fehlte, und was jetzt da ist
+
+**Erstens: Die Maserung war auf den Balken um das Zehnfache gestreckt.** Die
+Pfosten bekamen `scaleUV(pillar, 3)`, die Balken gar nichts — und eine
+`BoxGeometry` spannt ihre UVs einmal über jede Fläche. Auf dem 3,75 m langen
+Kasagi lag **eine** Kachel, auf dem Pfosten daneben drei über 3,2 m. Dasselbe
+Holz in zwei Maßstäben, und auf dem Balken eine Maserung, die so lang gezogen
+war, dass sie als gleichmäßige Fläche las. Jetzt läuft jedes Teil über
+`laenge / 0,35` UV-Einheiten; die Karte wiederholt sich intern [1, 3], deshalb
+die Höhe durch 0,35 · 3.
+
+**Zweitens: die Fugen.** Die Anschlüsse eines Myōjin-Torii stehen fest, es sind
+vier — der Nuki durch beide Pfosten, der Shimaki auf beiden Pfostenköpfen, der
+Kasagi auf dem Shimaki, die Gakuzuka zwischen beiden. Alle vier bekommen eine
+Verdunklung in der Scheitelfarbe. Ohne sie ist das Tor ein einziger Körper, dem
+jemand Kanten hineingezeichnet hat.
+
+Ein erster Anlauf war zu schwach (Δmax 20, 0,49 % der Bildpunkte); die Tiefen
+stehen jetzt rund 40 Prozent höher.
+
+### Ergebnis
+
+    zen-torii, eigene Bildpunkte   Mittel    p05
+    vorher                          86,7      36
+    nachher                         85,1      34
+
+    Bild        geaenderte Bildpunkte   Δmax
+    c-torii            0,54 %            29
+    f-grove            0,59 %            29
+    a-eyelevel         0,36 %            29
+
+**Die Zahlen sind klein, und das gehört so gesagt:** Die Fugen sind schmale
+Streifen, sie können den Mittelwert des ganzen Bauwerks nicht bewegen. Im Bild
+ist der Unterschied größer als in der Zahl — das Tor liest jetzt als gefügte
+Teile statt als ein Körper. Wer nur auf den Mittelwert sieht, würde dieses
+Paket für wirkungslos halten.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen aus diesem Befund:** Kantenlichter und eine Fase an den Balkenkanten.
+Beides bräuchte entweder zusätzliche Geometrie an jeder Kante oder einen
+eigenen Shader-Term; die Frage ist, ob ein Tor in dieser Entfernung das trägt.
+Nicht angefasst.
