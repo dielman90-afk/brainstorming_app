@@ -2255,3 +2255,80 @@ Punkt-Sprites bis auf die fernen Hügel, 11 Moos mit gerader Plattenkante, 12
 neutralgraue Schatten ohne kühles Indirektlicht, 13 speckiger Glanz auf den
 Steinen, 14 Nebel frisst den Mittelgrund, 15 Laternenschein als flache Scheibe,
 16 Seerosen ohne Kontaktschatten, 17 kaum Leben unter Wasser.
+
+## Paket Q — Das Harkfeld hat jetzt einen Rand (zweite Runde, Befund 1)
+
+Der Prüfer wollte eine Umgrenzung. Die Mauer ist auf Nutzerwunsch draußen, und
+das bleibt so — aber sein Argument diesmal war ein anderes und ein besseres:
+
+> „Dann müsste der Sand außerhalb aufhören, geharkt zu sein. Dass die Rillen
+> bis zum Horizont durchlaufen, macht daraus einen Fehler statt einer Aussage."
+
+### Zuerst: seine Beobachtung stimmt so nicht
+
+Ein Blick von 6 m Höhe schräg über den Sand, Feinstruktur in dreizehn
+Entfernungsbändern (`tools/hochpass-reihe.mjs`), einmal mit und einmal mit
+`uSandTiefe = 0`, also ohne jede Harkung:
+
+    Entfernung     4,8   6,0   7,6   9,8  11,2  12,9  15,2  18,3  22,5 m
+    mit Harke     6,37  8,04  5,03  6,94  2,66  2,48  2,63  2,22  0,39
+    ohne Harke    4,05  4,56  3,12  3,02  1,85  2,34  2,63  2,22  0,39
+
+**Ab 12,9 m sind beide Reihen identisch.** Was dort draußen noch Struktur hat,
+ist das Korn des Sandes, nicht die Harke. Die Rillen laufen also nicht bis zum
+Horizont — sie sind bei dreizehn Metern zu Ende.
+
+### Und trotzdem hat er recht, nur auf dem Zielgerät
+
+Die Ausblendung hängt an zwei Dingen: an `grenze` (dem Ort) und an `scharf`
+(der Auflösung, über `fwidth`). Bei 1280×720 und 70° Bildwinkel hat der
+Prüfstand **10,3 Bildpunkte je Grad**; `scharf` erledigt die Spur dort schon
+bei dreizehn Metern, und `grenze` mit seinem sechs Meter breiten Auslauf kommt
+gar nicht mehr zum Zug.
+
+Eine Quest 3 hat je Auge 2208 Bildpunkte auf rund 96 Grad, also **23 je Grad**
+— gut das Doppelte. `fwidth` ist dort halb so groß, die Spur überlebt also
+etwa die doppelte Entfernung: bis rund 29 m. **Die Sandscheibe hat 20 m
+Halbmesser.** Auf dem Zielgerät läuft die Harkung damit tatsächlich bis an den
+Rand der Scheibe und darüber hinaus in den Saum — genau das Bild, das der
+Prüfer beschreibt, nur dass er es aus einem Bild erschlossen hat, in dem es
+nicht steht.
+
+### Was geändert wurde
+
+Der Auslauf von `grenze` von ±3,0 m auf ±0,7 m. Damit endet das geharkte Feld
+in einer Kante statt in einem Ausklingen. Eine Kreislinie wird daraus nicht:
+Der Ort schwankt über den Azimut um ±5 m.
+
+Gemessen bei **25° Bildwinkel** — 28,8 Bildpunkte je Grad, also etwas mehr als
+die Brille —, dieselbe Bänderreihe:
+
+    Band bei 12,7 m   3,371 → 2,680   (−20 %)
+    Band bei 13,5 m   2,640 → 2,225   (−16 %)
+    alle Baender dahinter   unveraendert
+
+Bei 70° Bildwinkel ist die Änderung fast unsichtbar (0,08 bis 0,24 % geänderte
+Bildpunkte in fünf der sechs Kameras), in `d-aerial` mit seinem steilen Blick
+dagegen deutlich (10,4 %). **Das ist der Punkt dieses Pakets:** Eine Änderung,
+die im Prüfstand kaum etwas tut und auf dem Zielgerät die Hälfte des Befunds
+erledigt. Ohne die Rechnung über die Winkelauflösung hätte ich sie für
+wirkungslos gehalten und wieder herausgenommen — so wie die Wolkenballung.
+
+Im Bild von `d-aerial` endet die Spur jetzt in einer unregelmäßigen Linie, und
+dahinter liegt glatter Kies.
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 4 bei 0,009 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Und zum fünften Mal derselbe eigene Fehler
+
+Ein Backtick in einem GLSL-Kommentar innerhalb eines Template-Literals.
+`tools/shaderlint.mjs` hat ihn als `prebuild` gefangen, wie jedes Mal. Die
+Regel für mich, damit es ein sechstes Mal nicht gibt: **In GLSL-Kommentaren
+keine Backticks für Bezeichner** — der Name wird ausgeschrieben oder in
+Anführungszeichen gesetzt. Der Preis dafür, sie zu vergessen, ist eine Seite,
+die nicht lädt, und die Fehlermeldung sagt „missing ) after argument list".

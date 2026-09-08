@@ -11182,7 +11182,22 @@ function sandMaterial() {
            // Ohne die Mauer als Abschluss läuft die Spur wieder weiter und
            // unregelmäßiger aus — sie endet dann im Dunst statt an einer Kante.
            float grenze = 13.5 + 3.2 * sin(az * 2.3 + 1.1) + 1.8 * sin(az * 5.1 - 0.4);
-           float rand = 1.0 - smoothstep(grenze - 3.0, grenze + 3.0, r);
+           // **Der Rand des Harkfelds ist eine Kante, kein Ausklingen.**
+           //
+           // Mit einem Auslauf ueber sechs Meter hoert die Spur nirgends auf,
+           // sie wird nur immer schwaecher — gemessen hielt sie von 11 bis 18 m
+           // eine Amplitude von rund 2,4 und verschwand erst im Dunst. Der
+           // Pruefer hat daraus geschlossen, der Garten habe keine Grenze und
+           // liege in einer unendlich geharkten Wueste, und sein Argument
+           // dagegen ist das richtige: „Dann muesste der Sand ausserhalb
+           // aufhoeren, geharkt zu sein. Dass die Rillen bis zum Horizont
+           // durchlaufen, macht daraus einen Fehler statt einer Aussage."
+           //
+           // Ein Karesansui hat diese Kante: Das geharkte Feld endet, und
+           // dahinter liegt ungeharkter Kies. Der Auslauf ist deshalb auf
+           // 1,4 m verkuerzt. Eine Kreislinie wird daraus nicht: Die Grenze
+           // schwankt ueber den Azimut um ±5 m, und das bleibt.
+           float rand = 1.0 - smoothstep(grenze - 0.7, grenze + 0.7, r);
            // Der Druck auf der Harke ist nicht konstant. Zwei langwellige
            // Terme lassen die Rille stellenweise tief und stellenweise fast
            // verlaufen — die mittlere Frequenz, die zwischen Korn (Millimeter)
