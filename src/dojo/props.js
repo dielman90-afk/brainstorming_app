@@ -831,7 +831,17 @@ function seatKatana(floorY, sheathed) {
 }
 
 function addRack(B) {
-  const put = (bucket, geo, hex, shade) => B[bucket].geos.push(tint(geo, hex, shade));
+  // **Diese Requisite ist auf y = 0 gebaut, der Boden liegt hoeher.**
+  //
+  // Dieselbe Fehlerklasse wie bei den Kontaktschatten und den Sitzkissen: Die
+  // Diele liegt bei 0,055 und das Mattenfeld darauf bei 0,110; alles hier
+  // rechnet aber von null aus. Statt jede einzelne Hoehe nachzuziehen — es sind
+  // Dutzende, und beim naechsten Umbau waeren es wieder Dutzende — hebt `put`
+  // die fertige Geometrie an. `BufferGeometry.translate` gibt `this` zurueck,
+  // die Verkettung ist also gefahrlos.
+  const y0 = bodenHoehe(RACK.x, RACK.z);
+  const put = (bucket, geo, hex, shade) =>
+    B[bucket].geos.push(tint(geo.translate(0, y0, 0), hex, shade));
   const ao = contactAO(0.2);
   const postZ = [RACK.z - ARM_SPAN, RACK.z + ARM_SPAN];
 
@@ -927,7 +937,17 @@ function roundedRect(w, d, r, perCorner = 3) {
 // die einfachere Geometrie und sofort als falsch erkennbar – die Verjüngung
 // *ist* das Objekt.
 function addMakiwara(B) {
-  const put = (bucket, geo, hex, shade) => B[bucket].geos.push(tint(geo, hex, shade));
+  // **Diese Requisite ist auf y = 0 gebaut, der Boden liegt hoeher.**
+  //
+  // Dieselbe Fehlerklasse wie bei den Kontaktschatten und den Sitzkissen: Die
+  // Diele liegt bei 0,055 und das Mattenfeld darauf bei 0,110; alles hier
+  // rechnet aber von null aus. Statt jede einzelne Hoehe nachzuziehen — es sind
+  // Dutzende, und beim naechsten Umbau waeren es wieder Dutzende — hebt `put`
+  // die fertige Geometrie an. `BufferGeometry.translate` gibt `this` zurueck,
+  // die Verkettung ist also gefahrlos.
+  const y0 = bodenHoehe(MAKIWARA.x, MAKIWARA.z);
+  const put = (bucket, geo, hex, shade) =>
+    B[bucket].geos.push(tint(geo.translate(0, y0, 0), hex, shade));
   const { x, z } = MAKIWARA;
   const H = 1.6;
   const ao = contactAO(0.25);
@@ -1297,18 +1317,33 @@ function buildScroll() {
 // --- Zabuton ------------------------------------------------------------------
 function addZabuton(B, x, z, rot) {
   const put = (geo, hex, shade) => B.fabric.geos.push(tint(geo, hex, shade));
-  const pad = roundedBox(0.56, 0.56, 0.085, 0.055, 0.035);
+  const DICKE = 0.085;
+  // **Die Kissen lagen im Mattenfeld begraben.**
+  //
+  // Sie standen bei y = 0,043 bei einer Dicke von 0,085 — also von 0,0005 bis
+  // 0,0855. Die Mattenoberkante liegt bei 0,110. Beide Kissen steckten damit
+  // vollstaendig unter den Matten, und sichtbar war von ihnen nur ihr
+  // Kontaktschatten: zwei weiche dunkle Ovale auf dem Mattenfeld, ueber denen
+  // nichts steht. Ein Pruefer hat genau das gemeldet, und er hat es erst sehen
+  // koennen, seit die Kontaktschatten selbst auf der Oberflaeche liegen —
+  // vorher waren beide unsichtbar und der Fehler damit unsichtbar quadriert.
+  //
+  // Dieselbe Fehlerklasse wie dort: eine Hoehe, die richtig war, als der Boden
+  // noch bei y = 0 lag, und die beim Anheben der Diele stehen blieb. Deshalb
+  // wird sie hier nicht wieder als Zahl gesetzt, sondern aus dem Ort bestimmt.
+  const y0 = bodenHoehe(x, z);
+  const pad = roundedBox(0.56, 0.56, DICKE, 0.055, 0.035);
   pad.rotateX(-Math.PI / 2);
   scaleUV(pad, 9, 9);
   const m = new THREE.Matrix4().makeRotationY(rot);
-  m.setPosition(x, 0.043, z);
+  m.setPosition(x, y0 + DICKE / 2, z);
   pad.applyMatrix4(m);
   put(pad, 0x3d4a63, contactAO(0.08));
 
   // Quaste in der Mitte – die Heftung, die das Kissen zusammenhält.
   const tuft = new THREE.SphereGeometry(0.017, 8, 6);
   tuft.scale(1, 0.5, 1);
-  tuft.translate(x, 0.086, z);
+  tuft.translate(x, y0 + DICKE, z);
   put(tuft, 0x2b3549);
 }
 
@@ -1529,7 +1564,17 @@ function addBokken(B, matrix, hex) {
 const POLE = { x: WALL.west + 0.34, z: -1.15, span: 1.22, headY: 1.42 };
 
 function addPoleRack(B) {
-  const put = (bucket, geo, hex, shade) => B[bucket].geos.push(tint(geo, hex, shade));
+  // **Diese Requisite ist auf y = 0 gebaut, der Boden liegt hoeher.**
+  //
+  // Dieselbe Fehlerklasse wie bei den Kontaktschatten und den Sitzkissen: Die
+  // Diele liegt bei 0,055 und das Mattenfeld darauf bei 0,110; alles hier
+  // rechnet aber von null aus. Statt jede einzelne Hoehe nachzuziehen — es sind
+  // Dutzende, und beim naechsten Umbau waeren es wieder Dutzende — hebt `put`
+  // die fertige Geometrie an. `BufferGeometry.translate` gibt `this` zurueck,
+  // die Verkettung ist also gefahrlos.
+  const y0 = bodenHoehe(POLE.x, POLE.z);
+  const put = (bucket, geo, hex, shade) =>
+    B[bucket].geos.push(tint(geo.translate(0, y0, 0), hex, shade));
   const ao = contactAO(0.25);
   const slots = 6;
   const step = POLE.span / slots;

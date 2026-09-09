@@ -932,3 +932,55 @@ die Rollbildbreite ändert, zieht beide automatisch mit.
 Dojo unbrauchbar: Die additiven Lichtschächte füllen jeden Strahl mit vier bis
 sechs Treffern, und was dahinter steht — also das, wonach man sucht — fällt aus
 der Liste.
+
+## Paket I — die Gegenstände stehen auf dem Boden, nicht darin
+
+**Prüferbefund 3 des zweiten Berichts:** „Frei schwebende Schattenflecken auf
+den Matten. Weiche dunkle Ovale liegen mitten auf dem Mattenfeld, ohne dass
+darüber irgendein Gegenstand steht."
+
+Der Befund ist richtig und die Ursache war meine eigene: In Paket E hatte ich
+die Kontaktschatten auf die richtige Bodenhöhe gehoben. Die Kissen darunter
+nicht. `addZabuton` setzte das Polster auf `y = 0,043` bei einer Dicke von
+0,085 — es reichte also von 0,0005 bis 0,0855, während die Mattenoberseite bei
+**0,110** liegt. Die Kissen steckten vollständig im Boden. Sichtbar blieb nur
+der Schatten, den ich gehoben hatte: ein Oval ohne Gegenstand.
+
+Ein `grep` nach demselben Muster fand drei weitere Bauer:
+
+| Bauer | tiefster Punkt | Boden dort |
+| --- | --- | --- |
+| `addZabuton` | 0,0005 | 0,110 (Matte) |
+| `addRack` | 0,014 | 0,055 (Diele) |
+| `addMakiwara` | 0,045 | 0,055 (Diele) |
+| `addPoleRack` | 0,035 | 0,055 (Diele) |
+
+Das ist dieselbe Fehlerklasse wie in Paket E, zum dritten Mal: **alles in
+`props.js` ist gebaut, als läge der Boden bei y = 0.** Er lag dort auch einmal;
+Dielen bei 0,055 und Tatami bei 0,110 kamen später dazu.
+
+**Behoben, ohne eine neue Zahl hinzuschreiben.** Die Höhe wird aus dem Ort
+gerechnet:
+
+```js
+const y0 = bodenHoehe(RACK.x, RACK.z);
+const put = (bucket, geo, hex, shade) =>
+  B[bucket].geos.push(tint(geo.translate(0, y0, 0), hex, shade));
+```
+
+Jeder Bauer baut weiter auf y = 0 und wird am Ende einmal angehoben. Eine
+Höhe, die richtig war, als der Boden noch bei y = 0 lag, ist genau das, was hier
+dreimal hintereinander schiefgegangen ist — deshalb steht jetzt nirgends mehr
+eine Zahl, sondern überall `bodenHoehe(x, z)`.
+
+Im Bild: zwei indigofarbene Kissen mit ihren Knöpfen liegen auf den Matten, die
+Ovale haben einen Gegenstand bekommen. Der Ausschnitt von `dojo-14` zeigt
+ausserdem den Keilfuss des Makiwara und die Schwelle des Waffenständers zum
+ersten Mal auf dem Boden statt darunter.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. `c-engawa`
+bitgleich (Gartenkamera, sieht nichts davon). Im Dojo 0 bis 1,7 Prozent
+geänderte Bildpunkte. Budget: 112 Draw-Calls von 120, 342 022 Dreiecke von
+350 000, 42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-14`.
