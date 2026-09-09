@@ -461,3 +461,62 @@ sich genau dort etwas, wo Matten liegen: `e-tatami` 42,4 %, `b-shoji` 22,8 %,
 ein Eingriff kaum eingrenzen.
 
 Bildstand `tools/shots/dojo-04`.
+
+---
+
+## Paket D — Der Staub brennt nichts aus, und der Verdacht war zweimal falsch
+
+Prüferbefund 21: *„Staubkörner wirken wie tote Pixel — alle exakt gleich gross,
+unabhängig von der Entfernung, alle deckend weiss, und sie liegen auf Wand und
+Boden statt in der Luft."*
+
+Die erste Messung schien ihn zu bestätigen. `knotenwerte.mjs` auf der Maske des
+Knotens in `a-halle`:
+
+    429 Bildpunkte   Mittel 174,1   p95 246   max 255   38,7 % ueber L 190
+
+Maximum 255 — dieselbe Signatur wie beim Zen-Staub, der wirklich ausgebrannt
+war. Also der naheliegende Verdacht:
+
+### Verdacht 1: `toneMapped: false`
+
+Ohne Tone-Mapping geht die additive Farbe unverändert in den Puffer, während
+jede Fläche daneben durch die ACES-Kurve läuft. Umgestellt und gemessen:
+
+    toneMapped: false   Mittel 174,1   ueber L 190  38,7 %   max 255
+    toneMapped: true    Mittel 174,5   ueber L 190  39,1 %   max 255
+
+**Nichts.** Der Wert steht wieder auf `false`, damit hier niemand ein zweites
+Mal danach greift, und der Grund steht als Kommentar daneben.
+
+### Verdacht 2: die Deckkraft — und warum auch der falsch war
+
+Dafür brauchte es eine Zahl, die es bis hierher gar nicht gab. `knotenwerte.mjs`
+misst die **Absolutwerte** innerhalb der Maske; was ein Knoten *beiträgt*, sagt
+das nicht. Ein Staubkorn auf Shoji-Papier misst 246, weil das Papier schon bei
+185 steht. Das Werkzeug hat jetzt eine Spalte **Beitrag** — der Mittelwert der
+Differenz zwischen Bild mit und ohne den Knoten, auf denselben Bildpunkten:
+
+    dojo-dust   429 px   Mittel 174,1   max 255   **Beitrag 7,6**
+
+**Siebeneinhalb Stufen.** Der Staub brennt gar nichts aus; er legt einen
+Schimmer auf Flächen, die schon hell sind. Wo 255 steht, stand vorher 248. Die
+Deckkraft zu senken wäre also der zweite falsche Griff gewesen — und ohne die
+neue Spalte hätte ich ihn getan, weil die Absolutwerte genau danach aussehen.
+
+### Was von dem Befund bleibt
+
+Kein Eingriff. Der Befund ist in seiner Begründung **widerlegt**: Die Körner
+sind nicht deckend weiss, sie tragen 7,6 Stufen bei. Was der Prüfer sieht, ist
+ihre **Grösse**: Bei `size: 0.028` ist ein Korn in einem Meter vierzehn
+Bildpunkte breit, in sechs Metern unter zwei — und unter zwei Bildpunkten sieht
+jede Alphakarte gleich aus, nämlich wie ein harter Punkt. Das ist die
+Untergrenze, die die Hardware für `gl_PointSize` setzt, und sie lässt sich nicht
+wegstellen: Grösser wäre kein Staub mehr.
+
+Die zweite Hälfte des Befunds — *„sie stehen nicht in den Lichtbahnen"* — ist
+damit die einzige, die noch trägt, und sie widerspricht dem Kommentar im Code
+(„Staub gibt es nur **in** den Schächten"). Ob die Bahn wirklich in den Schacht
+gerechnet wird, ist ungeprüft und steht offen.
+
+**Konsole sauber, Geometrie unberührt, Budget unverändert.**

@@ -465,11 +465,31 @@ function buildDust() {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
+      // **`toneMapped: false` ist hier NICHT die Ursache.** Der Verdacht lag
+      // nahe: Ohne Tone-Mapping geht die additive Farbe unveraendert in den
+      // Puffer, waehrend jede Flaeche daneben durch die ACES-Kurve laeuft.
+      // Gemessen auf der Maske des Knotens in `a-halle` ist der Unterschied
+      // aber keiner:
+      //
+      //     toneMapped: false   Mittel 174,1   ueber L 190  38,7 %   max 255
+      //     toneMapped: true    Mittel 174,5   ueber L 190  39,1 %   max 255
+      //
+      // Der Grund ist, dass die Kurve nur den **eigenen** Beitrag des Korns
+      // rollt, und der ist klein. Was anstoesst, ist die Summe: ein Korn von
+      // vierzig Stufen auf Shoji-Papier, das schon bei 185 steht. Der Regler
+      // ist also die Deckkraft, nicht das Tone-Mapping — und der Wert bleibt,
+      // wie er war, damit hier niemand ein zweites Mal danach greift.
       toneMapped: false,
       fog: false,
     })
   );
   points.name = 'dojo-dust';
+  // **Was das NICHT behebt:** Der Prueferbefund nannte auch „alle exakt gleich
+  // gross, unabhaengig von der Entfernung". Das ist die Untergrenze von einem
+  // Bildpunkt, die die Hardware fuer `gl_PointSize` setzt: Bei `size: 0.028`
+  // ist ein Korn in einem Meter vierzehn Bildpunkte breit und in sechs Metern
+  // schon unter zwei, also fuer die Abtastung gleich gross. Groesser stellen
+  // waere der falsche Weg — dann waere es kein Staub mehr. Offen.
   // Pflicht: Die Positionen werden im Puffer bewegt, die Bounding-Sphere der
   // Geometrie bleibt aber die vom Aufbau. Ohne das verschwindet der Staub, sobald
   // die Kamera den ursprünglichen Kasten nicht mehr sieht.

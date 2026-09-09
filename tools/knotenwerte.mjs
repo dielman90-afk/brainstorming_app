@@ -78,13 +78,19 @@ try {
   }
   const voll = await bild(page);
   process.stdout.write(
-    `${shotName}${OHNE_WERFER ? '  (ohne alle Schlagschatten)' : ''}\n${'Knoten'.padEnd(16)}${'Punkte'.padStart(8)}${'Mittel'.padStart(8)}${'p05'.padStart(6)}${'p50'.padStart(6)}${'p95'.padStart(6)}${'max'.padStart(6)}${'>190'.padStart(8)}${'>150'.padStart(8)}\n`
+    `${shotName}${OHNE_WERFER ? '  (ohne alle Schlagschatten)' : ''}\n${'Knoten'.padEnd(16)}${'Punkte'.padStart(8)}${'Mittel'.padStart(8)}${'p05'.padStart(6)}${'p50'.padStart(6)}${'p95'.padStart(6)}${'max'.padStart(6)}${'>190'.padStart(8)}${'>150'.padStart(8)}${'Beitrag'.padStart(9)}\n`
   );
   for (const name of KNOTEN) {
     const n = await sichtbar(page, name, false);
     const ohne = await bild(page);
     await sichtbar(page, name, true);
     const werte = [];
+    // **Der Absolutwert sagt nicht, was der Knoten beitraegt.** Ein Staubkorn
+    // auf Shoji-Papier misst 246, weil das Papier schon bei 185 steht — der
+    // Beitrag des Korns sind einundsechzig Stufen, nicht 246. Ohne diese
+    // Spalte greift man zum falschen Regler; genau das ist beim Dojo-Staub
+    // einmal passiert (Verdacht Tone-Mapping, tatsaechlich die Deckkraft).
+    let beitrag = 0;
     for (let i = 0; i < voll.width * voll.height; i++) {
       const j = i * 4;
       const d = Math.max(
@@ -92,7 +98,10 @@ try {
         Math.abs(voll.data[j + 1] - ohne.data[j + 1]),
         Math.abs(voll.data[j + 2] - ohne.data[j + 2])
       );
-      if (d >= 3) werte.push(L(voll, j));
+      if (d >= 3) {
+        werte.push(L(voll, j));
+        beitrag += L(voll, j) - L(ohne, j);
+      }
     }
     // **Die Maske als Bild.** Zahlen sagen, WIE VIEL ein Knoten beitraegt,
     // nicht WO. Bei einer Kontaktverdunklung ist genau das die Frage: Sitzt
@@ -122,7 +131,7 @@ try {
     const mittel = werte.reduce((a, b) => a + b, 0) / werte.length;
     const anteil = (s) => (werte.filter((v) => v > s).length * 100) / werte.length;
     process.stdout.write(
-      `${name.padEnd(16)}${String(werte.length).padStart(8)}${mittel.toFixed(1).padStart(8)}${q(0.05).toFixed(0).padStart(6)}${q(0.5).toFixed(0).padStart(6)}${q(0.95).toFixed(0).padStart(6)}${werte[werte.length - 1].toFixed(0).padStart(6)}${(anteil(190).toFixed(1) + '%').padStart(8)}${(anteil(150).toFixed(1) + '%').padStart(8)}\n`
+      `${name.padEnd(16)}${String(werte.length).padStart(8)}${mittel.toFixed(1).padStart(8)}${q(0.05).toFixed(0).padStart(6)}${q(0.5).toFixed(0).padStart(6)}${q(0.95).toFixed(0).padStart(6)}${werte[werte.length - 1].toFixed(0).padStart(6)}${(anteil(190).toFixed(1) + '%').padStart(8)}${(anteil(150).toFixed(1) + '%').padStart(8)}${(beitrag / werte.length).toFixed(1).padStart(9)}\n`
     );
   }
 } finally {
