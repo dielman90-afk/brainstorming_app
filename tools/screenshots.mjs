@@ -25,7 +25,16 @@ const argv = process.argv.slice(2);
 const outArg = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : 'tools/shots/latest';
 const allEnvs = argv.includes('--all-envs');
 const envId = envArg(argv);
-const SHOTS = shotsFor(envId);
+// **`--nur a-halle,c-engawa` rendert nur die genannten Kameras.**
+//
+// Fuer eine Abtastung — denselben Regler in drei Stufen messen — sind sechs
+// Bilder je Stufe reine Wartezeit, wenn die Wirkung nur an einer Kamera
+// abzulesen ist. Der eingefrorene Kamerasatz bleibt davon unberuehrt: Wer
+// vergleicht, laesst ihn ganz laufen; wer einen Regler sucht, nicht.
+const nurIdx = argv.indexOf('--nur');
+const nur = nurIdx >= 0 ? argv[nurIdx + 1].split(',') : null;
+const SHOTS = shotsFor(envId).filter((s) => !nur || nur.includes(s.name));
+if (SHOTS.length === 0) throw new Error(`Keine Kamera passt zu --nur ${nur}`);
 const outDir = path.resolve(ROOT, outArg);
 
 const server = await startServer();

@@ -123,7 +123,30 @@ const SHAPES = {
 // Arbeitsraum, und genau daran ist die Blattfarbe hier schon zweimal zu hell
 // geraten. Ein Wert, den man in einem Farbwähler ablesen kann, kann das nicht.
 const PALETTE = {
-  bamboo: { base: [86, 112, 52], vary: [[74, 100, 44], [102, 128, 58], [120, 140, 66], [66, 92, 42]] },
+  // **Um ein Fünftel dunkler als bis Paket J.**
+  //
+  // Der Prüferbefund lautete „bereifte Konifere"; die Form war die eine Hälfte
+  // davon (siehe `cellBlades`), die Helligkeit die andere. Gemessen im
+  // Kronenbereich von `c-engawa`, gegen die Azaleenhecke im selben Bild:
+  //
+  //     Palette   Laub L   ueber 150   Hecke L
+  //     x 1,00     140,8     44,6 %      96,3
+  //     x 0,80     123,6     27,7 %      96,3
+  //     x 0,65     110,7     19,9 %      94,7
+  //
+  // Fast die Hälfte der Krone stand über L 150 — in der flachen Zone der
+  // ACES-Kurve, in der Sättigung verlorengeht und nichts mehr moduliert. Das
+  // ist die Bereifung. x 0,80 halbiert diesen Anteil und lässt den Bambus
+  // trotzdem heller als die Hecke, was richtig ist: Bambusblätter *sind* heller
+  // als Azaleenlaub. x 0,65 macht daraus einen dritten dunklen Busch.
+  //
+  // **Nicht die Transluzenz.** Der naheliegende Verdacht war `transColor`
+  // 0xa9c664 — ein Blassgelbgrün, das der gemessenen Kronenfarbe (131|148|99)
+  // verblüffend ähnlich sieht. Gemessen trägt die Transluzenz *aller*
+  // Aussenpflanzen zusammen aber nur 6,9 der 140,8 Stufen (auf 0 gesetzt:
+  // 133,9). Ähnlichkeit ist kein Beitrag — dieselbe Falle wie beim Staub auf
+  // dem Shoji-Papier.
+  bamboo: { base: [69, 90, 42], vary: [[59, 80, 35], [82, 102, 46], [96, 112, 53], [53, 74, 34]] },
   maple: { base: [150, 66, 36], vary: [[168, 74, 38], [186, 112, 44], [126, 52, 32], [198, 140, 56]] },
   azalea: { base: [56, 92, 48], vary: [[48, 84, 44], [68, 104, 52], [40, 72, 38], [84, 116, 60]] },
   fern: { base: [52, 84, 44], vary: [[44, 74, 38], [62, 96, 48], [36, 62, 32], [78, 106, 54]] },
@@ -333,34 +356,96 @@ function cellBlades(kind, cx, cy, R, r) {
   };
 
   if (kind === 'bamboo') {
-    // Bambus wächst in Büscheln an Zweigenden, nicht einzeln.
-    const bunches = 14;
-    for (let k = 0; k < bunches; k++) {
-      const rr = R * 0.50 * Math.sqrt(r());
+    // **Ein Bambuszweig ist eine Fieder, keine Rosette.**
+    //
+    // Bis hierher standen je Zelle 14 Büschel zu 17–25 Blättern, die alle aus
+    // *einem Punkt* in einen Fächer von 2,7 rad ausstrahlten. Das ist die Form
+    // eines Koniferenschopfs, und genau so las sich der Hain auch: als
+    // bereifte Fichte. Der Prüfer hat es so benannt, und der Blick ins
+    // Zeichenverfahren bestätigt es — hier stand nie ein Bambus.
+    //
+    // Ein Bambuszweig ist ein dünner Trieb mit **wechselständigen** Blättern
+    // rechts und links, alle schräg nach vorn, das Ganze überhängend. Der
+    // Trieb selbst ist das Erkennungsmerkmal: Ohne ihn ist jede Blattgruppe
+    // ein Stern, mit ihm ist sie eine Feder.
+    //
+    // Zweig und Blätter teilen sich über `leaf()` **eine** Tiefe. Das ist
+    // nicht Sparsamkeit, sondern nötig: Läge ein fremdes Blatt zwischen Trieb
+    // und Blattansatz, hinge das Blatt neben seinem Zweig statt daran.
+    const zweige = 26;
+    for (let k = 0; k < zweige; k++) {
+      const rr = R * 0.46 * Math.sqrt(r());
       const aa = r() * TAU;
       const bx = cx + Math.cos(aa) * rr;
       const by = cy + Math.sin(aa) * rr;
       const dir = r() * TAU;
-      const n = 17 + Math.floor(r() * 8);
+      const zLen = fitLength(bx, by, dir, R * (0.46 + r() * 0.22), cx, cy, rmax);
+      const grund = pick();
+      const blades = [
+        {
+          x: bx,
+          y: by,
+          ang: dir,
+          len: zLen,
+          curve: (r() - 0.5) * 0.30,
+          shape: 'stem',
+          vein: 'stem',
+          thick: 0.26,
+          base: 0,
+          // Der Trieb ist verholzt und damit dunkler und gelber als das Blatt.
+          tint: [grund[0] * 0.86, grund[1] * 0.74, grund[2] * 0.56],
+        },
+      ];
+      const n = 6 + Math.floor(r() * 4);
+      // Wechselständig: die Seite kippt von Blatt zu Blatt. Ein zufälliges
+      // Vorzeichen je Blatt gäbe gelegentlich drei auf derselben Seite, und
+      // damit wieder Büschel statt Fieder.
+      let seite = r() < 0.5 ? 1 : -1;
       for (let i = 0; i < n; i++) {
-        const ang = dir + (r() - 0.5) * 2.7;
-        let len = R * (0.36 + r() * 0.30) * (1 - 0.28 * (rr / R));
-        len = fitLength(bx, by, ang, len, cx, cy, rmax);
-        leaf([
-          {
-            x: bx + (r() - 0.5) * R * 0.10,
-            y: by + (r() - 0.5) * R * 0.10,
-            ang,
-            len,
-            curve: (r() - 0.5) * 0.55,
-            shape: 'bamboo',
-            vein: 'bamboo',
-            thick: 0.42 + r() * 0.16,
-            base: r() * 0.20,
-            tint: pick(),
-          },
-        ]);
+        const t = 0.16 + (0.84 * (i + 0.5)) / n;
+        const ang = dir + seite * (0.44 + r() * 0.28);
+        const px = bx - zLen * t * Math.sin(dir);
+        const py = by + zLen * t * Math.cos(dir);
+        let len = R * (0.30 + r() * 0.12) * (1 - 0.26 * t);
+        len = fitLength(px, py, ang, len, cx, cy, rmax);
+        blades.push({
+          x: px,
+          y: py,
+          ang,
+          len,
+          // Bambusblätter hängen; die Krümmung geht immer von der Zweigachse
+          // weg, nie zu ihr hin.
+          curve: seite * (0.16 + r() * 0.26),
+          shape: 'bamboo',
+          vein: 'bamboo',
+          thick: 0.42 + r() * 0.16,
+          base: 0.04 + r() * 0.08,
+          tint: pick(),
+        });
+        seite = -seite;
       }
+      // Ein Blatt am Zweigende, sonst hört der Trieb im Nichts auf.
+      blades.push({
+        x: bx - zLen * Math.sin(dir),
+        y: by + zLen * Math.cos(dir),
+        ang: dir + (r() - 0.5) * 0.24,
+        len: fitLength(
+          bx - zLen * Math.sin(dir),
+          by + zLen * Math.cos(dir),
+          dir,
+          R * (0.26 + r() * 0.10),
+          cx,
+          cy,
+          rmax
+        ),
+        curve: (r() - 0.5) * 0.3,
+        shape: 'bamboo',
+        vein: 'bamboo',
+        thick: 0.42 + r() * 0.16,
+        base: 0.06,
+        tint: pick(),
+      });
+      leaf(blades);
     }
   } else if (kind === 'maple') {
     // Handförmig gelappt: fünf Lappen aus einem Punkt, der mittlere am

@@ -1049,3 +1049,132 @@ zwölf Minuten. Gemessen wird dabei eine Zahl, die laut dem Kopf von
 
 `--frames 3` bringt denselben Budgetbefund in einem Sechstel der Zeit. Die
 Frame-Zeit ist dann nichts mehr wert — sie war es nie.
+
+## Paket K — der Bambus war nie einer
+
+**Prüferbefund 2 des zweiten Berichts:** Der Bambus liest als bereifte
+Konifere. Betroffen `c`, `f` und das Schattenmuster in `b`.
+
+Der Befund ist richtig, und die Ursache stand nicht in der Beleuchtung,
+sondern **im Zeichenverfahren des Blattatlas**. `cellBlades()` setzte je Zelle
+14 Büschel zu 17–25 Blättern, die alle aus *einem Punkt* in einen Fächer von
+2,7 rad ausstrahlten. Das ist die Form eines Koniferenschopfs. Der Kommentar
+darüber sagte „Bambus wächst in Büscheln an Zweigenden, nicht einzeln" — das
+ist richtig, aber ein Büschel an einem Zweigende ist keine Rosette.
+
+### Erst hinsehen: `tools/blattatlas.mjs`
+
+Im Bild ist ein Blatt drei bis fünf Bildpunkte gross. Ob seine Form stimmt,
+sieht man daran **nicht** — und vier Durchläufe wären daran vorbeigegangen,
+ohne den Atlas je zu öffnen. Das neue Werkzeug gibt Farbkarte, Alphakanal und
+Normal-Map einer Art als 512er PNG aus, über Schachbrett komponiert (ein Blatt
+auf Schwarz sieht anders aus als eines auf Weiss, und beide lügen über die
+Kante).
+
+Der alte Atlas ist ein Feld aus Sternen. Der Blick darauf hat den Befund in
+einer Minute bestätigt, für die ich sonst einen Durchlauf gebraucht hätte.
+Bildstand `tools/shots/atlas-alt` und `tools/shots/atlas-neu`.
+
+### Die Form
+
+Ein Bambuszweig ist eine **Fieder**: ein dünner verholzter Trieb mit
+wechselständigen Blättern rechts und links, alle schräg nach vorn, das Ganze
+überhängend. Der Trieb ist das Erkennungsmerkmal — ohne ihn ist jede
+Blattgruppe ein Stern, mit ihm ist sie eine Feder.
+
+Zweig und Blätter teilen sich über `leaf()` **eine** Tiefe. Das ist nicht
+Sparsamkeit: Läge ein fremdes Blatt zwischen Trieb und Blattansatz, hinge das
+Blatt neben seinem Zweig statt daran.
+
+Die Zahl der Zweige ist ein **Messwert, kein Geschmack**. Deckung des
+Alphakanals über den Atlas:
+
+    alt (14 Sternbüschel)   37,8 %
+    15 Zweige               25,2 %
+    21 Zweige               32,3 %
+    26 Zweige               37,1 %
+
+26, weil ein durchsichtigerer Hain genau den Fehler zurückgeholt hätte, den
+`exterior.js` schon einmal behoben hat („der Streifen Ferne im Türausschnitt").
+
+### Die Helligkeit — und ein falscher Verdacht, gemessen statt geglaubt
+
+Der Kronenbereich von `c-engawa` mass **L 142,7 bei 46,7 % über L 150**, die
+Azaleenhecke im selben Bild L 98,0 bei 10,6 %. Fast die Hälfte der Krone stand
+in der flachen Zone der ACES-Kurve, in der Sättigung verlorengeht und nichts
+mehr moduliert. **Das ist die Bereifung.**
+
+Der naheliegende Verdacht war `transColor` 0xa9c664 — ein Blassgelbgrün, das
+der gemessenen Kronenfarbe (131|148|99) verblüffend ähnlich sieht. **Gemessen
+trägt die Transluzenz *aller* Aussenpflanzen zusammen 6,9 von 140,8 Stufen**
+(auf 0 gesetzt: 133,9). Ähnlichkeit ist kein Beitrag — dieselbe Falle wie beim
+Staub auf dem Shoji-Papier, und diesmal hat die Messung sie vor dem Hebel
+abgefangen.
+
+Der Hebel ist die Blattfarbe selbst. Palette gegen die Hecke im selben Bild:
+
+    Palette   Laub L   ueber 150   Hecke L
+    x 1,00     140,8     44,6 %      96,3
+    x 0,80     123,6     27,7 %      96,3
+    x 0,65     110,7     19,9 %      94,7
+
+x 0,80. x 0,65 macht aus dem Bambus einen dritten dunklen Busch; Bambusblätter
+*sind* heller als Azaleenlaub, das soll auch so bleiben.
+
+### Grössere Karten — der zweite Teil von „Konifere"
+
+Aus fünfzehn Metern, dem Abstand von `c-engawa` in den Hain, war eine Karte
+von 0,52 rund 35 Bildpunkte breit. Eine Atlaszelle von 256 px landet damit auf
+35 px, ein **einzelnes Blatt auf fünf**. Fünf Bildpunkte sind ein Strich, und
+ein Feld aus Strichen ist eine Nadel — der Koniferen-Eindruck stand nach der
+neuen Blattform immer noch.
+
+Zehn Karten zu 0,70 decken dieselbe Fläche wie sechzehn zu 0,52
+(10 × 0,49 gegen 16 × 0,27), zeigen das Blatt aber mit sieben statt fünf
+Bildpunkten. Im Ausschnitt lösen die Blätter zum ersten Mal einzeln auf.
+
+**Das kostet 31 388 Dreiecke weniger** (343 438 → 312 050).
+
+### Was bleibt
+
+Die Krone steht bei **L 130,0 mit 35,2 % über L 150** gegen eine Hecke bei
+97,8. Das ist deutlich besser als die 142,7 / 46,7 % vom Anfang, aber ein
+Drittel der Fläche liegt weiter im flachen Bereich. Der Grund ist nicht mehr
+die Blattfarbe, sondern dass der Hain **kein dunkles Inneres hat**: `dojo-bamboo-laub`
+hat `receiveShadow = false`, und die Gartenvegetation wurde in Paket A aus dem
+Schattendurchgang genommen, um das Dreiecksbudget zu halten. Ein Hain ohne
+Selbstverschattung ist überall gleich hell. Das bleibt offen und ist mit dem
+jetzigen Budget nicht zu haben.
+
+**Der Zen-Bambus benutzt denselben Atlas** und ändert sich mit (3,9 % geänderte
+Bildpunkte). Der Vergleich der Ausschnitte zeigt dieselbe Dichte und denselben
+Charakter — dort war die Form nie das Problem, weil die Schöpfe klein und aus
+der Nähe zu sehen sind.
+
+**Regression:** Insel, Konstrukt, Nachthimmel bitgleich, Zen 3,9 %. Im Dojo
+`c-engawa` 32,8 %, `f-gegenlicht` 3,0 %, `b-shoji` 2,2 %, `a-halle` 2,0 %,
+`d-suedfront` 0,57 %, `e-tatami` 0,50 %. Budget: 112 Draw-Calls von 120,
+**312 050** Dreiecke von 350 000, 42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-21`.
+
+### Zwei Fehler in diesem Paket, beide meine
+
+**Der Transluzenz-Wischlauf hat vier Materialien getroffen statt einem.** Mein
+`sed` traf jede Zeile `translucency:` in `exterior.js`, also auch Kronen,
+Blattkarten und Farne. Die Zahl oben ist deshalb „alle Aussenpflanzen", nicht
+„der Bambus". Für die Schlussfolgerung — die Transluzenz ist nicht der Hebel —
+reicht sie erst recht, aber sie steht hier als das, was sie ist.
+
+**Ein `assert` in meinem Änderungsskript ist fehlgeschlagen, und ich habe es
+nicht gemerkt.** Der letzte Palettenschritt auf x 0,72 wurde nie geschrieben;
+`dojo-21` ist bitgleich mit `dojo-20`. Aufgefallen ist es nur daran, dass zwei
+angeblich verschiedene Stände dieselbe Zahl bis auf die dritte Stelle lieferten.
+Der Endstand ist deshalb x 0,80, und das steht so in der Palette.
+
+### Werkzeug: `screenshots.mjs --nur <kameras>`
+
+Für eine Abtastung — denselben Regler in drei Stufen — sind sechs Bilder je
+Stufe reine Wartezeit, wenn die Wirkung nur an einer Kamera abzulesen ist. Der
+eingefrorene Kamerasatz bleibt unberührt: Wer vergleicht, lässt ihn ganz
+laufen; wer einen Regler sucht, nicht.

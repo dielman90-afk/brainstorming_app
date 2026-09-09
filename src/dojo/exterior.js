@@ -1102,7 +1102,7 @@ function buildGarden(group, r) {
     // Transluzenz gehört ans **Einzelblatt**. Ein Azaleenpolster zeigt keines –
     // durch zwanzig Blätter hintereinander kommt kein Licht. Bei 0,85 sah der
     // Strauchwall im Gegenlicht aus wie beleuchtetes Papier.
-    translucency: 0.5,
+    translucency: 0.75,
     windStrength: 0.055,
   });
   {
@@ -1228,7 +1228,7 @@ function buildGarden(group, r) {
     atlas: leafAtlas('maple'),
     // Ahornlaub im Herbst ist der Fall, für den der Transluzenzterm gebaut ist –
     // ein rotes Blatt gegen die Sonne leuchtet, statt dunkel zu werden.
-    translucency: 0.8,
+    translucency: 0.75,
     transColor: 0xd98f45,
     windStrength: 0.075,
   });
@@ -1351,7 +1351,7 @@ function buildGarden(group, r) {
   // richtige Antwort ist.
   const fernCards = foliageMaterial({
     atlas: leafAtlas('fern'),
-    translucency: 0.65,
+    translucency: 0.75,
     // Bodennaher Bewuchs steht im Windschatten der Sträucher. Volle Auslenkung
     // sähe hier aus wie Seegras.
     windStrength: 0.035,
@@ -1725,12 +1725,24 @@ export function buildExterior() {
   // geschätzter Wert wäre genau die Sorte Zahl, die beim nächsten Verstellen
   // von `cardScale` still falsch wird – und dieser Fehler ist überhaupt erst
   // entstanden, weil die Schöpfe größer geworden sind.
+  // **Weniger und groessere Karten.**
+  //
+  // Aus fuenfzehn Metern — dem Abstand, in dem `c-engawa` in den Hain sieht —
+  // war eine Karte von 0,52 rund fuenfunddreissig Bildpunkte breit. Eine
+  // Atlaszelle von 256 px landet damit auf 35 px, ein einzelnes Blatt auf
+  // fuenf. Fuenf Bildpunkte sind ein Strich, und ein Feld aus Strichen ist
+  // eine Nadel — der zweite Teil des Prueferbefunds „Konifere", der auch nach
+  // der neuen Blattform noch stand.
+  //
+  // Zehn Karten zu 0,70 decken dieselbe Flaeche wie sechzehn zu 0,52
+  // (10 x 0,49 gegen 16 x 0,27), zeigen das einzelne Blatt aber mit sieben
+  // statt fuenf Bildpunkten und kosten dabei weniger Dreiecke.
   const leafGeo = cardCluster({
-    count: 16,
+    count: 10,
     radius: 1,
     seed: 0xba11,
     kind: 'bamboo',
-    cardScale: 0.52,
+    cardScale: 0.70,
   });
   const leafReach = leafGeo.boundingSphere ? leafGeo.boundingSphere.radius : 1.3;
 
