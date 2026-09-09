@@ -1337,3 +1337,85 @@ Draw-Calls von 120 (der Innenkasten ist einer, alle vier Flächen teilen ein
 Material), 313 130 Dreiecke von 350 000, 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-28`.
+
+## Paket O — die Lichtschächte waren ein Überzug, kein Strahl
+
+**Prüferbefund 4 des zweiten Berichts:** Diagonale Lichtstreifen über die
+Nordwand gemalt.
+
+Der Verdacht lag zuerst auf der Putztextur — diagonale Streifen auf einer Wand
+sind meistens eine Textur. Die differenzielle Messung sagt etwas anderes:
+
+```
+node tools/knotenwerte.mjs --env dojo a-halle dojo-light-shafts
+dojo-light-shafts  431604 Punkte  Beitrag 18,0  >190 10,7 %
+```
+
+**431 604 Bildpunkte sind 47 Prozent des Bildes.** Dort trägt der Knoten im
+Mittel achtzehn Stufen bei. Das ist kein Lichtstrahl mehr, das ist ein Überzug
+über die halbe Bildfläche — und auf einer Wand, die ohnehin bei L 180 steht,
+also im flachen Teil der ACES-Kurve, wird daraus genau das, was der Prüfer
+beschreibt: ein kreidiger Streifen ohne Farbe.
+
+### Warum die Fläche so gross war
+
+Die Geometrie ist richtig abgeleitet und bleibt es: Zehn Shoji-Felder von
+2,43 m Höhe, aus derselben Blende und derselben Sonnenrichtung wie die
+Schatten. Was fehlte, war das Ende. `BEAM_LENGTH` folgt aus der Sonnenhöhe von
+10,5 Grad und beträgt **16,6 m** — der Raum ist zwölf. Der Schwanz verblasste
+von 22 bis 100 Prozent dieser Länge, also über den ganzen Raum und darüber
+hinaus. Zehn solche Schächte füllen zwangsläufig das Bild.
+
+Jetzt von 12 auf 62 Prozent, also von zwei bis zehn Metern: dicht an der
+Blende, weg vor der Westwand. Das ist auch die Physik — was streut, ist die
+Luft im Strahl, und der weitet sich.
+
+### Die Tabelle oben beantwortete die falsche Frage
+
+`SHAFT_DICHTE` stand auf 0,34, und die Begründung darüber lautete: „der
+**grösste** Wert, der noch unter 0,5 % geklemmter Bildpunkte bleibt". Gesucht
+war damals der hellste Wert, der nicht ausbrennt. Der Befund war aber nicht
+das Ausbrennen, sondern die Fläche.
+
+| Schwanz | Dichte | Bildpunkte | Anteil | Beitrag | > 190 |
+| --- | --- | --- | --- | --- | --- |
+| 0,22–1,00 | 0,34 | 431 604 | 47 % | 18,0 | 10,7 % |
+| 0,22–1,00 | 0,24 | 371 466 | 40 % | 14,4 | 6,5 % |
+| 0,22–1,00 | 0,16 | 345 735 | 38 % | 10,0 | 3,2 % |
+| 0,12–0,62 | 0,34 | 320 644 | 35 % | 17,2 | 11,2 % |
+| **0,12–0,62** | **0,22** | **297 969** | **32 %** | **11,7** | **4,6 %** |
+
+Der kürzere Schwanz nimmt ein Viertel der Fläche, die kleinere Dichte den Rest
+der Lautstärke.
+
+**Nebenbei fällt damit das letzte Ausbrennen weg.** `anschlag.mjs` auf
+`e-tatami`: einzelne Kanäle bei 254 von **3,20 % auf 0,00 %**. Das flache
+Gelbplateau, an dem Paket F gearbeitet hat, ist damit ganz verschwunden.
+
+### Was das kostet
+
+**Der Raum ist ruhiger geworden, und das ist nicht nur Gewinn.** Die
+Lichtschächte waren das auffälligste Stimmungsmittel im Bild; jetzt sind sie
+ein Hauch. Wer dem Raum wieder mehr Sonne geben will, hat dafür die
+**Lichtpfützen** — sie liegen flach auf dem Boden, stehen bei `uIntensity`
+0,03 und sind unangetastet geblieben. Das wäre der richtige Ort: Licht, das
+auftrifft, statt Licht, das über allem liegt. Steht offen und ist bewusst
+nicht in diesem Paket gemacht, weil zwei Regler in einem Durchlauf keine
+Messung mehr ergeben.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. `c-engawa`
+bitgleich. Im Dojo grossflächig, aber flach: `e-tatami` 79,9 % der Bildpunkte
+um mindestens 2 Stufen geändert, jedoch nur 10,6 % um mindestens 24 und
+Δmax 45. Budget: 113 Draw-Calls von 120, 313 130 Dreiecke von 350 000,
+42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-30`.
+
+### Ein eigener Fehler, den das Werkzeug abgefangen hat
+
+Im ersten Anlauf stand in meinem neuen Kommentar ein Wort in Rückwärts-
+strichen — **innerhalb eines GLSL-Template-Literals**. `tools/shaderlint.mjs`
+hat es als `prebuild` gemeldet, wie es dafür gebaut wurde. Gesehen habe ich es
+trotzdem erst zwei Läufe später, weil mein `grep` über die Bauausgabe nur nach
+`^✓` und `^error` suchte und die Meldung des Linters durchfallen liess. Das
+Werkzeug hat funktioniert, meine Prüfung der Ausgabe nicht.

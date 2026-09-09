@@ -217,7 +217,24 @@ const BEAM_LENGTH = ((SHOJI.headY - ROOM.floorY) / -DIR.y) * 1.06;
 // der noch unter 0,5 % bleibt – gesucht war nicht der dunkelste, sondern der
 // hellste, der nicht mehr ausbrennt. Die mittlere Helligkeit sinkt dabei nur
 // von 138,8 auf 114,7; der Raum bleibt warm, er wird nur nicht mehr weiß.
-const SHAFT_DICHTE = 0.34;
+//
+// **Nachtrag zu Pruefbefund 4 (zweiter Bericht).** Die Tabelle oben sucht den
+// hellsten Wert, der nicht ausbrennt — und beantwortet damit die falsche Frage.
+// Gemessen mit knotenwerte.mjs in a-halle, also differenziell auf den eigenen
+// Bildpunkten des Knotens:
+//
+//     Schwanz   Dichte   Bildpunkte   Anteil   Beitrag   > 190
+//     0,22-1,00   0,34     431 604     47 %      18,0     10,7 %
+//     0,22-1,00   0,24     371 466     40 %      14,4      6,5 %
+//     0,22-1,00   0,16     345 735     38 %      10,0      3,2 %
+//     0,12-0,62   0,34     320 644     35 %      17,2     11,2 %
+//     0,12-0,62   0,22     297 969     32 %      11,7      4,6 %
+//
+// Nicht das Ausbrennen war der Befund, sondern die **Flaeche**: ein Ueberzug
+// ueber die halbe Bildflaeche liest als Anstrich, egal wie hell er ist. Der
+// kuerzere Schwanz nimmt ein Viertel davon weg, die kleinere Dichte den Rest
+// der Lautstaerke.
+const SHAFT_DICHTE = 0.22;
 
 function panelCenterZ(i) {
   return SHOJI.fromZ + (i + 0.5) * PANEL_PITCH;
@@ -379,8 +396,23 @@ const SHAFT_FRAGMENT = /* glsl */ `
     // Weiche Kante quer über die jeweilige Mantelfläche.
     float prof = 1.0 - pow(abs(vProf), 2.2);
     // Kein harter Anfang an der Blende, und nach hinten nimmt die Streuung ab.
+    //
+    // **Der Schwanz war viel zu lang.** Er verblasste von 22 % bis 100 % der
+    // Strahllaenge, und die betraegt bei 10,5 Grad Sonnenhoehe 16,6 m — der
+    // Raum ist zwoelf. Zehn Blenden von 2,43 m Hoehe, jede sechzehn Meter weit
+    // gezogen: Gemessen bedeckten die Schaechte in a-halle **431 604
+    // Bildpunkte, 47 Prozent des Bildes**, mit einem Beitrag von 18 Stufen.
+    // Das ist kein Lichtstrahl mehr, das ist ein Ueberzug — und auf einer Wand,
+    // die ohnehin bei L 180 steht, also im flachen Teil der ACES-Kurve, wird
+    // daraus ein kreidiger Streifen. Genau so hat der Pruefer es benannt:
+    // „diagonale Lichtstreifen ueber die Nordwand gemalt".
+    //
+    // Jetzt von 12 auf 62 Prozent, also von zwei bis zehn Metern. Der Strahl
+    // ist dort am dichtesten, wo er aus der Blende tritt, und vor der
+    // Westwand ist er weg. Das ist auch die Physik: Was streut, ist die Luft
+    // im Strahl, und der weitet sich.
     float head = smoothstep(0.0, 0.06, vLen);
-    float tail = 1.0 - smoothstep(0.22, 1.0, vLen);
+    float tail = 1.0 - smoothstep(0.12, 0.62, vLen);
     float blur = 0.10 + vLen * 0.6;
     float a = prof * head * tail * lattice(vCross, blur) * haze(vCross, vLen, uTime);
     gl_FragColor = vec4(uColor * uIntensity, a * uDichte);
