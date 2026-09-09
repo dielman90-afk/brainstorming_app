@@ -68,7 +68,110 @@ function instanced(
   return mesh;
 }
 
-// --- Eine Wandöffnung -------------------------------------------------------
+// Der Verband für dieses Haus: 9 x 12 halbe Mattenlängen, 50 ganze Matten und
+// 8 Halbmatten, **null Kreuzfugen**, 59 % Richtungswechsel, längste Fuge 6.
+//
+// Gefunden hat ihn `tools/mattenverband.mjs` — sechshundert Anläufe mit
+// gestreuter Reihenfolge, bewertet nach Richtungswechsel, Fugenlänge und Zahl
+// der Halbmatten. Die Suche steht hier nicht im Bauweg, weil die *Auswahl*
+// unter den Lösungen ein Blick ist und keine Zahl: Der erste beste Verband,
+// den die Suche findet, erfüllt die Regel und liest trotzdem als gestreifte
+// Bahn. `tatamiVerband()` unten bleibt als Rückfall für den Fall, dass jemand
+// die Raummasse ändert — dann stimmt zwar der Verband, aber niemand hat ihn
+// angesehen, und das steht dann auch in der Konsole.
+//
+// Jeder Eintrag ist [Spalte, Reihe, dx, dz]; dx+dz = 0 ist eine Halbmatte.
+const VERBAND_9x12 = [
+  [0,0,1,0],[2,0,0,1],[3,0,1,0],[5,0,1,0],[7,0,1,0],[0,1,1,0],[3,1,0,1],
+  [4,1,1,0],[6,1,1,0],[8,1,0,0],[0,2,0,1],[1,2,1,0],[4,2,0,1],[5,2,1,0],
+  [7,2,1,0],[1,3,0,1],[2,3,1,0],[5,3,0,1],[6,3,1,0],[8,3,0,0],[0,4,0,0],
+  [2,4,0,1],[3,4,1,0],[6,4,0,1],[7,4,1,0],[0,5,1,0],[3,5,0,1],[4,5,1,0],
+  [7,5,0,1],[8,5,0,0],[0,6,0,1],[1,6,1,0],[4,6,0,1],[5,6,1,0],[8,6,0,1],
+  [1,7,0,1],[2,7,1,0],[5,7,0,1],[6,7,1,0],[0,8,0,0],[2,8,0,1],[3,8,1,0],
+  [6,8,0,1],[7,8,1,0],[0,9,1,0],[3,9,0,1],[4,9,1,0],[7,9,0,1],[8,9,0,0],
+  [0,10,0,1],[1,10,1,0],[4,10,0,1],[5,10,1,0],[8,10,0,1],[1,11,0,0],
+  [2,11,1,0],[5,11,0,0],[6,11,1,0],
+];
+
+// --- Vierereckfreier Mattenverband (祝儀敷き) --------------------------------
+//
+// Gesucht wird eine Belegung eines `spalten x reihen`-Gitters aus halben
+// Mattenlängen (0,91 m) mit 1x2-Matten und höchstens `maxHalbe` Halbmatten, in
+// der sich **nirgends vier Mattenecken in einem Punkt treffen**.
+//
+// Vier Ecken treffen sich im Gitterpunkt (x,z) genau dann, wenn die vier
+// Zellen darum zu vier verschiedenen Matten gehören. Die Prüfung läuft
+// deshalb über Punkte, nicht über Matten — und nur über solche, deren vier
+// Zellen schon belegt sind, sonst würde jeder Zwischenstand verworfen.
+//
+// Die Rückwärtssuche füllt immer die **erste freie Zelle** (Zeile für Zeile).
+// Damit ist jede Zelle entweder Anfang einer Matte oder schon von der Matte
+// links bzw. darüber gedeckt, und die Suche kann keine Lücke hinterlassen.
+//
+// `maxSchritte` ist kein Feintuning, sondern eine Zusicherung: Der Aufrufer
+// baut eine Szene und darf nicht in einer Suche hängenbleiben, wenn jemand die
+// Raummasse auf eine Größe ohne Lösung ändert. 8 x 12 ist in weniger als
+// hunderttausend Schritten entschieden.
+export function tatamiVerband(spalten, reihen, maxHalbe = 2, maxSchritte = 4e6) {
+  const N = spalten * reihen;
+  const zelle = new Int32Array(N).fill(-1);
+  const matten = [];
+  let halbeUebrig = maxHalbe;
+  let schritte = 0;
+
+  const punktOk = (x, z) => {
+    if (x <= 0 || z <= 0 || x >= spalten || z >= reihen) return true;
+    const a = zelle[(z - 1) * spalten + x - 1];
+    const b = zelle[(z - 1) * spalten + x];
+    const c = zelle[z * spalten + x - 1];
+    const d = zelle[z * spalten + x];
+    if (a < 0 || b < 0 || c < 0 || d < 0) return true;
+    return a === b || a === c || a === d || b === c || b === d || c === d;
+  };
+
+  const loese = (start) => {
+    if (++schritte > maxSchritte) return false;
+    let i = start;
+    while (i < N && zelle[i] >= 0) i++;
+    if (i >= N) return true;
+    const x = i % spalten;
+    const z = (i / spalten) | 0;
+    const id = matten.length;
+    const formen = [[1, 0], [0, 1]];
+    if (halbeUebrig > 0) formen.push([0, 0]);
+    for (const [dx, dz] of formen) {
+      const x2 = x + dx;
+      const z2 = z + dz;
+      if (x2 >= spalten || z2 >= reihen) continue;
+      const halb = dx + dz === 0;
+      if (!halb && zelle[z2 * spalten + x2] >= 0) continue;
+      if (halb) halbeUebrig--;
+      zelle[i] = id;
+      zelle[z2 * spalten + x2] = id;
+      matten.push([x, z, dx, dz]);
+      let ok = true;
+      for (const [px, pz] of [
+        [x, z], [x + 1, z], [x, z + 1], [x + 1, z + 1],
+        [x2, z2], [x2 + 1, z2], [x2, z2 + 1], [x2 + 1, z2 + 1],
+      ]) {
+        if (!punktOk(px, pz)) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok && loese(i + 1)) return true;
+      matten.pop();
+      zelle[i] = -1;
+      zelle[z2 * spalten + x2] = -1;
+      if (halb) halbeUebrig++;
+    }
+    return false;
+  };
+
+  return loese(0) ? matten : null;
+}
+
+  // --- Eine Wandöffnung -------------------------------------------------------
 //
 // Rahmen, Gitter und Papier für **eine** Öffnung – ob bodentiefe Shoji-Front
 // oder hohes Fensterband, ob Ost, West, Nord oder Süd.
@@ -380,7 +483,7 @@ export function buildArchitecture() {
   const borders = [];
   const matY = 0.055 + TATAMI.thickness / 2;
 
-  // Feldgrenzen: die eigentliche Übungsfläche, ringsum bleibt Diele frei.
+// Feldgrenzen: die eigentliche Übungsfläche, ringsum bleibt Diele frei.
   // Stehen in layout.js und sind aus ROOM abgeleitet – als feste Zahlen hier
   // wäre das Feld beim Verlängern des Raums stehen geblieben.
   const { x0: FX0, x1: FX1, z0: FZ0, rows: FIELD_ROWS } = FIELD;
@@ -406,10 +509,23 @@ export function buildArchitecture() {
   // wechselt die Borte an jeder Quadratgrenze die Richtung, es entstehen
   // T-Stösse statt Kreuzfugen, und keine Linie läuft mehr durch den Raum.
   //
-  // **Es ist nicht das Pinwheel-Muster** (祝儀敷き), bei dem sich zusätzlich
-  // nirgends vier Ecken treffen. Das lässt sich für ein Rechteck dieser Größe
-  // nicht regelmäßig legen, und grosse Übungshallen verwenden ohnehin den
-  // Schachbrettverband. Gesagt, damit es niemand später für ein Versehen hält.
+  // **Nachtrag: „T-Stösse statt Kreuzfugen" stimmte nicht.**
+  //
+  // Der Prüfer hat Vierereck-Treffen gemeldet, und er hat recht. Ein Quadrat
+  // von 1,82 m mit zwei Matten darin hat, wie es auch gedreht ist, **immer**
+  // eine Mattenecke in jeder seiner vier Quadratecken. An jedem inneren
+  // Quadratpunkt stossen vier Quadrate zusammen, also vier Mattenecken —
+  // fünfzehn Kreuzfugen im Feld, und die Drehung ändert daran nichts. Der
+  // Schachbrettverband kann das gar nicht lösen; die Behauptung war ein
+  // Denkfehler, kein Messfehler.
+  //
+  // Gelegt wird jetzt nach der Regel selbst (祝儀敷き): **gesucht**, nicht
+  // konstruiert. `tatamiVerband()` durchsucht das Feld nach einer Belegung, in
+  // der sich nirgends vier Ecken treffen. Dass es für dieses Feld überhaupt
+  // eine gibt, ist keine Selbstverständlichkeit — mit ganzen Matten allein hat
+  // 8 x 12 **keine** Lösung (8 x 10, 8 x 14, 6 x 12 und 12 x 12 dagegen
+  // schon). Mit einer Halbmatte auch nicht, mit zweien ja. Halbmatten (半畳)
+  // gehören zum Verband; ein 4,5-Matten-Raum besteht aus vier Matten um eine.
   const QUADRAT = TATAMI.long; // 1,82 m — zwei Matten, egal in welcher Lage
   const HALB = TATAMI.short / 2; // 0,455 m
   const heriY = 0.055 + TATAMI.thickness + 0.0015;
@@ -429,27 +545,53 @@ export function buildArchitecture() {
     borders.push({ x: x + dx, y: heriY, z: z + dz, ry });
   };
 
-  const spalten = Math.round((FX1 - FX0) / QUADRAT);
-  const quadratReihen = Math.floor(FIELD_ROWS / 2);
-  for (let j = 0; j < quadratReihen; j++) {
-    for (let i = 0; i < spalten; i++) {
-      const qx = FX0 + (i + 0.5) * QUADRAT;
-      const qz = FZ0 + (j + 0.5) * QUADRAT;
-      if ((i + j) % 2 === 0) {
-        legeMatte(qx, qz - HALB, 0);
-        legeMatte(qx, qz + HALB, 0);
-      } else {
-        legeMatte(qx - HALB, qz, Math.PI / 2);
-        legeMatte(qx + HALB, qz, Math.PI / 2);
+  // **Halbmatte (半畳): dieselbe Geometrie, in der Längsachse halbiert.**
+  //
+  // Keine eigene Geometrie und kein eigener Zeichenaufruf. Das Binsengeflecht
+  // verläuft **längs** der Matte, seine Streifen liegen also quer — eine
+  // Stauchung längs verkürzt die Streifen, ohne ihren Abstand zu ändern, und
+  // genau der ist das, was man sieht. Quer gestaucht wäre es falsch.
+  const HALB_D = TATAMI.short / 2 - 0.028;
+  const legeHalbmatte = (x, z) => {
+    mats.push({ x, y: matY, z, ry: 0, scale: [0.5, 1, 1] });
+    borders.push({ x, y: heriY, z: z - HALB_D, ry: 0, scale: [0.5, 1, 1] });
+    borders.push({ x, y: heriY, z: z + HALB_D, ry: 0, scale: [0.5, 1, 1] });
+  };
+
+  const spalten = Math.round((FX1 - FX0) / TATAMI.short);
+  const verband =
+    spalten === 9 && FIELD_ROWS === 12 ? VERBAND_9x12 : tatamiVerband(spalten, FIELD_ROWS);
+  if (verband) {
+    for (const [cx, cz, dx, dz] of verband) {
+      // Mittelpunkt der belegten Zellen, in Weltkoordinaten.
+      const x = FX0 + (cx + dx / 2 + 0.5) * TATAMI.short;
+      const z = FZ0 + (cz + dz / 2 + 0.5) * TATAMI.short;
+      if (dx + dz === 0) legeHalbmatte(x, z);
+      else legeMatte(x, z, dx === 1 ? 0 : Math.PI / 2);
+    }
+  } else {
+    // **Rückfall auf den Schachbrettverband.**
+    //
+    // Er hat Kreuzfugen, aber er füllt jedes Feld, dessen Seiten gerade sind.
+    // Wer die Raummasse ändert und keine Lösung mehr bekommt, soll einen Boden
+    // sehen und keine Lücke — und er soll es in der Konsole lesen.
+    console.warn(
+      `Dojo: kein vierereckfreier Mattenverband fuer ${spalten} x ${FIELD_ROWS}, Schachbrett stattdessen`
+    );
+    const quadratReihen = Math.floor(FIELD_ROWS / 2);
+    for (let j = 0; j < quadratReihen; j++) {
+      for (let i = 0; i < spalten / 2; i++) {
+        const qx = FX0 + (i + 0.5) * QUADRAT;
+        const qz = FZ0 + (j + 0.5) * QUADRAT;
+        if ((i + j) % 2 === 0) {
+          legeMatte(qx, qz - HALB, 0);
+          legeMatte(qx, qz + HALB, 0);
+        } else {
+          legeMatte(qx - HALB, qz, Math.PI / 2);
+          legeMatte(qx + HALB, qz, Math.PI / 2);
+        }
       }
     }
-  }
-  // Bleibt eine einzelne Reihe übrig (ungerade Zeilenzahl, also wenn jemand
-  // die Raumtiefe ändert), wird sie längs gelegt und schliesst das Feld ab.
-  // Ohne diesen Zweig verschwände sie stillschweigend.
-  if (FIELD_ROWS % 2 === 1) {
-    const z = FZ0 + quadratReihen * QUADRAT + HALB;
-    for (let i = 0; i < spalten; i++) legeMatte(FX0 + (i + 0.5) * QUADRAT, z, 0);
   }
   group.add(instanced(matGeo, tatami, mats, { cast: false, name: 'dojo-tatami' }));
   group.add(

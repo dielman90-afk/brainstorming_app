@@ -1224,3 +1224,78 @@ sind dieselben; geändert hat sich allein der Inhalt einer 512er Kachel.
 Konsole sauber.
 
 Bildstand `tools/shots/dojo-23`.
+
+## Paket M — der Mattenverband hält jetzt die Regel
+
+**Prüferbefund 12 des zweiten Berichts:** Vierereck-Treffen im Mattenverband.
+
+Der Befund ist richtig, und der Kommentar über der Stelle behauptete das
+Gegenteil: „es entstehen T-Stösse statt Kreuzfugen". Das war ein Denkfehler,
+kein Messfehler.
+
+**Ein Quadrat von 1,82 m mit zwei Matten darin hat, wie es auch gedreht ist,
+immer eine Mattenecke in jeder seiner vier Quadratecken.** An jedem inneren
+Quadratpunkt stossen vier Quadrate zusammen, also vier Mattenecken. Fünfzehn
+Kreuzfugen im Feld, und die Schachbrett-Drehung ändert daran nichts — sie kann
+es gar nicht.
+
+### Die Feldbreite ist ein Messwert geworden
+
+Gelegt wird jetzt nach der Regel selbst (祝儀敷き), und die wird **gesucht**,
+nicht konstruiert: `tools/mattenverband.mjs` durchsucht das Zellgitter nach
+einer Belegung, in der sich nirgends vier Ecken treffen. Vier Ecken treffen
+sich im Gitterpunkt (x,z) genau dann, wenn die vier Zellen darum zu vier
+verschiedenen Matten gehören — das ist die ganze Bedingung.
+
+Dass es für ein gegebenes Feld überhaupt eine Lösung gibt, ist **keine
+Selbstverständlichkeit**:
+
+| Feld | Halbmatten | Richtungswechsel | längste Fuge | Kreuzfugen |
+| --- | --- | --- | --- | --- |
+| 8 × 12 Schachbrett (vorher) | 0 | 61 % | 12 | **15** |
+| 8 × 12 | 0 | *keine Lösung* | | |
+| 8 × 12 | 1 | *keine Lösung* | | |
+| 8 × 12 | 2 | 35 % | 8 | 0 |
+| 8 × 10 | 0 | 27 % | 8 | 0 |
+| **9 × 12** | **8** | **59 %** | **6** | **0** |
+
+Das Feld ist deshalb **um eine halbe Mattenlänge breiter** geworden: 8,19 statt
+7,28 m, ringsum 1,905 m freie Diele statt 2,36 m. Die Breite folgt jetzt aus
+der Regel und nicht aus einer runden Zahl.
+
+### Die Regel zu erfüllen genügt nicht
+
+Der **erste** Verband, den die Suche für 8 × 12 fand, erfüllte die Regel und
+war im Bild deutlich schlechter als das Schachbrett: lange gleichgerichtete
+Bahnen, in der Ferne ein konzentrisches Rechteck — eine Laufbahn, kein
+Mattenfeld. Das ist im Bild `tools/shots/dojo-24` festgehalten, und es ist der
+Grund, warum dieses Paket zwei Durchläufe mehr gekostet hat.
+
+Der Unterschied ist messbar: **Richtungswechsel**, der Anteil benachbarter
+Mattenpaare mit verschiedener Lage. Das Schachbrett hatte 61 %, der erste
+gefundene Verband 34 %. Das Werkzeug sucht deshalb sechshundertmal mit
+gestreuter Reihenfolge und bewertet nach Richtungswechsel, Fugenlänge und Zahl
+der Halbmatten.
+
+**Die Auswahl unter den Lösungen ist ein Blick und keine Zahl** — deshalb steht
+der gewählte Verband als Tabelle im Quelltext und die Suche nicht im Bauweg.
+`tatamiVerband()` bleibt als Rückfall, wenn jemand die Raummasse ändert; dann
+stimmt zwar die Regel, aber niemand hat das Ergebnis angesehen, und genau das
+sagt dann auch die Konsole.
+
+### Halbmatten
+
+Acht Halbmatten (半畳) gehören zum Verband — ein 4,5-Matten-Raum besteht aus
+vier Matten um eine. Sie kosten **keinen** eigenen Zeichenaufruf: dieselbe
+Geometrie, in der Längsachse halbiert. Das Binsengeflecht verläuft längs der
+Matte, seine Streifen liegen also quer; eine Stauchung längs verkürzt die
+Streifen, ohne ihren Abstand zu ändern. Quer gestaucht wäre es falsch.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. `c-engawa`
+bitgleich (Gartenkamera). Im Dojo `e-tatami` 43,6 %, `a-halle` 27,8 %,
+`b-shoji` 27,1 %, `f-gegenlicht` 22,1 %, `d-suedfront` 2,7 % — das Feld ist
+breiter geworden und neu gelegt, das ist der ganze Unterschied. Budget: 112
+Draw-Calls von 120, 312 410 Dreiecke von 350 000 (von 312 050 — zehn Matten
+mehr), 42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-26`.

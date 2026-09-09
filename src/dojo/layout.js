@@ -75,9 +75,23 @@ export const TATAMI = { long: 1.82, short: 0.91, thickness: 0.055 };
 // geblieben und hätte nach einem Drittel der neuen Tiefe aufgehört, mitten im
 // Raum, ohne dass irgendetwas es gemeldet hätte. Jetzt ist es abgeleitet:
 // ringsum bleibt rund anderthalb Meter Diele frei.
+//
+// **Neun halbe Mattenlängen breit statt acht.**
+//
+// Die Breite ist kein Geschmack mehr, sondern eine Bedingung: Ein Feld von
+// 8 x 12 halben Mattenlängen lässt sich **nicht** so belegen, dass sich
+// nirgends vier Mattenecken treffen — mit ganzen Matten gar nicht, mit einer
+// Halbmatte auch nicht, mit zweien nur in Verbänden, die im Bild als
+// gestreifte Bahn lesen (34 % Richtungswechsel gegen 61 % beim Schachbrett).
+// 9 x 12 dagegen trägt einen Verband mit 59 % Wechsel, längster Fuge 6 und
+// null Kreuzfugen. Gemessen mit `tools/mattenverband.mjs`.
+//
+// Die 91 cm Mehrbreite gehen von der freien Diele ab: 1,905 m statt 2,36 m
+// ringsum. Das ist immer noch ein voller Gang.
+const FELD_SPALTEN = 9;
 export const FIELD = {
-  x0: -3.64,
-  x1: 3.64,
+  x0: (-FELD_SPALTEN * TATAMI.short) / 2,
+  x1: (FELD_SPALTEN * TATAMI.short) / 2,
   z0: ROOM.minZ + 1.5,
   rows: Math.floor((ROOM.maxZ - 1.5 - (ROOM.minZ + 1.5)) / TATAMI.short),
 };
