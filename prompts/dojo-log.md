@@ -709,3 +709,99 @@ Weltradius um den Strahl. Damit meldet jeder Lauf jede Staubwolke der Umgebung
 als Treffer. Jetzt 0,02 — grosszügig für ein Korn von drei Zentimetern. Die
 Fehlspur hat mich einen Gedankengang gekostet; ohne die Korrektur den
 nächsten.
+
+---
+
+## Paket G — Die Papierwand leuchtet und beleuchtet jetzt auch
+
+Fünf Prüferbefunde hingen an einer Ursache, und die Pakete B, D und F haben sie
+Stück für Stück eingekreist:
+
+> Der Raum hat keine Lichtquelle. Die Sonne trägt zum Innenboden **null** Stufen
+> bei (Dachüberstand bei 11° Sonnenhöhe — bauphysikalisch richtig), die
+> Himmelskarte ebenfalls null (Innenmaterialien haben am Desktop keine). Was
+> den Raum hell macht, sind zwei richtungslose Hemisphärenlichter und eine
+> **additive Lage**, die 32 Stufen über 51 Prozent des Bildes legt und dabei
+> Bildpunkte an den Anschlag treibt.
+
+Ein Raum, dessen einziges gerichtetes Licht gemalt ist, kann gar nicht anders
+als flach aussehen — und das Hellste im Bild, die Shoji-Front bei L 185, war
+eine leuchtende Oberfläche ohne jede Wirkung auf ihre Umgebung.
+
+### Zwei Quellen, kein Schattendurchgang
+
+Das Dreiecksbudget hat nach Paket A noch 10 138 Dreiecke Luft; ein zweiter
+werfender Scheinwerfer bräuchte rund 106 000. Beide neuen Lichter werfen
+deshalb nicht:
+
+* **`dojo-papierwand`** — was durch das Washi kommt. Aus dem Osten unter rund
+  20°, dem mittleren Winkel von einem Bodenpunkt zur Mitte der Papierfläche
+  (Brüstung 0,42 m, Sturz 2,85 m, Raumtiefe 12 m). Farbe `0xffeed8`, Stärke 0,9.
+* **`dojo-bodenlicht`** — das Gegenstück von unten, was von der hellen
+  Mattenfläche zurückkommt. Senkrecht nach oben, Farbe `0xd6d2b4`, Stärke 0,35.
+
+Gemessen mit `tools/tageslicht.mjs`, Beitrag je Quelle auf denselben Rechtecken:
+
+    Fläche              Papierwand 0,9   Bodenlicht 0,35
+    Decke                          0,3              5,3
+    Westwand                      12,5              0,0
+    Tatami                        10,2              0,0
+    Diele (f-gegenlicht)          19,4              0,0
+    Tokonoma-Nische                1,4              0,0
+
+Jede Quelle trifft genau das, wofür sie gebaut ist. Die Westwand bekommt ihre
+12,5 Stufen — das ist der „Lichtsee auf Boden und Rückwand", den der Prüfer als
+behauptet, aber nicht umgesetzt bezeichnet hat. Und die Decke bekommt ihre 5,3
+**von unten**, was ein Hemisphärenlicht grundsätzlich nicht leisten kann, weil
+es ortsunabhängig ist (Prüferbefund 22).
+
+### Und dann die Schächte zurück
+
+Der Kommentar an der Stelle sagt, `uIntensity` sei „fast wirkungslos", weil der
+additive Modus auf den sRGB-kodierten Wert mischt und Halbieren ihn nur um
+2^(1/2,4) senkt. Das stimmt **je Lage** — und führt trotzdem zur falschen
+Folgerung, denn was anstösst, ist der **Stapel** aus vier bis sechs Lagen.
+Nimmt jede etwas ab, fällt die Summe aus der Sättigung heraus, und zwar schnell:
+
+    Faktor   angeschlagene Bildpunkte   max   Tatami   Tokonoma
+      1,0                     4,12 %    255    147,0      155,1
+      0,6                     2,13 %    254    142,7      145,6
+      0,35                    0,60 %    253    139,0      137,1
+      0,2                     0,04 %    253    136,2      130,5
+
+`uIntensity` 0,02 → **0,007**. Bei 0,2 sind die Schächte im Bild fast fort, und
+sie sollen nicht verschwinden — sie sollen nur aufhören, die Beleuchtung zu
+**ersetzen**. Der Raum verliert durch die Senkung acht Stufen, und die neuen
+Lichter geben zwölf bis neunzehn zurück.
+
+### Ergebnis über alle sechs Kameras
+
+    angeschlagene Bildpunkte     alle drei Kanäle        einzelne Kanäle
+    Bild                        vorher → nachher       vorher → nachher
+    a-halle                     0,11 % → 0,00 %        3,82 % → 0,60 %
+    b-shoji                     0,00 % → 0,00 %        0,43 % → 0,01 %
+    c-engawa                    0,00 % → 0,00 %        0,00 % → 0,00 %
+    d-suedfront                 0,01 % → 0,00 %        0,80 % → 0,03 %
+    e-tatami                    0,69 % → 0,00 %        8,57 % → 2,44 %
+    f-gegenlicht                0,00 % → 0,00 %        0,01 % → 0,00 %
+
+**Kein Bildpunkt in keiner Kamera hat mehr alle drei Kanäle am Anschlag.** Das
+Gelbplateau in `e-tatami` ist von 8,57 auf 2,44 Prozent gefallen.
+
+Im Bild hat der Raum jetzt ein Gefälle von der Ostwand zur Westwand, die
+Shoji-Paneele sind einzeln lesbar statt eine Wand aus Weiss, und die Decke ist
+über der hellen Seite heller als über der dunklen.
+
+**Was das Paket nicht liefert:** Schlagschatten der Requisiten. Beide neuen
+Lichter werfen nicht, und ein drittes Schattenfrustum passt nicht ins Budget.
+Für den Bodenkontakt sorgt Paket E; für die Modellierung sorgt jetzt die
+Richtung. Ein echter Schlagschatten im Innenraum bleibt offen und ist an das
+Dreiecksbudget gebunden, nicht an die Beleuchtung.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Im Dojo ändert
+sich fast das ganze Bild (48 bis 97 Prozent der Bildpunkte ≥ 2), aber flach —
+nur 0,04 bis 17,2 Prozent liegen über 24 Stufen. Genau so sieht eine
+Beleuchtungsänderung aus. Budget unverändert: 111 Draw-Calls, 339 862 Dreiecke,
+42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-08`.

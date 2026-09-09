@@ -34,6 +34,13 @@ const BILD = bi >= 0 ? argv[bi + 1] : null;
 // Die Himmelskarte ist am Dojo die einzige nennenswerte Quelle des Aussenraums
 // (45 bis 55 der 61 bis 101 Stufen), und sie ist damit der einzige Regler, der
 // „draussen ist dunkler als drinnen" ueberhaupt bewegen kann.
+// `--schachtreihe <faktor…>` skaliert `uIntensity` der additiven Lichtschaechte.
+// Sie legen gemessen 32 Stufen ueber 51 Prozent des Bildes und treiben in
+// `e-tatami` 8,57 Prozent der Bildpunkte an den Anschlag; sobald der Raum
+// echtes Licht hat, sollen sie zurueckgehen. Bilder werden mitgeschrieben,
+// damit `anschlag.mjs` sie zaehlen kann.
+const sri = argv.indexOf('--schachtreihe');
+const SCHACHTREIHE = sri >= 0 ? argv.slice(sri + 1).filter((a) => /^[0-9.]+$/.test(a)).map(Number) : null;
 const hri = argv.indexOf('--himmelsreihe');
 const HIMMELSREIHE = hri >= 0 ? argv.slice(hri + 1).filter((a) => /^[0-9.]+$/.test(a)).map(Number) : null;
 
@@ -53,6 +60,16 @@ const FELDER = {
     ['Tatami', 400, 550, 800, 660],
     ['Shoji-Papier Ost', 380, 350, 700, 420],
     ['Diele', 100, 500, 250, 560],
+    // Die Decke gehoert dazu, seit es eine Aufhellung von unten gibt —
+    // Pruefbefund 22 spielt genau dort, und ohne ein Feld darauf misst man
+    // eine Quelle, die man nicht sehen kann.
+    ['Decke', 300, 30, 900, 120],
+  ],
+  'a-halle': [
+    ['Decke', 300, 20, 900, 110],
+    ['Westwand', 60, 330, 260, 430],
+    ['Tatami', 400, 560, 900, 680],
+    ['Tokonoma-Nische', 600, 320, 690, 400],
   ],
   'd-suedfront': [
     ['Fassade', 100, 250, 400, 450],
@@ -163,6 +180,41 @@ try {
           for (const m of Array.isArray(o.material) ? o.material : o.material ? [o.material] : []) {
             if (m.userData.__envBasis !== undefined) m.envMapIntensity = m.userData.__envBasis;
           }
+        });
+      },
+      { gruppe: `env-${ENV}` }
+    );
+    process.stdout.write('\n');
+  }
+  if (SCHACHTREIHE) {
+    process.stdout.write(
+      `${SHOT}, Lichtschaechte skaliert\n\n${'Faktor'.padEnd(10)}` +
+        felder.map(([n]) => n.slice(0, 11).padStart(13)).join('') + '\n'
+    );
+    for (const f of SCHACHTREIHE) {
+      await page.evaluate(
+        ({ f, gruppe }) => {
+          const g = window.__app.scene.children.find((c) => c.name === gruppe);
+          g.traverse((o) => {
+            const u = o.material?.uniforms?.uIntensity;
+            if (!u) return;
+            if (o.userData.__schachtBasis === undefined) o.userData.__schachtBasis = u.value;
+            u.value = o.userData.__schachtBasis * f;
+          });
+        },
+        { f, gruppe: `env-${ENV}` }
+      );
+      const b = await bild();
+      if (BILD) fs.writeFileSync(BILD.replace(/\.png$/, `-${String(f).replace('.', '_')}.png`), PNG.sync.write(b));
+      const w = messe(b);
+      process.stdout.write(String(f).padEnd(10) + w.map((v) => v.toFixed(1).padStart(13)).join('') + '\n');
+    }
+    await page.evaluate(
+      ({ gruppe }) => {
+        const g = window.__app.scene.children.find((c) => c.name === gruppe);
+        g.traverse((o) => {
+          const u = o.material?.uniforms?.uIntensity;
+          if (u && o.userData.__schachtBasis !== undefined) u.value = o.userData.__schachtBasis;
         });
       },
       { gruppe: `env-${ENV}` }
