@@ -352,3 +352,36 @@ um 38,8 Prozent (der Garten füllt dort das Bild), `f-gegenlicht` um 1,9 und
 Geometrie unverändert, Budget also weiter 340 078 / 350 000. Konsole sauber.
 
 Bildstand `tools/shots/dojo-02`.
+
+---
+
+## Zwischenbefund zu Prüferbefund 4 — die „schwebenden grauen Klötze"
+
+Der Prüfer nennt sie an fünf Stellen in `a-halle` und in drei weiteren Bildern:
+blassgraublaue Quader, die oben auf den Ranma-Rahmen aufsitzen, an nichts
+anstossen und vom Deckenholz durch einen offenen dunklen Spalt getrennt sind.
+
+Die Suche nach dem zugehörigen Netz wäre teuer gewesen — siebzig Knoten
+einzeln aus- und einzublenden sind beim Dojo rund zwölf Minuten. Ein Raycast
+durch den Bildpunkt kostet nichts und sagt dasselbe; dafür gibt es jetzt
+`tools/wasistda.mjs`, die Umkehrung von `knotenkasten.mjs`.
+
+    a-halle (30,125)     8,17 m   dojo-ranma-paper-schatten   #e8e0cc
+                         8,19 m   dojo-ranma-bars
+    a-halle (240,210)   10,03 m   dojo-walls                  #bdb6a6
+    a-halle (137,178)    8,78 m   dojo-ranma-frame
+
+**Es ist keine Streugeometrie.** Die hellen Flächen sind das Ranma-Papier der
+beschatteten Wände und die Wand selbst — beides ordentlich gebaute Bauteile an
+ihrem richtigen Platz. Was der Prüfer sieht, ist die *Lesart*: Eine ungestufte
+helle Putzfläche (L 179–186) direkt neben dunklem Deckenholz (L 51–58) ergibt
+einen Sprung von rund 130 Stufen auf wenigen Bildpunkten, und weil die Balken
+sie in Stücke schneiden, liest man diese Stücke als einzelne Körper.
+
+Der Befund ist damit **kein Geometriefehler, sondern derselbe wie Befund 22**
+(„die Decke hat keinen Lichtverlauf"): Über der hell beleuchteten Mattenfläche
+fehlt jede indirekte Aufhellung nach oben, und der Wand über dem Ranma fehlt
+jede Verlaufsmodellierung. Beides gehört in ein Paket zur Innenraumbeleuchtung
+und nicht in eine Korrektur an der Wandgeometrie — die ist in Ordnung.
+
+Notiert, umgeschrieben, offen.
