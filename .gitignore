@@ -8,3 +8,9 @@ tools/metrics/
 tools/shots/run-*/
 tools/shots/debug/
 tools/shots/wiederholung/
+
+# Abtastungen: ein Regler in mehreren Stufen, ein Verzeichnis je Stufe. Die
+# Zahlen stehen im Log, die Bilder sind nach dem Vergleich wertlos - und ein
+# Durchlauf legt schnell fuenf davon an.
+tools/shots/pal-*/
+tools/shots/trans-*/
