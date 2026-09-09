@@ -520,3 +520,52 @@ damit die einzige, die noch trägt, und sie widerspricht dem Kommentar im Code
 gerechnet wird, ist ungeprüft und steht offen.
 
 **Konsole sauber, Geometrie unberührt, Budget unverändert.**
+
+---
+
+## Messung zu Prüferbefund 3 — die Lichtschächte sind die halbe Beleuchtung
+
+Prüferbefund 3: *„Die Lichtschächte sind ein Overlay über dem Bild, keine
+Lichtstrahlen im Raum. Sie laufen über die Wand, über den massiven
+Tokonoma-Pfosten, in die Nische hinein und wieder heraus — überall im gleichen
+Bildwinkel, gleicher Weichheit und gleicher Stärke."*
+
+Der erste Verdacht — abgeschalteter Tiefentest — ist falsch. Am Material steht
+ausdrücklich `depthTest: true`, mit Begründung: „Nur so schneidet der Fußboden
+den Schacht dort ab, wo das Licht auftrifft." Die Prismen werden also korrekt
+verdeckt.
+
+Mit der neuen Beitragsspalte, `a-halle`:
+
+    Knoten              Punkte   Mittel   p95   max   Beitrag
+    dojo-light-shafts   472 890    154,0   251   255      32,0
+    dojo-shoji-bloom     54 517    196,2   254   255       7,4
+
+**472 890 Bildpunkte sind einundfünfzig Prozent des Bildes.** Über die halbe
+Fläche liegt eine additive Lage, die sie um zweiunddreissig Stufen anhebt, und
+im 95. Perzentil steht sie bei 251 — dort stösst sie an.
+
+Damit ist der Befund bestätigt, und zugleich ist klar, warum er sich nicht
+einzeln beheben lässt: **Die Schächte sind keine Zutat, sie sind die
+Beleuchtung.** Paket B hat gemessen, dass die Sonne zum Innenboden null Stufen
+beiträgt und die Himmelskarte ebenfalls null; was den Raum hell macht, sind die
+beiden Hemisphärenlichter — und diese Lage. Nimmt man sie herunter, bleibt ein
+flacher, toter Raum.
+
+Der Weg dahin ist derselbe, den Paket B schon benannt hat und den Befund 4 und
+Befund 22 ebenfalls brauchen: **eine echte Lichtquelle für die leuchtende
+Papierwand.** Sie ist im Bild das Hellste (L 185) und beleuchtet nichts. Erst
+wenn der Raum sein Licht von dort bekommt, kann die additive Lage auf das
+zurückgehen, was sie sein soll — ein Hauch Dunst in der Luft statt einer Farbe
+auf der Wand.
+
+Vier Befunde hängen damit an einem Paket:
+
+* **3** — die Schächte als Overlay,
+* **4** — die hellen Wandflächen ohne Verlauf, die als Klötze lesen,
+* **22** — die Decke ohne indirekte Aufhellung von unten,
+* **2** — kein Objekt wirft einen Schatten, weil im Raum kein gerichtetes Licht
+  ankommt.
+
+Das ist das nächste Paket, und es ist ein Umbau der Innenraumbeleuchtung, kein
+Nachziehen einer Zahl. **Offen, mit dieser Begründung.**
