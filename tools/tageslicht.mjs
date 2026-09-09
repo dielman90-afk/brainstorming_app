@@ -41,6 +41,13 @@ const BILD = bi >= 0 ? argv[bi + 1] : null;
 // damit `anschlag.mjs` sie zaehlen kann.
 const sri = argv.indexOf('--schachtreihe');
 const SCHACHTREIHE = sri >= 0 ? argv.slice(sri + 1).filter((a) => /^[0-9.]+$/.test(a)).map(Number) : null;
+// `--sonnenreihe <faktor…>` skaliert die werfende Sonne und misst je Wert
+// **beides**: die Helligkeit der Flaeche und dieselbe Flaeche ohne jeden
+// Schattenwurf. Die Differenz ist die Schattentiefe — und genau die ist die
+// Frage, wenn ein Garten „keine Schatten" hat: Ein Schatten kann nur
+// wegnehmen, was die Sonne hinlegt.
+const sori = argv.indexOf('--sonnenreihe');
+const SONNENREIHE = sori >= 0 ? argv.slice(sori + 1).filter((a) => /^[0-9.]+$/.test(a)).map(Number) : null;
 const hri = argv.indexOf('--himmelsreihe');
 const HIMMELSREIHE = hri >= 0 ? argv.slice(hri + 1).filter((a) => /^[0-9.]+$/.test(a)).map(Number) : null;
 
@@ -219,6 +226,40 @@ try {
       },
       { gruppe: `env-${ENV}` }
     );
+    process.stdout.write('\n');
+  }
+  if (SONNENREIHE) {
+    const sonne = (f) =>
+      page.evaluate(
+        ({ f, gruppe }) => {
+          const g = window.__app.scene.children.find((c) => c.name === gruppe);
+          g.traverse((o) => {
+            if (!o.isDirectionalLight || !o.castShadow) return;
+            if (o.userData.__sonnenBasis === undefined) o.userData.__sonnenBasis = o.intensity;
+            o.intensity = o.userData.__sonnenBasis * f;
+          });
+        },
+        { f, gruppe: `env-${ENV}` }
+      );
+    process.stdout.write(
+      `${SHOT}, werfende Sonne skaliert — je Feld "Stand / Schattentiefe"\n\n${'Faktor'.padEnd(10)}` +
+        felder.map(([n]) => n.slice(0, 13).padStart(17)).join('') + '\n'
+    );
+    for (const f of SONNENREIHE) {
+      await sonne(f);
+      const b = await bild();
+      if (BILD) fs.writeFileSync(BILD.replace(/\.png$/, `-${String(f).replace('.', '_')}.png`), PNG.sync.write(b));
+      const mitWurf = messe(b);
+      await lichtWurf(false);
+      const ohne = messe(await bild());
+      await lichtWurf(true);
+      process.stdout.write(
+        String(f).padEnd(10) +
+          mitWurf.map((v, i) => `${v.toFixed(1)} / ${(ohne[i] - v).toFixed(1)}`.padStart(17)).join('') +
+          '\n'
+      );
+    }
+    await sonne(1);
     process.stdout.write('\n');
   }
   // **Und wer liefert das Licht?** Der Schattenwurf erklaert beim Kies nur

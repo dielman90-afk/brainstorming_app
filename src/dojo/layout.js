@@ -259,7 +259,37 @@ export const SUN = {
   position: [15.3, 3.9, 6.5],
   target: [0, 0.85, 0.5],
   color: 0xffe9c4,
-  intensity: 1.9,
+  // **1,9 → 4,75.** Der Pruefer meldete im zweiten Durchgang als schwersten
+  // Befund: „Der Garten wirft keine Schatten. Bei tiefstehender Sonne ist das
+  // der staerkste Bruch im ganzen Bildsatz — der Betrachter liest Nachmittag
+  // am Himmelslicht und bedeckten Mittag am Boden."
+  //
+  // Zwei naheliegende Ursachen habe ich gemessen und beide verworfen:
+  //
+  //   * Die Gartensteine aus dem Schattenpass genommen (Paket A) — wieder
+  //     eingeschaltet aendert 0,07 Prozent der Bildpunkte bei Dmax 12.
+  //   * Das Schattenfrustum zu klein fuer das Kiesbeet bei z = 7 bis 12,6 —
+  //     von 12 auf 17 aufgeweitet aendert 0,3 bis 0,7 Prozent.
+  //
+  // Die Ursache stand schon in Paket B und ich habe sie nicht zu Ende gedacht:
+  // **Die Sonne trug zum Kies 3,9 Stufen bei**, alles andere kam aus der
+  // Himmelskarte. Ein Schatten kann nur wegnehmen, was die Sonne hinlegt — vier
+  // Stufen tief ist kein Schatten, sondern eine Tönung.
+  //
+  // Gemessen, je Feld „Helligkeit / Schattentiefe" in `c-engawa`:
+  //
+  //     Faktor    Kies rechts    Kies links      Laubwand   Shoji-Papier
+  //       1,0     96,8 /  4,4   113,3 / 2,8   138,0 / 0,0   132,2 / 22,8
+  //       2,0    103,3 /  7,8   121,1 / 5,2   148,1 / 0,0   132,4 / 22,8
+  //       3,5    111,7 / 11,7   130,3 / 8,2   159,7 / 0,0   132,5 / 22,8
+  //       5,0    118,8 / 14,7   137,6 / 10,5  168,5 / 0,0   132,6 / 22,8
+  //
+  // Gewaehlt ist Faktor 2,5. Der Innenraum bleibt davon fast unberuehrt — das
+  // Shoji-Papier bewegt sich ueber die ganze Reihe um vier Zehntel, weil die
+  // Dachueberstaende die Sonne drinnen ohnehin abfangen. Nach oben begrenzt
+  // die Laubwand: Ab etwa 160 liegt sie im flachen Bereich der ACES-Kurve und
+  // verliert ihre Saettigung, dieselbe Grenze wie in Paket B.
+  intensity: 4.75,
   // Ortho-Frustum eng um den Innenraum. Zu weit gefasst = weiche, matschige
   // Schatten; zu eng = abgeschnittene Schatten am Rand.
   //
@@ -268,7 +298,19 @@ export const SUN = {
   // 24 m auf 1024 wären 2,3 cm je Texel gewesen, gröber als vor der
   // Verlängerung – und die Schatten des Hains auf dem Papier sind genau das,
   // wofür der Hain da ist. Mit 2048 sind es 1,17 cm, feiner als vorher.
-  shadow: { halfExtent: 12, near: 0.5, far: 34, mapSize: 2048, bias: -0.0012, normalBias: 0.02 },
+  // **17 statt 12 Halbmaß.** Der Kiesgarten liegt bei z = 7 bis 12,6 und stand
+  // damit genau am Rand des Frustums — was dort auf den Kies faellt, kann gar
+  // nicht ankommen, weil die Schattenkarte nicht so weit reicht. Genau das war
+  // der Befund „der Garten wirft keine Schatten", und er lag nicht an den
+  // Werfern, sondern an der Reichweite.
+  //
+  // Der Preis ist die Texelgroesse: 2 x 17 m auf 2048 sind 16,6 mm gegen
+  // vorher 11,7. Der groesste Verbraucher ist der Schattenriss der Halme auf
+  // dem Papier, und der steht in acht bis zwoelf Metern Entfernung — dort ist
+  // der Unterschied zwischen 12 und 17 mm nicht zu sehen. Die Alternative
+  // waere eine 4096er Karte gewesen, und die kostet 16 MB Texturspeicher bei
+  // einem Budget, das schon bei 42,85 von 60 steht.
+  shadow: { halfExtent: 17, near: 0.5, far: 40, mapSize: 2048, bias: -0.0012, normalBias: 0.02 },
 };
 
 // Richtung, aus der das Licht kommt, als normalisierter Vektor – für

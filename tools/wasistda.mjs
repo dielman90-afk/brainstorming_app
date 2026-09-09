@@ -16,7 +16,16 @@ import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockC
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'dojo');
-const rest = argv.filter((a, i) => !a.startsWith('--') && argv[i - 1] !== '--env');
+const oiRoh = argv.indexOf('--ohne');
+const rest = argv.filter(
+  (a, i) => !a.startsWith('--') && argv[i - 1] !== '--env' && (oiRoh < 0 || i < oiRoh)
+);
+// `--ohne <name…>` blendet Knoten aus der Trefferliste aus. Ohne das ist die
+// Liste im Dojo unbrauchbar: Die additiven Lichtschaechte fuellen jeden Strahl
+// mit vier bis sechs Treffern, und was dahinter steht — also das, wonach man
+// sucht — faellt aus der Liste.
+const oi = argv.indexOf('--ohne');
+const OHNE = oi >= 0 ? argv.slice(oi + 1).filter((a) => !a.startsWith('--')) : [];
 const SHOT = rest[0];
 const PUNKTE = rest.slice(1).map((p) => p.split(',').map(Number));
 if (!SHOT || !PUNKTE.length) {
@@ -33,7 +42,7 @@ try {
   await lockCamera(page, shotsFor(ENV).find((s) => s.name === SHOT), 6.0);
   await page.waitForTimeout(300);
   const treffer = await page.evaluate(
-    ({ punkte, breite, hoehe, gruppe }) => {
+    ({ punkte, breite, hoehe, gruppe, ohne }) => {
       const THREE = window.__THREE;
       const app = window.__app;
       const g = app.scene.children.find((c) => c.name === gruppe);
@@ -48,7 +57,10 @@ try {
       return punkte.map(([x, y]) => {
         const ndc = new THREE.Vector2((x / breite) * 2 - 1, -((y / hoehe) * 2 - 1));
         rc.setFromCamera(ndc, app.camera);
-        const hits = rc.intersectObject(g, true).slice(0, 6);
+        const hits = rc
+          .intersectObject(g, true)
+          .filter((h) => !ohne.includes(h.object.name))
+          .slice(0, 6);
         return {
           x,
           y,
@@ -61,7 +73,7 @@ try {
         };
       });
     },
-    { punkte: PUNKTE, breite: VIEWPORT.width, hoehe: VIEWPORT.height, gruppe: `env-${ENV}` }
+    { punkte: PUNKTE, breite: VIEWPORT.width, hoehe: VIEWPORT.height, gruppe: `env-${ENV}`, ohne: OHNE }
   );
   for (const t of treffer) {
     process.stdout.write(`${SHOT}  (${t.x},${t.y})\n`);

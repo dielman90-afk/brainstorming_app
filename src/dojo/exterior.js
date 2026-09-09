@@ -737,7 +737,21 @@ function buildGarden(group, r) {
   // Schatten werfen, ist ein eigener Pruefbefund. Wer ihnen hier `castShadow`
   // naehme, machte den Befund unbehebbar.
   solid.name = 'dojo-garden-stein';
-  solid.castShadow = false;
+  // **Zurueckgenommen — die Begruendung in Paket A galt fuer Pflanzen, nicht
+  // fuer Steine.**
+  //
+  // Dort stand: Die Sonne steht im Ostsuedosten, der Garten im Sueden, seine
+  // Schatten fallen nach −x und −z, also unter das Gebaeude und vom Betrachter
+  // weg — hinter die Pflanzen, die sie werfen. Fuer ein Polster oder eine
+  // Krone stimmt das. Die **Steinlaterne und die Trittsteine** stehen aber auf
+  // offenem Kies, und ihr Schatten faellt genau dorthin, wo man ihn sieht.
+  //
+  // Dazu kam Paket B: Der Aussenraum ist seitdem doppelt so hell. Ein Schatten,
+  // der bei L 60 nicht auffiel, faellt bei L 92 auf. Die Messung von damals
+  // war richtig, ihre Verallgemeinerung war es nicht.
+  //
+  // 2 096 Dreiecke, und das Budget hat sie: 339 862 von 350 000.
+  solid.castShadow = true;
   solid.receiveShadow = true;
   // **Nasser Sockel am Becken.**
   //

@@ -1245,12 +1245,41 @@ function buildScroll() {
     knob.rotateZ(Math.PI / 2);
     knob.translate(sx * (SCROLL.w / 2 + 0.016), -SCROLL.h - 0.012, 0);
     rodGeos.push(tint(knob, 0x17120f));
-    // Aufhängeschnur zum Haken
-    const cord = new THREE.CylinderGeometry(0.0022, 0.0022, 0.17, 5);
-    cord.translate(0, 0.085, 0);
-    cord.rotateZ(sx * 0.5);
-    cord.translate(sx * (SCROLL.w / 2 - 0.01), 0.002, 0);
+    // **Die Schnur führt jetzt wirklich zu einem Haken.**
+    //
+    // Vorher: Länge 0,17 m, um 0,5 rad geneigt. Die Spitze landete damit bei
+    // ±13,9 cm von der Mitte — die beiden Schnüre trafen sich also **gar
+    // nicht**, sie hörten in der Luft auf, und darüber hing nichts. Ein Prüfer
+    // hat es gemeldet, und der Kommentar hier sagte schon vorher „zum Haken",
+    // nur gab es keinen.
+    //
+    // Ein Kakemono hängt an **einem** Haken am Otoshigake, der kleinen Leiste
+    // unter dem Nischensturz: Die Schnur läuft vom linken Stabende hinauf zum
+    // Haken und wieder hinab zum rechten. Also zwei Schenkel, die sich in der
+    // Mitte treffen.
+    //
+    // Waagerechter Lauf 0,22 m (halbe Rollbildbreite minus 1 cm), Steigung
+    // 0,17 m: Damit sitzt die Spitze bei y = 2,592, und der Sturz liegt bei
+    // 2,6. Länge und Winkel folgen daraus — hypot(0,22 | 0,17) = 0,278 und
+    // atan(0,22 / 0,17) = 0,913 rad. Sie sind gerechnet und nicht gewählt;
+    // wer die Rollbildbreite ändert, muss beide mitziehen.
+    const CORD_RUN = SCROLL.w / 2 - 0.01;
+    const CORD_RISE = 0.17;
+    const CORD_LEN = Math.hypot(CORD_RUN, CORD_RISE);
+    const cord = new THREE.CylinderGeometry(0.0022, 0.0022, CORD_LEN, 5);
+    cord.translate(0, CORD_LEN / 2, 0);
+    cord.rotateZ(sx * Math.atan2(CORD_RUN, CORD_RISE));
+    cord.translate(sx * CORD_RUN, 0.002, 0);
     rodGeos.push(tint(cord, 0x2e2a26));
+  }
+  // Der Haken selbst: ein kurzer dunkler Stift, der aus der Leiste heraussteht.
+  // Ohne ihn bleibt die Schnur eine Linie, die im Nichts endet — und genau das
+  // sieht man sofort, auch wenn man es nicht benennen kann.
+  {
+    const haken = new THREE.CylinderGeometry(0.0045, 0.0038, 0.03, 8);
+    haken.rotateX(Math.PI / 2);
+    haken.translate(0, 0.002 + 0.17, 0.015);
+    rodGeos.push(tint(haken, 0x1d1815));
   }
   const rodMat = hinokiMaterial({ roughness: 0.7 });
   rodMat.vertexColors = true;

@@ -805,3 +805,130 @@ Beleuchtungsänderung aus. Budget unverändert: 111 Draw-Calls, 339 862 Dreiecke
 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-08`.
+
+---
+
+## Der Prüfer über den Stand nach Paket G
+
+Zweiter Durchgang, frisch gebrieft, ohne Kenntnis des ersten Berichts. Was er
+als **tragend** benennt — und wovon er ausdrücklich abrät, es anzufassen:
+
+* die Lichtführung im Innenraum in `a-halle` (Paket G),
+* Durchscheinen und Kumiko-Teilung der Shoji,
+* die Tatami-Nahoberfläche in `e-tatami` (Paket C),
+* Deckenbalken-Perspektive und Maßstab des Raums insgesamt.
+
+> „Der Grundgedanke, den Raum ausschliesslich über die Papierwand und den
+> Schattenriss zu beleuchten, funktioniert."
+
+Von den siebenundzwanzig Befunden des ersten Berichts tauchen mehrere nicht
+mehr auf: das Kippen der Tageszeit, der Streifenteppich, die schwebenden
+Requisiten, die ausgebrannten Flächen als Hauptvorwurf. Sein neuer Befund 1 ist
+dafür schärfer als alles im ersten Bericht.
+
+---
+
+## Paket H — „Der Garten wirft keine Schatten", und warum ich das selbst gebaut habe
+
+Prüferbefund 1 des zweiten Durchgangs, in seinen Worten:
+
+> Laterne, Trittsteine, Ahorn und Bambus stehen auf einer gleichmässig hellen
+> Kiesfläche, ohne dass irgendetwas einen Schlagschatten wirft. Der Betrachter
+> liest „Nachmittag" am Himmelslicht und „bedeckter Mittag" am Boden, und diese
+> beiden Aussagen widersprechen sich in derselben Bildhälfte.
+
+**Der erste Verdacht fiel auf mich.** In Paket A hatte ich die Gartenvegetation
+aus dem Schattenpass genommen — gemessen trug sie null Bildpunkte bei — und das
+mit Geometrie begründet: Sonne im Ostsüdosten, Garten im Süden, Schatten fallen
+unter das Gebäude und vom Betrachter weg. Für Polster und Kronen stimmt das.
+Für **Steinlaterne und Trittsteine auf offenem Kies** ist es eine unzulässige
+Verallgemeinerung, und Paket B hat den Aussenraum seitdem verdoppelt.
+
+Also zurückgenommen und gemessen: **0,070 Prozent geänderte Bildpunkte, Δmax
+12.** Die alte Messung hält also auch beim helleren Licht. Nicht die Ursache.
+
+**Zweiter Verdacht: die Reichweite der Schattenkarte.** Das Ortho-Frustum stand
+bei ±12 m um (0 | 0,85 | 0,5), und das Kiesbeet liegt bei z = 7 bis 12,6 —
+genau am Rand. Aufgeweitet auf ±17: **0,3 bis 0,7 Prozent.** Auch nicht.
+
+### Die Ursache stand seit Paket B da, und ich habe sie nicht zu Ende gedacht
+
+Die Bilanz je Quelle auf dem Kies, aus Paket B:
+
+    DirectionalLight #ffe9c4 1,9 (die werfende Sonne)      3,9 Stufen
+    HemisphereLight #9fc2d8 0,85                           4,3 Stufen
+    Himmelskarte                                          45,1 Stufen
+
+**Die Sonne trägt zum Kies vier Stufen bei.** Ein Schatten kann nur wegnehmen,
+was die Sonne hinlegt — vier Stufen tief ist kein Schatten, sondern eine
+Tönung. Der Garten wird zu neunzig Prozent von einer Umgebungskarte beleuchtet,
+und die wirft grundsätzlich nichts.
+
+Die Reihe misst deshalb je Wert **beides**, Helligkeit und Schattentiefe
+(`--sonnenreihe`, dieselbe Fläche einmal mit und einmal ohne jeden Wurf):
+
+    Faktor    Kies rechts     Kies links      Laubwand    Shoji-Papier
+      1,0    96,8 /  4,4    113,3 /  2,8   138,0 / 0,0    132,2 / 22,8
+      2,0   103,3 /  7,8    121,1 /  5,2   148,1 / 0,0    132,4 / 22,8
+      3,5   111,7 / 11,7    130,3 /  8,2   159,7 / 0,0    132,5 / 22,8
+      5,0   118,8 / 14,7    137,6 / 10,5   168,5 / 0,0    132,6 / 22,8
+
+Zwei Dinge stehen darin, die den Ausschlag geben:
+
+* Die Schattentiefe auf dem Kies **skaliert sauber mit der Sonne**, 4,4 auf
+  14,7 — der Mechanismus ist bestätigt.
+* Das **Shoji-Papier bewegt sich über die ganze Reihe um vier Zehntel**. Der
+  Innenraum ist von dieser Schraube praktisch unberührt, weil die
+  Dachüberstände die Sonne drinnen ohnehin abfangen. Es gibt also keinen
+  Zielkonflikt mit Paket G.
+
+Gewählt: **`SUN.intensity` 1,9 → 4,75** (Faktor 2,5). Nach oben begrenzt die
+Laubwand: Ab etwa 160 liegt sie im flachen Bereich der ACES-Kurve und verliert
+ihre Sättigung — dieselbe Grenze wie in Paket B, zum sechsten Mal in diesem
+Auftrag.
+
+### Was das Paket erreicht — und was ehrlicherweise nicht
+
+Die Schattentiefe auf dem Kies steigt von 4,4 auf rund 10 Stufen, der Kies
+selbst von 96,8 auf 110. Das Ausbrennen bleibt weit unter dem Ausgangsstand
+(`e-tatami` 2,44 → 3,21 Prozent gegen 8,57 vor Paket G), und kein Bildpunkt hat
+alle drei Kanäle am Anschlag.
+
+**Im Bild von `c-engawa` sieht man davon fast nichts**, und das ist keine
+Ausrede, sondern die Geometrie, die ich in Paket A schon beschrieben hatte: Die
+Sonne steht im Ostsüdosten, die Schatten der Laterne und der Trittsteine fallen
+nach Westnordwesten — also **hinter** die Gegenstände, von beiden Gartenkameras
+aus gesehen. Was jetzt tiefer ist, liegt grösstenteils dort, wo keine der sechs
+Kameras hinsieht.
+
+Die Ursache ist damit behoben und die Wirkung im Bild bleibt gering. Wer sie
+sehen will, braucht einen Standpunkt, der mit der Sonne blickt statt gegen sie
+— und der Kamerasatz ist eingefroren, aus gutem Grund. **Notiert als das, was
+es ist.**
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Im Dojo 3,3 bis
+25,4 Prozent geänderte Bildpunkte. Budget: 112 Draw-Calls (von 111 — der
+Gartenstein wirft wieder), 342 022 Dreiecke von 350 000, 42,85 MB Textur.
+Konsole sauber.
+
+Bildstand `tools/shots/dojo-12`.
+
+### Nebenbei: das Rollbild hängt jetzt an etwas
+
+Prüferbefund 15 des ersten Berichts. Die beiden Aufhängeschnüre waren 0,17 m
+lang und um 0,5 rad geneigt; ihre Spitzen landeten damit bei ±13,9 cm von der
+Mitte — sie trafen sich also **gar nicht**, sie hörten in der Luft auf, und
+darüber hing nichts. Der Kommentar an der Stelle sagte schon „Aufhängeschnur
+zum Haken", nur gab es keinen Haken.
+
+Jetzt zwei Schenkel, die sich in der Mitte treffen, und ein kurzer dunkler
+Stift am Otoshigake. Waagerechter Lauf 0,22 m, Steigung 0,17 m; Länge und
+Winkel folgen daraus (`hypot` und `atan2`) statt als Zahlen dazustehen — wer
+die Rollbildbreite ändert, zieht beide automatisch mit.
+
+### Werkzeug
+
+`wasistda.mjs` hat jetzt `--ohne <knoten…>`. Ohne das ist die Trefferliste im
+Dojo unbrauchbar: Die additiven Lichtschächte füllen jeden Strahl mit vier bis
+sechs Treffern, und was dahinter steht — also das, wonach man sucht — fällt aus
+der Liste.
