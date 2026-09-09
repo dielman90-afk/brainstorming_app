@@ -984,3 +984,68 @@ geänderte Bildpunkte. Budget: 112 Draw-Calls von 120, 342 022 Dreiecke von
 350 000, 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-14`.
+
+## Paket J — der Waffenständer hält die Waffen jetzt wirklich
+
+**Prüferbefund 8 des zweiten Berichts:** Die Stangenwaffen gehen durch die
+Auflage des Ständers hindurch.
+
+Der Befund ist buchstäblich zu nehmen. Der Kopfriegel war ein Kasten von 0,13 m
+Tiefe, gesetzt auf `POLE.x` — **die Mitte des Riegels lag genau dort, wo die
+Schäfte stehen.** Er trug nichts; er durchdrang. Der Kommentar über der
+Requisite sagte „ein Kopfriegel mit Löchern", nur gab es keine Löcher.
+
+**Ein Riegel, der eine Stange hält, kann nicht an der Stelle der Stange sein.**
+Er muss daneben sitzen, und zwar auf beiden Seiten, sonst fällt sie nach vorn
+heraus. Das ist auch der gebräuchliche Bau: zwei dünne Latten, die die Stangen
+zwischen sich klemmen. Innenkante 0,0325 gegen den größten Schaftradius 0,021,
+Aussenkante 0,0675 gegen die Pfostenflanke 0,045 — die Latten greifen also
+1,25 cm auf die Pfosten und enden nicht in der Luft.
+
+**Zweite Höhe bei 0,90.** Jo (Oberkante 1,34) und die beiden Bokken (1,08)
+reichen gar nicht bis zum Kopfriegel bei 1,42; die Hälfte des Ständers stand
+also frei. Jetzt werden alle sechs gehalten.
+
+### Drei Fehler, die dabei herausfielen
+
+**Der Ausgleich für die Neigung stand in der falschen Achse.** `shaft()` neigt
+mit `rotateX`, also **in z**, und verschob dann um `POLE.x - sin(lean)·len/2`
+— **in x**. Das glich nichts aus, es versetzte den Schaft um 2,9 cm zur Seite
+und schob die Naginata damit bis auf 5 cm an die Aussenkante heran. Der
+Ausgleich gehört dorthin, wo geneigt wird.
+
+**Die Klingen sassen neben ihren Schäften.** `shaft()` gab nur die Höhe zurück;
+Naginata-Klinge und Yari-Spitze wurden auf `(POLE.x, top, zs[i])` gesetzt — also
+auf die *ungeneigte* Achse. Jetzt liefert `shaft()` Höhe **und** z der Spitze.
+
+**Der Bokken stand schief, obwohl er senkrecht gesetzt war.** `spineAt` biegt
+von s = 0 nach +x weg, und der Bokken läuft von s = −0,24 bis s = +0,78 — er
+liegt also ganz auf einer Seite dieses Nullpunkts: Knauf bei x = 0,007, Spitze
+bei x = 0,072. Die Sehne steht damit um **3,7 Grad** schief, und mit der
+Rückneigung von 1,7 Grad zusammen kippten die beiden im Bild sichtbar aus dem
+Ständer. `addBokken` richtet die Sehne jetzt auf und legt den Knauf auf y = 0;
+die Krümmung selbst (3,1 cm Pfeilhöhe) bleibt, und das ist die Sori, die ein
+Bokken haben soll.
+
+Dazu eine Vierteldrehung um Y an der Aufstellstelle: Die Krümmung liegt damit
+**in der Ebene des Ständers** statt quer heraus — sie passt zwischen die Latten
+und ist obendrein zu sehen, weil der Ständer von Osten betrachtet wird.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Im Dojo nur die
+zwei Kameras, die den Ständer sehen: `a-halle` 0,51 %, `e-tatami` 0,77 %,
+`d-suedfront` 0,002 %, die übrigen drei bitgleich. Budget: 112 Draw-Calls von
+120, **343 438** Dreiecke von 350 000 (vorher 342 022 — die vier Latten kosten
+1 416), 42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-17`.
+
+### Werkzeug: `measure.mjs --frames <n>`
+
+Der Budgetlauf ist zweimal in die Zeitgrenze gelaufen, ohne eine einzige Zahl
+auszugeben. Grund: 60 Frames je Kamera, und `e-tatami` braucht im
+Software-Rasterizer 11,7 Sekunden je Bild — das sind allein für diese Kamera
+zwölf Minuten. Gemessen wird dabei eine Zahl, die laut dem Kopf von
+`measure.mjs` **ohnehin kein Budgetkriterium ist**: Der Container hat keine GPU.
+
+`--frames 3` bringt denselben Budgetbefund in einem Sechstel der Zeit. Die
+Frame-Zeit ist dann nichts mehr wert — sie war es nie.

@@ -35,7 +35,16 @@ const SHOTS = shotsFor(envId);
 // Zahl, die ohnehin kein Budgetkriterium ist (siehe Kopf dieser Datei).
 // Draw-Calls, Dreiecke und Texturspeicher – die belastbaren Werte – stehen
 // nach dem ersten Bild fest.
-const FRAMES = 60;
+//
+// **`--frames <n>` senkt die Zahl weiter.** Im Dojo kostet `d-suedfront` – der
+// Blick durch die ganze Halle in den Garten – im Software-Rasterizer mehr als
+// zehn Sekunden je Bild; 60 Frames sind dort allein über zehn Minuten, und
+// zweimal ist der Lauf deshalb in die Zeitgrenze gelaufen, bevor überhaupt eine
+// Budgetzahl herauskam. Wer nur das Budget prüfen will, nimmt `--frames 3`: Die
+// Frame-Zeit ist dann nichts wert, aber sie war es laut dem Kopf dieser Datei
+// ohnehin nie.
+const framesArg = argv.indexOf('--frames');
+const FRAMES = framesArg >= 0 ? Math.max(1, Number(argv[framesArg + 1])) : 60;
 
 const server = await startServer();
 const browser = await launchBrowser({ perf: true });

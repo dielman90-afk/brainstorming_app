@@ -1546,6 +1546,28 @@ function addBokken(B, matrix, hex) {
     vs.push(k * 6);
   }
   const geo = loft(rings, vs, { capStart: true, capEnd: true, swapUV: true });
+
+  // **Die Sehne aufrichten und den Griffknauf auf den Ursprung legen.**
+  //
+  // `spineAt` biegt von s = 0 aus nach +x weg. Der Bokken laeuft aber von
+  // s = -0,24 bis s = +0,78, liegt also ganz auf einer Seite dieses Nullpunkts:
+  // Knauf bei x = 0,007, Spitze bei x = 0,072. Die Sehne steht damit um 3,7 Grad
+  // schief, und wer ihn „senkrecht" hinstellt, stellt ihn schief hin — im Bild
+  // zwei Stoecke, die aus dem Staender zu kippen scheinen. Nach der Drehung um
+  // die Sehne bleibt die Kruemmung selbst (3,1 cm Pfeilhoehe), und das ist die
+  // Sori, die ein Bokken haben soll.
+  //
+  // Zugleich wandert der Knauf auf y = 0: die Hoehe, die der Aufrufer setzt,
+  // ist dann die Hoehe des Knaufs und nicht die eines Nullpunkts irgendwo in
+  // der Mitte des Bogens.
+  const p0 = spineAt(R, -0.24).p;
+  const p1 = spineAt(R, L - 0.24).p;
+  const kipp = Math.atan2(p1.x - p0.x, p1.y - p0.y);
+  geo.rotateZ(kipp);
+  const c = Math.cos(kipp);
+  const sn = Math.sin(kipp);
+  geo.translate(-(p0.x * c - p0.y * sn) - 0.015, -(p0.x * sn + p0.y * c), 0);
+
   geo.applyMatrix4(matrix);
   B.wood.geos.push(tint(geo, hex, contactAO(0.3)));
 }
@@ -1590,19 +1612,52 @@ function addPoleRack(B) {
   const sill = roundedBox(0.17, 0.07, POLE.span + 0.22, 0.014);
   sill.translate(POLE.x, 0.035, POLE.z);
   put('wood', sill, 0xc2a279, ao);
-  const head = roundedBox(0.13, 0.08, POLE.span + 0.22, 0.014);
-  head.translate(POLE.x, POLE.headY, POLE.z);
-  put('wood', head, 0xd2b184, ao);
+
+  // **Zwei Latten je Hoehe statt eines Riegels in der Mitte.**
+  //
+  // Der Kopfriegel war 0,13 m tief und stand mit seiner Mitte auf `POLE.x` —
+  // also genau dort, wo die Schaefte stehen. Er hielt die Waffen nicht, er ging
+  // durch sie hindurch. Ein Riegel, der eine Stange traegt, kann nicht an der
+  // Stelle sein, an der die Stange ist; er muss daneben sein, und zwar auf
+  // beiden Seiten, sonst faellt sie nach vorn. Das ist auch der uebliche Bau:
+  // zwei duenne Latten, die die Stangen zwischen sich klemmen.
+  //
+  // Die Latten greifen um 1,25 cm auf die Pfosten (Pfostenflanke bei 0,045,
+  // Lattenaussenkante bei 0,0675) — sie liegen also an, statt in der Luft zu
+  // enden. Innenkante 0,0325 gegen einen groessten Schaftradius von 0,021: ein
+  // Zentimeter Luft.
+  const LATTE_X = 0.05;
+  const LATTE_D = 0.035;
+  const latten = (y, hoehe, hex) => {
+    for (const sx of [-1, 1]) {
+      const l = roundedBox(LATTE_D, hoehe, POLE.span + 0.22, 0.010);
+      l.translate(POLE.x + sx * LATTE_X, y, POLE.z);
+      put('wood', l, hex, ao);
+    }
+  };
+  latten(POLE.headY, 0.075, 0xd2b184);
+  // Zweite Hoehe fuer das kurze Geraet. Jo (Oberkante 1,34) und die beiden
+  // Bokken (1,08) reichen nicht bis zum Kopfriegel — sie standen bisher voellig
+  // frei im Staender. Bei 0,90 werden alle sechs gehalten.
+  latten(0.9, 0.06, 0xc9aa7e);
 
   // Die Waffen. Jede ist ein Schaft plus höchstens ein Kopf; die Schäfte sind
   // schlichte verjüngte Zylinder, weil an einem zwei Meter langen Stab die
   // Silhouette alles ist und der Querschnitt nichts.
   const shaft = (z, len, rBase, rTop, hex, lean) => {
     const g = new THREE.CylinderGeometry(rTop, rBase, len, 8);
-    g.rotateX(lean); // leichte Rückneigung gegen den Kopfriegel
-    g.translate(POLE.x - Math.sin(lean) * len * 0.5, len / 2 + 0.06, z);
+    // Die Neigung geht um X, also **in z**, nicht in x. Der Ausgleich in x, der
+    // hier stand (`POLE.x - sin(lean) * len/2`), verschob den Schaft deshalb um
+    // 2,9 cm zur Seite, ohne irgendetwas auszugleichen — und schob die Naginata
+    // damit bis auf 5 cm an die Aussenkante des Riegels heran. Der Ausgleich
+    // gehoert in z, wo geneigt wird: dann steht der Fuss auf der Rille.
+    g.rotateX(lean);
+    g.translate(POLE.x, len / 2 + 0.06, z + Math.sin(lean) * len * 0.5);
     put('wood', g, hex, ao);
-    return len + 0.06;
+    // Die Spitze wandert beim Neigen mit — wer eine Klinge daraufsetzt, braucht
+    // beide Koordinaten. Vorher gab es nur die Hoehe zurueck, und die Klinge
+    // sass entsprechend neben dem Schaft.
+    return { y: len * Math.cos(lean) + 0.06, z: z + Math.sin(lean) * len };
   };
 
   const zs = Array.from({ length: slots }, (_, i) => z0 + i * step);
@@ -1631,11 +1686,11 @@ function addPoleRack(B) {
     // damit waagerecht: eine Klinge, die zwei Meter über dem Boden quer in der
     // Luft schwebt. Dieselbe Verwechslung wie schon zweimal bei den Sprossen.
     const blade = loft(rings, vs, { flat: true, capEnd: true });
-    blade.translate(POLE.x, top, zs[0]);
+    blade.translate(POLE.x, top.y, top.z);
     put('steel', tint(blade, 0xd7dde2), 0xd7dde2);
     // Messingzwinge am Übergang
     const collar = new THREE.CylinderGeometry(0.026, 0.026, 0.07, 8);
-    collar.translate(POLE.x, top - 0.02, zs[0]);
+    collar.translate(POLE.x, top.y - 0.02, top.z);
     put('metal', collar, 0xb08d4a);
   }
 
@@ -1644,10 +1699,10 @@ function addPoleRack(B) {
     const top = shaft(zs[1], 2.05, 0.02, 0.016, 0x6f533a, -0.03);
     const head = new THREE.ConeGeometry(0.034, 0.36, 4);
     head.rotateY(Math.PI / 4);
-    head.translate(POLE.x, top + 0.15, zs[1]);
+    head.translate(POLE.x, top.y + 0.15, top.z);
     put('steel', tint(head, 0xd7dde2), 0xd7dde2);
     const collar = new THREE.CylinderGeometry(0.028, 0.03, 0.09, 8);
-    collar.translate(POLE.x, top + 0.01, zs[1]);
+    collar.translate(POLE.x, top.y + 0.01, top.z);
     put('metal', collar, 0xb08d4a);
   }
 
@@ -1663,13 +1718,27 @@ function addPoleRack(B) {
   // Aufrecht heißt hier **gar keine Drehung**: `addBokken()` baut entlang +Y,
   // steht also von sich aus. Eine Drehung um X um 90 Grad – der erste Versuch –
   // legt es flach auf den Boden, und genau so lag es dann auch.
+  //
+  // **Die Krümmung liegt jetzt in z statt in x.** `spineAt` biegt die Klinge
+  // entlang +x, und über die 1,02 m des Bokken sind das 7,2 cm — bei senkrechtem
+  // Aufstellen also 7,2 cm Neigung nach vorn aus dem Ständer heraus, quer durch
+  // die vordere Latte. Eine Vierteldrehung um Y legt den Bogen in die Ebene des
+  // Ständers: er passt zwischen die Latten (±2,3 cm Dicke gegen 3,25 cm
+  // Innenkante) **und** man sieht ihn, weil der Ständer von Osten gesehen wird
+  // und die Krümmung damit im Profil steht statt in der Blickachse.
+  //
+  // Reihenfolge 'XYZ': erst die Vierteldrehung um Y, dann die Rückneigung um die
+  // Weltachse X — sonst würde die Neigung mitgedreht und kippte wieder nach vorn.
   for (const [i, zz] of [zs[4], zs[5]].entries()) {
-    const q = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
-      -0.03 + i * 0.015
+    const q = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(-0.03 + i * 0.015, Math.PI / 2, 0, 'XYZ')
     );
+    // `addBokken` liefert den Knauf auf y = 0; die Hoehe hier ist also die des
+    // Knaufs. 0,06 ueber dem Boden ist dieselbe Rille, in der auch die Schaefte
+    // stehen — und `y0`, weil `addBokken` an `put` vorbei in den Eimer schreibt
+    // und die Anhebung deshalb hier stehen muss.
     const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(POLE.x - 0.012, 0.3, zz),
+      new THREE.Vector3(POLE.x, y0 + 0.06, zz),
       q,
       new THREE.Vector3(1, 1, 1)
     );
