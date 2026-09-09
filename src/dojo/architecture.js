@@ -371,7 +371,11 @@ export function buildArchitecture() {
   // Verlegt im Wechsel (quer/längs paarweise), wie es üblich ist – ein
   // durchgehendes Raster sähe aus wie Fliesen, nicht wie Matten.
   const matGeo = board(TATAMI.long, TATAMI.thickness, TATAMI.short, 0.42);
-  const borderGeo = new THREE.BoxGeometry(TATAMI.long, 0.005, 0.055);
+  // **Borte 4,0 statt 5,5 cm.** An jeder Mattenfuge stossen zwei Borten
+  // aneinander; mit 5,5 cm waren das elf Zentimeter Schwarz gegen eine
+  // Mattenbreite von einundneunzig, also zwölf Prozent des Feldes. Echte Heri
+  // sind drei bis vier Zentimeter breit, zusammen also acht statt zwölf Prozent.
+  const borderGeo = new THREE.BoxGeometry(TATAMI.long, 0.005, 0.04);
   const mats = [];
   const borders = [];
   const matY = 0.055 + TATAMI.thickness / 2;
@@ -381,41 +385,88 @@ export function buildArchitecture() {
   // wäre das Feld beim Verlängern des Raums stehen geblieben.
   const { x0: FX0, x1: FX1, z0: FZ0, rows: FIELD_ROWS } = FIELD;
 
-  for (let r = 0; r < FIELD_ROWS; r++) {
-    const z = FZ0 + r * TATAMI.short + TATAMI.short / 2;
-    // Jede zweite Reihe um eine halbe Matte versetzt – der übliche Verband.
-    // Ohne Versatz entsteht ein durchgehendes Kreuzfugenraster, das wie
-    // Fliesen aussieht und nicht wie ausgelegte Matten.
-    const stagger = r % 2 === 1;
-    let x = FX0;
-    let first = true;
-    while (x < FX1 - 1e-3) {
-      // Randmatten werden gekürzt statt weggelassen. Der frühere Filter hat
-      // jede Matte verworfen, die nicht ganz passte – übrig blieb ein
-      // Flickenteppich mitten im Raum statt eines Feldes.
-      let len = first && stagger ? TATAMI.long / 2 : TATAMI.long;
-      len = Math.min(len, FX1 - x);
-      const cx = x + len / 2;
-      const sx = len / TATAMI.long;
-      mats.push({ x: cx, y: matY, z, scale: [sx, 1, 1] });
-      // Dunkle Leinenborte (Heri) an den Längsseiten – ohne sie zerfließt das
-      // Feld zu einer grünen Fläche und die Mattengrenzen verschwinden.
-      // Knapp **über** der Mattenoberkante. Vorher lag die Borte auf halber
-      // Mattenhöhe, also vollständig im Tatami versteckt: Das Feld las sich als
-      // eine einzige grüne Fläche, und damit fehlte dem Raum der Maßstab, an
-      // dem man seine Größe überhaupt ablesen kann.
-      const heriY = 0.055 + TATAMI.thickness + 0.0015;
-      borders.push({ x: cx, y: heriY, z: z - TATAMI.short / 2 + 0.028, scale: [sx, 1, 1] });
-      borders.push({ x: cx, y: heriY, z: z + TATAMI.short / 2 - 0.028, scale: [sx, 1, 1] });
-      x += len;
-      first = false;
+  // **Alle Matten lagen in derselben Richtung, und der Kommentar darüber
+  // behauptete das Gegenteil.**
+  //
+  // Hier stand „verlegt im Wechsel (quer/längs paarweise), wie es üblich ist" —
+  // und darunter eine Schleife, die jede einzelne Matte mit ihrer Längsachse
+  // auf x legt, ohne Ausnahme. Der halbe Mattenversatz jeder zweiten Reihe
+  // ändert daran nichts: Die Borten laufen trotzdem alle in derselben Richtung
+  // und bilden **durchgehende schwarze Balken über die ganze Hallenbreite**.
+  // Der Prüfer hat es „gestreifter Teppich" genannt, und das ist genau, was
+  // ein Läuferverband ohne Richtungswechsel ergibt.
+  //
+  // Das Feld misst 7,28 × 10,92 m. In Mattenlängen sind das **4 × 6 Quadrate
+  // von 1,82 m**, und jedes Quadrat fasst genau zwei Matten. Der Verband geht
+  // also ohne eine einzige geschnittene Matte auf — die Kürzungslogik von
+  // vorher wird nicht ersetzt, sie entfällt.
+  //
+  // Gelegt wird im **Schachbrett** (市松敷き): Quadrat (i,j) mit gerader Summe
+  // trägt zwei Matten längs x, mit ungerader Summe zwei Matten längs z. Damit
+  // wechselt die Borte an jeder Quadratgrenze die Richtung, es entstehen
+  // T-Stösse statt Kreuzfugen, und keine Linie läuft mehr durch den Raum.
+  //
+  // **Es ist nicht das Pinwheel-Muster** (祝儀敷き), bei dem sich zusätzlich
+  // nirgends vier Ecken treffen. Das lässt sich für ein Rechteck dieser Größe
+  // nicht regelmäßig legen, und grosse Übungshallen verwenden ohnehin den
+  // Schachbrettverband. Gesagt, damit es niemand später für ein Versehen hält.
+  const QUADRAT = TATAMI.long; // 1,82 m — zwei Matten, egal in welcher Lage
+  const HALB = TATAMI.short / 2; // 0,455 m
+  const heriY = 0.055 + TATAMI.thickness + 0.0015;
+  // Abstand der Borte von der Mattenmitte, quer zur Längsachse. Die Borte
+  // sitzt knapp **über** der Mattenoberkante: Vorher lag sie auf halber
+  // Mattenhöhe, also vollständig im Tatami versteckt, und das Feld las sich als
+  // eine einzige grüne Fläche ohne Maßstab.
+  const HERI_D = HALB - 0.028;
+
+  const legeMatte = (x, z, ry) => {
+    mats.push({ x, y: matY, z, ry });
+    // Die Borte liegt an den beiden **Längsseiten**, also quer zur Längsachse.
+    // Bei gedrehter Matte dreht sie mit — sonst stünde sie quer über der Matte.
+    const dx = ry === 0 ? 0 : HERI_D;
+    const dz = ry === 0 ? HERI_D : 0;
+    borders.push({ x: x - dx, y: heriY, z: z - dz, ry });
+    borders.push({ x: x + dx, y: heriY, z: z + dz, ry });
+  };
+
+  const spalten = Math.round((FX1 - FX0) / QUADRAT);
+  const quadratReihen = Math.floor(FIELD_ROWS / 2);
+  for (let j = 0; j < quadratReihen; j++) {
+    for (let i = 0; i < spalten; i++) {
+      const qx = FX0 + (i + 0.5) * QUADRAT;
+      const qz = FZ0 + (j + 0.5) * QUADRAT;
+      if ((i + j) % 2 === 0) {
+        legeMatte(qx, qz - HALB, 0);
+        legeMatte(qx, qz + HALB, 0);
+      } else {
+        legeMatte(qx - HALB, qz, Math.PI / 2);
+        legeMatte(qx + HALB, qz, Math.PI / 2);
+      }
     }
+  }
+  // Bleibt eine einzelne Reihe übrig (ungerade Zeilenzahl, also wenn jemand
+  // die Raumtiefe ändert), wird sie längs gelegt und schliesst das Feld ab.
+  // Ohne diesen Zweig verschwände sie stillschweigend.
+  if (FIELD_ROWS % 2 === 1) {
+    const z = FZ0 + quadratReihen * QUADRAT + HALB;
+    for (let i = 0; i < spalten; i++) legeMatte(FX0 + (i + 0.5) * QUADRAT, z, 0);
   }
   group.add(instanced(matGeo, tatami, mats, { cast: false, name: 'dojo-tatami' }));
   group.add(
     instanced(
       borderGeo,
-      new THREE.MeshStandardMaterial({ color: 0x2f2b26, roughness: 0.88 }),
+      // **Nicht mehr neutralschwarz.** Gemessen lag die Borte bei L 51 gegen
+      // Matten bei L 129 bis 157 — ein Abfall von fünfundsiebzig bis
+      // hundertfünf Stufen auf einer neutralgrauen Fläche ohne jede Zeichnung.
+      // Sie las damit nicht als Leinenband, sondern als Spalt zwischen den
+      // Matten. Heri-Leinen ist dunkel, aber es ist **blaugrau und nicht
+      // grau**, und es fängt Licht: geringere Rauheit heisst hier ein Streifen
+      // Glanz entlang der Fuge, und genau der macht aus einem Loch ein Band.
+      //
+      // Ein Gewebemuster bekommt sie damit noch nicht — dafür bräuchte es eine
+      // eigene Karte, und die kostet Texturspeicher für ein Band von vier
+      // Zentimetern. Steht offen.
+      new THREE.MeshStandardMaterial({ color: 0x343a47, roughness: 0.72 }),
       borders,
       {
         cast: false,

@@ -385,3 +385,79 @@ jede Verlaufsmodellierung. Beides gehört in ein Paket zur Innenraumbeleuchtung
 und nicht in eine Korrektur an der Wandgeometrie — die ist in Ordnung.
 
 Notiert, umgeschrieben, offen.
+
+---
+
+## Paket C — Das Mattenfeld war ein gestreifter Teppich
+
+Prüferbefund 12: *„Sämtliche Matten laufen in dieselbe Richtung, mit identischer
+Binsenrichtung, ohne Versatz, ohne Halbmatten, ohne eine einzige T-Fuge …
+durchgehende schwarze Balken über die ganze Hallenbreite."*
+
+Er hat recht, und der Code sagt selbst das Gegenteil. Über der Schleife stand:
+
+> Verlegt im Wechsel (quer/längs paarweise), wie es üblich ist – ein
+> durchgehendes Raster sähe aus wie Fliesen, nicht wie Matten.
+
+Darunter legte die Schleife **jede einzelne Matte mit ihrer Längsachse auf x**,
+ohne Ausnahme. Der halbe Mattenversatz jeder zweiten Reihe ändert daran nichts:
+Ein Läuferverband ohne Richtungswechsel lässt die Borten alle parallel laufen,
+und genau das sind die schwarzen Balken. Ein Kommentar, der eine Absicht
+beschreibt, die der Code nie umgesetzt hat — teurer als gar kein Kommentar,
+weil er die Stelle vor dem Nachsehen schützt.
+
+### Der Verband geht ohne eine geschnittene Matte auf
+
+Das Feld misst 7,28 × 10,92 m. In Mattenlängen sind das **4 × 6 Quadrate von
+1,82 m**, und jedes Quadrat fasst genau zwei Matten — 48 Stück, dieselbe Zahl
+wie vorher. Die ganze Kürzungslogik für Randmatten entfällt damit; sie wird
+nicht ersetzt, es gibt schlicht keinen Rand zu kürzen.
+
+Gelegt wird im **Schachbrett** (市松敷き): Quadrat (i,j) mit gerader Summe trägt
+zwei Matten längs x, mit ungerader Summe zwei längs z. An jeder Quadratgrenze
+wechselt die Borte die Richtung, es entstehen T-Stösse statt Kreuzfugen, und
+keine Linie läuft mehr durch den Raum. Die Binsenrichtung dreht mit, weil sie
+in der Mattengeometrie steckt — der Wechsel Hell/Dunkel über das Feld kommt
+also gratis dazu.
+
+**Es ist nicht das Pinwheel-Muster** (祝儀敷き), bei dem sich zusätzlich
+nirgends vier Ecken treffen. Das lässt sich für ein Rechteck dieser Grösse
+nicht regelmässig legen, und grosse Übungshallen verwenden ohnehin den
+Schachbrettverband. Notiert, damit es niemand später für ein Versehen hält.
+
+### Die Borte war ein Spalt, kein Band
+
+    vorher   Borte L 51,2 gegen Matten L 129 bis 157   —  75 bis 105 Stufen Abfall
+    nachher  Borte L 70,4 gegen Matten L 129 bis 150   —  59 bis  80 Stufen
+
+Zwei Änderungen, beide begründet:
+
+* **Breite 5,5 → 4,0 cm.** An jeder Mattenfuge stossen zwei Borten aneinander;
+  mit 5,5 cm waren das elf Zentimeter Schwarz gegen eine Mattenbreite von
+  einundneunzig, also zwölf Prozent des Feldes. Echte Heri sind drei bis vier
+  Zentimeter breit — zusammen acht statt zwölf Prozent.
+* **Farbe `0x2f2b26` → `0x343a47`, Rauheit 0,88 → 0,72.** Neutralgrau ohne
+  Zeichnung liest als Spalt zwischen den Matten. Heri-Leinen ist dunkel, aber
+  blaugrau und nicht grau, und es fängt Licht: Die geringere Rauheit legt einen
+  Streifen Glanz entlang der Fuge, und der macht aus einem Loch ein Band.
+
+**Ein Gewebemuster bekommt die Borte damit nicht.** Dafür bräuchte es eine
+eigene Karte, und die kostet Texturspeicher für ein Band von vier Zentimetern.
+Auf der Quest mit 23 Bildpunkten je Grad wäre sie bei drei Metern Abstand
+siebzehn Bildpunkte breit und würde lesen — hier bei 10,3 nicht. Offen, mit
+dieser Begründung.
+
+### Ergebnis
+
+    drawCalls   111 / 120        unverändert
+    triangles   339 862 / 350 000  (vorher 340 078)
+    textureMB    42,85 / 60       unverändert
+    Konsole      sauber
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Im Dojo ändert
+sich genau dort etwas, wo Matten liegen: `e-tatami` 42,4 %, `b-shoji` 22,8 %,
+`a-halle` 20,2 %, `f-gegenlicht` 17,4 %, `d-suedfront` 2,4 % — und `c-engawa`
+**bitgleich**, weil dort keine einzige Matte im Bild ist. Sauberer lässt sich
+ein Eingriff kaum eingrenzen.
+
+Bildstand `tools/shots/dojo-04`.
