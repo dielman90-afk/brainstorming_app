@@ -6,6 +6,8 @@ import {
   MAKIWARA,
   TOKONOMA,
   WALL,
+  FIELD,
+  TATAMI,
   FREE_RADIUS,
   insideFreeZone,
   sunDirection,
@@ -2264,10 +2266,38 @@ function ikebanaStems(x, z, baseY, height, seed) {
 // Kontaktschatten sitzt nicht symmetrisch unter dem Objekt, sondern im Fuß des
 // echten Schlagschattens. Ohne den Versatz widersprechen sich Blob und
 // Shadow-Map sichtbar.
+// **Auf welcher Höhe liegt der Boden an dieser Stelle?**
+//
+// Die Diele liegt bei 0,055, das Mattenfeld darauf bei 0,055 + Mattendicke.
+// Ein Kontaktfleck, der das nicht weiss, liegt im Boden statt darauf — und
+// genau das war der Fall: Die Vorgabe stand bei **0,012**, also
+// dreiundvierzig Millimeter unter der Diele und achtundneunzig unter den
+// Matten. Gemessen trug `prop-contact-shadows` in `f-gegenlicht`
+// **null Bildpunkte** bei; der Knoten war da, man sah ihn nur nie.
+//
+// Das erklärt zugleich Prüferbefund 2 („kein einziges Objekt wirft einen
+// Schatten") für die Requisiten im Innenraum: Ihr Schlagschatten kommt nicht an
+// (die Dachüberstände halten die Sonne ab, siehe Paket B), und ihr Kontaktzeichen
+// lag begraben. Beides zusammen ergibt Gegenstände, die auf dem Boden stehen und
+// aussehen, als schwebten sie — was ein Kritiker schon einmal wörtlich gemeldet
+// hat und was der Kommentar bei den Vasen weiter unten selbst beschreibt.
+const DIELE_OBEN = 0.055;
+const MATTE_OBEN = DIELE_OBEN + TATAMI.thickness;
+function bodenHoehe(x, z) {
+  const aufMatte =
+    x >= FIELD.x0 && x <= FIELD.x1 && z >= FIELD.z0 && z <= FIELD.z0 + FIELD.rows * TATAMI.short;
+  return aufMatte ? MATTE_OBEN : DIELE_OBEN;
+}
+
 function buildBlobShadows(spots) {
   const [sx, , sz] = sunDirection();
   const geos = [];
-  for (const { x, z, r, y = 0.012, opacity = 1 } of spots) {
+  for (const spot of spots) {
+    const { x, z, r, opacity = 1 } = spot;
+    // Drei Millimeter über der Fläche, auf der der Gegenstand steht. Ohne
+    // eigene Angabe wird sie aus dem Ort bestimmt — wer einen Fleck versetzt,
+    // muss dann nicht daran denken, ob er dabei vom Brett auf die Matte wandert.
+    const y = spot.y ?? bodenHoehe(x, z) + 0.003;
     const g = new THREE.PlaneGeometry(1, 1);
     g.rotateX(-Math.PI / 2);
     g.scale(r * 2, 1, r * 2);

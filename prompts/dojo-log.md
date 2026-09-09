@@ -569,3 +569,61 @@ Vier Befunde hängen damit an einem Paket:
 
 Das ist das nächste Paket, und es ist ein Umbau der Innenraumbeleuchtung, kein
 Nachziehen einer Zahl. **Offen, mit dieser Begründung.**
+
+---
+
+## Paket E — Die Kontaktschatten der Requisiten lagen unter dem Fussboden
+
+Prüferbefund 2 hat zwei Hälften. Die eine — kein geworfener Schlagschatten im
+Innenraum — ist keine Nachlässigkeit, sondern Bauwerk: Die Dachüberstände
+halten die tief stehende Sonne ab (Paket B, gemessen). Die andere Hälfte ist
+ein glatter Fehler.
+
+Das Dojo hat ein Netz namens `prop-contact-shadows` mit neun Flecken unter
+Waffenständer, Makiwara, Stangenständer, Räuchergefäss und den beiden Vasen.
+Gemessen in `f-gegenlicht`:
+
+    prop-contact-shadows   (nicht im Bild, 1 Knoten)
+
+**Null Bildpunkte.** Der Knoten ist da, gebaut, verschmolzen, mit
+Vertexfarben für die Deckkraft je Fleck — und man sieht ihn nie.
+
+### Der Grund steht in einer Vorgabe
+
+    for (const { x, z, r, y = 0.012, opacity = 1 } of spots)
+
+`y = 0.012`. Die Dielenoberkante liegt bei **0,055**, die Mattenoberkante bei
+**0,110**. Jeder Fleck lag also dreiundvierzig Millimeter unter der Diele und
+achtundneunzig unter den Matten — begraben. Der Wert war einmal richtig, als
+der Boden noch bei y = 0 lag; beim Anheben der Diele ist er stehen geblieben,
+und niemandem ist es aufgefallen, weil ein unsichtbarer Kontaktschatten keine
+Fehlermeldung erzeugt, sondern nur fehlt.
+
+Besonders schön ist, dass der Kommentar bei den Vasen im selben Aufruf das
+Symptom bereits beschreibt:
+
+> Sie standen nachweislich auf der Diele … und sahen trotzdem aus, als
+> schwebten sie. Ein unabhängiger Kritiker hat es als „schwebt 70 cm über dem
+> Boden" gemeldet … Ohne dunkle Fuge am Fuß liest das Auge keinen Bodenkontakt.
+
+Genau richtig erkannt — und der Fleck, der es beheben sollte, lag im Boden.
+
+### Die Höhe wird jetzt berechnet, nicht gesetzt
+
+Ohne eigene Angabe bestimmt `bodenHoehe(x, z)` die Fläche, auf der der
+Gegenstand steht — Matte innerhalb des Feldes, Diele ausserhalb — und legt den
+Fleck drei Millimeter darüber. Wer einen Fleck versetzt, muss dann nicht daran
+denken, ob er dabei vom Brett auf die Matte wandert.
+
+    vorher      0 px
+    nachher   5 999 px   Beitrag −18,5 Stufen
+
+Im Bild haben die Vasen am Eingang jetzt eine dunkle Fuge am Fuss und stehen
+auf der Diele statt darüber.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Im Dojo ändern
+sich 0,06 bis 0,69 Prozent der Bildpunkte, jeweils mit dem Schwerpunkt am
+Boden. Budget unverändert: 111 Draw-Calls, 339 862 Dreiecke, 42,85 MB Textur.
+Konsole sauber.
+
+Bildstand `tools/shots/dojo-05`.
