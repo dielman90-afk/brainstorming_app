@@ -238,7 +238,22 @@ export function hinokiMaps() {
   // die Maserung an der Kachelgrenze ab. Das Wackeln, das die Ringe unregelmäßig
   // macht, kommt aus periodischem Rauschen und kachelt mit.
   const grain = (x, y) => {
-    const wobble = pfbm((x / size) * CELLS, (y / size) * CELLS * 4, CELLS, 3, 11) - 0.5;
+    // **Das Wackeln lief längs schneller als quer — genau verkehrt.**
+    //
+    // Bis hierher stand `pfbm((x/size)*CELLS, …, CELLS, …)`: acht Rauschzellen
+    // *längs* des Bretts, sechzehn nach der dritten Oktave. Bei elf Ringen je
+    // Kachel ist die Wackelperiode damit **feiner als der Ringabstand** — die
+    // Spätholzlinie springt schneller auf und ab, als sie überhaupt breit ist.
+    // Auf einer schmalen Schwelle, in der genau eine Linie Platz hat, ergibt
+    // das ein gleichmäßiges Zickzack mit scharfen Ecken: der Prüferbefund
+    // „Zickzack-Gekritzel auf den Schwellhölzern der Shoji".
+    //
+    // Holzmaserung wackelt **langsam längs und schnell quer**. Zwei Zellen über
+    // die Kachel in x, acht in y. Beide Spannen sind Vielfache der Periode 2,
+    // die Kachel bleibt also nahtlos — `pvalue` wickelt den Zellindex, nicht
+    // die Koordinate, und eine Spanne, die nicht auf die Periode aufgeht, gäbe
+    // an der Kachelgrenze eine Naht.
+    const wobble = pfbm((x / size) * 2, (y / size) * 8, 2, 3, 11) - 0.5;
     const rings = Math.sin(((y / size) * RINGS + wobble * 0.35) * Math.PI * 2);
     // Schmale, harte Spätholzstreifen; das Frühholz dazwischen bleibt flach.
     const late = Math.pow(Math.max(0, rings), 6);

@@ -1178,3 +1178,49 @@ Für eine Abtastung — denselben Regler in drei Stufen — sind sechs Bilder je
 Stufe reine Wartezeit, wenn die Wirkung nur an einer Kamera abzulesen ist. Der
 eingefrorene Kamerasatz bleibt unberührt: Wer vergleicht, lässt ihn ganz
 laufen; wer einen Regler sucht, nicht.
+
+## Paket L — das Zickzack auf den Schwellhölzern
+
+**Prüferbefund 9 des zweiten Berichts:** Zickzack-Gekritzel auf den
+Schwellhölzern der Shoji.
+
+Der Befund war leicht zu bestätigen und die Ursache eine Zeile:
+
+```js
+const wobble = pfbm((x / size) * CELLS, (y / size) * CELLS * 4, CELLS, 3, 11) - 0.5;
+const rings  = Math.sin(((y / size) * RINGS + wobble * 0.35) * Math.PI * 2);
+const late   = Math.pow(Math.max(0, rings), 6);
+```
+
+`CELLS` ist 8, und mit drei Oktaven sind das **32 Rauschzellen längs** des
+Bretts. `RINGS` ist 11. Die Wackelperiode der Spätholzlinie war damit
+**dreimal feiner als der Ringabstand** — die Linie springt schneller auf und
+ab, als sie überhaupt breit ist. `pow(…, 6)` macht daraus eine harte schmale
+Linie, und das Wertrauschen ist zwischen den Gitterpunkten linear
+interpoliert: eine harte Linie auf einem stückweise geraden Mittelweg **ist**
+ein Zickzack mit scharfen Ecken.
+
+Auf der Diele fällt das nicht auf, weil dort viele Ringe nebeneinander liegen.
+Auf einer schmalen Schwelle, in die genau **eine** Linie passt, ist es das
+Einzige, was man sieht.
+
+**Holzmaserung wackelt langsam längs und schnell quer.** Zwei Zellen über die
+Kachel in x, acht in y. Beide Spannen sind Vielfache der Periode 2 — die
+Kachel bleibt nahtlos, denn `pvalue` wickelt den Zellindex und nicht die
+Koordinate; eine Spanne, die nicht auf die Periode aufgeht, gäbe an der
+Kachelgrenze eine Naht.
+
+Im Bild ist aus dem Gekritzel ein weich laufendes Maserungsband geworden.
+
+**Die Änderung wirkt auf alles Hinoki im Haus** — Diele, Balken, Rahmen,
+Engawa. Das ist beabsichtigt: Sie hatten denselben Fehler, nur weniger
+sichtbar.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Im Dojo 4,5 bis
+14,5 Prozent der Bildpunkte um mindestens 2 Stufen geändert, aber nur 0,02 bis
+0,4 Prozent um mindestens 24 — das flächige, kleine Muster einer
+Maserungsänderung. Budget unverändert: Texturgrösse, Texturzahl und Geometrie
+sind dieselben; geändert hat sich allein der Inhalt einer 512er Kachel.
+Konsole sauber.
+
+Bildstand `tools/shots/dojo-23`.
