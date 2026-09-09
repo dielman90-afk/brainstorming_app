@@ -696,8 +696,48 @@ function buildGarden(group, r) {
   // unruhigen Fläche. Das Material ist je Ton eine geteilte Instanz; hier wird
   // die des Gartensteins verstellt, die Trittsteine haben ihre eigene.
   solid.material.normalScale.set(2.2, 2.2);
+  // **Der Garten wirft nicht mehr. Gemessen, nicht gespart.**
+  //
+  // Das Dojo lag mit 418 534 Dreiecken um 19,6 Prozent ueber der Vorgabe von
+  // 350 000. Die Ursache steht in der Aufstellung: 185 116 der 233 278
+  // Dreiecke stecken in Schattenwerfern, und ein Werfer wird ein zweites Mal
+  // gezeichnet. **Die Verdopplung IST die Ueberschreitung** — ohne sie waeren
+  // es 233 278 und damit reichlich Luft.
+  //
+  // Wer aus dem Schattenpass darf, ist damit keine Geschmacksfrage.
+  // `tools/wurfnutzen.mjs` misst je Werfer, wie viele Bildpunkte sich aendern,
+  // wenn er nicht mehr wirft — ueber alle sechs Kameras:
+  //
+  //     dojo-bamboo-laub        36 192 Dr.   494 878 px bei 16-39 Stufen
+  //     dojo-bamboo             30 240 Dr.    24 716 px bei  5-37 Stufen
+  //     dojo-garden-blattkarten 38 380 Dr.       689 px bei     4 Stufen
+  //     dojo-garden-polster     12 880 Dr.         0 px
+  //     dojo-garden-kronenkarten 8 280 Dr.         0 px
+  //     dojo-garden-krone        7 200 Dr.         0 px
+  //     dojo-garden-blattk.-fern 6 240 Dr.         7 px
+  //     dojo-garden-farne        3 380 Dr.         0 px
+  //     dojo-garden-stein        2 096 Dr.         0 px
+  //
+  // Und das ist kein Beleuchtungsfehler, sondern Geometrie: Die Sonne steht
+  // im Ostsuedosten, der Garten liegt im Sueden. Seine Schatten fallen nach
+  // −x und −z, also **unter das Gebaeude und vom Betrachter weg** — hinter die
+  // Pflanzen, die sie werfen. Deshalb kommt davon nichts an, in keiner der
+  // sechs Kameras, und deshalb bleibt das auch so, wenn die Beleuchtung des
+  // Gartens spaeter noch angefasst wird.
+  //
+  // Der Bambushain rings um das Haus wirft weiter. Er ist der Werfer, der
+  // traegt — sein Schattenriss auf dem Papier ist die Lichtidee dieses Raums,
+  // und er allein aendert eine halbe Million Bildpunkte.
+  //
+  // Zusammen 78 456 Dreiecke aus dem Schattenpass: 418 534 → 340 078.
+  //
+  // **Die Requisiten bleiben Werfer**, obwohl sie gemessen ebenfalls nichts
+  // beitragen (zwei Bildpunkte fuer 23 940 Dreiecke). Bei ihnen ist es sehr
+  // wohl ein Fehler — sie stehen im Raum, mitten im Licht, und dass sie keinen
+  // Schatten werfen, ist ein eigener Pruefbefund. Wer ihnen hier `castShadow`
+  // naehme, machte den Befund unbehebbar.
   solid.name = 'dojo-garden-stein';
-  solid.castShadow = true;
+  solid.castShadow = false;
   solid.receiveShadow = true;
   // **Nasser Sockel am Becken.**
   //
@@ -1008,7 +1048,8 @@ function buildGarden(group, r) {
   });
   moundMesh.instanceMatrix.needsUpdate = true;
   if (moundMesh.instanceColor) moundMesh.instanceColor.needsUpdate = true;
-  moundMesh.castShadow = true;
+  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+  moundMesh.castShadow = false;
   moundMesh.receiveShadow = true;
   moundMesh.userData.fullCount = mounds.length;
   group.add(moundMesh);
@@ -1082,7 +1123,8 @@ function buildGarden(group, r) {
       });
       cards.instanceMatrix.needsUpdate = true;
       if (cards.instanceColor) cards.instanceColor.needsUpdate = true;
-      cards.castShadow = true;
+      // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+      cards.castShadow = false;
       cards.receiveShadow = true;
       cards.userData.fullCount = list.length;
       group.add(cards);
@@ -1158,7 +1200,8 @@ function buildGarden(group, r) {
   });
   crownMesh.instanceMatrix.needsUpdate = true;
   if (crownMesh.instanceColor) crownMesh.instanceColor.needsUpdate = true;
-  crownMesh.castShadow = true;
+  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+  crownMesh.castShadow = false;
   crownMesh.userData.fullCount = puffs.length;
   group.add(crownMesh);
 
@@ -1202,7 +1245,8 @@ function buildGarden(group, r) {
   });
   crownCards.instanceMatrix.needsUpdate = true;
   if (crownCards.instanceColor) crownCards.instanceColor.needsUpdate = true;
-  crownCards.castShadow = true;
+  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+  crownCards.castShadow = false;
   crownCards.userData.fullCount = puffs.length;
   group.add(crownCards);
 
@@ -1316,7 +1360,8 @@ function buildGarden(group, r) {
   });
   frondMesh.instanceMatrix.needsUpdate = true;
   if (frondMesh.instanceColor) frondMesh.instanceColor.needsUpdate = true;
-  frondMesh.castShadow = true;
+  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+  frondMesh.castShadow = false;
   frondMesh.userData.fullCount = fronds.length;
   group.add(frondMesh);
 

@@ -170,3 +170,88 @@ nichts. Sie werden im Schattenpass ein zweites Mal gezeichnet und zahlen damit
 
 Damit hängen Befund 2 und die Budgetüberschreitung am selben Faden, und beide
 werden in einem Zug behandelt.
+
+---
+
+## Paket A — Das Dreiecksbudget, und warum es gerissen war
+
+Nicht die Geometrie war zu gross, sondern **der Schattenpass**.
+`tools/dreiecke.mjs` zählt je Zeichenknoten:
+
+    70 Zeichenknoten, 233 278 Dreiecke
+    davon in Schattenwerfern 185 116
+
+Ein Werfer wird ein zweites Mal gezeichnet. Das Budget sieht also 418 394 —
+und die Vorgabe liegt bei 350 000. **Die Verdopplung ist die Überschreitung.**
+Ohne sie stünden 233 278 da, mit reichlich Luft.
+
+### Wer aus dem Schattenpass darf, ist eine Rechnung
+
+`tools/wurfnutzen.mjs` nimmt jeden Werfer einzeln aus dem Pass und zählt, wie
+viele Bildpunkte sich ändern — über alle sechs Kameras:
+
+| Werfer | Dreiecke | geänderte Bildpunkte |
+| --- | ---: | --- |
+| `dojo-bamboo-laub` | 36 192 | **494 878** bei 16–39 Stufen |
+| `dojo-bamboo` | 30 240 | 24 716 bei 5–37 Stufen |
+| `dojo-garden-blattkarten` | 38 380 | 689 bei 4 Stufen |
+| `dojo-garden-polster` | 12 880 | **0** |
+| `dojo-garden-kronenkarten` | 8 280 | **0** |
+| `props-wood` | 7 488 | **0** |
+| `dojo-garden-krone` | 7 200 | **0** |
+| `dojo-garden-blattkarten-fern` | 6 240 | 7 |
+| `props-fibre` | 5 272 | **0** |
+| `props-lacquer` | 4 716 | 9 |
+| `dojo-lattice` | 4 224 | 19 |
+| `dojo-ranma-bars` | 4 224 | **0** |
+| `props-metal` | 3 726 | **0** |
+| `dojo-garden-farne` | 3 380 | **0** |
+| `dojo-ranma-frame` | 2 160 | 351 bei 13–14 Stufen |
+| `dojo-garden-stein` | 2 096 | **0** |
+
+Ein Werfer trägt die Szene: `dojo-bamboo-laub`. Er allein ändert eine halbe
+Million Bildpunkte — er ist der Schattenriss auf dem Papier, die Lichtidee
+dieses Raums.
+
+### Gestrichen wurde die Gartenvegetation, und zwar aus Geometrie
+
+Sieben Knoten, zusammen 78 456 Dreiecke: Polster, Kronen, Kronenkarten,
+Blattkarten nah und fern, Farne, Gartenstein.
+
+Der Grund ist **nicht** ein Beleuchtungsfehler, den man später beheben könnte.
+Die Sonne steht im Ostsüdosten, der Garten liegt im Süden; seine Schatten
+fallen nach −x und −z, also unter das Gebäude und vom Betrachter weg — hinter
+die Pflanzen, die sie werfen. Das bleibt so, auch wenn die Beleuchtung des
+Gartens noch angefasst wird.
+
+**Die Requisiten bleiben Werfer**, obwohl sie gemessen ebenso wenig beitragen
+(zwei Bildpunkte für 23 940 Dreiecke). Bei ihnen ist es sehr wohl ein Fehler:
+Sie stehen im Raum, mitten im Licht, und dass sie keinen Schatten werfen, ist
+Prüferbefund 2. Wer ihnen hier `castShadow` nähme, machte den Befund
+unbehebbar.
+
+### Ergebnis
+
+    vorher    drawCalls 118/120   triangles 418 534/350 000  ÜBERSCHRITTEN
+    nachher   drawCalls 111/120   triangles 340 078/350 000  OK
+
+Die Draw-Calls fallen mit, weil ein verschmolzener Werfer auch im
+Schattendurchgang einen eigenen Aufruf hatte. Textur unverändert 42,85 MB,
+Konsole sauber.
+
+**Im Bild ist davon nichts zu sehen.** `b-shoji` ist bitgleich, `a-halle` und
+`e-tatami` ändern 0,007 und 0,022 Prozent der Bildpunkte, `c-engawa` mit
+0,379 Prozent am meisten — davon 0,003 Prozent stärker als 24 Stufen. Zwei
+Ausschnitte des Gartens nebeneinander sind nicht zu unterscheiden. Insel,
+Konstrukt, Nachthimmel und Zen-Garten bitgleich.
+
+### Eine Lehre zur Messung
+
+Die Einzelmessung sagte für `c-engawa` 393 geänderte Bildpunkte, der Vergleich
+nach dem Eingriff zeigt 3495. Der Unterschied ist kein Fehler, sondern die
+Natur der Sache: **Überlappende Schatten verdecken einander.** Nimmt man einen
+von zwei Werfern heraus, die dieselbe Stelle verschatten, ändert sich dort
+nichts — nimmt man beide, ändert sich alles. Eine Werferliste, die einzeln
+gemessen wurde, unterschätzt die Summe systematisch. Für die Entscheidung hier
+war das ungefährlich, weil auch die Summe unsichtbar blieb; als Regel gehört es
+notiert.
