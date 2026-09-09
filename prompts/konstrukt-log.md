@@ -1785,3 +1785,80 @@ hilft nur mehr Abtastung, nicht ein glatteres Material.
 eine geänderte Zeile im vorhandenen Shader. Zen, Nachthimmel und Insel
 **bitgleich**, Dojo Δmax 6 bei 0,011 %. Build grün, Konsole frei von Errors und
 Warnings.
+
+---
+
+## Paket 22 — Die Kissenoberseite, dritter Anlauf: der Renderer kennt keine Verdeckung
+
+Paket 10 hat den Befund „Kissenoberseite ohne Form" offen gelassen und dabei
+selbst notiert, was noch zu versuchen wäre: „eine **Naht** quer über das
+Polster oder ein **flacheres Führungslicht**". Das hier ist die Naht.
+
+### Erst die Geometrie — und sie tut nichts
+
+`polsterKissen` bekommt eine gaußsche Rille quer über die Oberseite: 6 mm tief,
+rund 3,3 cm breit, mit ausgeschriebener Ableitung für die Normale (eine
+genäherte Normale auf einer Rille sieht man sofort — die Flanke, die das Licht
+fängt, ist dann die falsche). Dazu zwanzig Segmente statt vierzehn in der
+Tiefe, weil bei vierzehn auf 55 cm **keine zwei Stützstellen in der Rille
+lägen** und eine Rille zwischen zwei Vertices nicht existiert.
+
+Gemessen am Kissen in `e-schraeg`, differenziell auf seinen eigenen
+Bildpunkten:
+
+| | p05 | p50 | p95 | Mittel |
+| --- | --- | --- | --- | --- |
+| ganz ohne Naht | 50 | 80 | 93 | 77,0 |
+| Rille, nur Geometrie | 50 | 80 | 92 | 76,5 |
+
+**Nichts.** Dritter gemessener Fehlschlag an derselben Stelle, nach Neigung
+und Wölbung in Paket 10.
+
+### Diesmal mit der Erklärung dazu
+
+Paket 10 hat es der weißen Leere zugeschrieben — „es gibt keine Richtung, aus
+der eine waagerechte Fläche nicht beleuchtet wird". Das stimmt, greift aber zu
+kurz. Der eigentliche Grund ist:
+
+**Dieser Renderer hat kein Umgebungsverdeckungs-Glied.** Die
+Hemisphärenleuchte wertet allein die Normale aus. Der Grund einer Rille hat
+dieselbe Normale wie die Fläche daneben und bekommt deshalb **exakt dasselbe
+Licht** — egal wie tief sie ist. Was eine Rille im Bild dunkel macht, ist ihre
+Selbstverdeckung, und die wird hier schlicht nicht gerechnet.
+
+Damit ist auch klar, warum Neigung und Wölbung scheiterten und warum eine
+tiefere Rille nichts gebessert hätte: Es ist kein Regler zu klein eingestellt,
+es fehlt ein Term.
+
+### Also gebacken
+
+`kissenVerdeckung` legt jetzt zusätzlich einen dunklen Streifen in die Rille —
+etwas breiter als die Rille selbst, weil eine Naht im Leder nicht nur ihren
+Grund verdunkelt, sondern den Zug zeigt, mit dem sie die Fläche beiderseits
+einholt.
+
+| | p05 | p50 | p95 | Mittel |
+| --- | --- | --- | --- | --- |
+| ohne Naht | 50 | 80 | 93 | 77,0 |
+| Rille gebacken | 50 | **77** | 92 | **75,6** |
+
+Drei Stufen im Median. Das ist wenig, und es ist das erste Mal an dieser
+Stelle, dass überhaupt etwas messbar ist. Im Bild aus einem Meter liest das
+Kissen jetzt als zweiteiliges Polster statt als eine Kuppe.
+
+**Der Befund ist damit nicht glänzend gelöst, aber er ist verstanden.** Wer
+mehr will, braucht entweder ein Verdeckungsglied im Beleuchtungsmodell oder
+das flachere Führungslicht — und das ändert jede andere Fläche der Szene mit.
+
+Dieselbe Einsicht hat im Dojo unmittelbar davor die Bildnische gerettet: Dort
+ist die Verdeckung aus demselben Grund gebacken und nicht beleuchtet.
+
+### Regression und Kosten
+
+Insel, Nachthimmel und Zen **bitgleich** gegen den aktuellen Stand. Die eigenen
+sechs Kameras ändern sich um 0,09 bis 1,65 Prozent der Bildpunkte — nur das
+Kissen. 49 Draw-Calls, **98 436** Dreiecke (von 94 020; die sechs zusätzlichen
+Tiefensegmente kosten 4 416), 1,98 MB Textur. Build grün, Konsole frei von
+Errors und Warnings.
+
+Bildstand `tools/shots/konst-04`.

@@ -15189,7 +15189,22 @@ function kederRing(breite, tiefe, ecke, schnur = 0.008) {
 //
 // Scheitelfarben kennen dieses Problem nicht: Sie werden vor dem Verschmelzen
 // aus den LOKALEN Koordinaten berechnet und wandern danach unveraendert mit.
-function kissenVerdeckung(geometrie, breite, tiefe) {
+//
+// `naht` (normierte Tiefenlage, wie bei `polsterKissen`) legt zusaetzlich einen
+// dunklen Streifen in die Rille. **Das ist nicht Zierrat, sondern der einzige
+// Weg, auf dem eine Rille hier ueberhaupt dunkel werden kann:** Der Renderer
+// hat kein Umgebungsverdeckungs-Glied. Die Hemisphaerenleuchte wertet allein
+// die Normale aus; der Grund einer Rille hat dieselbe Normale wie die Flaeche
+// daneben und bekommt deshalb exakt dasselbe Licht. Gemessen, bevor das hier
+// stand — Kissen in `e-schraeg`, differenziell auf den eigenen Bildpunkten:
+//
+//     nur Geometrie, ohne diese Faerbung   p05 50  p50 80  p95 92
+//     ganz ohne Naht                       p05 50  p50 80  p95 93
+//
+// Also nichts. Dieselbe Lehre wie bei Neigung und Woelbung in Paket 10, nur
+// diesmal mit der Erklaerung dazu: Nicht das Licht fehlt, sondern die
+// Verdeckung — und die muss gebacken werden.
+function kissenVerdeckung(geometrie, breite, tiefe, naht = null) {
   const pos = geometrie.attributes.position;
   const farben = new Float32Array(pos.count * 3);
   const glatt = (a, b, x) => {
@@ -15210,14 +15225,51 @@ function kissenVerdeckung(geometrie, breite, tiefe) {
     const v = 0.5 + 0.5 * glatt(0, 0.18, hinten) * glatt(0, 0.14, seite);
     // Nur oben: An der Vorderkante und an den Flanken verdeckt nichts.
     const oben = glatt(-0.02, 0.05, pos.getY(i));
-    const f = 1 - (1 - v) * oben;
+    let f = 1 - (1 - v) * oben;
+    if (naht !== null) {
+      // Der Streifen ist etwas breiter als die Rille selbst: Was eine Naht im
+      // Leder dunkel macht, ist nicht nur ihr Grund, sondern der Zug, mit dem
+      // sie die Flaeche beiderseits einholt.
+      const dt = (pos.getZ(i) - naht * (tiefe / 2)) / (tiefe / 2);
+      const rille = Math.exp(-(dt * dt) / (2 * 0.085 * 0.085));
+      f *= 1 - 0.4 * rille * oben;
+    }
     farben[i * 3] = farben[i * 3 + 1] = farben[i * 3 + 2] = f;
   }
   geometrie.setAttribute('color', new THREE.BufferAttribute(farben, 3));
   return geometrie;
 }
 
-function polsterKissen(breite, hoehe, tiefe, kante = 0.05, woelbung = 0.022, segmente = 14) {
+//
+// **`naht` legt eine Rille quer ueber die Oberseite.**
+//
+// Der Grund steht in Paket 10: Die Kissenoberseite hatte acht Stufen
+// Tonwertumfang (p05 54 / p95 62), und weder Woelbung noch Verdeckung haben
+// daran mehr als drei Stufen geaendert. Die Begruendung dort war richtig und
+// gilt weiter — in einer weissen Leere kommt Licht aus allen oberen
+// Richtungen, eine waagerechte Flaeche laesst sich also nicht in den Schatten
+// neigen. Was bleibt, ist **Geometrie, die sich selbst verdeckt**: eine Rille
+// hat zwei Flanken, die gegeneinander kippen, und einen Grund, der weniger
+// Himmel sieht als die Flaeche daneben.
+//
+// Paket 10 hat das selbst als naechsten Schritt notiert („eine Naht quer ueber
+// das Polster oder ein flacheres Fuehrungslicht") und nicht mehr ausgefuehrt.
+// Das hier ist die Naht; das flachere Licht bleibt ungetan, weil es jede
+// andere Flaeche der Szene mitaendert.
+//
+// `naht` ist die Lage in Tiefenrichtung, normiert auf -1..1; 0 ist die Mitte.
+// `nahtTiefe` und `nahtBreite` sind Meter bzw. normierte Tiefe.
+function polsterKissen(
+  breite,
+  hoehe,
+  tiefe,
+  kante = 0.05,
+  woelbung = 0.022,
+  segmente = 14,
+  naht = null,
+  nahtTiefe = 0.006,
+  nahtBreite = 0.06
+) {
   const g = new THREE.BoxGeometry(breite, hoehe, tiefe, segmente, 6, segmente);
   const r = Math.min(kante, breite / 2 - 0.001, hoehe / 2 - 0.001, tiefe / 2 - 0.001);
   const ix = breite / 2 - r;
@@ -15253,7 +15305,17 @@ function polsterKissen(breite, hoehe, tiefe, kante = 0.05, woelbung = 0.022, seg
     // Anstieg der Kuppe in x und z; sie kippt die Normale genau dort, wo diese
     // nach oben zeigt.
     const cx = woelbung * (-2 * u / (breite / 2)) * (1 - w * w) * m;
-    const cz = woelbung * (1 - u * u) * (-2 * w / (tiefe / 2)) * m;
+    let cz = woelbung * (1 - u * u) * (-2 * w / (tiefe / 2)) * m;
+    if (naht !== null) {
+      // Gausssche Rille. Die Ableitung steht hier ausgeschrieben und wird nicht
+      // genaehert: Eine falsche Normale auf einer Rille sieht man sofort — die
+      // Flanke, die das Licht faengt, ist die falsche.
+      const dt = w - naht;
+      const glocke = Math.exp(-(dt * dt) / (2 * nahtBreite * nahtBreite));
+      v.y -= glocke * nahtTiefe * m;
+      // d(dy)/dz = nahtTiefe * m * (dt / nahtBreite^2) * glocke / (tiefe/2)
+      cz += (nahtTiefe * m * dt * glocke) / (nahtBreite * nahtBreite * (tiefe / 2));
+    }
     const gewicht = Math.max(0, n.y);
     n.x -= cx * gewicht;
     n.z -= cz * gewicht;
@@ -15535,7 +15597,16 @@ function makeConstructArmchair() {
   // Draw-Call fuer eine Messhilfe ist vertretbar, zwei sind es nicht.
   const kissenLeder = konstruktKissenLeder();
   const seat = new THREE.Mesh(
-    kissenVerdeckung(polsterKissen(seatW, 0.15, seatD, 0.05, 0.022), seatW, seatD),
+    kissenVerdeckung(
+      // Zwanzig Segmente statt vierzehn in der Tiefe: Die Rille ist bei einer
+      // Breite von 0,06 normiert rund 3,3 cm breit, und mit vierzehn Segmenten
+      // auf 55 cm lagen darin keine zwei Stuetzstellen. Eine Rille, die
+      // zwischen zwei Vertices liegt, gibt es nicht.
+      polsterKissen(seatW, 0.15, seatD, 0.05, 0.022, 20, 0),
+      seatW,
+      seatD,
+      0
+    ),
     kissenLeder
   );
   seat.position.set(0, 0.38, frontZ + 0.015 - 0.0275);
