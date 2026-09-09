@@ -823,6 +823,94 @@ export function buildArchitecture() {
   tokJambs.castShadow = true;
   tok.add(tokJambs);
 
+  // **Die Nische braucht ein Inneres, kein zweites Wandstück.**
+  //
+  // Prüferbefund 5: „die Tokonoma hat keine Tiefe". Gemessen in `e-tatami` lag
+  // die Nischenrückwand bei L 171,2 gegen L 183,1 für die Nordwand daneben —
+  // **zwölf Stufen** für einen halben Meter Rücksprung. Eine Bildnische ist
+  // ein dunkler Kasten; zwölf Stufen sind ein Anstrich.
+  //
+  // Die Ursache ist bekannt und bleibt: Für die Innenräume gibt es keinen
+  // eigenen Schattendurchgang (das Dreiecksbudget trägt keinen dritten
+  // Kegelstumpf, siehe Paket A). Ohne Verschattung bekommt die Nische
+  // dieselbe Halbraumaufhellung wie die offene Wand, und der einzige
+  // Unterschied ist der Farbwert des Putzes.
+  //
+  // Also gebacken. Vier unterteilte Flächen dicht innen an der Schale —
+  // Rückwand, zwei Wangen, Deckel —, deren Vertexfarbe mit der Tiefe im
+  // Rücksprung und mit der Nähe zu Wange, Sturz und Boden abfällt. **Die
+  // Unterteilung ist der Punkt:** Eine Kastenfläche hat vier Ecken, und
+  // zwischen vier Ecken kann man eine Rampe legen, aber keine Vignette. Zwölf
+  // mal zwölf Felder tragen den Verlauf, den eine Nische wirklich hat.
+  //
+  // Ein Zeichenaufruf für alle vier, weil sie ein Material teilen.
+  const nischeAO = (x, y, z) => {
+    const spanne = (a, b, v) => Math.min(1, Math.max(0, (v - a) / (b - a)));
+    // 0 an der Öffnung, 1 an der Rückwand
+    const tiefe = spanne(0, TOKONOMA.depth, WALL.north - z);
+    // 1 dicht an Wange, Sturz oder Nischenboden
+    const wange = 1 - spanne(0, 0.55, TOKONOMA.width / 2 - Math.abs(x - TOKONOMA.centerX));
+    const sturz = 1 - spanne(0, 0.6, TOKONOMA.headY - y);
+    const sockel = 1 - spanne(0, 0.45, y - TOKONOMA.floorY);
+    const ecke = Math.max(wange, Math.max(sturz, sockel));
+    // Die Ecke zählt tief in der Nische mehr als an der Öffnung: Dort fällt
+    // Licht von der Seite herein, hinten nicht mehr.
+    return 1 - 0.40 * tiefe - 0.34 * ecke * (0.35 + 0.65 * tiefe);
+  };
+  const faerbe = (geo, hex) => {
+    const c = new THREE.Color(hex);
+    const pos = geo.attributes.position;
+    const farben = new Float32Array(pos.count * 3);
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(geo.userData.welt);
+      const f = nischeAO(v.x, v.y, v.z);
+      farben[i * 3] = c.r * f;
+      farben[i * 3 + 1] = c.g * f;
+      farben[i * 3 + 2] = c.b * f;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    return geo;
+  };
+  const innen = [];
+  const lege = (geo, matrix) => {
+    geo.userData.welt = matrix;
+    faerbe(geo, 0xffffff);
+    geo.applyMatrix4(matrix);
+    delete geo.userData.welt;
+    innen.push(geo);
+  };
+  const NH = TOKONOMA.headY - TOKONOMA.floorY;
+  const NY = (TOKONOMA.headY + TOKONOMA.floorY) / 2;
+  const LUFT = 0.004; // knapp vor der Schale, damit nichts flimmert
+  lege(
+    new THREE.PlaneGeometry(TOKONOMA.width, NH, 12, 12),
+    new THREE.Matrix4().makeTranslation(
+      TOKONOMA.centerX,
+      NY,
+      WALL.north - TOKONOMA.depth + LUFT
+    )
+  );
+  for (const side of [-1, 1]) {
+    const m = new THREE.Matrix4().makeRotationY(-side * Math.PI / 2);
+    m.setPosition(
+      TOKONOMA.centerX + side * (TOKONOMA.width / 2 - LUFT),
+      NY,
+      WALL.north - TOKONOMA.depth / 2
+    );
+    lege(new THREE.PlaneGeometry(TOKONOMA.depth, NH, 6, 12), m);
+  }
+  const deckel = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+  deckel.setPosition(TOKONOMA.centerX, TOKONOMA.headY - LUFT, WALL.north - TOKONOMA.depth / 2);
+  lege(new THREE.PlaneGeometry(TOKONOMA.width, TOKONOMA.depth, 12, 6), deckel);
+
+  const nischeMat = plasterMaterial(0x9c968a);
+  nischeMat.vertexColors = true;
+  const nischeInnen = new THREE.Mesh(mergeGeometries(innen, false), nischeMat);
+  nischeInnen.name = 'dojo-tokonoma-innen';
+  nischeInnen.receiveShadow = true;
+  tok.add(nischeInnen);
+
   // Erhöhter Nischenboden aus einem einzigen dicken Brett
   const tokFloor = new THREE.Mesh(
     board(TOKONOMA.width, TOKONOMA.floorY, TOKONOMA.depth, 0.5),

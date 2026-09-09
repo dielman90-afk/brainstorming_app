@@ -1299,3 +1299,41 @@ Draw-Calls von 120, 312 410 Dreiecke von 350 000 (von 312 050 — zehn Matten
 mehr), 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-26`.
+
+## Paket N — die Bildnische ist ein Kasten geworden
+
+**Prüferbefund 5 des zweiten Berichts:** Die Tokonoma hat keine Tiefe.
+
+Gemessen in `e-tatami`: Nischenrückwand **L 171,2** gegen **L 183,1** für die
+Nordwand daneben. Zwölf Stufen für einen halben Meter Rücksprung — das ist ein
+Anstrich, keine Nische.
+
+**Die Ursache ist bekannt und bleibt bestehen:** Für die Innenräume gibt es
+keinen eigenen Schattendurchgang; das Dreiecksbudget trägt keinen dritten
+Kegelstumpf (Paket A). Ohne Verschattung bekommt die Nische dieselbe
+Halbraumaufhellung wie die offene Wand, und der einzige Unterschied ist der
+Farbwert des Putzes.
+
+Also gebacken. Vier unterteilte Flächen dicht innen an der Schale — Rückwand,
+zwei Wangen, Deckel —, deren Vertexfarbe mit der Tiefe im Rücksprung und mit
+der Nähe zu Wange, Sturz und Nischenboden abfällt. Die Ecke zählt hinten mehr
+als vorn: An der Öffnung fällt Licht von der Seite herein, an der Rückwand
+nicht mehr.
+
+**Die Unterteilung ist der eigentliche Punkt.** Eine Kastenfläche hat vier
+Ecken, und zwischen vier Ecken lässt sich eine Rampe legen, aber keine
+Vignette. Zwölf mal zwölf Felder tragen den Verlauf, den eine Nische wirklich
+hat. Ohne das wäre die ganze Rechnung ein gleichmäßiger Farbabzug gewesen —
+also genau das, was schon da war.
+
+**171,2 → 140,3.** Der Abstand zur Nachbarwand geht von zwölf auf **dreiund­vierzig**
+Stufen. Im Bild steht die linke Wange jetzt hell gegen einen dunklen Grund, und
+das Rollbild hat einen Hintergrund statt einer Wand.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. `c-engawa`
+bitgleich. Im Dojo `e-tatami` 3,8 %, `b-shoji` 1,3 %, `a-halle` 1,2 %,
+`d-suedfront` 0,5 %, `f-gegenlicht` 0,5 % — nur die Nische. Budget: **113**
+Draw-Calls von 120 (der Innenkasten ist einer, alle vier Flächen teilen ein
+Material), 313 130 Dreiecke von 350 000, 42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-28`.
