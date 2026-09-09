@@ -15,7 +15,7 @@
 // Staffelung. Dieses Werkzeug faehrt das Feld ab, statt es zu raten — je
 // Einstellung der Unterschied zwischen fernem Kamm und naechstem Vordergrund,
 // und als Gegenprobe der Wert an einer Stelle in Kartenreichweite.
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 import { PNG } from 'pngjs';
 
 const shot = shotsFor('island').find((s) => s.name === '1-eyelevel');
@@ -42,7 +42,7 @@ try {
 
   const messen = async (name) => {
     await page.waitForTimeout(400);
-    const p = PNG.sync.read(await page.screenshot());
+    const p = PNG.sync.read(await page.screenshot(SCHUSS));
     const mittel = (x0, y0, x1, y1) => {
       let l = 0;
       let satt = 0;

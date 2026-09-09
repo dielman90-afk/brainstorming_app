@@ -11,7 +11,7 @@
 // also sehr wohl, nur war in der Karte nichts als ein Himmelsverlauf. Ohne
 // diese Zahl hätte ich am falschen Ende angefangen.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'zen');
@@ -36,7 +36,7 @@ try {
   await lockCamera(page, shot, 6.0);
   const bild = async () => {
     await page.waitForTimeout(350);
-    return PNG.sync.read(await page.screenshot());
+    return PNG.sync.read(await page.screenshot(SCHUSS));
   };
   const karte = (an) =>
     page.evaluate(

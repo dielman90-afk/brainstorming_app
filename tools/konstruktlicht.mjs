@@ -20,12 +20,12 @@
 //   * **Modellierung** — die Spanne p05 bis p95 auf denselben Punkten. Ein
 //     Sessel, der gleichmaessig heller wird, hat nichts gewonnen.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const KNOTEN = ['construct-armchairs', 'construct-armchairs-1', 'construct-armchairs-2'];
 const bild = async (page) => {
   await page.waitForTimeout(330);
-  return PNG.sync.read(await page.screenshot());
+  return PNG.sync.read(await page.screenshot(SCHUSS));
 };
 const L = (p, i) => 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];
 

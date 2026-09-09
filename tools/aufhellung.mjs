@@ -21,7 +21,7 @@
 //   * **Kiel** — Mittel und Spannweite in `3-edge-down`. Er darf nicht wieder
 //     nach unten wegsacken.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 // Findling in 1-eyelevel: oben, seitlich-unten, sonnenzugewandt.
 const STEIN = [
@@ -37,7 +37,7 @@ const KIEL = [
 
 const bild = async (page) => {
   await page.waitForTimeout(330);
-  return PNG.sync.read(await page.screenshot());
+  return PNG.sync.read(await page.screenshot(SCHUSS));
 };
 const L = (p, x, y) => {
   const i = (y * p.width + x) * 4;

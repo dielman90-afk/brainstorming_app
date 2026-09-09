@@ -255,3 +255,100 @@ nichts — nimmt man beide, ändert sich alles. Eine Werferliste, die einzeln
 gemessen wurde, unterschätzt die Summe systematisch. Für die Entscheidung hier
 war das ungefährlich, weil auch die Summe unsichtbar blieb; als Regel gehört es
 notiert.
+
+---
+
+## Paket B — Draussen war dunkler als drinnen, und es lag nicht am Schatten
+
+Prüferbefund 1, der schwerste seiner Liste. Gemessen mit dem neuen
+`tools/tageslicht.mjs`, das feste Rechtecke auf **Flächen** legt statt
+Punktproben zu nehmen (eine Punktprobe trifft eine Harkrille oder ein Blatt):
+
+    c-engawa      Kies rechts   L  60,8      Diele innen   L 133,3
+                  Kies links       76,5      Shoji-Papier    132,2
+                  Laubwand        100,7
+
+    f-gegenlicht  Tuerausschnitt   76,6      Tatami          121,9
+                                             Diele           164,4
+
+Eine offene Tür an einem sonnigen Nachmittag muss von innen ein blendend
+heller Ausschnitt sein. Hier ist sie ein dunkelgrünes Loch, achtundachtzig
+Stufen unter der Diele davor.
+
+### Zwei Vermutungen, beide gemessen und beide falsch
+
+**Der Bambushain verschattet den Garten.** Er verschattet tatsächlich viel —
+seine Maske in `c-engawa` umfasst 331 589 Bildpunkte, ein Drittel des Bildes,
+und senkt sie um 25 Stufen. Nur eben nicht den Kies: Nimmt man dem Hain den
+Wurf, steigt das rechte Kiesfeld von 60,8 auf 60,4. Nimmt man **jeden**
+Schattenwurf der Szene heraus, steigt es auf 67,2. Sechs Stufen. Der Kies
+steht nicht im Schatten, er bekommt kein Licht.
+
+**Die Papierwand sperrt die Sonne aus dem Raum.** `paper.castShadow = true`
+steht in `architecture.js` mit einem ausführlichen Kommentar dazu, und der
+Verdacht lag nahe. Gemessen: Ohne den Wurf der drei Washi-Netze steigt die
+Tatami von 121,9 auf 126,7 — **4,8 Stufen**. Ohne jeden Wurf sind es 20,9. Was
+die Sonne aus dem Raum hält, ist also nicht das Papier, sondern der
+**Dachüberstand**, und bei 11° Sonnenhöhe ist das bauphysikalisch genau
+richtig. Ein tief überstehendes Dach ist der Sinn der Sache.
+
+### Was es wirklich ist
+
+Die Bilanz je Quelle, dieselben Rechtecke:
+
+    Quelle                              Kies re.   Kies li.  Laubwand  Diele innen
+    DirectionalLight #ffe9c4 1,9             3,9        8,9      13,9          0,0
+    HemisphereLight #ffffff −1              −8,9       −9,5     −10,3        −33,2
+    HemisphereLight #9fc2d8 0,85             4,3        4,5       6,2         20,9
+    Himmelskarte (envMapIntensity)          45,1       50,9      54,6          0,0
+
+Zwei Zahlen tragen den ganzen Befund:
+
+* **Die Sonne trägt zum Kies 3,9 Stufen bei** und zum Innenboden null. Der
+  „sonnige Nachmittag" ist im Bild praktisch nicht vorhanden; was die Szene
+  beleuchtet, sind Hemisphärenlichter und die Himmelskarte.
+* **Die Himmelskarte liefert dem Aussenraum 45 bis 55 der 61 bis 101 Stufen und
+  dem Innenraum genau nichts.** Innenmaterialien bekommen am Desktop gar keine
+  Umgebungskarte (`applyQuality`: `next = inXR ? … : null`). Es gibt für den
+  Aussenraum also genau **einen** Regler, und der Innenraum haengt nicht daran.
+
+### Die Reihe
+
+`--himmelsreihe` skaliert `envMapIntensity` aller Aussenmaterialien. Die
+Innenwerte stehen unbewegt daneben — das ist die Gegenprobe, dass der Regler
+wirklich isoliert:
+
+    Faktor   Kies re.  Kies li.  Laubwand    Diele    Papier
+       1,0       60,8      76,5     100,7    133,3     132,2
+       2,0       92,0     109,7     133,8    133,3     132,2
+       2,6      106,6     124,9     148,0    133,3     132,2
+       3,2      118,9     137,6     159,5    133,3     132,2
+       4,0      132,6     151,4     171,6    133,3     132,2
+
+Gewählt: **2,0**, also `SKY_INTENSITY` von 4,5 auf 9,0.
+
+**Warum nicht mehr.** Ab 2,6 kippt das Laub im Bild ins Blasse. Über L 150
+liegt es im flachen Bereich der ACES-Kurve und verliert seine Sättigung —
+dieselbe Lehre wie bei Wolken, Sonnenscheibe, Grasfase und Teichspiegelung, und
+zum fünften Mal in diesem Auftrag. Bei 3,2 ist der Garten hell **und** farblos,
+und das ist kein Fortschritt: Prüferbefund 8 („der Garten ist eine grüne Wand
+ohne Tiefe") würde davon schlechter, nicht besser.
+
+### Was das Paket erreicht — und was es nicht erreicht
+
+Die Umkehrung ist **halbiert, nicht aufgehoben**. Die Laubwand steht jetzt auf
+der Höhe des Innenbodens statt dreissig Stufen darunter; der Kies liegt immer
+noch vierzig darunter. Der Rest gehört nicht diesem Regler, sondern der Albedo:
+Der Kies ist mit `0xa79f90` absichtlich abgedunkelt (der Kommentar dort sagt,
+warum), und das Laub ist sehr dunkel grün. Wer draussen wirklich heller haben
+will als drinnen, muss **beides zugleich** anfassen — mehr Licht und hellere
+Körperfarben, damit die Flächen unterhalb der Flachzone bleiben. Das ist ein
+eigenes Paket und steht offen.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Die reinen
+Innenkameras bewegen sich um 0,003 bis 0,024 Prozent der Bildpunkte, `c-engawa`
+um 38,8 Prozent (der Garten füllt dort das Bild), `f-gegenlicht` um 1,9 und
+`d-suedfront` um 1,3 — genau die Anteile, in denen Aussenraum zu sehen ist.
+Geometrie unverändert, Budget also weiter 340 078 / 350 000. Konsole sauber.
+
+Bildstand `tools/shots/dojo-02`.

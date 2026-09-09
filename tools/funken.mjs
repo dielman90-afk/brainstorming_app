@@ -11,7 +11,7 @@
 // mehr als eine Schwelle uebersteigt. Das ist die Groesse, die in Bewegung als
 // Kribbeln wahrgenommen wird — nicht der Mittelwert.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'matrix');
@@ -72,7 +72,7 @@ try {
   for (const stellung of SWEEP ? STELLUNGEN : [{ name: 'Stand' }]) {
    await stelle(stellung);
    await page.waitForTimeout(300);
-   const p = PNG.sync.read(await page.screenshot());
+   const p = PNG.sync.read(await page.screenshot(SCHUSS));
    const etikett = stellung.name ?? `r${stellung.roughness ?? '-'} n${stellung.normal ?? '-'}`;
    for (const b of BEREICHE) {
     let n = 0;

@@ -32,7 +32,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import { ROOT, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { ROOT, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const wert = (n, v) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : v);
@@ -68,7 +68,7 @@ try {
     };
     await lockCamera(page, shot, 6.0);
     await page.waitForTimeout(320);
-    const p = PNG.sync.read(await page.screenshot());
+    const p = PNG.sync.read(await page.screenshot(SCHUSS));
     if (ordner) fs.writeFileSync(path.join(ordner, `rund-${String(i).padStart(2, '0')}.png`), PNG.sync.write(p));
     let unterHorizont = 0;
     let wolkeTief = 0;

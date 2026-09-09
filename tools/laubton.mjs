@@ -18,12 +18,12 @@
 //   * **Silhouettensprung** gegen den Himmel — was helleres Laub verliert. Ein
 //     Baum, der so hell wird wie der Himmel, hat keine Kontur mehr.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const KANTE = [950, 150, 1250, 450]; // Konifere gegen Himmel in 5-backlight
 const bild = async (page) => {
   await page.waitForTimeout(340);
-  return PNG.sync.read(await page.screenshot());
+  return PNG.sync.read(await page.screenshot(SCHUSS));
 };
 const L = (p, i) => 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];
 

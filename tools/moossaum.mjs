@@ -42,7 +42,7 @@
 // geaenderten Bildpunkte SIND seine Flaeche. Kein Rechteck, kein Himmel, kein
 // Sand darin.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'zen');
@@ -80,7 +80,7 @@ try {
   }
   const bild = async () => {
     await page.waitForTimeout(320);
-    return PNG.sync.read(await page.screenshot());
+    return PNG.sync.read(await page.screenshot(SCHUSS));
   };
   const sichtbar = (name, an) =>
     page.evaluate(

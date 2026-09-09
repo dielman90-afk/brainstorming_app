@@ -12,7 +12,7 @@
 // Gemessen wird differenziell: einmal mit, einmal ohne den Knoten. Die
 // geaenderten Bildpunkte SIND sein Beitrag — ohne Schwelle, ohne Annahme.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const TEILE = ['island-krone', 'bushes', 'island-laub', 'bush-leaves'];
 
@@ -34,7 +34,7 @@ const sichtbar = (page, name, an) =>
 
 const bild = async (page) => {
   await page.waitForTimeout(320);
-  return PNG.sync.read(await page.screenshot());
+  return PNG.sync.read(await page.screenshot(SCHUSS));
 };
 
 // Anteil der Bildpunkte, die sich unterscheiden, und wie stark im Mittel.

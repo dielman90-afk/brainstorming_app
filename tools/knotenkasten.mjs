@@ -12,7 +12,7 @@
 // Gemeldet werden der Gesamtkasten und die zusammenhaengenden Teilstuecke, nach
 // Flaeche sortiert — ein Knoten mit fuenf Voegeln hat fuenf davon.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'island');
@@ -44,12 +44,12 @@ try {
     }, { name, an });
 
   await page.waitForTimeout(320);
-  const mit = PNG.sync.read(await page.screenshot());
+  const mit = PNG.sync.read(await page.screenshot(SCHUSS));
   process.stdout.write(`${shotName}\n\n`);
   for (const name of KNOTEN) {
     const n = await schalt(name, false);
     await page.waitForTimeout(320);
-    const ohne = PNG.sync.read(await page.screenshot());
+    const ohne = PNG.sync.read(await page.screenshot(SCHUSS));
     await schalt(name, true);
     const W = mit.width;
     const H = mit.height;

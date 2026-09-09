@@ -15,7 +15,7 @@
 // ist noch keine sichtbare Bewegung — Voegel und Wolken werden dafuer
 // ausgeblendet, damit nur das Laub uebrig bleibt.
 import { PNG } from 'pngjs';
-import { startServer, launchBrowser, openApp, selectEnv, lockCamera, shotsFor } from './harness-common.mjs';
+import { startServer, launchBrowser, openApp, selectEnv, lockCamera, shotsFor, SCHUSS } from './harness-common.mjs';
 
 const KRONE = [950, 150, 1250, 450];
 
@@ -79,7 +79,7 @@ try {
   for (const t of [20, 20 + 1 / 72, 20.5, 22]) {
     await setzeZeit(page, 'island', t);
     await page.waitForTimeout(320);
-    bilder.push(PNG.sync.read(await page.screenshot()));
+    bilder.push(PNG.sync.read(await page.screenshot(SCHUSS)));
   }
   const vergleich = (a, b) => {
     let n = 0;

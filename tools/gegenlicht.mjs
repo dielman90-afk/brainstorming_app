@@ -13,16 +13,7 @@
 // Blickrichtung und Lichtrichtung, wie ihn der Shader sieht. Steht er auf null,
 // laeuft der Effekt auf seinem Sockel, egal wie gross die Staerke ist.
 import { PNG } from 'pngjs';
-import {
-  shotsFor,
-  envArg,
-  startServer,
-  launchBrowser,
-  openApp,
-  selectEnv,
-  lockCamera,
-  ladeThree,
-} from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const argv0 = process.argv.slice(2);
 // **`--env`, weil derselbe Blickterm in jeder Umgebung mit Laub steckt.** Das
@@ -103,7 +94,7 @@ try {
   for (const f of [0, 1, 3]) {
     const n = await stelle(f);
     await page.waitForTimeout(360);
-    const p = PNG.sync.read(await page.screenshot());
+    const p = PNG.sync.read(await page.screenshot(SCHUSS));
     const werte = [];
     for (let y = K[1]; y <= K[3]; y++)
       for (let x = K[0]; x <= K[2]; x++) werte.push(L(p, (y * p.width + x) * 4));

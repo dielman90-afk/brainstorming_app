@@ -15,7 +15,7 @@
 // Die Ausgabe steht in Azimut relativ zur Sonne: 0 Grad heißt „in die Sonne",
 // 180 Grad heißt „in ihrem Rücken".
 import { PNG } from 'pngjs';
-import { envArg, startServer, launchBrowser, openApp, selectEnv, ladeThree } from './harness-common.mjs';
+import { envArg, startServer, launchBrowser, openApp, selectEnv, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const wert = (n, v) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : v);
@@ -97,7 +97,7 @@ try {
       { d }
     );
     await page.waitForTimeout(120);
-    const png = PNG.sync.read(await page.screenshot());
+    const png = PNG.sync.read(await page.screenshot(SCHUSS));
     // Mittel über 9x9 in der Bildmitte: ein einzelner Bildpunkt wäre
     // anfällig für die Rasterung der Kuppelgeometrie.
     let r = 0;

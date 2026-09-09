@@ -11,7 +11,7 @@
 // abhebt. Ein Fisch, der 300 Bildpunkte gross ist und sich um zwei Stufen vom
 // Wasser unterscheidet, ist nicht da.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'zen');
@@ -63,7 +63,7 @@ try {
     );
   const bild = async () => {
     await page.waitForTimeout(350);
-    return PNG.sync.read(await page.screenshot());
+    return PNG.sync.read(await page.screenshot(SCHUSS));
   };
 
   for (const shot of shots) {

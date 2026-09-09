@@ -21,7 +21,7 @@
 //
 // Der Fleck entsteht differenziell: Wurf der Krone aus, Bild, an, Bild.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'zen');
@@ -56,7 +56,7 @@ try {
   await lockCamera(page, shotsFor(ENV).find((s) => s.name === SHOT), 6.0);
   const bild = async () => {
     await page.waitForTimeout(340);
-    return PNG.sync.read(await page.screenshot());
+    return PNG.sync.read(await page.screenshot(SCHUSS));
   };
   const wurf = (namen, an) =>
     page.evaluate(

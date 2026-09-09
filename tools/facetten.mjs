@@ -18,7 +18,7 @@
 // Damit laesst sich „dunkel, weil abgewandt" von „dunkel, weil verdeckt" und
 // von „dunkel, weil falsch gefaerbt" trennen, ohne zu raten.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const shotName = argv[0];
@@ -36,7 +36,7 @@ try {
   await lockCamera(page, shotsFor('island').find((s) => s.name === shotName), 6.0);
   await ladeThree(page);
   await page.waitForTimeout(320);
-  const bild = PNG.sync.read(await page.screenshot());
+  const bild = PNG.sync.read(await page.screenshot(SCHUSS));
 
   const daten = await page.evaluate((PUNKTE) => {
     const T = window.__THREE;

@@ -11,7 +11,7 @@
 // zwanzig Bildpunkten hilft Hinsehen mehr als jede Kennzahl.
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'matrix');
@@ -50,7 +50,7 @@ try {
   }
   await page.waitForTimeout(400);
   const ziel = `/tmp/lichtblick-${ENV}.png`;
-  fs.writeFileSync(ziel, PNG.sync.write(PNG.sync.read(await page.screenshot())));
+  fs.writeFileSync(ziel, PNG.sync.write(PNG.sync.read(await page.screenshot(SCHUSS))));
   process.stdout.write(
     `Kasten ${info.links}..${info.rechts}, near ${info.nah}, far ${info.fern}, Karte ${info.karte}\n-> ${ziel}\n`
   );

@@ -17,7 +17,7 @@
 //      wären ihre Beitragsreihen über die Zeit korreliert. Gemeldet wird die
 //      Korrelation je Paar — nahe 1 wäre Gleichtakt.
 import { PNG } from 'pngjs';
-import { startServer, launchBrowser, openApp, selectEnv, lockCamera, shotsFor } from './harness-common.mjs';
+import { startServer, launchBrowser, openApp, selectEnv, lockCamera, shotsFor, SCHUSS } from './harness-common.mjs';
 
 const TEILE = ['nacht-staub', 'nacht-staubteufel', 'nacht-meteor', 'nacht-sterne'];
 const ZEITEN = Array.from({ length: 24 }, (_, i) => 4 + i * 1.7);
@@ -66,12 +66,12 @@ try {
   for (const t of ZEITEN) {
     await setzeZeit(page, t);
     await page.waitForTimeout(90);
-    const voll = PNG.sync.read(await page.screenshot());
+    const voll = PNG.sync.read(await page.screenshot(SCHUSS));
     for (const teil of TEILE) {
       await sichtbar(page, teil, false);
       await setzeZeit(page, t);
       await page.waitForTimeout(60);
-      const ohne = PNG.sync.read(await page.screenshot());
+      const ohne = PNG.sync.read(await page.screenshot(SCHUSS));
       await sichtbar(page, teil, true);
       reihen[teil].push(anteil(voll, ohne));
     }
@@ -99,11 +99,11 @@ try {
     for (const t of [0.05, 0.25, 0.45, 0.65, 0.85, 1.05, 1.3, 4.0, 15.0, 30.9, 31.3]) {
       await setzeZeit(page, t);
       await page.waitForTimeout(80);
-      const voll = PNG.sync.read(await page.screenshot());
+      const voll = PNG.sync.read(await page.screenshot(SCHUSS));
       await sichtbar(page, 'nacht-meteor', false);
       await setzeZeit(page, t);
       await page.waitForTimeout(60);
-      const ohne = PNG.sync.read(await page.screenshot());
+      const ohne = PNG.sync.read(await page.screenshot(SCHUSS));
       await sichtbar(page, 'nacht-meteor', true);
       reihe.push([t, anteil(voll, ohne)]);
     }

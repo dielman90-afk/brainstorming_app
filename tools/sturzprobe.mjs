@@ -16,7 +16,7 @@
 // Sturz sogar die Felswand. Die geaenderten Bildpunkte sagen selbst, wo der
 // Gegenstand steht; der Hochpass wird deshalb **nur ueber sie** gebildet und
 // nicht ueber ein Rechteck.
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 import { PNG } from 'pngjs';
 
 const argv = process.argv.slice(2);
@@ -44,10 +44,10 @@ try {
     await lockCamera(page, shot, 6.0);
     await zeige(true);
     await page.waitForTimeout(350);
-    const mit = PNG.sync.read(await page.screenshot());
+    const mit = PNG.sync.read(await page.screenshot(SCHUSS));
     const da = await zeige(false);
     await page.waitForTimeout(350);
-    const ohne = PNG.sync.read(await page.screenshot());
+    const ohne = PNG.sync.read(await page.screenshot(SCHUSS));
     await zeige(true);
     if (!da) {
       console.log(`  ${shot.name.padEnd(18)} Knoten fehlt`);

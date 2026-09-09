@@ -17,7 +17,7 @@
 // Rauschen ohne Wiederholung liegt bei 0,0x; ein sichtbares Muster bei 0,2
 // und darueber.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'matrix');
@@ -45,7 +45,7 @@ try {
   }
   await lockCamera(page, shot, 6.0);
   await page.waitForTimeout(400);
-  const bild = PNG.sync.read(await page.screenshot());
+  const bild = PNG.sync.read(await page.screenshot(SCHUSS));
 
   process.stdout.write(
     `${shotName}\n${'Bereich'.padEnd(20)}${'Zeilen'.padStart(8)}${'Periode'.padStart(9)}${'Staerke'.padStart(9)}   zweitstaerkste\n`

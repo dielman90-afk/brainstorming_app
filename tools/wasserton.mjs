@@ -13,7 +13,7 @@
 // Perzentile, Sättigung und Farbton je Kamera, dazu die Spannweite über alle
 // Kameras. Erst diese Spannweite beantwortet die Frage nach dem Wechsel.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'zen');
@@ -68,7 +68,7 @@ try {
 
   const bild = async () => {
     await page.waitForTimeout(350);
-    return PNG.sync.read(await page.screenshot());
+    return PNG.sync.read(await page.screenshot(SCHUSS));
   };
 
   const zeilen = [];

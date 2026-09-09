@@ -20,7 +20,7 @@
 // teilen sich beide Sessel (seit dem Verschmelzen), sind also ueber die
 // Materialliste des zusammengefuegten Netzes erreichbar.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const shotName = argv[0] ?? 'b-sessel';
@@ -28,7 +28,7 @@ const KNOTEN = 'construct-armchairs';
 
 const bild = async (page) => {
   await page.waitForTimeout(320);
-  return PNG.sync.read(await page.screenshot());
+  return PNG.sync.read(await page.screenshot(SCHUSS));
 };
 const L = (p, i) => 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];
 

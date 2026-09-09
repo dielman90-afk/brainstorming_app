@@ -15,7 +15,7 @@
 // (`uWasserTrueb`: Koeffizient, Sockel am Ufer, Sockel in der Mitte), damit
 // die Quelle waehrend des Messlaufs unangetastet bleibt.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'zen');
@@ -41,7 +41,7 @@ try {
   const alle = shotsFor(ENV);
   const bild = async () => {
     await page.waitForTimeout(340);
-    return PNG.sync.read(await page.screenshot());
+    return PNG.sync.read(await page.screenshot(SCHUSS));
   };
   const sichtbar = (name, an) =>
     page.evaluate(

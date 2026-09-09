@@ -14,7 +14,7 @@
 // Ausgegeben werden je Bild: Anteil betroffener Bildpunkte, mittlerer und
 // größter Abfall in Luminanzstufen. Ein Schatten, der 0,3 % der Fläche um zwei
 // Stufen abdunkelt, ist keiner.
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 import { PNG } from 'pngjs';
 
 const argv = process.argv.slice(2);
@@ -56,10 +56,10 @@ try {
     await lockCamera(page, shot, 6.0);
     await setzeSchatten(true);
     await page.waitForTimeout(400);
-    const mit = PNG.sync.read(await page.screenshot());
+    const mit = PNG.sync.read(await page.screenshot(SCHUSS));
     const aus = await setzeSchatten(false);
     await page.waitForTimeout(400);
-    const ohne = PNG.sync.read(await page.screenshot());
+    const ohne = PNG.sync.read(await page.screenshot(SCHUSS));
     await setzeSchatten(true);
     if (!aus) {
       console.log(`  ${shot.name.padEnd(18)} kein Licht mit Schattenkarte`);

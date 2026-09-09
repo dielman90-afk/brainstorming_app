@@ -11,7 +11,7 @@
 // ausgeblendet, und gemeldet wird, wie stark sich der Kasten dadurch aendert.
 // Der Knoten, der den Fleck malt, ist der, ohne den der Kasten dunkel wird.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const shotName = argv[0] ?? '3-edge-down';
@@ -52,7 +52,7 @@ const mittel = (p) => {
 
 const bild = async (page) => {
   await page.waitForTimeout(300);
-  return PNG.sync.read(await page.screenshot());
+  return PNG.sync.read(await page.screenshot(SCHUSS));
 };
 
 const server = await startServer();

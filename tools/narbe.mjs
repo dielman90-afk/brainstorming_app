@@ -16,7 +16,7 @@
 //   * **Zittern** — mittlerer Sprung je Bildpunkt, wenn die Kamera in
 //     1,5-mm-Schritten quer wandert. Kribbeln in der Brille.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const shotName = argv[0] ?? 'b-sessel';
@@ -69,7 +69,7 @@ try {
       await lockCamera(page, { ...shot, pos: [shot.pos[0] + quer[0] * sch, shot.pos[1], shot.pos[2] + quer[2] * sch] }, 6.0);
       await stelle(page, n);
       await page.waitForTimeout(340);
-      bilder.push(PNG.sync.read(await page.screenshot()));
+      bilder.push(PNG.sync.read(await page.screenshot(SCHUSS)));
     }
     const bild = bilder[0];
     const breite = X1 - X0 + 1;

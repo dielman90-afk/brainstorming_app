@@ -17,15 +17,7 @@
 // Ausgegeben wird r(1,0), r(2,0), r(0,1) und r(1,1) des Hochpasses: Je näher
 // r(1,0) an −1 und r(2,0) an +1, desto strenger das Schachbrett.
 import { PNG } from 'pngjs';
-import {
-  PLANET_SHOTS,
-  startServer,
-  launchBrowser,
-  openApp,
-  selectEnv,
-  lockCamera,
-  ladeThree,
-} from './harness-common.mjs';
+import { PLANET_SHOTS, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const BEREICH = { x0: 380, y0: 520, x1: 470, y1: 575 }; // Halbschatten am Sputnik
 
@@ -190,7 +182,7 @@ try {
     await f.tun();
     await lockCamera(page, shot, 6.0);
     await page.waitForTimeout(400);
-    const a = autokorrelation(await page.screenshot());
+    const a = autokorrelation(await page.screenshot(SCHUSS));
     console.log(
       `${f.name.padEnd(16)} ${a.rms.toFixed(3).padStart(6)}  ` +
         `${a.r10.toFixed(3).padStart(7)}  ${a.r20.toFixed(3).padStart(7)}  ` +

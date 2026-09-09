@@ -22,7 +22,7 @@
 // unveraendert stand. Von oben gesehen war es in einem Lauf klar: 170,8 gegen
 // 189,2.
 import { PNG } from 'pngjs';
-import { envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const wert = (n, v) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : v);
@@ -43,7 +43,7 @@ try {
   // genug von der Senkrechten, dass `up` eindeutig bleibt.
   await lockCamera(page, { name: 'naht', pos: [px, py, pz + py], look: [px, 0, pz], fov: 45 }, 6.0);
   await page.waitForTimeout(400);
-  const p = PNG.sync.read(await page.screenshot());
+  const p = PNG.sync.read(await page.screenshot(SCHUSS));
   const L = (x, y) => {
     const i = (y * p.width + x) * 4;
     return 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];

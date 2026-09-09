@@ -11,7 +11,7 @@
 //   * **Silhouettenkontrast** — der Grund, aus dem der Saum einmal
 //     hinzugefuegt wurde. Mittlerer Sprung ueber die Kronenkante gegen den
 //     Himmel.
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 import { PNG } from 'pngjs';
 
 const KASTEN = [630, 555, 790, 670];
@@ -78,7 +78,7 @@ try {
 
   const messen = async (name, n) => {
     await page.waitForTimeout(400);
-    const p = PNG.sync.read(await page.screenshot());
+    const p = PNG.sync.read(await page.screenshot(SCHUSS));
     const at = (x, y) => {
       const i = (y * p.width + x) * 4;
       return [p.data[i], p.data[i + 1], p.data[i + 2]];

@@ -20,14 +20,7 @@
 // Mit den beiden Schaltern lässt sich das Verhältnis der Quellen verstellen,
 // ohne die Datei anzufassen — dafür ist dieses Werkzeug gebaut.
 import { PNG } from 'pngjs';
-import {
-  PLANET_SHOTS,
-  startServer,
-  launchBrowser,
-  openApp,
-  selectEnv,
-  lockCamera,
-} from './harness-common.mjs';
+import { PLANET_SHOTS, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const arg = (name) => {
   const i = process.argv.indexOf(name);
@@ -73,10 +66,10 @@ try {
     await page.waitForTimeout(300);
     await schalte(true);
     await page.waitForTimeout(260);
-    const A = PNG.sync.read(await page.screenshot());
+    const A = PNG.sync.read(await page.screenshot(SCHUSS));
     await schalte(false);
     await page.waitForTimeout(260);
-    const B = PNG.sync.read(await page.screenshot());
+    const B = PNG.sync.read(await page.screenshot(SCHUSS));
     await schalte(true);
 
     const L = (d, i) => 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];

@@ -25,7 +25,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import { startServer, launchBrowser, openApp, selectEnv, ladeThree, ROOT } from './harness-common.mjs';
+import { startServer, launchBrowser, openApp, selectEnv, ladeThree, ROOT, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const outDir = argv.includes('--bilder')
@@ -102,7 +102,7 @@ try {
         { grad, gier }
       );
       await page.waitForTimeout(220);
-      const buf = await page.screenshot();
+      const buf = await page.screenshot(SCHUSS);
       if (outDir) {
         const name = `nah-${String(grad).padStart(3, '0')}-${gier >= 0 ? 'r' : 'l'}${Math.abs(gier)}.png`;
         fs.writeFileSync(path.join(outDir, name), buf);

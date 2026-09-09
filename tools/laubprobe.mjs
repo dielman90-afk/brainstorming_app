@@ -13,7 +13,7 @@
 //   Rauheit       Eine enge Glanzkeule schaltet zwischen Nachbarpixeln um.
 //
 // Gemessen wird der Hochpass im Kronenbereich, je Schalter einzeln.
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 import { PNG } from 'pngjs';
 
 const KASTEN = [950, 150, 1250, 450];
@@ -28,7 +28,7 @@ try {
 
   const messen = async (name) => {
     await page.waitForTimeout(400);
-    const p = PNG.sync.read(await page.screenshot());
+    const p = PNG.sync.read(await page.screenshot(SCHUSS));
     const L = (x, y) => {
       const i = (y * p.width + x) * 4;
       return 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];

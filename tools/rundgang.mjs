@@ -20,15 +20,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import {
-  startServer,
-  launchBrowser,
-  openApp,
-  selectEnv,
-  ladeThree,
-  PLANET_SHOTS,
-  ROOT,
-} from './harness-common.mjs';
+import { startServer, launchBrowser, openApp, selectEnv, ladeThree, PLANET_SHOTS, ROOT, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const outDir = path.resolve(
@@ -319,7 +311,7 @@ try {
       { grad, blick, fov: shot.fov }
     );
     await page.waitForTimeout(220);
-    const buf = await page.screenshot();
+    const buf = await page.screenshot(SCHUSS);
     fs.writeFileSync(path.join(outDir, `rund-${String(grad).padStart(3, '0')}.png`), buf);
     const png = PNG.sync.read(buf);
     let summe = 0;

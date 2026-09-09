@@ -14,7 +14,7 @@
 // Himmel.
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 // `--ohne-werfer` schaltet vorher alle Schlagschatten ab. Damit laesst sich
@@ -38,7 +38,7 @@ if (!KNOTEN.length) {
 
 const bild = async (page) => {
   await page.waitForTimeout(320);
-  return PNG.sync.read(await page.screenshot());
+  return PNG.sync.read(await page.screenshot(SCHUSS));
 };
 const L = (p, i) => 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];
 

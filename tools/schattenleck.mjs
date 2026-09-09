@@ -15,7 +15,7 @@
 // nichts gewonnen.
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const FLECK = [400, 385, 480, 425];
 const KIEL = [520, 385, 600, 425];
@@ -52,7 +52,7 @@ const streuung = (p, K) => {
 
 const bild = async (page) => {
   await page.waitForTimeout(320);
-  return PNG.sync.read(await page.screenshot());
+  return PNG.sync.read(await page.screenshot(SCHUSS));
 };
 
 const stelle = (page, feld, wert) =>

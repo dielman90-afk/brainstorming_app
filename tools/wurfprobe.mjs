@@ -13,7 +13,7 @@
 // ein Viertel legt.
 import fs from 'node:fs';
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const shotName = (argv.filter((a) => a !== '--karte'))[0] ?? '4-aerial';
@@ -23,7 +23,7 @@ const K = rein.length >= 5 ? rein.slice(1, 5).map(Number) : [330, 230, 900, 460]
 
 const bild = async (page) => {
   await page.waitForTimeout(320);
-  return PNG.sync.read(await page.screenshot());
+  return PNG.sync.read(await page.screenshot(SCHUSS));
 };
 const L = (p, i) => 0.2126 * p.data[i] + 0.7152 * p.data[i + 1] + 0.0722 * p.data[i + 2];
 const mittel = (p) => {

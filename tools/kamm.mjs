@@ -40,7 +40,7 @@
 // Kopfbewegung umspringt. Eine aufgeloeste Struktur bewegt sich sanft (kleiner
 // Quotient), eine unteraufgeloeste kippt (grosser).
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'matrix');
@@ -119,7 +119,7 @@ try {
         };
     await lockCamera(page, versetzt, 6.0);
     await page.waitForTimeout(360);
-    bilder.push(PNG.sync.read(await page.screenshot()));
+    bilder.push(PNG.sync.read(await page.screenshot(SCHUSS)));
   }
 
   const richtung = HOCH ? 'hoch' : 'quer';

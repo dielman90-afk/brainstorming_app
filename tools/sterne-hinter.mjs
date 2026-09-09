@@ -30,17 +30,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { PNG } from 'pngjs';
-import {
-  ROOT,
-  shotsFor,
-  PLANET_SHOTS,
-  startServer,
-  launchBrowser,
-  openApp,
-  selectEnv,
-  lockCamera,
-  ladeThree,
-} from './harness-common.mjs';
+import { ROOT, shotsFor, PLANET_SHOTS, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const outArg = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : null;
@@ -108,11 +98,11 @@ try {
   for (const shot of posen) {
     await shot.setzen();
     await page.waitForTimeout(350);
-    const A = PNG.sync.read(await page.screenshot());
+    const A = PNG.sync.read(await page.screenshot(SCHUSS));
 
     await sichtbarkeit(page, ['nacht-sterne'], false);
     await page.waitForTimeout(250);
-    const B = PNG.sync.read(await page.screenshot());
+    const B = PNG.sync.read(await page.screenshot(SCHUSS));
 
     // Für die Maske zählt nur, was wirklich verdeckt: **opake** Geometrie.
     // Der Mondhof ist ein transparentes Sprite — er blendet sich über den
@@ -132,7 +122,7 @@ try {
       window.__app.scene.background.setHex(0xff00ff);
     });
     await page.waitForTimeout(250);
-    const C = PNG.sync.read(await page.screenshot());
+    const C = PNG.sync.read(await page.screenshot(SCHUSS));
     await page.evaluate(() => {
       const g = window.__app.scene.children.find((c) => c.name === 'env-night');
       g.traverse((o) => {

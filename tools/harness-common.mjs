@@ -22,6 +22,15 @@ export const CHROMIUM = '/opt/pw-browsers/chromium';
 export const PORT = 5199;
 export const VIEWPORT = { width: 1280, height: 720 };
 
+// **Geduld beim Einzelbild.** Playwright gibt einem Screenshot ohne Angabe
+// dreissig Sekunden. Das reicht fuer vier der fuenf Umgebungen; das Dojo ist
+// die teuerste, und unter SwiftShader hat ein einzelnes Bild davon die Vorgabe
+// gerissen und den ganzen Messlauf abgebrochen — reihenweise, in jedem
+// Werkzeug einzeln, bis die Zahl hier stand statt an dreissig Aufrufstellen.
+//
+// Reine Harness-Geduld: Ueber die Laufzeit auf der Quest sagt sie nichts.
+export const SCHUSS = { timeout: 120000 };
+
 // Sechs feste Kamerapositionen. Weltkoordinaten in Metern (WORLD_SCALE = 4,
 // Insel ~40 m breit, Grasoberfläche bei y ≈ -0.08, Augenhöhe 1.6 m).
 // DIESE WERTE DÜRFEN SICH ÜBER ALLE DURCHLÄUFE NICHT ÄNDERN – sonst sind die

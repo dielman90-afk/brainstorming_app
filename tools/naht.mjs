@@ -42,15 +42,7 @@
 // liegt — dort und nur dort ist ein Faden der gesuchte Saum. Die Akne wird
 // umgekehrt nur **innerhalb** der Maske gezählt.
 import { PNG } from 'pngjs';
-import {
-  PLANET_SHOTS,
-  startServer,
-  launchBrowser,
-  openApp,
-  selectEnv,
-  lockCamera,
-  ladeThree,
-} from './harness-common.mjs';
+import { PLANET_SHOTS, startServer, launchBrowser, openApp, selectEnv, lockCamera, ladeThree, SCHUSS } from './harness-common.mjs';
 
 const HUB = 12;
 const DUNKEL = 40;
@@ -89,7 +81,7 @@ async function gelaendeMaske(page) {
     window.__app.scene.background.setHex(0xff00ff);
   });
   await page.waitForTimeout(260);
-  const C = PNG.sync.read(await page.screenshot());
+  const C = PNG.sync.read(await page.screenshot(SCHUSS));
   await page.evaluate(() => {
     const g = window.__app.scene.children.find((c) => c.name === 'env-night');
     g.traverse((o) => {
@@ -237,7 +229,7 @@ try {
     for (const shot of PLANET_SHOTS) {
       await lockCamera(page, { ...shot, station }, 6.0);
       await page.waitForTimeout(280);
-      const buf = await page.screenshot();
+      const buf = await page.screenshot(SCHUSS);
       const z = zaehle(buf, masken[shot.name]);
       saum += z.saum;
       akne += z.akne;

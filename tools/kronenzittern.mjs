@@ -15,7 +15,7 @@
 // braucht und die Kamera dazwischen stehen bleiben muss. Das ist eine andere
 // Schleife, nicht ein Zusatzschalter.
 import { PNG } from 'pngjs';
-import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const shotName = argv[0] ?? '4-aerial';
@@ -126,7 +126,7 @@ try {
     for (const s of SCHRITTE) {
       await lockCamera(page, { ...shot, look: gedreht(s * proPunkt) }, 6.0);
       await page.waitForTimeout(340);
-      bilder.push(PNG.sync.read(await page.screenshot()));
+      bilder.push(PNG.sync.read(await page.screenshot(SCHUSS)));
     }
     const werte = [];
     let zit = 0;

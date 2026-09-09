@@ -11,7 +11,7 @@
 // steht, gegen die Gesamthoehe des Baums. Ein Laubbaum in der Natur liegt bei
 // einem Viertel bis zwei Fuenfteln.
 import { PNG } from 'pngjs';
-import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera } from './harness-common.mjs';
+import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const ENV = envArg(argv, 'island');
@@ -39,11 +39,11 @@ try {
     }, { name, an });
 
   await page.waitForTimeout(320);
-  const alle = PNG.sync.read(await page.screenshot());
+  const alle = PNG.sync.read(await page.screenshot(SCHUSS));
   const maske = async (name, bisY = 1e9) => {
     await schalt(name, false);
     await page.waitForTimeout(320);
-    const ohne = PNG.sync.read(await page.screenshot());
+    const ohne = PNG.sync.read(await page.screenshot(SCHUSS));
     await schalt(name, true);
     // **Perzentile statt Extremwerte.**
     //
