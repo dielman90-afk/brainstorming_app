@@ -687,6 +687,34 @@ export function buildAtmosphere(renderer) {
     // Tiefentest **an**: Nur so schneidet der Fußboden den Schacht dort ab, wo
     // das Licht auftrifft, und nur so verschwindet der Teil hinter der Nordwand.
     depthTest: true,
+    // **Die Ueberbelichtung kommt von der Zahl der additiven Lagen — und
+    // weder `side` noch `uIntensity` ist der Hebel dagegen.** Beides gemessen:
+    //
+    // Gemessen in `e-tatami`: 8,57 Prozent der Bildpunkte haben mindestens
+    // einen Kanal bei 255, Rot durchgehend angeschlagen, Blau bei 219 bis 234
+    // — kein Weiss, sondern ein flaches Gelbplateau ohne Zeichnung. Ein
+    // Raycast durch diese Bildpunkte findet **vier bis sechs
+    // Schacht-Mantelflaechen** davor, bei 0,25 / 0,35 / 1,41 / 1,51 m: Die
+    // Kamera steht in 42 cm Hoehe mitten im Schachtvolumen.
+    //
+    // `side: FrontSide` sollte die Zahl der Lagen halbieren. Gemessen:
+    //
+    //     DoubleSide   e-tatami 8,57 %   a-halle 3,82 %
+    //     FrontSide    e-tatami 8,58 %   a-halle 3,77 %
+    //
+    // Nichts. Die Quads liegen so, dass sie in diesen Ansichten ohnehin alle
+    // zur Kamera zeigen; `DoubleSide` kostet hier also gar nichts und spart
+    // auch nichts. Es bleibt stehen, damit niemand ein zweites Mal danach
+    // greift — und weil es die Wicklung egal macht, so wie es beim
+    // Geometriebauer steht.
+    //
+    // `uIntensity` scheidet aus dem Grund aus, der weiter unten steht: Der
+    // additive Modus mischt auf den **sRGB-kodierten** Wert, halbieren senkt
+    // ihn nur um 2^(1/2,4). Man muesste durch fuenf teilen, und dann waere die
+    // Farbe tot.
+    //
+    // Was bleibt, ist weniger Volumen oder echtes Licht im Raum — und Letzteres
+    // ist das Paket, an dem ohnehin die Befunde 2, 3, 4 und 22 haengen.
     side: THREE.DoubleSide,
     toneMapped: false,
     fog: false,

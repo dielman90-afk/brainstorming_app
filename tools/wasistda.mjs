@@ -38,9 +38,13 @@ try {
       const app = window.__app;
       const g = app.scene.children.find((c) => c.name === gruppe);
       const rc = new THREE.Raycaster();
-      // Auch die Rückseiten treffen: Eine Wand, die man von innen sieht, ist
-      // sonst unsichtbar für den Strahl, und genau die sucht man oft.
-      rc.params.Mesh = { threshold: 0 };
+      // **Punktwolken brauchen eine enge Schwelle.** Die Vorgabe fuer
+      // `Points` ist 1 — und das ist **ein Meter Weltradius** um den Strahl.
+      // Damit meldet das Werkzeug jede Staubwolke der Umgebung als Treffer bei
+      // 0,00 m, und genau das hat mich beim Dojo eine Fehlspur gekostet: Es sah
+      // aus, als saesse ein Staubkorn auf der Kamera. Zwei Zentimeter sind
+      // grosszuegig fuer ein Korn von drei.
+      rc.params.Points = { threshold: 0.02 };
       return punkte.map(([x, y]) => {
         const ndc = new THREE.Vector2((x / breite) * 2 - 1, -((y / hoehe) * 2 - 1));
         rc.setFromCamera(ndc, app.camera);

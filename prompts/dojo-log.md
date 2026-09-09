@@ -627,3 +627,85 @@ Boden. Budget unverändert: 111 Draw-Calls, 339 862 Dreiecke, 42,85 MB Textur.
 Konsole sauber.
 
 Bildstand `tools/shots/dojo-05`.
+
+---
+
+## Paket F — Die ausgebrannten Flächen: Ursache gefunden, zwei Hebel widerlegt
+
+Prüferbefund 6: *„`e-tatami`, rechtes oberes Viertel — sechs Prozent des Bildes
+liegen bei RGB (255,255,~230). Rot und Grün sind vollständig abgeschnitten,
+Blau nicht, deshalb ist die hellste Fläche nicht weiss, sondern ein flaches
+Gelbplateau ohne jeden Verlauf."*
+
+Dafür gibt es jetzt `tools/anschlag.mjs`. Es zählt getrennt, was den
+Unterschied ausmacht: **alle drei Kanäle** angeschlagen ergibt nur Weiss,
+**einzelne** Kanäle kippen die Farbe. Kein Browser nötig, das rechnet auf den
+Prüfbildern.
+
+    Bild            >=254 alle   >=254 einzeln    p99   max   Schwerpunkt
+    a-halle              0,11 %          3,82 %   253   255   959,389
+    b-shoji              0,00 %          0,43 %   228   254
+    c-engawa             0,00 %          0,00 %   189   219
+    d-suedfront          0,01 %          0,80 %   220   255
+    e-tatami             0,69 %          8,57 %   255   255   1071,206
+    f-gegenlicht         0,00 %          0,01 %   213   255
+
+**8,57 Prozent** in `e-tatami`, und der Kasten der angeschlagenen Bildpunkte
+umfasst das ganze obere Band, (94,13) bis (1279,358). Sechs Proben daraus:
+
+    1234, 20   255,255,234        772,216   255,249,220
+     793,104   255,246,219       1129,258   255,255,226
+     520,153   255,249,229       1052,307   255,255,226
+
+Rot durchgehend am Anschlag, Blau bei 219 bis 234 — exakt das Gelbplateau.
+
+### Woher es kommt
+
+`tools/wasistda.mjs` schickt einen Strahl durch jeden dieser Bildpunkte. Vor
+**jedem** liegen vier bis sechs Schacht-Mantelflächen, bei 0,25 / 0,35 / 1,41 /
+1,51 m. Die Kamera `e-tatami` steht in 42 cm Höhe, also mitten im
+Schachtvolumen und blickt durch mehrere Lagen zugleich — deshalb ist sie mit
+8,57 Prozent doppelt so schlimm wie `a-halle` mit 3,82.
+
+Der Kommentar an der Stelle hat das vorhergesagt: *„Ein Strahlprisma hat vier
+Mantelflächen bei `DoubleSide`, benachbarte Paneele überlagern sich zusätzlich;
+sieben Lagen ergeben 1,07 und damit reines Weiß."*
+
+### Hebel 1: eine Seite statt zwei — trägt nicht
+
+Am Geometriebauer steht, `DoubleSide` sei nur da, um „die Wicklung egal" zu
+machen. Also Versicherung, kein Lichtgrund; das Halbieren der Lagen schien
+umsonst zu haben zu sein. Gemessen:
+
+    DoubleSide   e-tatami 8,57 %   a-halle 3,82 %
+    FrontSide    e-tatami 8,58 %   a-halle 3,77 %
+
+**Nichts.** Die Quads liegen so, dass sie in diesen Ansichten ohnehin alle zur
+Kamera zeigen — `DoubleSide` kostet hier nichts und spart nichts.
+Zurückgenommen, mit der Messung als Kommentar an Ort und Stelle.
+
+### Hebel 2: `uIntensity` — scheidet rechnerisch aus
+
+Der Grund steht bereits im Code und ist beim Nachrechnen richtig: Der additive
+Modus mischt auf den **sRGB-kodierten** Wert. Halbieren senkt ihn nur um
+2^(1/2,4) ≈ 1,33; man müsste durch fünf teilen, und dann wäre die Farbe tot.
+
+### Was bleibt
+
+Weniger Volumen oder **echtes Licht im Raum**. Damit ist auch dieser Befund an
+dasselbe Paket gebunden wie 2, 3, 4 und 22. Fünf von siebenundzwanzig Befunden
+hängen an einer einzigen Ursache: Der Raum hat keine Lichtquelle, die
+Papierwand leuchtet und beleuchtet nichts, und die additive Lage macht die
+Arbeit, für die sie nicht gebaut ist.
+
+**Kein Eingriff in diesem Paket.**
+
+### Werkzeugfehler nebenbei
+
+`wasistda.mjs` hat beim ersten Lauf `dojo-dust` in **0,00 m** Abstand gemeldet
+— es sah aus, als sässe ein Staubkorn auf der Kamera. Der Grund ist threes
+Vorgabe für `Raycaster.params.Points.threshold`: **1**, und das ist ein Meter
+Weltradius um den Strahl. Damit meldet jeder Lauf jede Staubwolke der Umgebung
+als Treffer. Jetzt 0,02 — grosszügig für ein Korn von drei Zentimetern. Die
+Fehlspur hat mich einen Gedankengang gekostet; ohne die Korrektur den
+nächsten.
