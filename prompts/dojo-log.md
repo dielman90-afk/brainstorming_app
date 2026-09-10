@@ -1683,3 +1683,79 @@ soll. Budget: 114 Draw-Calls von 120, **319 326** Dreiecke von 350 000 (von
 313 184 — die Unterteilung kostet 6 142), 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-40`.
+
+## Paket T — der Trockengarten hatte drei Materialien in elf Stufen, und zwei davon in der falschen Reihenfolge
+
+**Prüferbefund 4 des dritten Berichts:** „Der Trockengarten ist eine einzige
+graue Masse. Kies L 103, Trittstein L 106, Laternenschaft L 110 — drei
+Materialien innerhalb von sieben Tonwertstufen."
+
+Seine Zahlen sind von vor dem Tageslicht-Paket. Nachgemessen, differenziell je
+Knoten in `c-engawa`:
+
+| | Kies | Trittsteine | Steinwerk |
+| --- | --- | --- | --- |
+| vorher | 127,8 | 138,8 | 137,1 |
+
+Elf Stufen statt sieben — und **in der falschen Reihenfolge.** Die Trittsteine
+standen elf Stufen heller als der Kies. Ein Karesansui-Bett ist das Hellste, was
+in so einem Garten liegt, und ein Trittstein ist nasser, dichter Granit: das
+Dunkelste. Genau umgekehrt.
+
+Kies 0xa79f90 → 0xc4bca8, Trittsteine 0x4f4c45 → 0x3d3a34:
+
+| | Kies | Trittsteine | Steinwerk |
+| --- | --- | --- | --- |
+| nachher | **144,3** | **115,9** | 137,3 |
+
+**Spanne 11 → 28 Stufen, Reihenfolge richtig.** Im Bild liegen die Trittsteine
+jetzt als dunkle Platten in einem hellen Bett statt daneben zu verschwinden.
+
+Die Begründung, die im Quelltext gegen einen helleren Kies stand — „die Textur
+kam mit dem Himmelslicht darüber als hellstes Ding im ganzen Bild heraus" —
+galt für Himmelsfaktor 1,0. Seit Paket Q steht er auf 3,2, und der Vergleich
+hatte sich umgedreht, ohne dass jemand nachgesehen hätte.
+
+### Die Körnung: dreimal so viel Kontrast, gemessen null
+
+Der zweite Teil des Befunds lautet: „Der Kies hat keinerlei Körnung, kein
+Rauschen, kein einzelnes Steinchen." Die Körnung ist da — 26 000 Rechtecke von
+ein bis drei Bildpunkten, bei 1024 px auf zehn Meter also ein bis drei
+Zentimeter, die richtige Kieselgrösse. Ihre Streuung lag bei 92–132 mit
+Deckkraft 0,5, also ±10 Stufen.
+
+**Versucht:** Streuung 62–168 bei Deckkraft 0,72 — das Dreifache — plus ein
+zweiter Durchgang mit 3 000 groberen Kieseln von drei bis sieben Bildpunkten,
+die nach dem Verkleinern einzeln stehen bleiben sollten.
+
+Hochpass auf einer **reinen** Kiesfläche (Kasten aus `knotenkasten.mjs`,
+800–950 × 445–478):
+
+    ohne die Aenderung   |d| 6,334   p95 20,55
+    mit der Aenderung    |d| 6,049   p95 18,82
+
+**Nichts, sogar minimal weniger** — der Rest ist die hellere Fläche, die die
+Tonwertkurve stärker staucht. Die Körnung geht bei dieser Entfernung in der
+Verkleinerung unter, unabhängig von ihrem Kontrast, und zwar auch die groberen
+Kiesel, von denen ich es nicht erwartet hätte. Der Hebel wäre eine
+Detailschicht, deren Massstab am Bildschirm hängt und nicht an der Fläche — ein
+eigener Eingriff. **Zurückgenommen, Messung steht im Quelltext.**
+
+### Und noch ein Kastenfehler, der vierte in dieser Sitzung
+
+Vor der Messung oben habe ich den Hochpass zweimal in Kästen gemessen, die ich
+für Kies hielt: (640,460)–(1150,545) enthielt überwiegend Farne, (1020,436)–
+(1150,462) gar keinen Kies. Beide Male kam „keine Änderung" heraus — beim
+zweiten Mal sogar für die Farbe, die nachweislich um sechzehn Stufen gestiegen
+war. Erst `knotenkasten.mjs` hat den richtigen Ausschnitt geliefert.
+
+Das ist in dieser Sitzung viermal passiert (Staub, Moossaum, Kies-Albedo, hier).
+**Die Regel, die daraus folgt: kein Kasten ohne `knotenkasten.mjs` oder
+`knotenwerte.mjs` davor.** Ein von Hand gesetzter Kasten ist eine Vermutung
+über die Bildaufteilung, und die ist regelmässig falsch.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Im Dojo nur
+`c-engawa` 4,2 %, alle übrigen unter 0,04 %. Budget: 114 Draw-Calls von 120,
+319 326 Dreiecke von 350 000, 42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-42`.

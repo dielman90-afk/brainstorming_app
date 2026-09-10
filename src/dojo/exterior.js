@@ -524,6 +524,33 @@ function gravelTexture(stones, G) {
   ctx.fillStyle = '#6f6a60';
   ctx.fillRect(0, 0, size, size);
   const r = rng(0x9a17);
+  // **Die Koernung war da, trug nichts — und mehr Kontrast half auch nicht.**
+  //
+  // 26 000 Rechtecke von ein bis drei Bildpunkten sind bei 1024 px auf rund
+  // zehn Meter genau die richtige Kieselgroesse, ein bis drei Zentimeter. Der
+  // Pruefer meldete trotzdem „kein Rauschen, kein einzelnes Steinchen" und las
+  // die Flaeche als gegossenen Beton.
+  //
+  // Der naheliegende Schluss war, dass die Streuung zu klein ist: 92 bis 132
+  // bei Deckkraft 0,5, also plus minus zehn Stufen um den Grund. **Versucht und
+  // gemessen:** Streuung auf 62 bis 168 bei Deckkraft 0,72 (rund plus minus
+  // achtunddreissig Stufen, also das Dreifache), dazu ein zweiter Durchgang mit
+  // 3 000 groberen Kieseln von drei bis sieben Bildpunkten, die nach dem
+  // Verkleinern einzeln stehen bleiben sollten.
+  //
+  // Hochpass auf einer reinen Kiesflaeche (Kasten aus `knotenkasten.mjs`,
+  // 800–950 x 445–478 in `c-engawa`):
+  //
+  //     ohne die Aenderung   |d| 6,334   p95 20,55
+  //     mit der Aenderung    |d| 6,049   p95 18,82
+  //
+  // **Nichts, sogar minimal weniger** — der Rest ist die hellere Flaeche, die
+  // die Tonwertkurve staerker staucht. Die Koernung geht bei dieser Entfernung
+  // in der Verkleinerung unter, und zwar unabhaengig von ihrem Kontrast; auch
+  // die groberen Kiesel, von denen ich es nicht erwartet haette. Der Hebel
+  // waere eine Detailschicht, deren Massstab am Bildschirm haengt und nicht an
+  // der Flaeche — ein eigener Eingriff, kein Zahlendreher hier. **Also
+  // zurueckgenommen und die Messung stehengelassen.**
   for (let i = 0; i < 26000; i++) {
     const g = 92 + r() * 40;
     ctx.fillStyle = `rgba(${g},${Math.round(g * 0.99)},${Math.round(g * 0.9)},0.5)`;
@@ -640,7 +667,15 @@ function buildGarden(group, r) {
   // nicht in der Textur, damit die Karte selbst ihren Kontrastumfang behält:
   // Die Harkrillen leben von der Spanne zwischen Kamm und Grund, und die würde
   // ein dunkleres Grundbild mit wegdrücken.
-  gravel.material.color.setHex(0xa79f90);
+  //
+  // **Wieder herauf, und diesmal mit der Begruendung, die dagegenstand.** Der
+  // Absatz oben sagt: „die Textur kam mit dem Himmelslicht darueber als
+  // hellstes Ding im ganzen Bild heraus". Das stimmte, als der Himmel auf
+  // Faktor 1,0 stand. Seit dem Tageslicht-Paket steht er auf 3,2, und der
+  // Vergleich hat sich umgedreht — gemessen lag der Kies bei L 127,8 gegen
+  // Trittsteine 138,8 und Steinwerk 137,1. **Der Kies war das Dunkelste im
+  // Garten**, und ein Karesansui-Bett ist das Hellste, was es dort gibt.
+  gravel.material.color.setHex(0xc4bca8);
   gravel.name = 'dojo-garden-kies';
   gravel.receiveShadow = true;
   group.add(gravel);
@@ -836,7 +871,12 @@ function buildGarden(group, r) {
     // vollständig aus dem Material kommen. Mit dem hellen Wert kamen die
     // Trittsteine schneeweiß heraus, heller als der Kies, auf dem sie liegen.
     // Der Wert ist derselbe, den das Lambert-Material vorher hatte.
-    graniteMaterial({ tone: 0x4f4c45, vertexColors: true }),
+    // **0x3d3a34 statt 0x4f4c45.** Prueferbefund 4: „drei Materialien innerhalb
+    // von sieben Tonwertstufen". Nach dem Tageslicht-Paket waren es elf, aber
+    // in der falschen Reihenfolge — die Trittsteine standen mit 138,8 heller
+    // als der Kies mit 127,8. Ein Trittstein ist nasser, dichter Granit; er
+    // ist das Dunkelste im Kiesbett und nicht das Hellste.
+    graniteMaterial({ tone: 0x3d3a34, vertexColors: true }),
     stones.length
   );
   stoneMesh.name = 'dojo-garden-trittsteine';
