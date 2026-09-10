@@ -1490,3 +1490,96 @@ Rückschlag. Im Dojo `e-tatami` 7,7 %, `a-halle` 4,9 %, `b-shoji` 4,3 %,
 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-33`.
+
+## Paket Q — draussen ist jetzt heller als drinnen
+
+**Prüferbefund 1 des dritten Berichts, sein schwerster:** „Draussen ist dunkler
+als drinnen — die Lichtlogik ist umgedreht." Gartenöffnung L 108, Engawa-Diele
+L 141, Kies L 103, Shoji-Papier L 140.
+
+Seine Zahlen reproduzieren sich exakt. **Und Paket B hat dieses Paket
+vorhergesagt und aufgeschoben** — der Absatz über `SKY_INTENSITY` endet mit:
+„Wer draussen wirklich heller haben will als drinnen, muss beides zugleich
+anfassen — mehr Licht UND hellere Körperfarben. Das ist ein eigenes Paket."
+
+### Erst der naheliegende Verdacht, und er war falsch
+
+Bei 10,5 Grad Sonnenhöhe wirft ein elf Meter hoher Bambushain unmittelbar im
+Osten einen Schatten von neunundfünfzig Metern nach Westen — über Haus und
+Garten hinweg. Der Garten liegt also im Schatten des eigenen Hains, und das
+klang nach der Ursache.
+
+`knotenwerte.mjs --ohne-werfer`, also mit **jedem** Schattenwurf abgeschaltet:
+
+    Kies mit Werfern    105,7
+    Kies ohne Werfer    117,1
+
+**Elf von fünfunddreissig Stufen.** Der Schatten ist es nicht.
+
+### Dann ein Wischlauf, der wieder in einen Kasten gemessen hat
+
+Ich habe die Kiesfarbe von 0xa79f90 auf 0xdfd4bd gehoben — ein Drittel mehr
+Albedo — und im Kasten (620,470)–(900,545) ganze **sieben Stufen** gefunden.
+Grund: Der Kasten ist grösstenteils kein Kies, sondern Moos, Steine und
+Sträucher. Derselbe Fehler wie beim Staub auf dem Shoji-Papier und beim
+Moossaum, und ich hatte das differenzielle Werkzeug bereits in der Hand.
+**Notiert, weil es das dritte Mal ist.**
+
+### Die Messung, die trägt
+
+Differenziell je Knoten in `c-engawa`, auf den eigenen Bildpunkten:
+
+| SKY | Kies | Bambuslaub | Azaleenpolster | Laub über L 150 |
+| --- | --- | --- | --- | --- |
+| 9,0 | 105,7 | 134,2 | 54,8 | 48,0 % |
+| 11,7 | 121,4 | 141,6 | 64,7 | 54,4 % |
+| 14,4 | 134,6 | 147,8 | 73,6 | 60,4 % |
+
+Innen zum Vergleich, **unbewegt**: Engawa-Diele 141,5, Shoji-Papier 140,2. Das
+bestätigt Paket B: Die Innenmaterialien hängen am Desktop nicht an der
+Himmelskarte. `a-halle` ändert sich am Ende um 0,012 % der Bildpunkte,
+`e-tatami` um 0,035 % — der Regler fasst nur den Aussenraum an.
+
+### Warum 3,2 jetzt geht und in Paket B nicht
+
+Paket B schrieb: „Ab 2,6 kippt das Laub im Bild ins Blasse." Das galt für die
+Blattfarben von damals. **Paket K hat die Blattpalette inzwischen um ein Fünftel
+abgedunkelt** — aus einem ganz anderen Grund (der Hain las als bereifte
+Konifere), aber mit genau der Wirkung, die hier fehlte.
+
+`SKY_INTENSITY` 9,0 → **14,4** (Faktor 2,0 → 3,2), Blattpalette noch einmal
+× 0,83 und, nach einer Kontrollmessung, ein zweites Mal × 0,85. Endstand der
+Palette **× 0,56** gegenüber dem Ausgangswert.
+
+| Krone in `c-engawa` | L | Sättigung | über L 150 |
+| --- | --- | --- | --- |
+| vor diesem Paket | 130,0 | 35,7 % | 35,2 % |
+| nur Himmel 14,4 | 138,4 | 29,7 % | 41,8 % |
+| **Himmel + Palette** | **129,4** | **28,7 %** | **34,8 %** |
+
+Der Kies steht damit bei **134,6** statt 105,7 — auf der Höhe des Innenraums
+statt vierzig Stufen darunter. Die Azaleen kommen von 54,8 auf 73,6; sie waren
+das Dunkelste im Bild. Die Krone steht im Tonwert genau da, wo sie vorher stand.
+
+### Was es kostet, und das bleibt offen
+
+**Die Krone hat sieben Punkte Sättigung verloren** (35,7 → 28,7 Prozent). Bei
+gleichem Tonwert und dunklerer Körperfarbe kommt mehr vom Licht und weniger vom
+Blatt — und das Licht ist der blaue Himmel. Das ist der Preis dieses Pakets, und
+er ist bezahlt, nicht wegdiskutiert.
+
+Der eigentliche Grund, warum die Palette so weit herunter muss, ist **derselbe
+wie bei der Bildnische und beim Sesselkissen: es fehlt die Verdeckung.** Ein
+Hain verschattet sich selbst; dieser hier nicht. Jedes Blatt mit einer Normalen
+nach oben bekommt den vollen Himmel, ob es unter zehn anderen Blättern liegt
+oder obenauf. Solange das so ist, bleibt die Blattfarbe der einzige Regler, und
+er muss die fehlende Verdeckung mitbezahlen. **Der nächste Hebel wäre eine in
+die Kartenbüschel gebackene Verdeckung** — dieselbe Technik wie in der Nische,
+nur auf `cardCluster` statt auf vier Wandflächen.
+
+**Regression:** Insel, Konstrukt, Nachthimmel bitgleich. Zen 1,3 % (teilt sich
+die Blattpalette, Δmax 17). Im Dojo `c-engawa` 38,8 %, `f-gegenlicht` 1,9 %,
+`d-suedfront` 1,4 %, die drei Innenkameras unter 0,04 %. Budget: 113 Draw-Calls
+von 120, 313 178 Dreiecke von 350 000, 42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-36`.

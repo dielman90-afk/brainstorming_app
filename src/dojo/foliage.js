@@ -146,7 +146,21 @@ const PALETTE = {
   // Aussenpflanzen zusammen aber nur 6,9 der 140,8 Stufen (auf 0 gesetzt:
   // 133,9). Ähnlichkeit ist kein Beitrag — dieselbe Falle wie beim Staub auf
   // dem Shoji-Papier.
-  bamboo: { base: [69, 90, 42], vary: [[59, 80, 35], [82, 102, 46], [96, 112, 53], [53, 74, 34]] },
+  //
+  // **Noch einmal x 0,83, zusammen mit dem Himmel.** Der Himmel ueber dem Dojo
+  // steht seit dem Tageslicht-Paket auf Faktor 3,2 statt 2,0; ohne diesen
+  // Schritt stuende das Laub bei L 147,8 und zu sechzig Prozent ueber 150.
+  // Danach war die Krone in `c-engawa` trotzdem wieder blasser als vorher
+  // (L 130,0 auf 138,4, Saettigung 35,7 auf 29,7 Prozent), also noch einmal
+  // x 0,85. **Endstand x 0,56 gegenueber dem Ausgangswert.**
+  //
+  // Der eigentliche Grund, warum es so weit herunter muss, ist derselbe wie bei
+  // der Bildnische und dem Sesselkissen: Es fehlt die Verdeckung. Ein Hain
+  // verschattet sich selbst, dieser hier nicht — jedes Blatt mit einer
+  // Normalen nach oben bekommt den vollen Himmel, ob es unter zehn anderen
+  // Blaettern liegt oder obenauf. Solange das so ist, bleibt die Blattfarbe der
+  // einzige Regler, und er muss die fehlende Verdeckung mitbezahlen.
+  bamboo: { base: [48, 64, 30], vary: [[42, 56, 25], [58, 72, 32], [68, 79, 37], [37, 52, 24]] },
   maple: { base: [150, 66, 36], vary: [[168, 74, 38], [186, 112, 44], [126, 52, 32], [198, 140, 56]] },
   azalea: { base: [56, 92, 48], vary: [[48, 84, 44], [68, 104, 52], [40, 72, 38], [84, 116, 60]] },
   fern: { base: [52, 84, 44], vary: [[44, 74, 38], [62, 96, 48], [36, 62, 32], [78, 106, 54]] },
