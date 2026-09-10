@@ -13041,11 +13041,63 @@ const MAPLE_ANSAETZE = [
   [-0.66, 1.76, 0.16, 0.25],
   [0.5, 1.82, -0.4, 0.25],
 ];
+// **Der Wurzelanlauf.**
+//
+// Prueferbefund 6, zweiter Teil: „nichts sitzt IM Boden". Am Torii war es die
+// fehlende Fussplatte (Paket AD), an den Baeumen ist es der Stamm: Der Zylinder
+// hoert bei y = 0 auf, und im Bild steht eine flache Ellipse auf dem Sand. Ein
+// Baum hat dort seinen breitesten Punkt — der Stamm laeuft in Wurzelanlaeufe
+// aus, drei bis fuenf Rippen, die sich in den Boden schieben.
+//
+// Der Anlauf reicht bewusst 6 cm **unter** null: Der Kies liegt bei −0,02, und
+// was darunter endet, kann keine Schnittkante zeigen, egal aus welchem Winkel.
+//
+// @param {number} rOben  Stammhalbmesser dort, wo der Anlauf ansetzt
+// @param {number} rFuss  Halbmesser am Boden
+// @param {number} hoehe  Ansatzhoehe ueber null
+function wurzelanlauf(rOben, rFuss, hoehe, seed) {
+  const geo = new THREE.CylinderGeometry(rOben, rFuss, hoehe + 0.06, 14, 3, true);
+  const pos = geo.attributes.position;
+  const rippen = mulberry32(seed);
+  const ph1 = rippen() * Math.PI * 2;
+  const ph2 = rippen() * Math.PI * 2;
+  const n = 3 + Math.floor(rippen() * 3); // drei bis fuenf Anlaeufe
+  for (let v = 0; v < pos.count; v++) {
+    const px = pos.getX(v);
+    const pz = pos.getZ(v);
+    const py = pos.getY(v);
+    const r = Math.hypot(px, pz);
+    if (r < 1e-6) continue;
+    const a = Math.atan2(pz, px);
+    // Unten voll, oben ausgelaufen — der Anlauf ist am Boden am staerksten.
+    const t = 1 - (py + (hoehe + 0.06) / 2) / (hoehe + 0.06);
+    const rippe = 1 + Math.pow(t, 2.2) * (0.22 * Math.max(0, Math.cos(n * a + ph1)) + 0.09 * Math.sin(2 * a + ph2));
+    pos.setXYZ(v, (px / r) * r * rippe, py, (pz / r) * r * rippe);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  // Oberkante auf `hoehe`, Unterkante auf −0,06.
+  geo.translate(0, hoehe - (hoehe + 0.06) / 2, 0);
+  return geo;
+}
+
 function makeMaple(rand) {
   const tree = new THREE.Group();
   const trunk = new THREE.Mesh(
     mergeGeometries([
       scaleUV(new THREE.CylinderGeometry(0.075, 0.17, 1.62, 10), 4.5).translate(0, 0.81, 0),
+      // **Der Anlauf muss lang sein, nicht dick.** Der erste Versuch setzte ihn
+      // bei y = 0,20 an und liess ihn auf 0,255 ausladen: Im Bild sass ein
+      // Klumpen am Stamm, weil der Uebergang auf zwanzig Zentimetern zu kurz
+      // ist, um als Schwellung zu lesen. Und sein oberer Halbmesser war
+      // gleich dem des Stammes, also deckungsgleich — durch die offene
+      // Oberkante sah man in ihn hinein, und das gab den hellen Fleck.
+      //
+      // Jetzt 42 cm hoch, oben 1,4 cm **schmaler** als der Stamm an dieser
+      // Stelle (0,17 − 0,095 · 0,42/1,62 = 0,145), damit er ganz darin
+      // verschwindet. Die Kachelzahl folgt der des Stammes: 4,5 Kacheln auf
+      // 1,62 m sind 1,33 auf 0,48 m, sonst springt die Maserung am Ansatz.
+      scaleUV(wurzelanlauf(0.14, 0.24, 0.42, 0x71a3), 1.33),
       ...astwerk([0, 1.28, 0], MAPLE_ANSAETZE, { seed: 0x71a3, stammR: 0.07 }),
     ]),
     weatheredWoodMaterial({ tone: 0x7d6552, vertexColors: false })
@@ -13957,7 +14009,7 @@ function createZenEnvironment() {
   // Stein-Arrangements (klassisch asymmetrische Gruppen)
   const stoneGroups = [
     { x: -3.5, z: -2.5, n: 3 },
-    { x: 4, z: 1.5, n: 2 },
+    { x: 5.4, z: 0.7, n: 2 },
     { x: 1, z: -4.5, n: 3 },
   ];
   // Zwei Sammler für den ganzen Garten: alles aus Zen-Granit in ein Mesh, alle
@@ -14675,6 +14727,25 @@ function createZenEnvironment() {
   // Größenordnung, in der man sie sieht.
   const trunkGeo = mergeGeometries([
     scaleUV(new THREE.CylinderGeometry(0.105, 0.21, 1.95, 10), 5).translate(0, 0.975, 0),
+    // **Die Sakura hat vorerst keinen Wurzelanlauf, und das ist kein
+    // Versehen.** Derselbe Aufruf wie beim Ahorn eine Funktion weiter oben —
+    // `scaleUV(wurzelanlauf(0.178, 0.29, 0.5, 0x5c11), 1.44)` — zeichnet hier
+    // ein Band von exakt rgb(0, 0, 0) quer ueber den Stamm, dort wo der Anlauf
+    // aus ihm heraustritt (y = 0,465). Am Ahorn, mit derselben Funktion und
+    // derselben Bauart des Merges, passiert das nicht.
+    //
+    // Reines Schwarz ist unter einem Hemisphaerenlicht nicht durch Beleuchtung
+    // zu erklaeren; es zeigt eine entartete Normale oder eine entartete
+    // Tangente an. Ich habe offen und geschlossen (`openEnded`) versucht — das
+    // Band bleibt in beiden Faellen — und die Ursache nicht gefunden.
+    //
+    // **Der Grund, warum das hier steht statt im Bild:** Der Teich nimmt seine
+    // Spiegelung mit einer Wuerfelkamera aus der Teichmitte auf, und die
+    // Sakura ist darin gross. Das schwarze Band hat die Umgebungskarte
+    // verdunkelt und damit den ganzen Teich: `zen-wasser` fiel von L 117,9
+    // (Beitrag +10,9) auf L 52,4 (Beitrag −54,6). Ein Fehler am Baum, sichtbar
+    // am Wasser fuenf Meter weiter — genau die Art Kopplung, die man ohne
+    // Regressionsdiff des eigenen Bildsatzes nicht findet.
     ...astwerk([0, 1.55, 0], SAKURA_ANSAETZE, { seed: 0x5a11, stammR: 0.085 }),
   ]);
   const trunk = new THREE.Mesh(

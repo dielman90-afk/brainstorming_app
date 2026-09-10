@@ -3643,3 +3643,81 @@ von 120 unverändert, **132 972** Dreiecke von 350 000 (von 118 356; die feinere
 Kugel kostet 14 600 über neun Sträucher), 21,86 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/zen-60`.
+
+## Paket AH — Der Wurzelanlauf, die braune Trommel, und ein schwarzes Band, das den Teich verdunkelt hat
+
+### Befund 15: die braune Trommel am Fuss des Ahorns
+
+Zuerst identifiziert, nicht geraten. `knotenkasten.mjs` in `d-aerial`:
+
+    zen-findlinge   Stueck von 2 101 Bildpunkten bei 736,444–811,512
+
+Also ein Findling der Steingruppe 2, die bei (4 | 1,5) stand — 1,9 m vom Ahorn
+bei (4,8 | 3,2). Aus der Luftkamera decken sich beide auf dem Bild, und weil der
+Stein flach ist (`scale.y` 0,55 bis 0,85) und im Schatten des Baums steht, liest
+er als Fass hinter dem Stamm.
+
+**Der erste Versuch war zu grob:** Gruppe 2 auf (2,7 | 0,9) verschoben. Der
+Fleck war weg, aber die beiden Brocken drängten sich im Teichbild in den
+Vordergrund. Jetzt (5,4 | 0,7): Sie stehen als Steingruppe **neben** dem Wasser,
+und der Ahorn steht frei.
+
+### Befund 6, zweiter Teil: Bäume ohne Fuss
+
+Der Stamm war ein Zylinder, der bei y = 0 aufhört — im Bild eine flache Ellipse
+auf dem Sand. Ein Baum hat dort seinen breitesten Punkt. `wurzelanlauf()` setzt
+drei bis fünf Rippen an, die 6 cm **unter** null enden, damit aus keinem Winkel
+eine Schnittkante zu sehen ist.
+
+**Ein Fehlversuch dabei:** Der erste Anlauf setzte bei y = 0,20 an und lud auf
+0,255 aus. Zwanzig Zentimeter sind zu kurz, um als Schwellung zu lesen — im Bild
+sass ein Klumpen am Stamm. Ausserdem war sein oberer Halbmesser gleich dem des
+Stammes, also deckungsgleich; durch die offene Oberkante sah man hinein, und das
+gab einen hellen Fleck. Jetzt 42 cm hoch und oben 1,4 cm schmaler als der Stamm.
+
+### Und dann das schwarze Band
+
+Derselbe Aufruf an der Sakura zeichnet ein Band von **exakt rgb(0, 0, 0)** quer
+über den Stamm, dort wo der Anlauf aus ihm heraustritt (y = 0,465). Am Ahorn,
+mit derselben Funktion und derselben Bauart des Merges, passiert das nicht.
+
+Reines Schwarz ist unter einem Hemisphärenlicht nicht durch Beleuchtung zu
+erklären — es zeigt eine entartete Normale oder eine entartete Tangente an.
+Offen und geschlossen (`openEnded`) versucht: Das Band bleibt in beiden Fällen.
+**Ich habe die Ursache nicht gefunden**, und der Anlauf an der Sakura ist
+deshalb wieder draussen. Der Kommentar an der Stelle hält den Befund fest.
+
+### Die Kopplung, die ich fast übersehen hätte
+
+Der Teich nimmt seine Spiegelung mit einer Würfelkamera aus der Teichmitte auf,
+und die Sakura ist darin gross. Das schwarze Band hat die Umgebungskarte
+verdunkelt und damit **den ganzen Teich**:
+
+    mit dem Anlauf     zen-wasser  L 52,4   Beitrag −54,6
+    ohne den Anlauf    zen-wasser  L 117,9  Beitrag +10,9
+
+Ein Fehler am Baum, sichtbar am Wasser fünf Meter weiter. Ich habe ihn zuerst
+der verschobenen Steingruppe zugeschrieben und die Verschiebung zurückgenommen —
+der Teich blieb dunkel. Erst die Halbierung (Ahornanlauf behalten,
+Sakuraanlauf entfernen) hat es gezeigt.
+
+**Das ist der Beleg für die Lehre aus Paket AG:** Seit diesem Paket wird auch
+der Zengarten selbst gegen seinen Vorstand gemessen, nicht nur die vier anderen
+Umgebungen. Ohne diesen Diff wäre ein Teich aus Schlamm festgeschrieben worden.
+
+### Eigenregression dieses Pakets, gegen `zen-60`
+
+    c-torii     Δmax 1   0,000 %      e-sand   Δmax 1   0,000 %
+    f-grove     Δmax 1   0,000 %      d-aerial          0,925 %
+    a-eyelevel                        2,719 %
+    b-pond                            8,732 %
+
+`b-pond` und `d-aerial` tragen die verschobene Steingruppe, `a-eyelevel` und
+`d-aerial` den Wurzelanlauf des Ahorns. Die drei Bilder, die weder das eine noch
+das andere sehen, sind praktisch bitgleich — das ist die Gegenprobe.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 99 Draw-Calls
+von 120 unverändert, **133 140** Dreiecke von 350 000 (von 132 972), 21,86 MB
+Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-61b`.
