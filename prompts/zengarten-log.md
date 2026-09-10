@@ -3496,3 +3496,70 @@ Draw-Calls von 120, 113 956 Dreiecke von 350 000, 21,86 MB Textur — der Eingri
 ist ein zweiter Abgriff auf einer Karte, die schon gebunden ist. Konsole sauber.
 
 Bildstand `tools/shots/zen-58`.
+
+## Paket AF — Die Findlinge waren Schokolade mit Gravur (Prüferbefund 8)
+
+Der Prüfer: „nasse Schokoladenellipsoide mit Kratzlinien-Gravur." Drei Vorwürfe
+in einem Satz, und alle drei liessen sich einzeln nachweisen.
+
+### Die Farbe: sie waren die wärmste Fläche der Szene
+
+Gemessen über die Knotenmasken in `b-pond`, Verhältnis Rot zu Blau und
+Sättigung:
+
+    zen-sand           1,37   27,0 %
+    zen-trittsteine    1,40   28,4 %
+    zen-ufersteine     1,52   34,5 %
+    zen-laterne-stein  1,54   34,9 %
+    zen-findlinge      1,74   42,7 %   <- allein auf weiter Flur
+
+Zwei Ursachen, beide multiplikativ:
+
+* Die fünf Grundtöne lagen bei einem Rot-zu-Blau von **1,14**, und die Sonne
+  dieser Szene (0xffd9a0) bringt **1,59** mit. **Was unter goldenem Licht
+  neutral aussehen soll, muss im Grundton kühl sein.** Die Töne liegen jetzt bei
+  rund 1,00.
+* Die Moospatina trägt 0x4e5c2e, deren Blaukanal bei 46 von 255 liegt. Mit
+  Stärke 0,85 aufgetragen frisst sie dem Stein das Blau weg — die Findlinge
+  standen im Blaukanal bei 41,8 gegen 51,2 der Trittsteine, die dieselbe Patina
+  mit 0,45 tragen. Jetzt 0,62.
+
+    nachher  zen-findlinge  1,44   30,4 %
+
+Damit liegen sie im Feld der übrigen Steine statt darüber.
+
+### Die Kratzlinien waren die Facettenkanten
+
+Lange, gerade, ungefähr parallele Hell-Dunkel-Paare. Bei vierzehnfacher
+Vergrösserung sind sie eindeutig: Es sind die Kanten der
+`IcosahedronGeometry(size, **1**)` — 42 Punkte, 80 Dreiecke. Auf einem Stein,
+der im Bild 350 Bildpunkte breit ist, sind das Facetten von rund 40 Bildpunkten,
+und ihre Knicke stehen als Striche.
+
+Unterteilung 2 (162 Punkte, 320 Dreiecke) löst sie auf — **und macht den Stein
+zur glatten Kartoffel.** Das ist genau der Fehler, gegen den
+`weatheredStoneGeometry()` überhaupt eingeführt wurde: Bei gleichbleibender
+Verwitterungsamplitude verteilt sich dieselbe Störung auf viermal so viele
+Punkte und wird zum Rauschen.
+
+Die Verwitterung musste deshalb mit: `amount` von 0,18–0,40 auf **0,22–0,48**,
+`frequency` von 1,5–3,7 auf **3,0–6,5**. Auf 42 Punkten war eine Frequenz von 3
+unterabgetastet; auf 162 trägt sie. Danach hat der Stein Bruchflächen und einen
+Grat statt Striche.
+
+Hochpass im Kasten über den grossen Findling (950,420–1230,570), von nah nach
+fern:
+
+    vorher   3,96  2,89  3,18  6,82
+    nachher  3,50  2,63  2,99  6,16
+
+Der Feinanteil **fällt**, und das ist hier das Gewünschte: Was verschwindet,
+sind die Striche, nicht die Struktur — die steht jetzt in der Silhouette und in
+den Flächen.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 99 Draw-Calls
+von 120 unverändert, **118 356** Dreiecke von 350 000 (von 113 956; die
+Unterteilung kostet 4 400 über alle Findlinge und die kleinen Steine), 21,86 MB
+Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-59`.

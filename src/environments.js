@@ -12365,11 +12365,14 @@ function makeZenStone(rand, size, color = 0x8b8680) {
   // danach im Garten gebaut wird.
   const formSame = rand() * 1000;
   const sr = mulberry32(Math.floor(formSame) + 1);
-  const geo = weatheredStoneGeometry(new THREE.IcosahedronGeometry(size, 1), formSame, {
-    // 0,18 bis 0,40: von fast gedrungen bis stark zerklüftet.
-    amount: 0.18 + sr() * 0.22,
-    // 1,5 bis 3,7: grobe Bruchflächen gegen kleinteilige Verwitterung.
-    frequency: 1.5 + sr() * 2.2,
+  const geo = weatheredStoneGeometry(new THREE.IcosahedronGeometry(size, 2), formSame, {
+    // **0,22 bis 0,48 statt 0,18 bis 0,40, und 3,0 bis 6,5 statt 1,5 bis 3,7.**
+    // Beide Bereiche gehoeren zur Unterteilung darueber: Auf 42 Punkten war
+    // eine Frequenz von 3 unterabgetastet, auf 162 traegt sie. Mit den alten
+    // Werten wurde der feinere Koerper eine glatte Kartoffel — der Fehler,
+    // gegen den `weatheredStoneGeometry` ueberhaupt eingefuehrt wurde.
+    amount: 0.22 + sr() * 0.26,
+    frequency: 3.0 + sr() * 3.5,
     // 0,12 bis 0,42 — der wichtigste der drei. Ein kleiner Wert lässt die
     // Kante stehen; 0,3 für alle war der Grund, warum jeder Stein rund war.
     bevel: 0.12 + sr() * 0.3,
@@ -12386,7 +12389,12 @@ function makeZenStone(rand, size, color = 0x8b8680) {
     floor: 0,
     height: Math.max(0.18, size * 0.9),
     scale: Math.max(0.18, size * 0.7),
-    strength: 0.85,
+    // **0,62 statt 0,85.** Die Patina traegt 0x4e5c2e, und deren Blaukanal
+    // liegt bei 46 von 255 — mit 0,85 aufgetragen frisst sie dem Stein das
+    // Blau weg. Die Findlinge lagen im Blaukanal bei 41,8 gegen 51,2 der
+    // Trittsteine, die dieselbe Patina mit 0,45 tragen. Der Bewuchs bleibt,
+    // er deckt nur nicht mehr den halben Stein zu.
+    strength: 0.62,
     seed: Math.floor(rand() * 1000),
     sun: ZEN_SUN,
   });
@@ -13935,7 +13943,21 @@ function createZenEnvironment() {
       // Findlinge in einem Garten sind ausgesucht und stammen aus
       // verschiedenen Brüchen: einer warm, einer bläulich, einer moosgrün
       // angelaufen.
-      const toene = [0x8a8076, 0x7d7d7c, 0x928472, 0x82857a, 0x8e8378];
+      // **Sie waren die waermsten und gesaettigtsten Flaechen der Szene.**
+      // Der Pruefer nennt sie „nasse Schokoladenellipsoide"; gemessen ueber
+      // die Knotenmasken in `b-pond`, Verhaeltnis Rot zu Blau und Saettigung:
+      //
+      //     zen-sand           1,37   27,0 %
+      //     zen-trittsteine    1,40   28,4 %
+      //     zen-ufersteine     1,52   34,5 %
+      //     zen-laterne-stein  1,54   34,9 %
+      //     zen-findlinge      1,74   42,7 %   <- allein auf weiter Flur
+      //
+      // Zwei Ursachen, beide multiplikativ: Die Grundtoene lagen bei einem
+      // Rot-zu-Blau von 1,14, und die Sonne dieser Szene (0xffd9a0) bringt
+      // 1,59 mit. Was unter goldenem Licht neutral aussehen soll, muss im
+      // Grundton **kuehl** sein — die Toene liegen jetzt bei rund 1,00.
+      const toene = [0x82817f, 0x76787c, 0x8a8782, 0x7c8085, 0x86847f];
       const s = makeZenStone(rand, size, toene[Math.floor(rand() * toene.length) % toene.length]);
       const px = sg.x + (rand() - 0.5) * 0.9;
       const pz = sg.z + (rand() - 0.5) * 0.9;
