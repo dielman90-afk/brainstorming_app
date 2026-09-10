@@ -3152,3 +3152,73 @@ Draw-Calls von 120 (unverändert — alle Büschel liegen im selben Netz),
 Büschel 4 800 abzüglich der gesparten), 21,86 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/zen-53`.
+
+## Paket AA — Die Ferne war Nebelfarbe mit runder Kante (Prüferbefund 3, zweite Hälfte)
+
+Der Prüfer: „kein Gartenabschluss — eine endlose Sandwüste mit der geharkten
+Scheibe als Insel, ferne Hügel von Wolken nicht zu unterscheiden."
+
+### Die erste Hälfte des Befundes wird nicht bearbeitet
+
+`makeGartenmauer()` steht gebaut und geprüft im Code und ist in fünf Zeilen
+wieder einzuhängen. Sie ist in **Durchlauf 12 auf ausdrücklichen Zuruf des
+Nutzers** entfernt worden, weil sie aus dem offenen Kiesfeld einen Hof machte.
+Diese Entscheidung gehört dem Nutzer. Sie steht seit Paket C so im Log und
+bleibt so.
+
+### Die zweite Hälfte war messbar, und die Messung sagte etwas anderes als erwartet
+
+Gemessen über die Maske des Knotens `zen-ferne`, Grünüberschuss G − (R+B)/2:
+
+    a-eyelevel   Median  12,5   Mittel L 145,8   Beitrag −37,9
+    d-aerial     Median   8,5   Mittel L 180,2   Beitrag −20,9
+
+Praktisch neutrale helle Buckel. Der naheliegende Griff war, sie grüner zu
+machen — und der ist hier fast wirkungslos. Der Grünanteil des Grundtons
+0x8e9468 wurde um 52 % erhöht (auf 0x74854a), auf dem Bild kam davon **ein
+Viertel** an: Median 8,5 → 10,5.
+
+Zwei Gründe, beide bekannt und beide hier zum ersten Mal zusammen wirksam:
+
+* Der Nebel zieht bei 33 bis 56 m Kameraabstand 45 bis 85 Prozent der Farbe in
+  die Dunstfarbe.
+* Was übrig bleibt, liegt bei L 180 im **flachen Ast der ACES-Kurve**, und dort
+  ist keine Sättigung mehr zu holen. Kontrast ist nur nach unten zu gewinnen —
+  die Lehre steht seit dem Nachthimmel im Log und gilt auch hier.
+
+### Was tatsächlich hilft: die Silhouette
+
+Bei 85 % Nebel ist die Farbe erledigt, aber der **Umriss** nicht. Eine Wolke
+ist rund, ein Hügelrücken ist oben gezackt. Vier bis acht Kegel je Kuppe, 0,45
+bis 1,15 m hoch auf einem Rücken von 2 bis 4 m — gerade genug, dass eine Zacke
+bei 40 m ein bis zwei Bildpunkte hoch steht. Dazu ein dunklerer Grundton
+(0x5c6a34 / 0x333d1e statt 0x8e9468 / 0x555a3c) und ein schmalerer Nebelfuss
+(0,22 statt 0,30, und höchstens 0,88 statt vollständig).
+
+Der Nebelfuss war aus der Luftkamera der grösste Fehler: Von oben sieht man die
+Kuppen von oben, und die untersten dreissig Prozent waren schlicht in
+Nebelfarbe gemalt.
+
+    Bild          vorher                       nachher
+    a-eyelevel    L 145,8  Beitrag −37,9       L 123,6  Beitrag −59,9
+    c-torii                                    L 110,5  Beitrag −73,0
+    d-aerial      L 180,2  Beitrag −20,9       L 167,8  Beitrag −32,9
+
+    Saettigung a-eyelevel   27,9 %  →  31,7 %
+    Gruenueberschuss Median 12,5    →  14,0
+
+**Der Beitrag ist die Zahl, auf die es ankommt**: Der Hügelzug steht in
+`a-eyelevel` jetzt 60 statt 38 Stufen unter dem, was hinter ihm liegt, und in
+`c-torii` 73. Das ist der Unterschied zwischen einer Dunstbank und einem
+Rücken.
+
+**Dasselbe Muster wie beim Moos, zwei Pakete früher:** Was eine starke
+Auslöschung überlebt — dort die Stauchung der Projektion, hier der Nebel —, ist
+die Silhouette und nicht die Fläche.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 95 Draw-Calls
+von 120 (unverändert, die Kegel liegen im selben Netz), **107 132** Dreiecke
+von 350 000 (von 101 752; die Baumreihe kostet 5 380), 21,86 MB Textur.
+Konsole sauber.
+
+Bildstand `tools/shots/zen-54`.

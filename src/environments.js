@@ -11820,8 +11820,8 @@ function makeKarikomi(rand, plaetze) {
     geo.computeVertexNormals();
     // Scheitelfarben: oben lichter, unten im Eigenschatten des Polsters
     const farben = new Float32Array(pos.count * 3);
-    const oben = new THREE.Color(0x7f8f52);
-    const unten = new THREE.Color(0x3d4a2b);
+    const oben = new THREE.Color(0x5c6a34);
+    const unten = new THREE.Color(0x333d1e);
     const c = new THREE.Color();
     for (let v = 0; v < pos.count; v++) {
       const t = THREE.MathUtils.clamp(pos.getY(v) / hoehe, 0, 1);
@@ -11924,8 +11924,19 @@ function makeFerneHuegel() {
       // der Farbe heraus. Was noch liest, ist der Verlauf von der dunklen
       // Flanke zum lichten Rücken — und der steht in den Scheitelfarben.
       const farben = new Float32Array(pos.count * 3);
-      const oben = new THREE.Color(0x8e9468);
-      const unten = new THREE.Color(0x555a3c);
+      // **Tiefer und gesaettigter als vorher (0x8e9468 / 0x555a3c).**
+      //
+      // Gemessen in der Maske des Knotens: Der Gruenueberschuss G − (R+B)/2
+      // lag im Median bei 8,5 in `d-aerial` und 12,5 in `a-eyelevel`. Das ist
+      // praktisch neutral — und neutrale helle Buckel am Horizont sind
+      // Wolken, nicht Land. Genau das hat der Pruefer gemeldet: „ferne Huegel
+      // von Wolken nicht zu unterscheiden".
+      //
+      // Der Nebel zieht bei 33 bis 45 m rund 40 bis 60 Prozent der Farbe
+      // heraus. Was danach noch gruen sein soll, muss vorher deutlich
+      // gruener sein als das Ziel.
+      const oben = new THREE.Color(0x5c6a34);
+      const unten = new THREE.Color(0x333d1e);
       // **Der Fuss loest sich im Dunst auf.**
       //
       // Im ersten Anlauf standen die Huegel auf einer harten waagerechten
@@ -11944,7 +11955,12 @@ function makeFerneHuegel() {
       for (let v = 0; v < pos.count; v++) {
         const t = THREE.MathUtils.clamp(pos.getY(v) / kh, 0, 1);
         c.copy(unten).lerp(oben, Math.pow(t, 0.55));
-        c.lerp(nebel, 1 - smoothstep(0.0, 0.3, t));
+        // 0,22 statt 0,30 und hoechstens 0,88: Der Fuss soll weich sein, aber
+        // nicht die halbe sichtbare Flaeche einnehmen. Aus der Luftkamera
+        // sieht man die Kuppen von oben, und dort war der Nebelsaum der
+        // groesste Anteil des Bildes — die Huegel waren zu einem guten Teil
+        // schlicht in Nebelfarbe gemalt.
+        c.lerp(nebel, 0.88 * (1 - smoothstep(0.0, 0.22, t)));
         farben[v * 3] = c.r;
         farben[v * 3 + 1] = c.g;
         farben[v * 3 + 2] = c.b;
@@ -11959,6 +11975,54 @@ function makeFerneHuegel() {
         Math.sin(a) * r + Math.sin(a + Math.PI / 2) * versatz
       );
       teile.push(geo.index ? geo.toNonIndexed() : geo);
+
+      // **Ein Kamm aus Baeumen.** Der Unterschied zwischen einem fernen
+      // Huegel und einer Wolke ist nicht die Farbe — bei 50 Prozent Nebel
+      // bleibt von der Farbe zu wenig uebrig, um ihn zu tragen —, sondern der
+      // **Umriss**: Eine Wolke ist rund, ein Huegelruecken ist oben gezackt.
+      // Und wie bei den Moosbueschelchen ist die Silhouette das, was eine
+      // starke Stauchung ueberlebt.
+      //
+      // Kegel von 0,45 bis 1,15 m auf einem Ruecken von 2 bis 4 m: gerade
+      // gross genug, dass die Zacke bei 40 m einen bis zwei Bildpunkte hoch
+      // steht. Mehr waere ein Wald und keine Ferne.
+      //
+      // **Eigener Zufallsstrom.** Jede Ziehung aus `rand()` verschoebe alles,
+      // was danach im Garten gebaut wird.
+      {
+        const bs = mulberry32(0x2ac70f + i * 331 + k * 29);
+        const zahl = 4 + Math.floor(bs() * 5);
+        for (let b = 0; b < zahl; b++) {
+          // Entlang des Ruecken (lokales x vor der Drehung), nahe am Kamm.
+          const bx = (bs() - 0.5) * 1.7 * kr;
+          const bz = (bs() - 0.5) * 0.5 * kr * 0.72;
+          // Die Kuppe ist ein halbes Ellipsoid: y = kh · sqrt(1 − (x/kr)²).
+          const q = Math.min(0.98, Math.hypot(bx / kr, bz / (kr * 0.72)));
+          const by = kh * Math.sqrt(1 - q * q);
+          const bh = 0.45 + bs() * 0.70;
+          const br = bh * (0.24 + bs() * 0.14);
+          const kegel = new THREE.ConeGeometry(br, bh, 5, 1);
+          const kp = kegel.attributes.position;
+          const kf = new Float32Array(kp.count * 3);
+          // Dunkler als der Ruecken, an dem sie stehen — ein Baum im
+          // Gegenlicht ist die dunkelste Stelle eines fernen Huegels.
+          const bc = new THREE.Color(0x2c3719).lerp(nebel, 0.16);
+          for (let v = 0; v < kp.count; v++) {
+            kf[v * 3] = bc.r;
+            kf[v * 3 + 1] = bc.g;
+            kf[v * 3 + 2] = bc.b;
+          }
+          kegel.setAttribute('color', new THREE.BufferAttribute(kf, 3));
+          kegel.translate(bx, by + bh * 0.34, bz);
+          kegel.rotateY(a + Math.PI / 2);
+          kegel.translate(
+            Math.cos(a) * r + Math.cos(a + Math.PI / 2) * versatz,
+            -0.35,
+            Math.sin(a) * r + Math.sin(a + Math.PI / 2) * versatz
+          );
+          teile.push(kegel.index ? kegel.toNonIndexed() : kegel);
+        }
+      }
     }
   }
   const mesh = new THREE.Mesh(
