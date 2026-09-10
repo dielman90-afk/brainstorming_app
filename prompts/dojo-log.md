@@ -1820,3 +1820,54 @@ Unterteilung der Papierfelder kostet rund 7 000, die Abbindung 400), 42,85 MB
 Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-45`.
+
+## Paket V — die Nische wird Lehm, das Ranma wird ablesbar
+
+### Die Tokonoma war der farbfremdeste Bereich im Bild (Befund 12)
+
+Gemessen in `a-halle` als Abstand Rot minus Blau:
+
+    Nischenrueckwand   23
+    Putzwand daneben   45
+    Tatami             48
+    Decke              72
+
+Ein Teil davon folgt aus der Dunkelheit: Bei gleichem Farbverhältnis ist der
+absolute Abstand in einer dunklen Fläche kleiner, und die Nische ist seit Paket
+N absichtlich dunkel. Der Rest ist die Farbe selbst — 0x9c968a hat ein
+Rot-zu-Blau von **1,13**, also praktisch neutral.
+
+Eine Tokonoma-Rückwand ist traditionell **Lehmputz**: Juraku-Sand, ocker bis
+rotbraun, nie grau. 0xa8977a liegt bei 1,38. **Rot minus Blau 23 → 38**, damit
+im Feld von Putz (45) und Matte (48) statt darunter. Rückwand, Wangen und der
+gebackene Innenkasten teilen sich den Wert; er steht einmal als `TOKO_PUTZ` da,
+weil er dreimal gebraucht wird.
+
+### Das Ranma war unterabgetastet (Befund 20)
+
+„Das Sprossengitter der Oberlichter ist so kleinteilig, dass es zu unruhigem
+Grieseln zerfällt — die Zahl der Felder pro Paneel wechselt sichtbar zwischen
+drei und vier."
+
+**Das Wechseln ist der Beweis.** Ein Gitter, dessen Feldzahl je nach Bildstelle
+anders aussieht, wird unterabgetastet: 18 mm Sprossen auf zehn Meter sind gut
+einen Bildpunkt breit, und was schmaler ist als ein Bildpunkt, flimmert in
+Bewegung statt zu zeichnen.
+
+Vier mal drei Felder mit 18 mm → **drei mal zwei mit 26 mm**, Aussenlatten von
+vier auf drei. Halb so viele Sprossen, jede anderthalbmal so breit. Hochpass im
+Ranma-Band (Kasten aus `knotenkasten.mjs`, 400–900 × 260–288 in `a-halle`):
+
+    vorher   |d| 27,39   p95 76,04   Kante waagerecht 15,56 / senkrecht 19,07
+    nachher  |d| 23,89   p95 67,30   Kante waagerecht 11,51 / senkrecht 14,76
+
+Feinanteil −13 %, Kantenenergie −26 % beziehungsweise −23 %. Die Teilung eines
+Ranma soll man aus dem Raum ablesen können; das ist ihr ganzer Zweck.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. `c-engawa`
+bitgleich (sieht weder Nische noch Ranma). Im Dojo `e-tatami` 6,3 %, die
+übrigen 2,8 bis 3,4 %. Budget: 114 Draw-Calls von 120, **323 646** Dreiecke von
+350 000 (von 326 814 — das gröbere Ranma spart 3 168), 42,85 MB Textur. Konsole
+sauber.
+
+Bildstand `tools/shots/dojo-47`.

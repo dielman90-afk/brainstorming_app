@@ -840,9 +840,26 @@ export function buildArchitecture() {
   // --- Tokonoma (Bildnische) ------------------------------------------------
   const tok = new THREE.Group();
   tok.name = 'dojo-tokonoma';
+  // **Warmer Lehmputz statt neutralem Grau.**
+  //
+  // Prueferbefund 12: „die Nische ist neutral kaltgrau in einer Umgebung aus
+  // warmem Holz, Papier und Binse, und sie ist der farbfremdeste Bereich des
+  // ganzen Bildes." Gemessen in `a-halle` als Abstand Rot minus Blau:
+  //
+  //     Nischenrueckwand   23
+  //     Putzwand daneben   45
+  //     Tatami             48
+  //     Decke              72
+  //
+  // Ein Teil davon folgt aus der Dunkelheit — bei gleichem Farbverhaeltnis ist
+  // der absolute Abstand in einer dunklen Flaeche kleiner. Der Rest ist die
+  // Farbe selbst: 0x9c968a hat ein Rot-zu-Blau von 1,13, also fast neutral.
+  // Eine Tokonoma-Rueckwand ist traditionell **Lehmputz** — Juraku-Sand, ocker
+  // bis rotbraun, nie grau. 0xa8977a liegt bei 1,38.
+  const TOKO_PUTZ = 0xa8977a;
   const tokBack = new THREE.Mesh(
     board(TOKONOMA.width, TOKONOMA.headY, t, 1.0),
-    plasterMaterial(0x9c968a) // etwas dunkler: die Nische liegt im Schatten
+    plasterMaterial(TOKO_PUTZ) // etwas dunkler: die Nische liegt im Schatten
   );
   tokBack.position.set(TOKONOMA.centerX, TOKONOMA.headY / 2, WALL.north - TOKONOMA.depth - t / 2);
   tokBack.receiveShadow = true;
@@ -876,7 +893,7 @@ export function buildArchitecture() {
       WALL.north - TOKONOMA.depth / 2
     )
   );
-  const tokJambs = new THREE.Mesh(mergeGeometries(tokSides, false), plasterMaterial(0x9c968a));
+  const tokJambs = new THREE.Mesh(mergeGeometries(tokSides, false), plasterMaterial(TOKO_PUTZ));
   tokJambs.name = 'dojo-tokonoma-wangen';
   tokJambs.receiveShadow = true;
   tokJambs.castShadow = true;
@@ -963,7 +980,7 @@ export function buildArchitecture() {
   deckel.setPosition(TOKONOMA.centerX, TOKONOMA.headY - LUFT, WALL.north - TOKONOMA.depth / 2);
   lege(new THREE.PlaneGeometry(TOKONOMA.width, TOKONOMA.depth, 12, 6), deckel);
 
-  const nischeMat = plasterMaterial(0x9c968a);
+  const nischeMat = plasterMaterial(TOKO_PUTZ);
   nischeMat.vertexColors = true;
   const nischeInnen = new THREE.Mesh(mergeGeometries(innen, false), nischeMat);
   nischeInnen.name = 'dojo-tokonoma-innen';
@@ -1461,8 +1478,21 @@ export function buildArchitecture() {
     // Auch das Ranma bekommt Latten nach außen. Ohne sie stand über der Front
     // ein leerer heller Streifen quer durch die ganze Fassade – aus dem Garten
     // das Auffälligste am Gebäude, gleich nach dem Dach.
-    renji: 4,
-    lattice: { cols: 4, rows: 3, barWidth: 0.018, barDepth: 0.018 },
+    // **Groeber, weil feiner nicht mehr aufloest.**
+    //
+    // Prueferbefund 20: „das Sprossengitter der Oberlichter ist so kleinteilig,
+    // dass es zu unruhigem Grieseln zerfaellt — die Zahl der Felder pro Paneel
+    // wechselt sichtbar zwischen drei und vier." Das Wechseln ist der Beweis:
+    // Ein Gitter, dessen Feldzahl je nach Bildstelle anders aussieht, wird
+    // unterabgetastet. 18 mm Sprossen auf zehn Meter Entfernung sind gut einen
+    // Bildpunkt breit, und was schmaler ist als ein Bildpunkt, flimmert in
+    // Bewegung, statt zu zeichnen.
+    //
+    // Vier mal drei Felder mit 18 mm werden drei mal zwei mit 26 mm: halb so
+    // viele Sprossen, jede anderthalbmal so breit. Die Teilung eines Ranma soll
+    // man aus dem Raum ablesen koennen — das ist ihr ganzer Zweck.
+    renji: 3,
+    lattice: { cols: 3, rows: 2, barWidth: 0.026, barDepth: 0.018 },
   });
 
   // **Die Bänder enden vor der Ecke, nicht in ihr.**
