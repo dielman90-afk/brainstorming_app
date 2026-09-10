@@ -1642,3 +1642,44 @@ Draw-Calls von 120 (das Gartenfleckennetz ist einer), 313 184 Dreiecke von
 350 000, 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-38`.
+
+## Paket S — die Decke, und zum vierten Mal dieselbe Ursache
+
+**Prüferbefund 5 des dritten Berichts:** „Die Decke in `a-halle` ist eine flache
+Platte." Balkenunterseite L 64,2 gegen Deckenfeld L 67,1 — drei Stufen. Die
+Balken heben sich allein durch ihre Kantenlinien ab, nicht durch Tonwert. In
+`b-shoji` und `f-gegenlicht` trägt dieselbe Decke, weil dort die Balkenflanken
+sichtbar sind; **entlang** der Balken gesehen bricht sie zusammen.
+
+Die Ursache ist dieselbe wie bei der Bildnische (Paket N), dem Sesselkissen
+(Konstrukt-Paket 22) und dem Bambushain (Paket Q): **dieser Renderer hat kein
+Verdeckungsglied.** Ein Unterzug, der 24 cm unter der Decke hängt, verdeckt der
+Schalung neben sich den halben Himmel — das Beleuchtungsmodell weiss davon
+nichts, weil die Normale der Schalung überall dieselbe ist.
+
+Die Schalung war ausserdem **ein einziges Viereck**. Vier Ecken tragen keinen
+Verlauf; das ist wörtlich derselbe Satz wie an der Nische. Jetzt 32 × 96
+Felder.
+
+**Die Reichweite folgt der Geometrie, sie ist nicht gesetzt:** ein Balken von
+0,2 m Breite, der 0,24 m heruntersteht, verdeckt bis rund 0,45 m zu jeder
+Seite; der Längsunterzug (0,22 m breit, Oberkante 0,18 m unter der Decke)
+entsprechend weniger. Dazu ein Saum an den Wänden, wo die Schalung nur noch den
+halben Raum sieht.
+
+**Gemessen an einem senkrechten Schnitt durch die Deckenfelder in `a-halle`,
+Spanne innerhalb eines Feldes:**
+
+    vorher   59 61 64 64 64 62 61 63   →  5 Stufen
+    nachher  59 61 64 64 62 57 49 44   → 20 Stufen
+
+Die Felder senken sich zum Balken hin ab, statt gleichmässig hell zu bleiben.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. `c-engawa`
+bitgleich (sieht keine Decke). Im Dojo `f-gegenlicht` 12,8 %, `b-shoji` 9,2 %,
+`a-halle` 9,1 %, `e-tatami` 2,0 %, `d-suedfront` 0,6 % — davon nur 1 bis 2 %
+um mindestens 24 Stufen, also flächig und flach, wie eine Verdeckung aussehen
+soll. Budget: 114 Draw-Calls von 120, **319 326** Dreiecke von 350 000 (von
+313 184 — die Unterteilung kostet 6 142), 42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-40`.

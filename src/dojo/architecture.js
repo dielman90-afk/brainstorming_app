@@ -1058,11 +1058,62 @@ export function buildArchitecture() {
   roof.name = 'dojo-ceiling';
 
   // Deckenschalung: eine einzige Fläche, nach unten gerichtet.
-  const ceilGeo = new THREE.PlaneGeometry(ROOM.maxX - ROOM.minX, ROOM.maxZ - ROOM.minZ);
+  //
+  // **Unterteilt, weil sie eine gebackene Verdeckung tragen muss.**
+  //
+  // Prüferbefund 5: „Die Decke ist eine flache Platte." Gemessen in `a-halle`
+  // Balkenunterseite L 64,2 gegen Deckenfeld L 67,1 — **drei Stufen**. Die
+  // Balken heben sich allein durch ihre Kantenlinien ab, nicht durch Tonwert.
+  // In `b-shoji` und `f-gegenlicht` trägt dieselbe Decke, weil dort die
+  // Balkenflanken sichtbar sind; entlang der Balken gesehen bricht sie
+  // zusammen.
+  //
+  // Es ist zum vierten Mal dieselbe Ursache — nach Bildnische, Sesselkissen und
+  // Bambushain: **der Renderer hat kein Verdeckungsglied.** Ein Balken, der
+  // 24 cm unter der Decke hängt, verdeckt der Schalung neben sich den halben
+  // Himmel; das Beleuchtungsmodell weiss davon nichts, weil die Normale der
+  // Schalung überall dieselbe ist.
+  //
+  // Also gebacken. Der Abfall folgt der Geometrie und ist nicht gesetzt: Ein
+  // Balken von 0,2 m Breite, der 0,24 m heruntersteht, verdeckt bis rund
+  // 0,45 m zu jeder Seite, der Längsunterzug (0,22 m breit, Oberkante 0,18 m
+  // unter der Decke) entsprechend weniger.
+  const BALKEN_H = 0.24;
+  const BALKEN_B = 0.2;
+  const BALKEN_REICH = BALKEN_H + BALKEN_B / 2 + 0.11;
+  const FIRST_REICH = 0.5;
+  const deckenAO = (x, z) => {
+    // Abstand zum nächsten Querunterzug. Die Balken stehen ab minZ + 0,75 alle
+    // 1,5 m; der Rest ist Modulorechnung.
+    const rel = z - (ROOM.minZ + 0.75);
+    const dz = Math.abs(rel - Math.round(rel / 1.5) * 1.5);
+    const quer = 1 - Math.min(1, Math.max(0, (dz - BALKEN_B / 2) / (BALKEN_REICH - BALKEN_B / 2)));
+    const dx = Math.abs(x);
+    const laengs = 1 - Math.min(1, Math.max(0, (dx - 0.11) / (FIRST_REICH - 0.11)));
+    // Wand- und Traufsaum: die Schalung sieht an der Wand nur noch den halben
+    // Raum.
+    const rand = Math.min(
+      1,
+      Math.max(0, 1 - Math.min(x - ROOM.minX, ROOM.maxX - x, z - ROOM.minZ, ROOM.maxZ - z) / 0.7)
+    );
+    return 1 - 0.42 * quer - 0.2 * laengs - 0.18 * rand;
+  };
+  const ceilGeo = new THREE.PlaneGeometry(ROOM.maxX - ROOM.minX, ROOM.maxZ - ROOM.minZ, 32, 96);
   ceilGeo.rotateX(Math.PI / 2); // Normale nach unten – wir sehen sie von innen
   scaleUV(ceilGeo, (ROOM.maxX - ROOM.minX) / 0.4, (ROOM.maxZ - ROOM.minZ) / 0.4);
   ceilGeo.translate(0, ROOM.ceilingY, (ROOM.minZ + ROOM.maxZ) / 2);
-  const ceiling = new THREE.Mesh(ceilGeo, hinokiMaterial({ color: 0xb69a76 }));
+  {
+    const pos = ceilGeo.attributes.position;
+    const farben = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const f = deckenAO(pos.getX(i), pos.getZ(i));
+      farben[i * 3] = farben[i * 3 + 1] = farben[i * 3 + 2] = f;
+    }
+    ceilGeo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+  const ceilMat = hinokiMaterial({ color: 0xb69a76 });
+  ceilMat.vertexColors = true;
+  const ceiling = new THREE.Mesh(ceilGeo, ceilMat);
   ceiling.name = 'dojo-deck';
   ceiling.receiveShadow = true;
   roof.add(ceiling);
