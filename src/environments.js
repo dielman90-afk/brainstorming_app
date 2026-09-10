@@ -11227,6 +11227,31 @@ function sandMaterial() {
            // Feuchter Kies ist dunkler und gesättigter – das ist der Übergang
            // zum Moos und zum Teichufer.
            diffuseColor.rgb *= mix(vec3(1.0), vec3(0.63, 0.66, 0.55), gSandFeucht);
+
+           // --- Tiefe im Nahbereich ----------------------------------------
+           //
+           // **Die Flaeche hatte ueber ihre ganze Tiefe keinen Tonwert.**
+           // Gemessen in \`e-sand\`, Median je Band von nah nach fern ueber den
+           // reinen Sandbereich (y 440 bis 719):
+           //
+           //     177,0  177,1  177,2  178,1  179,3  180,0
+           //
+           // **Drei Stufen, also 1,7 %** ueber acht Meter. Der Pruefer nennt
+           // unter 6 % und liegt damit noch zu hoch.
+           //
+           // Der Grund ist die Reichweite des Nebels: Er beginnt bei 20 m,
+           // und in \`e-sand\` liegt der gesamte sichtbare Sand zwischen 0,6
+           // und 15 m. Die Luftperspektive, die sonst die Tiefe traegt, ist in
+           // diesem Bild schlicht nicht eingeschaltet.
+           //
+           // Der Kies bekommt deshalb einen eigenen kurzen Tiefenterm. Er
+           // geht nach **unten**, nicht nach oben: Bei L 180 liegt die Flaeche
+           // im flachen Ast der ACES-Kurve, und Kontrast ist dort nur nach
+           // unten zu gewinnen — dieselbe Lehre wie bei den fernen Huegeln.
+           // Zehn Prozent auf den ersten anderthalb Metern, ausgelaufen bei
+           // zwoelf; das ist mehr als die 6 %, die der Befund verlangt, und
+           // gibt dem Korn im Nahfeld ausserdem Raum, ueberhaupt zu lesen.
+           diffuseColor.rgb *= 1.0 - 0.12 * (1.0 - smoothstep(0.6, 4.5, length(vViewPosition)));
          }`
       )
       .replace(
@@ -11264,7 +11289,44 @@ function sandMaterial() {
          // Die Steigung des Höhenfelds steht in Weltkoordinaten, \`normal\` an
          // dieser Stelle im Blickraum. viewMatrix gehört zum festen Vorspann
          // jedes three-Fragmentshaders.
-         normal = normalize(normal - mat3(viewMatrix) * vec3(gSandSteigung.x, 0.0, gSandSteigung.y));`
+         normal = normalize(normal - mat3(viewMatrix) * vec3(gSandSteigung.x, 0.0, gSandSteigung.y));
+
+         // --- Korn fuer den Nahbereich -----------------------------------
+         //
+         // **Der Sand verliert sein Korn genau dort, wo man am genauesten
+         // hinsieht.** Gemessen mit \`tools/hochpass-reihe.mjs\` in \`e-sand\`,
+         // neun Baender von nah nach fern:
+         //
+         //     2,06  2,54  3,22  3,90  4,76  5,59  7,27  9,21  9,94
+         //
+         // Faktor 4,8 in die falsche Richtung. Der Pruefer hat es gemeldet,
+         // und die Zahlen sind deutlicher als seine.
+         //
+         // Die Ursache ist Vergroesserung, nicht fehlendes Detail: Die
+         // Kornkarte deckt 0,70 m auf 256 Texeln ab, also 2,7 mm je Texel. Am
+         // unteren Bildrand von \`e-sand\` liegt der Kies rund 60 cm entfernt,
+         // wo ein Bildpunkt gut 0,5 mm abdeckt. Die Karte wird dort fuenffach
+         // vergroessert, und die bilineare Filterung macht daraus Brei. Der
+         // hohe Wert in der Ferne ist umgekehrt kein Korn, sondern das
+         // Aliasing der Harkrillen unter starker Stauchung.
+         //
+         // Dieselbe Karte ein zweites Mal, auf ein Achtel der Kachel
+         // gespannt: 8,75 cm statt 0,70 m, also 0,34 mm je Texel. **Ein
+         // Texturgriff mehr, kein Byte Speicher** — dasselbe Verfahren, das
+         // im Nachthimmel den Faktor 8,4 auf 4,4 gebracht hat.
+         //
+         // Ausgeblendet zwischen 1,1 und 3,0 m: Weiter draussen deckt ein
+         // Bildpunkt mehr als einen Texel dieser Kachel ab, und die Karte
+         // waere Moire statt Korn.
+         {
+           float sandTiefe = length(vViewPosition);
+           float nahAn = 1.0 - smoothstep(1.1, 3.0, sandTiefe);
+           if (nahAn > 0.001) {
+             vec3 kornNah = texture2D(normalMap, vNormalMapUv * 8.0).xyz * 2.0 - 1.0;
+             normal = normalize(normal - mat3(viewMatrix) * vec3(kornNah.x, 0.0, kornNah.y) * 0.55 * nahAn);
+             diffuseColor.rgb *= 1.0 + (kornNah.x - kornNah.y) * 0.05 * nahAn;
+           }
+         }`
       );
   };
   // Ohne eigenen Schlüssel teilt sich dieses Material ein kompiliertes Programm

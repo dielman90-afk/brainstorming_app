@@ -3422,3 +3422,77 @@ Draw-Calls von 120 (von 97 — der Sockel ist ein Netz, dazu das Material),
 sauber.
 
 Bildstand `tools/shots/zen-57`.
+
+## Paket AE — Der Sand hatte weder Korn im Nahfeld noch Tiefe (Prüferbefund 7)
+
+Der Prüfer nennt zwei Zahlen: unter 6 % Tonwertänderung über die ganze Tiefe,
+und Hochpass 3,4 nah gegen 13,9 in der Mitte. Beide stimmen der Richtung nach.
+Eine davon hat er falsch begründet.
+
+### Das Korn: die Ursache ist Vergrösserung
+
+`tools/hochpass-reihe.mjs` in `e-sand`, neun Bänder von nah nach fern:
+
+    2,06  2,54  3,22  3,90  4,76  5,59  7,27  9,21  9,94
+
+Faktor 4,8 in die falsche Richtung, deutlicher als seine Zahlen.
+
+Die Kornkarte deckt 0,70 m auf 256 Texeln ab, also 2,7 mm je Texel. Am unteren
+Bildrand von `e-sand` liegt der Kies rund 66 cm entfernt (Kamera 0,45 m,
+Bildunterkante 34° unter der Waagerechten), wo ein Bildpunkt gut 0,5 mm
+abdeckt. Die Karte wird dort **fünffach vergrössert**, und die bilineare
+Filterung macht daraus Brei.
+
+Dieselbe Karte ein zweites Mal, auf ein Achtel der Kachel gespannt: 8,75 cm
+statt 0,70 m, also 0,34 mm je Texel. Ein Texturgriff mehr, kein Byte Speicher —
+dasselbe Verfahren, das im Nachthimmel den Faktor 8,4 auf 4,4 gebracht hat.
+
+    nachher  2,47  2,91  3,54  4,18  5,00  5,74  7,32  9,22  9,95
+
+Das Nahfeld steigt um 20 %. **Mehr ist nicht zu holen, und der Grund gehört
+dazugesagt:** Ich habe die Stärke bis 1,20 getrieben (das Sechsfache) und kam
+auf 3,08. Bei 34° Streifwinkel ist der Boden längs der Blickrichtung 2,6:1
+gestaucht; die anisotrope Filterung ist mit ihren acht Abgriffen erschöpft, und
+die untersten zwanzig Bildzeilen sind ein senkrecht verschmierter Streifen, in
+dem keine Karte mehr etwas ausrichtet. Was dort fehlt, fehlt der Auflösung,
+nicht der Textur.
+
+### Der Faktor 4,8 misst nicht, was er zu messen scheint
+
+Die fernen Bänder von `e-sand` enthalten Moos, Trittsteine und dicht gestaffelte
+Harkrillen; die nahen enthalten nur Sand. Der Hochpass zählt Objektkanten
+genauso mit wie Korn. **Die Zahl vergleicht also Kies gegen Gegenstände**, und
+ein Teil des Faktors ist ein Messartefakt, kein Bildfehler. Ich habe das
+Verhältnis trotzdem verbessert, weil die Ursache im Nahfeld unabhängig davon
+real ist.
+
+### Die Tiefe: der Nebel fängt zu spät an
+
+Median je Band über den reinen Sandbereich (y 440 bis 719, also 0,66 bis 2,3 m):
+
+    vorher    177,0  177,1  177,2  178,1  179,3  180,0     Spanne 3,0 = 1,7 %
+    nachher   168,9  169,2  169,4  170,5  172,4  174,0     Spanne 5,1 = 2,9 %
+
+Der Grund ist die Reichweite des Nebels: Er beginnt bei 20 m, und in `e-sand`
+liegt der gesamte sichtbare Sand zwischen 0,66 und 15 m. **Die
+Luftperspektive, die sonst die Tiefe trägt, ist in diesem Bild nicht
+eingeschaltet.**
+
+Der Kies bekommt deshalb einen eigenen kurzen Tiefenterm, 12 % auf den ersten
+60 cm, ausgelaufen bei 4,5 m. Er geht nach **unten**: Bei L 180 liegt die
+Fläche im flachen Ast der ACES-Kurve, und Kontrast ist dort nur nach unten zu
+gewinnen — dieselbe Lehre wie bei den fernen Hügeln zwei Pakete zuvor.
+
+**1,7 % auf 2,9 % ist weniger als die 6 %, die der Befund verlangt, und ich
+lasse es dabei.** Um in einem Bild, dessen Sand über acht Zehntel seiner Fläche
+zwischen 0,66 und 2,3 m liegt, sechs Prozent zu erzeugen, bräuchte es rund 20 %
+Amplitude auf drei Metern. Das ist keine Luftperspektive mehr, das ist eine
+Vignette um die eigenen Füsse. Der ehrliche Weg wäre, den Nebel früher
+beginnen zu lassen — aber der steht seit Paket C auf 20/62, weil genau diese
+Werte den Hügelzug tragen, und die sind zwei Pakete alt.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget unverändert: 99
+Draw-Calls von 120, 113 956 Dreiecke von 350 000, 21,86 MB Textur — der Eingriff
+ist ein zweiter Abgriff auf einer Karte, die schon gebunden ist. Konsole sauber.
+
+Bildstand `tools/shots/zen-58`.
