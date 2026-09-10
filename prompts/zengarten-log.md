@@ -3563,3 +3563,83 @@ Unterteilung kostet 4 400 über alle Findlinge und die kleinen Steine), 21,86 MB
 Textur. Konsole sauber.
 
 Bildstand `tools/shots/zen-59`.
+
+## Paket AG — Eine Regression von mir, und der Unterschied zwischen Busch und Stein
+
+### Zuerst der Fehler
+
+In Paket AA habe ich die Farben des fernen Hügelzugs so gesetzt:
+
+```python
+s = re.sub(r'const oben = new THREE.Color\(0x[0-9a-f]+\);', '…', s)
+```
+
+**Ohne Anzahl.** Das Muster passt auf zwei Stellen in `environments.js`, und die
+zweite ist `makeKarikomi()`. Die geschnittenen Sträucher standen seit Paket AA
+auf 0x5c6a34 / 0x333d1e — den Farben der fernen Hügel — statt auf ihren eigenen
+0x7f8f52 / 0x3d4a2b. Drei Pakete lang, in drei festgeschriebenen Bildständen.
+
+Gemessen über die Maske des Knotens in `a-eyelevel`:
+
+    falsch      rgb(67,4 | 70,5 | 42,6)   Gruenueberschuss Median 16,0
+    richtig     rgb(84,6 | 89,5 | 55,4)   Gruenueberschuss Median 21,0
+
+Die Sträucher waren **26 % zu dunkel**.
+
+Es ist derselbe Fehler wie der `sed`, der im Dojo-Log vier Materialien statt
+einem getroffen hat. Die Lehre ist nicht „vorsichtiger sein", sondern: **Eine
+Ersetzung ohne Anzahl ist eine Ersetzung über die ganze Datei, und ein
+Farbwertmuster ist nie eindeutig.** Die Stelle trägt jetzt einen Kommentar, der
+das festhält.
+
+Was den Fehler drei Pakete lang getragen hat, ist ebenfalls benennbar: Ich habe
+in jedem Paket die vier **anderen** Umgebungen auf Bitgleichheit geprüft, aber
+den Zengarten selbst nur dort angesehen, wo ich gerade gearbeitet habe. Ein
+Regressionsdiff des eigenen Bildsatzes gegen den Vorstand hätte 16 000
+veränderte Bildpunkte gezeigt.
+
+### Befund 9: dieselbe grüne Halbkuppel
+
+„Dieselbe grüne Halbkuppel bedeutet Busch, Moosstein und Berg."
+
+Für den Berg ist das seit Paket AA erledigt (Baumkamm). Für den Karikomi ist die
+runde Masse **richtig** — er ist geschnitten, das ist sein Wesen. Was fehlte,
+war die Oberfläche: Eine geschnittene Azalee hat Blattpolster von einer
+Handbreite und kleine Schattentaschen dazwischen, ein Stein mit Moos hat das
+nicht.
+
+Auf 14 × 10 Segmenten liegt bei einem Halbmesser von 0,9 m ein Punkt alle 13 cm.
+Ein Polster von 12 cm ist damit unterabgetastet und wird Rauschen statt Form —
+dieselbe Grenze wie bei den Moosinseln in Paket Z. **28 × 20** bringt den
+Punktabstand auf 6,5 cm und lässt zwei Massstäbe zu, 14 cm und 7 cm.
+
+### Die Messung, in drei Zuständen getrennt
+
+`moossaum.mjs` auf `zen-karikomi` in `a-eyelevel`:
+
+    Zustand                        Punkte  Kantensprung  Zackigkeit   Saum    Korn
+    vorher (falsche Farbe, 14x10)   16 177        36,37       20,78   1,355   8,024
+    Farbe zurueck, 14x10            16 177        29,97       20,78   1,204   6,948
+    Farbe zurueck, 28x20 + Polster  17 922        28,94       20,99   1,215   7,132
+
+**Die Trennung ist der Punkt.** Der Rückgang von Korn und Kantensprung gehört
+ganz der Farbe: Eine hellere Fläche liegt weiter im flachen Ast der ACES-Kurve
+und trägt dort weniger absoluten Kontrast. Hätte ich nur den Endstand gegen den
+Anfang gemessen, stünde hier „das Relief kostet Korn" — und das wäre falsch.
+
+Das Relief selbst bringt Korn 6,95 → 7,13 und Zackigkeit 20,78 → 20,99, und die
+Maske wächst um 1 745 Bildpunkte, weil die Polster nach aussen drücken. **Das
+ist wenig für das, was im Bild zu sehen ist**, und der Grund gehört dazu: `Korn`
+misst den Hochpass über die ganze Maske, und ein Blattpolster von 14 cm ist auf
+zehn Meter kein Hochpassmerkmal, sondern eine Form. Der Beleg dafür ist der
+Bildausschnitt, nicht die Zahl.
+
+Der **Saum** fällt von 1,355 auf 1,215 — der Rand ist weniger heller als das
+Innere und liest damit weniger als ausgestanzt. Über 1 bleibt er trotzdem, und
+das ist der nächste offene Punkt an diesen Sträuchern.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 99 Draw-Calls
+von 120 unverändert, **132 972** Dreiecke von 350 000 (von 118 356; die feinere
+Kugel kostet 14 600 über neun Sträucher), 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-60`.

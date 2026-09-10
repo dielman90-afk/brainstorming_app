@@ -11868,22 +11868,51 @@ function makeGartenmauer(radius, vonGrad, bisGrad, { hoehe = 2.1, seed = 3131 } 
 function makeKarikomi(rand, plaetze) {
   const teile = [];
   for (const [x, z, r, hoehe] of plaetze) {
-    const geo = new THREE.SphereGeometry(r, 14, 10);
+    // **28 x 20 statt 14 x 10.** Der Pruefer, Befund 9: „dieselbe gruene
+    // Halbkuppel bedeutet Busch, Moosstein und Berg." Bei einem Karikomi ist
+    // die runde Masse richtig — er ist geschnitten, das ist sein Wesen —, aber
+    // eine geschnittene Azalee hat trotzdem eine **unruhige Oberflaeche**:
+    // Blattpolster von einer Handbreite, dazwischen kleine Schattentaschen.
+    // Genau das unterscheidet sie von einem Stein mit Moos darauf.
+    //
+    // Auf 14 x 10 Segmenten liegt bei einem Halbmesser von 0,9 m ein Punkt
+    // alle 13 cm. Ein Polster von 12 cm ist damit unterabgetastet und wird
+    // Rauschen statt Form — dieselbe Grenze wie bei den Moosinseln. 28 x 20
+    // bringt den Punktabstand auf 6,5 cm.
+    const geo = new THREE.SphereGeometry(r, 28, 20);
     const pos = geo.attributes.position;
     const beule = welligerUmriss(Math.floor(x * 97 + z * 31) & 0xffff, 0.14, 4);
+    // Blattpolster: zwei Massstaebe ueber der Kugel, 14 cm und 7 cm. Der
+    // zweite steht knapp ueber dem Punktabstand und traegt die Unruhe, der
+    // erste die Polster selbst.
+    const polster = polsterRauschen(0x51ba00 + (Math.floor(x * 131 + z * 57) & 0xffff));
     for (let v = 0; v < pos.count; v++) {
       const px = pos.getX(v);
       const py = pos.getY(v);
       const pz = pos.getZ(v);
-      const f = beule(Math.atan2(pz, px)) * (0.94 + hashNoise(px * 4, py * 4, pz * 4) * 0.12);
+      let f = beule(Math.atan2(pz, px)) * (0.94 + hashNoise(px * 4, py * 4, pz * 4) * 0.12);
+      f += polster(px * 7.1 + pz * 2.3, py * 7.1 + pz * 4.7) * 0.085;
+      f += polster(px * 14.3 - pz * 5.1 + 31, py * 14.3 + pz * 9.3 - 17) * 0.038;
       pos.setXYZ(v, px * f, Math.max(0, py) * (hoehe / r) * f, pz * f);
     }
     pos.needsUpdate = true;
     geo.computeVertexNormals();
-    // Scheitelfarben: oben lichter, unten im Eigenschatten des Polsters
+    // Scheitelfarben: oben lichter, unten im Eigenschatten des Polsters.
+    //
+    // **Diese beiden Werte waren drei Pakete lang falsch, und zwar durch mich.**
+    // In Paket AA habe ich die Farben des fernen Huegelzugs mit
+    // `re.sub(r'const oben = new THREE.Color\(0x[0-9a-f]+\);', …)` gesetzt —
+    // ohne Anzahl. Der Ausdruck passt auf zwei Stellen in dieser Datei, und die
+    // zweite ist hier. Die Karikomi standen seitdem auf 0x5c6a34 / 0x333d1e
+    // statt auf ihren eigenen Werten, also deutlich dunkler und matter.
+    //
+    // Es ist derselbe Fehler wie der `sed`, der im Dojo-Log vier Materialien
+    // statt einem getroffen hat. **Die Lehre ist nicht „vorsichtiger sein",
+    // sondern: eine Ersetzung ohne Anzahl ist eine Ersetzung ueber die ganze
+    // Datei, und ein Farbwert-Muster ist nie eindeutig.**
     const farben = new Float32Array(pos.count * 3);
-    const oben = new THREE.Color(0x5c6a34);
-    const unten = new THREE.Color(0x333d1e);
+    const oben = new THREE.Color(0x7f8f52);
+    const unten = new THREE.Color(0x3d4a2b);
     const c = new THREE.Color();
     for (let v = 0; v < pos.count; v++) {
       const t = THREE.MathUtils.clamp(pos.getY(v) / hoehe, 0, 1);
