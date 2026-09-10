@@ -3356,3 +3356,69 @@ Draw-Calls von 120, 113 444 Dreiecke von 350 000, 21,86 MB Textur. Konsole
 sauber.
 
 Bildstand `tools/shots/zen-56`.
+
+## Paket AD — Der Laternenhof war stärker als das Licht, und das Torii stand in Mehl
+
+### Befund 5: eine Scheibe, die nichts beleuchtet
+
+Gemessen in `e-sand` über die Masken der beiden Knoten:
+
+    zen-laternenhof     10 507 Bildpunkte, Kreis von 124 px    Beitrag +29,0
+    zen-laternenlicht   12 559 Bildpunkte                      Beitrag  +8,0
+
+Das additive Bildchen war **dreieinhalbmal so kräftig wie die Beleuchtung**,
+die es begründen soll. Und es war eine mathematisch runde Scheibe von 124
+Bildpunkten, deren Rand gegen den hellen Himmel steht — genau das, was der
+Prüfer als „hartkantige Scheibe" meldet.
+
+Der Punkt, den er darüber hinaus macht, stimmt so nicht: Die Punktleuchte aus
+einer früheren Runde beleuchtet sehr wohl etwas, nämlich 12 559 Bildpunkte um
+8 Stufen. Sie war nur nicht zu sehen **neben** einem Hof, der viermal so stark
+war.
+
+Am späten Nachmittag hat eine Steinlaterne in klarer Luft überhaupt keinen Hof;
+sichtbar ist allenfalls ein enger Überstrahl an der Lichtöffnung. Der Hof
+schrumpft deshalb von 1,10 auf 0,42 und verliert ein Drittel seiner Deckkraft,
+die Leuchte steigt von 1,9 auf 2,5.
+
+    zen-laternenhof       562 Bildpunkte, ~40 px    Beitrag +7,8
+    zen-laternenlicht  14 306 Bildpunkte            Beitrag +9,0
+
+**Das Verhältnis ist jetzt herum:** Die Beleuchtung trägt mehr als ihr eigenes
+Sinnbild. Im Bild fangen Dachunterseite, Knauf und Sockel warmes Licht, und die
+Scheibe am Himmel ist weg.
+
+### Befund 6: das Torii hat keine Fussplatte
+
+Wörtlich richtig. Der Pfostenzylinder hörte bei y = 0 auf, darunter lag nur die
+Kontaktverdunklung aus Paket D. Im Bild ist das ein roter Stab, der in Mehl
+steckt.
+
+Ein Torii steht nicht im Boden, es steht auf einem **Kamebara** — einem
+steinernen Sockelwulst, der den Pfostenfuss umfasst und das Holz vom
+aufsteigenden Wasser trennt. Ohne ihn fällt jedes Torii binnen weniger Jahre
+am Fuss auseinander; er ist kein Zierat, sondern der Grund, warum die Dinger
+stehen. Zwei Kegelstümpfe je Pfosten, der Neigung der Pfosten folgend, beide
+Pfosten in **einem** Netz.
+
+**Ein Fehler dabei:** Der erste Anlauf gab dem Sockel Scheitelfarben von 0,74
+bis 1,00. `zenGranite()` trägt den Grundton 0xb8b2a8, und die Scheitelfarbe
+multipliziert ihn — der Sockel stand damit bei L 200 und war heller als der
+besonnte Sand daneben. Die Findlinge derselben Szene werden mit 0x8a8076 und
+Verwandten eingefärbt, also mit rund 0,54; der Sockel gehört in dieselbe Reihe
+und liegt jetzt bei 0,44 bis 0,60. Gemessen: 310 Bildpunkte bei L 97,5 gegen
+einen Sand von rund 180.
+
+**Was von Befund 6 offen bleibt:** Der Prüfer verlangt ausserdem eine Mulde und
+einen aufgeworfenen Wulst im Sand um jeden Gegenstand. Die Kontaktverdunklung
+gibt es seit Paket D und sie ist dort gemessen; eine Vertiefung im Sandnetz
+gibt es nicht. Das ginge nur über die Scheitelpunkte von `makeSandBett`, und
+die Steine werden erst nach dem Sand gesetzt — es wäre ein Umbau der
+Reihenfolge, kein Zusatz. Offen und benannt.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: **99**
+Draw-Calls von 120 (von 97 — der Sockel ist ein Netz, dazu das Material),
+**113 956** Dreiecke von 350 000 (von 113 444), 21,86 MB Textur. Konsole
+sauber.
+
+Bildstand `tools/shots/zen-57`.

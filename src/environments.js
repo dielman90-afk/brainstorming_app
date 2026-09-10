@@ -12419,7 +12419,7 @@ function makeLantern() {
 
   const glow = new THREE.Sprite(
     new THREE.SpriteMaterial({
-      map: makeGlowTexture('rgba(255,205,130,0.85)', 'rgba(255,152,62,0.3)'),
+      map: makeGlowTexture('rgba(255,205,130,0.55)', 'rgba(255,152,62,0.14)'),
       transparent: true,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
@@ -12428,7 +12428,28 @@ function makeLantern() {
     })
   );
   glow.position.y = 0.68;
-  glow.scale.set(1.1, 1.1, 1);
+  // **Der Hof war stärker als das Licht, das er darstellen soll.**
+  //
+  // Gemessen in `e-sand` über die Masken der beiden Knoten:
+  //
+  //     zen-laternenhof     10 507 Bildpunkte in einem Kreis von 124 px
+  //                         Beitrag +29,0, ein Drittel davon ueber L 190
+  //     zen-laternenlicht   12 559 Bildpunkte
+  //                         Beitrag  +8,0
+  //
+  // Das additive Bildchen war also **dreieinhalbmal so kraeftig wie die
+  // Beleuchtung**, die es begruenden soll, und es war eine mathematisch
+  // runde Scheibe von 124 Bildpunkten, deren Rand gegen den hellen Himmel
+  // steht. Genau das meldet der Pruefer als „hartkantige Scheibe, die nichts
+  // beleuchtet".
+  //
+  // Am spaeten Nachmittag hat eine Steinlaterne in klarer Luft ueberhaupt
+  // keinen Hof — sichtbar ist allenfalls ein enger Ueberstrahl an der
+  // Lichtoeffnung selbst. Der Hof schrumpft deshalb auf ein Drittel und
+  // verliert ein Drittel seiner Deckkraft; was an Wirkung fehlt, uebernimmt
+  // die Punktleuchte, die wenigstens etwas anleuchtet.
+  glow.scale.set(0.42, 0.42, 1);
+  glow.name = 'zen-laternenhof';
   group.add(glow);
   // **Und eine Lampe, die etwas anleuchtet.**
   //
@@ -12450,7 +12471,9 @@ function makeLantern() {
   // 3,2 war zu viel: Der Sockel leuchtete heller als der besonnte Kies daneben
   // und die Dachunterseite las als zweite Lichtquelle. Bei Tageslicht ist eine
   // Steinlaterne ein Akzent, kein Scheinwerfer.
-  const licht = new THREE.PointLight(0xffb765, 1.9, 2.6, 2);
+  // 2,5 statt 1,9: Der Hof gibt Wirkung ab, die Leuchte nimmt sie auf. Die
+  // Reichweite bleibt bei 2,6 m — sie war nie das Problem.
+  const licht = new THREE.PointLight(0xffb765, 2.5, 2.6, 2);
   licht.position.y = 0.67;
   licht.castShadow = false;
   licht.name = 'zen-laternenlicht';
@@ -12590,6 +12613,64 @@ function makeTorii() {
   const mesh = new THREE.Mesh(geo, mat);
   mesh.name = 'zen-torii';
   group.add(mesh);
+
+  // **Die Pfosten endeten im Sand wie ein Stab in Mehl.**
+  //
+  // Der Pruefer, Befund 6: „nichts sitzt IM Boden … und das Torii hat keine
+  // Fussplatte". Am Torii stimmt das woertlich: Der Zylinder hoert bei y = 0
+  // auf, und darunter liegt nur die Kontaktverdunklung aus Paket D.
+  //
+  // Ein Torii steht nicht im Boden, es steht auf einem **Kamebara** — einem
+  // steinernen Sockelwulst, der den Pfostenfuss umfasst und das Holz vom
+  // aufsteigenden Wasser trennt. Ohne ihn faellt jedes Torii binnen weniger
+  // Jahre am Fuss auseinander; er ist kein Zierat, sondern der Grund, warum
+  // die Dinger stehen.
+  //
+  // Zwei Kegelstuempfe je Pfosten: der breite Wulst am Boden und ein
+  // schmalerer Kragen darueber, der die Kante bricht. Beide in einem Netz mit
+  // dem Granit der Findlinge, also **ein** zusaetzlicher Zeichenaufruf fuer
+  // beide Pfosten zusammen.
+  {
+    const sockel = [];
+    for (const sx of [-1, 1]) {
+      const x = sx * span * 0.5;
+      // Der Pfosten ist um 0,028 nach innen geneigt; auf 0,20 m Hoehe sind das
+      // 5,6 mm Versatz. Der Sockel folgt der Neigung, sonst steht er schief
+      // zum Pfosten, den er umfasst.
+      const wulst = new THREE.CylinderGeometry(0.262, 0.345, 0.115, 16);
+      wulst.rotateZ(-sx * 0.028);
+      wulst.translate(x, 0.045, 0);
+      sockel.push(wulst);
+      const kragen = new THREE.CylinderGeometry(0.206, 0.262, 0.115, 16);
+      kragen.rotateZ(-sx * 0.028);
+      kragen.translate(x - sx * 0.0045, 0.157, 0);
+      sockel.push(kragen);
+    }
+    const sockelGeo = mergeGeometries(sockel.map((g) => (g.index ? g.toNonIndexed() : g)));
+    // Der Granit traegt Scheitelfarben; ohne sie zeichnet three schwarz.
+    const pos = sockelGeo.attributes.position;
+    const farben = new Float32Array(pos.count * 3);
+    for (let v = 0; v < pos.count; v++) {
+      // Unten dunkler: Der Fuss eines Sockels steht im eigenen Schatten und
+      // ist ausserdem der Teil, der Feuchte zieht.
+      // **0,74 bis 1,00 war weisser Kunststoff.** `zenGranite()` traegt den
+      // Grundton 0xb8b2a8, und die Scheitelfarbe multipliziert ihn: Mit fast
+      // 1,0 stand der Sockel bei L 200 und damit heller als der besonnte Sand
+      // daneben. Die Findlinge derselben Szene werden mit 0x8a8076 und
+      // Verwandten eingefaerbt, also mit rund 0,54 — der Sockel gehoert in
+      // dieselbe Reihe.
+      const f = 0.44 + Math.min(1, Math.max(0, pos.getY(v) / 0.22)) * 0.16;
+      farben[v * 3] = f;
+      farben[v * 3 + 1] = f * 0.99;
+      farben[v * 3 + 2] = f * 0.96;
+    }
+    sockelGeo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    const sockelMesh = new THREE.Mesh(sockelGeo, zenGranite());
+    sockelMesh.name = 'zen-torii-sockel';
+    sockelMesh.castShadow = true;
+    sockelMesh.receiveShadow = true;
+    group.add(sockelMesh);
+  }
   return group;
 }
 
