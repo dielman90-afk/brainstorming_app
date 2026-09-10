@@ -3292,3 +3292,67 @@ Trittstein steht unverdunkelt im Wasser. Beides gehört zu Befund 4 und kommt im
 nächsten Paket.
 
 Bildstand `tools/shots/zen-55`.
+
+## Paket AC — Der Trittstein im Teich, und ein Befund, den die Messung nicht bestätigt
+
+### Der Stein lag einen Zentimeter über dem Wasser
+
+Der Prüfer: „ein Trittstein sitzt darin, ohne dass er dunkler wird." Der Ort
+stimmt und lässt sich nachrechnen: Der Pfad endet bei rund (2,9 | 0,0), der
+Teich steht bei (3,2 | −1,2) mit den Halbachsen 2,04 und 1,70 — der Stein liegt
+bei **0,72** der Ellipse, also klar innen.
+
+Unverdunkelt war er, weil seine Oberseite bei y = 0,060 lag und das Wasser bei
+0,050. **Einen Zentimeter darüber.** Von schräg oben sieht man fast nur diese
+Oberseite, und die hat mit dem Wasser nichts zu tun. Ein Zentimeter ist
+ausserdem keine Lage, in der ein Stein je liegt: Er steht entweder im Wasser
+oder er ragt heraus.
+
+### Zwei Wege, und der erste war falsch
+
+Der erste Anlauf hat ihn zum **Sawatari** gemacht — Furtstein, Oberkante über
+dem Spiegel, Fuss bis in die Sohle, nasser Saum an der Wasserlinie. Im Bild
+stand eine Kiste im Teich:
+
+* Der Block wird dabei 40 cm dick, und seine Flanke zeigt die auf das Fünffache
+  gestreckte Kornkarte als senkrechte Streifen.
+* Der nasse Saum wurde ein **rostroter Ring**. Der Grund ist eine Umkehrung,
+  die ich nicht bedacht hatte: Unter Wasser hellt die Trübung die Fläche
+  ohnehin auf. Eine Verdunklung genau dort erzeugt keinen nassen Stein, sondern
+  eine Kante zwischen zwei Fehlern.
+
+Ein Furtstein braucht eine eigene Gestalt. Ein gestreckter Trittstein ist
+keine.
+
+Der zweite Weg ist der einfachere und der, den der Befund wörtlich verlangt:
+Der Stein **sinkt unter den Spiegel**, Oberkante 2,5 cm darunter, dazu ein
+algiger Grundton (×0,70 / 0,76 / 0,66). Dann färbt ihn das Wasser mit derselben
+tiefenabhängigen Trübung, die auch die Beckensohle trägt, und der Pfad endet am
+Wasser statt hindurchzugehen.
+
+### Der Koi ist kein weisser Splitter
+
+Der Prüfer nennt ihn „ein unleserlicher weisser Splitter". Gemessen über die
+Masken der Knoten:
+
+    Bild        Knoten         Punkte  Mittel   p95   max   Beitrag
+    b-pond      koi-koerper       937   112,3   148   169     −6,5
+    b-pond      koi-flossen        66   139,0   155   167     +6,4
+    c-torii     koi-koerper       804   103,2   152   164     −8,1
+    c-torii     koi-flossen        40   139,3   167   170     +6,7
+
+Kein Bildpunkt über L 190, der Höchstwert liegt bei 170, und der Körper ist in
+beiden Bildern **dunkler als das, was hinter ihm liegt** — nicht heller. Das
+grösste zusammenhängende Stück in `c-torii` misst 50 × 17 Bildpunkte.
+
+„Weiss" trifft also nicht zu; der Fisch steht unter dem Mittelwert seiner
+Umgebung. „Unleserlich" ist bei 50 × 17 Bildpunkten Ansichtssache und hier
+nicht durch eine Zahl zu entscheiden. **Der Befund wird deshalb nicht
+umgesetzt, sondern mit seinen Zahlen abgelegt.** Wer ihn wieder aufnimmt, soll
+mit diesen Werten anfangen und nicht mit dem Eindruck.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget unverändert: 97
+Draw-Calls von 120, 113 444 Dreiecke von 350 000, 21,86 MB Textur. Konsole
+sauber.
+
+Bildstand `tools/shots/zen-56`.

@@ -13871,6 +13871,45 @@ function createZenEnvironment() {
     step.rotation.x = (rand() - 0.5) * 0.09;
     step.rotation.z = (rand() - 0.5) * 0.09;
     step.scale.set(1 + rand() * 0.24, 1, 0.8 + rand() * 0.25);
+    // **Der letzte Stein des Pfades liegt im Teich.**
+    //
+    // Der Pruefer: „ein Trittstein sitzt darin, ohne dass er dunkler wird".
+    // Der Ort stimmt: Der Pfad endet bei rund (2,9 | 0,0), der Teich steht bei
+    // (3,2 | −1,2) mit den Halbachsen 2,04 und 1,70 — der Stein liegt bei 0,72
+    // der Ellipse, also klar innen.
+    //
+    // Unverdunkelt war er, weil seine Oberseite bei 0,060 lag und das Wasser
+    // bei 0,050: **einen Zentimeter darueber.** Von schraeg oben sieht man
+    // fast nur diese Oberseite, und die hat mit dem Wasser nichts zu tun.
+    //
+    // **Zwei Wege, und der erste war falsch.** Der erste Anlauf hat ihn zum
+    // Sawatari gemacht — Furtstein, Oberkante ueber dem Spiegel, Fuss bis in
+    // die Sohle, nasser Saum an der Wasserlinie. Im Bild stand eine Kiste im
+    // Teich: Der Block ist 40 cm dick, seine Flanke zeigt die auf das
+    // Fuenffache gestreckte Kornkarte, und der nasse Saum wurde zu einem
+    // rostroten Ring, weil das Wasser die Flaeche darunter ohnehin schon
+    // aufhellt. Ein Furtstein braucht eine eigene Gestalt; ein gestreckter
+    // Trittstein ist keine.
+    //
+    // Der zweite Weg ist der einfachere und der, den der Befund verlangt: Der
+    // Stein sinkt unter den Spiegel. Dann faerbt ihn das Wasser selbst — mit
+    // derselben tiefenabhaengigen Truebung, die auch die Beckensohle traegt —,
+    // und der Pfad endet am Wasser statt hindurchzugehen.
+    {
+      const dx = (step.position.x - TEICH.x) / TEICH.rx;
+      const dz = (step.position.z - TEICH.z) / TEICH.rz;
+      if (dx * dx + dz * dz < 0.92) {
+        // Oberkante 2,5 cm unter dem Spiegel. Tiefer verschwindet er in der
+        // Truebung, flacher schaut er wieder heraus.
+        step.position.y = 0.025 - 0.0375;
+        // Ein Stein, der im Wasser liegt, ist algig: dunkler und gruener.
+        const col2 = geo.attributes.color;
+        for (let v = 0; v < col2.count; v++) {
+          col2.setXYZ(v, col2.getX(v) * 0.70, col2.getY(v) * 0.76, col2.getZ(v) * 0.66);
+        }
+        col2.needsUpdate = true;
+      }
+    }
     trittsteine.push(step);
     // **Auch ein Trittstein braucht seinen Fuss.** Der Pruefer hat sie als
     // „extrudierte Prismen, obenauf liegend, praktisch ohne Kontaktschatten"
