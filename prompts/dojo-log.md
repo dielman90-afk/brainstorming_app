@@ -1871,3 +1871,67 @@ bitgleich (sieht weder Nische noch Ranma). Im Dojo `e-tatami` 6,3 %, die
 sauber.
 
 Bildstand `tools/shots/dojo-47`.
+
+## Paket VI — eine Regression, die ich selbst gebaut habe
+
+Kein Prüferbefund. Dieses Paket macht rückgängig, was ich in Paket III und IV
+angerichtet habe, und schreibt die Lehre daraus auf.
+
+### Was passiert war
+
+Der Dojo braucht dunkleres Bambuslaub als der Zengarten — er steht im
+Nachmittagslicht eines Innenhofs, nicht in der offenen Sonne. Ich habe das
+zweimal an der bequemsten Stelle geholt: in `PALETTE.bamboo` in
+`src/dojo/foliage.js`. Zusammen ergab das den Faktor **0,56**.
+
+`foliage.js` ist aber kein Dojo-Modul. Der Zengarten benutzt denselben Atlas.
+Gemessen im Zen-Regressionsbild, Anteil der Laubbildpunkte unter L 55:
+
+    Ausgangsstand            4,75 %
+    nach meinen zwei Griffen  6,37 %
+    nach der Rücknahme        4,86 %
+
+Aus weichen Büscheln waren harte schwarze Sprenkel geworden — genau der
+Befund, den der Zen-Prüfer eine Runde später als seinen schwersten meldete.
+Die Regressionsdiffs der Pakete III und IV hatten den Zengarten ausgewiesen,
+aber unter der Schwelle, ab der ich hingesehen habe.
+
+### Die Rücknahme
+
+`PALETTE.bamboo` steht wieder auf den ursprünglichen Werten. Die Verdunklung
+sitzt jetzt an den beiden Dojo-Aufrufstellen in `src/dojo/exterior.js`:
+
+```js
+color: 0x8f8f8f,
+```
+
+0x8f8f8f ist in sRGB 0,56 — genau der Faktor, den die Palette vorher trug.
+`foliageMaterial` nimmt seit jeher ein `color`; ich hätte nur hinsehen müssen.
+**Ein Atlas, zwei Tönungen, kein zusätzlicher Texturspeicher und kein
+zusätzlicher Zeichenaufruf.**
+
+Dojo-Krone danach: L 126,0 bei 32,7 % über L 150, gegen 129,4 / 34,8 % vorher.
+Etwas dunkler als der bisherige Dojo-Stand, also in die richtige Richtung.
+
+**Die Regel:** Die Palette ist die falsche Stelle für eine umgebungsabhängige
+Helligkeit. Was nur in einer Umgebung gilt, gehört ans Material dieser
+Umgebung.
+
+### Die fünfte Messfalle dieser Sitzung
+
+Beim Nachmessen wollte ich die Blätter über ihre Farbe auswählen:
+
+    G > B + 18 && G > R + 4
+
+Damit wurden die verdunkelten Blätter **heller**. Der Grund ist die Auswahl
+selbst: Wer dunkler wird, verliert Sättigung im ACES-Fuß und fällt aus der
+Bedingung heraus. Übrig bleiben die hellen — und deren Mittelwert steigt. Eine
+Schwelle, die auf derselben Größe sitzt, die gemessen werden soll, misst ihre
+eigene Auswahl. Aufgefallen, bevor daraus ein Schluss wurde.
+
+**Regression:** Konstrukt, Nachthimmel, Insel bitgleich. Zen absichtlich
+verändert (Δmittel 0,16, 1,06 % der Bildpunkte über Δ8) — das ist die
+Rücknahme. Budget: 114 Draw-Calls von 120, 323 642 Dreiecke von 350 000,
+42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-48`.

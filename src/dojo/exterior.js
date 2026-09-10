@@ -1609,6 +1609,10 @@ function buildForest(group, r) {
   if (nahBaeume.length) {
     const laubMaterial = foliageMaterial({
       atlas: leafAtlas('bamboo'),
+      // Siehe `PALETTE.bamboo`: Die Verdunklung des Hains gehoert an dieses
+      // Material und nicht in den gemeinsamen Atlas. 0x8f8f8f sind 0,56 in
+      // sRGB, also genau der Faktor, den die Palette vorher trug.
+      color: 0x8f8f8f,
       translucency: 0.7,
       transColor: 0xa9c664,
       windStrength: 0.06,
@@ -1840,6 +1844,9 @@ export function buildExterior() {
   }
   const bambooCards = foliageMaterial({
     atlas: leafAtlas('bamboo'),
+    // Siehe `PALETTE.bamboo`: umgebungsabhaengige Helligkeit gehoert ans
+    // Material, nicht in den gemeinsamen Atlas.
+    color: 0x8f8f8f,
     // Bambusblätter sind dünn und stehen fast immer im Gegenlicht, weil der
     // Hain im Osten vor der Sonne steht. Von allen Pflanzen im Bild ist das
     // die, bei der Transluzenz am meisten trägt.

@@ -123,44 +123,24 @@ const SHAPES = {
 // Arbeitsraum, und genau daran ist die Blattfarbe hier schon zweimal zu hell
 // geraten. Ein Wert, den man in einem Farbwähler ablesen kann, kann das nicht.
 const PALETTE = {
-  // **Um ein Fünftel dunkler als bis Paket J.**
+  // **Wieder der Ausgangswert — die Verdunklung gehoert ans Material.**
   //
-  // Der Prüferbefund lautete „bereifte Konifere"; die Form war die eine Hälfte
-  // davon (siehe `cellBlades`), die Helligkeit die andere. Gemessen im
-  // Kronenbereich von `c-engawa`, gegen die Azaleenhecke im selben Bild:
+  // Der Bambus im Dojo musste zweimal dunkler werden: einmal, weil der Hain als
+  // bereifte Konifere las (x 0,80), und einmal, weil der Himmel dort auf Faktor
+  // 3,2 gestiegen ist (x 0,70). Beides richtig — aber ich habe es in die
+  // **Palette** geschrieben, und die teilt sich der Dojo mit dem Zen-Garten.
   //
-  //     Palette   Laub L   ueber 150   Hecke L
-  //     x 1,00     140,8     44,6 %      96,3
-  //     x 0,80     123,6     27,7 %      96,3
-  //     x 0,65     110,7     19,9 %      94,7
+  // Im Zen-Garten steht andere Beleuchtung: warmes, tiefes Abendlicht statt
+  // Mittagshimmel. Dort war die Palette schon vorher richtig, und x 0,56 hat
+  // die Blattbueschel in harte schwarze Flecken verwandelt. Gemessen im
+  // Bambuskasten des Zen-Regressionsbildes stieg der Anteil unter L 55 von
+  // **4,75 auf 6,37 Prozent** — ein Drittel mehr fast schwarze Bildpunkte.
   //
-  // Fast die Hälfte der Krone stand über L 150 — in der flachen Zone der
-  // ACES-Kurve, in der Sättigung verlorengeht und nichts mehr moduliert. Das
-  // ist die Bereifung. x 0,80 halbiert diesen Anteil und lässt den Bambus
-  // trotzdem heller als die Hecke, was richtig ist: Bambusblätter *sind* heller
-  // als Azaleenlaub. x 0,65 macht daraus einen dritten dunklen Busch.
-  //
-  // **Nicht die Transluzenz.** Der naheliegende Verdacht war `transColor`
-  // 0xa9c664 — ein Blassgelbgrün, das der gemessenen Kronenfarbe (131|148|99)
-  // verblüffend ähnlich sieht. Gemessen trägt die Transluzenz *aller*
-  // Aussenpflanzen zusammen aber nur 6,9 der 140,8 Stufen (auf 0 gesetzt:
-  // 133,9). Ähnlichkeit ist kein Beitrag — dieselbe Falle wie beim Staub auf
-  // dem Shoji-Papier.
-  //
-  // **Noch einmal x 0,83, zusammen mit dem Himmel.** Der Himmel ueber dem Dojo
-  // steht seit dem Tageslicht-Paket auf Faktor 3,2 statt 2,0; ohne diesen
-  // Schritt stuende das Laub bei L 147,8 und zu sechzig Prozent ueber 150.
-  // Danach war die Krone in `c-engawa` trotzdem wieder blasser als vorher
-  // (L 130,0 auf 138,4, Saettigung 35,7 auf 29,7 Prozent), also noch einmal
-  // x 0,85. **Endstand x 0,56 gegenueber dem Ausgangswert.**
-  //
-  // Der eigentliche Grund, warum es so weit herunter muss, ist derselbe wie bei
-  // der Bildnische und dem Sesselkissen: Es fehlt die Verdeckung. Ein Hain
-  // verschattet sich selbst, dieser hier nicht — jedes Blatt mit einer
-  // Normalen nach oben bekommt den vollen Himmel, ob es unter zehn anderen
-  // Blaettern liegt oder obenauf. Solange das so ist, bleibt die Blattfarbe der
-  // einzige Regler, und er muss die fehlende Verdeckung mitbezahlen.
-  bamboo: { base: [48, 64, 30], vary: [[42, 56, 25], [58, 72, 32], [68, 79, 37], [37, 52, 24]] },
+  // Die Palette ist die falsche Stelle fuer eine umgebungsabhaengige
+  // Helligkeit. `foliageMaterial` hat seit jeher ein `color`, und der Dojo
+  // benutzt es jetzt: ein Atlas, zwei Toenungen, kein zusaetzlicher
+  // Texturspeicher und kein zusaetzlicher Zeichenaufruf.
+  bamboo: { base: [86, 112, 52], vary: [[74, 100, 44], [102, 128, 58], [120, 140, 66], [66, 92, 42]] },
   maple: { base: [150, 66, 36], vary: [[168, 74, 38], [186, 112, 44], [126, 52, 32], [198, 140, 56]] },
   azalea: { base: [56, 92, 48], vary: [[48, 84, 44], [68, 104, 52], [40, 72, 38], [84, 116, 60]] },
   fern: { base: [52, 84, 44], vary: [[44, 74, 38], [62, 96, 48], [36, 62, 32], [78, 106, 54]] },
