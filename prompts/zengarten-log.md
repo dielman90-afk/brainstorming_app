@@ -3795,3 +3795,108 @@ von 120, **133 308** Dreiecke von 350 000 (von 133 140), 21,86 MB Textur.
 Konsole sauber.
 
 Bildstand `tools/shots/zen-62`.
+
+## Paket AJ — Vierte Prüferrunde: zwei Befunde widerlegt, drei bestätigt
+
+Nach elf abgearbeiteten Befunden hat sich die Szene so weit verändert, dass die
+alte Liste nicht mehr taugte. Ein frisch unterrichteter Prüfer hat den Stand
+`zen-62` beurteilt: fünfzehn Mängel, elf Dinge, die tragen.
+
+**Sein Bericht ist detailliert und stellenweise falsch.** Drei seiner Befunde
+habe ich nachgemessen, bevor ich etwas angefasst habe. Das war richtig.
+
+### Widerlegt: „Das Torii wirft keinen Schatten" (sein schwerster Befund)
+
+Er belegt ihn mit Helligkeitswerten unmittelbar neben den Pfeilerfüssen
+(x 692–712 bei y 432 und 455) und findet dort keinen Abfall. Das stimmt — und
+sagt nichts. Bei 19 Grad Sonnenhöhe steht der Schatten eines 3,7 m hohen Tors
+**rund 10,6 m weit weg**, nicht an seinem Fuss.
+
+Differenziell gemessen (`knotenkasten.mjs`, `knotenwerte.mjs` auf `zen-torii`
+in `c-torii`):
+
+    18 488 geaenderte Bildpunkte, Beitrag −76,7
+    groesstes zusammenhaengendes Stueck: 10 445 px bei 855,409–1279,519
+
+Das Stück liegt vollständig auf dem Sand, weit rechts vom Tor. Der Schatten ist
+da, er ist gross, und er ist genau dort, wo die Sonnenhöhe ihn hinstellt.
+
+### Widerlegt: „Keine Kantenglättung, kein einziger Mischpixel"
+
+Gemessen über alle waagerechten Kantenübergänge im Toriibereich von `c-torii`
+(Sprung > 60 in der Kanalsumme), Anteil mit echtem Zwischenwert:
+
+    Torii c-torii        1 888 Kanten   68,6 % mit Mischbildpunkt
+    Trittstein e-sand      420 Kanten   83,6 %
+
+Und an drei Spalten quer über die Kasagi-Oberkante:
+
+    x=600  Himmel (179,163,140) → Rot (147, 30, 19)          hart
+    x=640  Himmel (180,163,139) → (172,131,109) → (144,29,19)  weich
+    x=700  Himmel (177,162,140) → (164, 97, 80) → (149,31,20)  weich
+
+Zwei von drei Spalten tragen einen sauberen Mischbildpunkt; die dritte trifft
+die Kante zufällig auf einer Bildpunktgrenze. **Seine Koordinaten für diese
+Kante lagen ausserdem zehn Zeilen daneben** — bei (595, 262–276) ist alles
+Himmel.
+
+### Halb bestätigt: „weisse und ebenso viele fast schwarze Splitter im Bambus"
+
+Im Kasten 150,130–400,330 von `a-eyelevel`:
+
+    ueber L 215:  36 von 50 451 Bildpunkten   (0,07 %)   hellster L 238,2
+    unter L 45:   90 von 50 451               (0,18 %)
+
+Die weissen gibt es — 36 Bildpunkte, warm-weiss, verstreut. Sie sind der
+Durchleuchtungsterm aus Paket Y an seinem Maximum, und bei L 238 ist im flachen
+ACES-Ast keine Farbe mehr übrig; deshalb weiss statt grüngelb.
+
+Die „ebenso vielen fast schwarzen Späne" gibt es **nicht**. Die 90 dunklen
+Bildpunkte sind rgb(30, 35, 4) bis rgb(38, 50, 7) — tiefes Schattengrün mit
+G > R, also Laub im Eigenschatten, nicht Schwarz. An zwei seiner drei genannten
+Koordinaten liegt **kein einziger** Bildpunkt unter L 60.
+
+### Bestätigt und behoben: Wasserpflanzen auf dem Trockenen
+
+„Eine Lotusblüte wächst am Laternenfuss auf dem Trockenen." Nachgerechnet:
+Lotus und Seerosen wurden auf einer **Ellipse** gestreut, die Wasserlinie folgt
+aber `teichUmriss` und schwankt um ±13 %. Wo der Umriss einspringt, liegt die
+Ellipse aussen — und dort steht die Laterne, die bei (1,6 | −1,8) mit 0,86 der
+Beckenellipse selbst im Teich fusst.
+
+Beide werden jetzt am **selben Umriss** gestreut wie die Wasserfläche, und um
+den Laternensockel bleibt ein Loch von 62 cm. Verschoben, nicht verworfen: Ein
+Verwurf bräuchte eine Wiederholung und damit eine unbestimmte Zahl von
+Ziehungen.
+
+### Bestätigt und behoben: der weisse Ring unter dem Lichtkasten
+
+Seine Beschreibung war zurückhaltend. Gemessen in `b-pond` über 370,300–430,320:
+
+    Hoechstwert L 255,0 — voll ausgebrannt
+    16,71 % der Kastenflaeche ueber L 215
+
+Die Ursache stand in einer Zeile: Die Zwischenplatte war
+`CylinderGeometry(0.17, 0.13, …)`, also **oben breiter als unten**. Ihre
+Oberseite war damit eine waagerechte Kreisfläche von 17 cm Halbmesser, auf der
+ein Lichtkasten von nur 10,8 cm steht — ein 6 cm breiter Ring aus hellem
+Granit, frontal in der tief stehenden Sonne.
+
+An einem Yukimi-doro ist diese Platte ein **Chidai**: unten breiter als oben,
+mit Tropfkante. Umgedreht bleiben oben 2,4 cm Ring, und die sichtbare Fläche
+ist die beschattete Unterseite. Über L 215: **16,71 % → 12,57 %**; der Rest ist
+der Lichtkasten selbst, der ausbrennen darf, weil er die Lichtquelle ist.
+
+### Was ich daraus mitnehme
+
+Ein Prüfer, der an falschen Koordinaten misst, liefert Befunde, die sich wie
+Messungen lesen und keine sind. **Drei geprüft, zwei gefallen.** Der Rest seiner
+Liste wird von hier an einzeln nachgemessen, bevor daran gearbeitet wird — und
+was sich nicht belegen lässt, wird nicht gebaut.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Im Zengarten 0,2 bis
+2,1 % je Bild — die verschobenen Wasserpflanzen und die Laternenplatte. Budget:
+99 Draw-Calls von 120, 133 308 Dreiecke von 350 000, 21,86 MB Textur. Konsole
+sauber.
+
+Bildstand `tools/shots/zen-63`.

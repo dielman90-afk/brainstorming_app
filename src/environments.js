@@ -12464,8 +12464,20 @@ function makeLantern() {
   steine.push(steinTeil(new THREE.CylinderGeometry(0.24, 0.28, 0.1, 6), 0.02, 10).translate(0, 0.02, 0));
   // Schaft
   steine.push(steinTeil(new THREE.CylinderGeometry(0.062, 0.078, 0.44, 8), 0.29, 12).translate(0, 0.29, 0));
-  // Zwischenplatte, auf der der Lichtkasten sitzt
-  steine.push(steinTeil(new THREE.CylinderGeometry(0.17, 0.13, 0.055, 6), 0.54, 13).translate(0, 0.54, 0));
+  // Zwischenplatte, auf der der Lichtkasten sitzt.
+  //
+  // **Die Verjuengung stand herum, und das war der weisse Ring.** Mit
+  // (0,17 oben | 0,13 unten) war die Oberseite eine waagerechte Kreisflaeche
+  // von 17 cm Halbmesser; der Lichtkasten darauf misst nur 10,8. Uebrig blieb
+  // ein 6 cm breiter Ring aus hellem Granit, der die tief stehende Sonne
+  // frontal aufnimmt. Gemessen in `b-pond` ueber dem Kasten 370,300-430,320:
+  // Hoechstwert **L 255,0**, und 16,7 % der Flaeche ueber L 215 — voll
+  // ausgebrannt und der hellste Punkt der ganzen Laterne.
+  //
+  // An einem Yukimi-doro ist diese Platte ein Chidai, also unten breiter als
+  // oben, mit einer Tropfkante. Umgedreht bleiben oben 2,4 cm Ring, und die
+  // sichtbare Flaeche ist die beschattete Unterseite.
+  steine.push(steinTeil(new THREE.CylinderGeometry(0.132, 0.178, 0.055, 6), 0.54, 13).translate(0, 0.54, 0));
   // Sechs Eckpfosten des Lichtkastens — dazwischen fällt das Licht heraus.
   for (let i = 0; i < 6; i++) {
     const a = (i / 6) * Math.PI * 2 + Math.PI / 6;
@@ -14567,6 +14579,39 @@ function createZenEnvironment() {
   }
   group.add(...verschmelzeObjekte(uferSteine, 'zen-ufersteine'));
   group.add(...verschmelzeObjekte(findlinge, 'zen-findlinge'));
+  // **Wasserpflanzen gehoeren ins Wasser, nicht auf den Uferwulst.**
+  //
+  // Der Pruefer: „Eine Lotusbluete waechst am Laternenfuss auf dem Trockenen."
+  // Nachgerechnet stimmt der Verdacht: Lotus und Seerosen wurden auf einer
+  // **Ellipse** gestreut (Halbmesser bis 1,4 mal 1,15 in x), die Wasserlinie
+  // folgt aber `teichUmriss` und schwankt um ±13 %. Wo der Umriss einspringt,
+  // liegt die Ellipse aussen — und ausgerechnet dort steht die Laterne, die
+  // bei (1,6 | −1,8) mit 0,86 der Beckenellipse selbst im Teich fusst.
+  //
+  // Beide werden jetzt am **selben Umriss** gestreut wie die Wasserflaeche,
+  // mit Sicherheitsabstand, und um den Laternensockel wird ein Loch gelassen.
+  // Das Verschieben statt Verwerfen ist Absicht: Ein Verwurf braeuchte eine
+  // Wiederholung und damit eine unbestimmte Zahl von Ziehungen — und jede
+  // zusaetzliche Ziehung verschiebt alles, was danach im Garten gebaut wird.
+  const LATERNE_XZ = [1.6, -1.8];
+  const wasserPlatz = (a, t) => {
+    // `teichUmriss(a)` mit dem Weltwinkel a: Die Wasserflaeche setzt lokal
+    // (cos a · U, −sin a · U) und wird um −90 Grad um X gedreht; ein lokaler
+    // Punkt (X, Y, 0) landet bei (X, 0, −Y), der Weltazimut ist also a.
+    const f = teichUmriss(a) * 1.04 * t;
+    let px = pondCenter.x + Math.cos(a) * f * TEICH.rx;
+    let pz = pondCenter.z + Math.sin(a) * f * TEICH.rz;
+    const dx = px - LATERNE_XZ[0];
+    const dz = pz - LATERNE_XZ[1];
+    const d = Math.hypot(dx, dz);
+    const FREI = 0.62; // Sockelplatte plus Rand
+    if (d < FREI && d > 1e-4) {
+      px += (dx / d) * (FREI - d);
+      pz += (dz / d) * (FREI - d);
+    }
+    return [px, pz];
+  };
+
   // Seerosenblätter + Lotusblüten auf der Wasseroberfläche
   const seerosen = [];
   // **Kein Blatt hatte einen Schatten im Wasser.**
@@ -14603,10 +14648,9 @@ function createZenEnvironment() {
   for (let i = 0; i < 7; i++) {
     const pad = makeLilyPad(rand);
     const a = rand() * Math.PI * 2;
-    const r = rand() * 1.5;
+    // 0,20 bis 0,88 der Wasserlinie an diesem Winkel.
+    const [px, pz] = wasserPlatz(a, 0.2 + rand() * 0.68);
     // Auf der Wasserfläche (+0,025), nicht darüber schwebend.
-    const px = pondCenter.x + Math.cos(a) * r * 1.15;
-    const pz = pondCenter.z + Math.sin(a) * r;
     pad.position.set(px, 0.056, pz);
     seerosen.push(pad);
     {
@@ -14637,8 +14681,8 @@ function createZenEnvironment() {
   for (let i = 0; i < 3; i++) {
     const lotus = makeLotus();
     const a = rand() * Math.PI * 2;
-    const r = 0.3 + rand() * 1.1;
-    lotus.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.061, pondCenter.z + Math.sin(a) * r);
+    const [px, pz] = wasserPlatz(a, 0.22 + rand() * 0.62);
+    lotus.position.set(px, 0.061, pz);
     lotusse.push(lotus);
   }
   // Zwei Meshes: Blütenblätter und Kerne haben verschiedene Materialien.
