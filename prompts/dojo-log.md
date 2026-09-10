@@ -1935,3 +1935,67 @@ Rücknahme. Budget: 114 Draw-Calls von 120, 323 642 Dreiecke von 350 000,
 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-48`.
+
+## Paket VII — Vier Rückfallkopien, die seit Monaten mitliefen
+
+Kein Prüferbefund, sondern drei Zeilen, die der Bau bei jedem Lauf ausgibt:
+
+    [IMPORT_IS_UNDEFINED] Import `grainAt` will always be undefined
+      because there is no matching export in 'src/dojo/materials.js'
+    … dasselbe fuer `pfbm` und `colorTexture`
+
+### Wie es dazu kam
+
+`src/dojo/ground.js` brauchte vier Helfer aus `materials.js`, die dort
+vorhanden, aber nicht exportiert waren. Der Kopf der Datei erklärt es:
+
+> `heightToMaps`, das periodische Rauschen und `colorTexture` sind dort
+> vorhanden, aber (noch) nicht exportiert — und materials.js gehört in dieser
+> Runde jemand anderem, also wird dort nichts angefasst. … Sobald `export` vor
+> `heightToMaps`, `pfbm`, `grainAt` und `colorTexture` steht, kann der ganze
+> Block dort gelöscht werden.
+
+Die Lösung war eine Kopie am Dateiende und
+
+```js
+const heightToMaps = MAT.heightToMaps ?? fallbackHeightToMaps;
+```
+
+**Der `??`-Operator ist die Stelle, an der das still wurde.** `heightToMaps` ist
+inzwischen exportiert, die drei anderen nie — und weil der Ausdruck in beiden
+Fällen etwas Brauchbares liefert, hat nichts daran erinnert. Der Bau hat es
+dreimal je Lauf gemeldet; ich habe die Meldung über viele Läufe hinweg gelesen
+und für Rauschen gehalten.
+
+### Vor dem Löschen verglichen, nicht vertraut
+
+Zwei Fassungen desselben Rauschens, die um ein Bit auseinanderlaufen, ergeben
+zwei verschiedene Böden. Beide Fassungen wurden deshalb Zeichen für Zeichen
+verglichen (Kommentare und Leerraum normalisiert):
+
+    grainAt        gleich
+    pfbm           gleich
+    colorTexture   gleich
+    pvalue         unterschiedlich — ein lokaler Bezeichner (`d` gegen `dd`)
+    hash2          unterschiedlich — nur der Tabellenname
+    PERM           Zeichen fuer Zeichen gleich
+
+Also identisch. Die drei Helfer sind jetzt exportiert, der Block am Dateiende
+ist weg: **134 Zeilen weniger**, und `ground.js` schrumpft von 728 auf 594
+Zeilen.
+
+### Die Gegenprobe
+
+Der Bildstand muss bitgleich bleiben, und genau das ist geprüft — nicht
+angenommen:
+
+    Zengarten, alle sechs Kameras plus vier Regressionsbilder   bitgleich
+    Dojo, alle sechs Kameras                                    bitgleich
+
+Zehn plus sechs Bilder, Δmax 0. Der Bau meldet **null** statt drei
+`IMPORT_IS_UNDEFINED`.
+
+**Die Lehre:** `a ?? b` als Brücke zu einem fehlenden Export ist bequem und
+macht den fehlenden Export unsichtbar. Wenn so eine Brücke sein muss, gehört
+eine Bedingung dazu, die laut wird, sobald sie nicht mehr gebraucht wird —
+oder man liest die Baumeldungen.

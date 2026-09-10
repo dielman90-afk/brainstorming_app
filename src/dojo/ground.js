@@ -24,16 +24,20 @@ import * as MAT from './materials.js';
 
 // --- Geteilte Bausteine aus materials.js -------------------------------------
 //
-// `heightToMaps`, das periodische Rauschen und `colorTexture` sind dort
-// vorhanden, aber (noch) nicht exportiert – und materials.js gehört in dieser
-// Runde jemand anderem, also wird dort nichts angefasst. Wenn die Exporte
-// kommen, benutzt dieses Modul sie automatisch; bis dahin greift die
-// Rückfallkopie am Dateiende. Sobald `export` vor `heightToMaps`, `pfbm`,
-// `grainAt` und `colorTexture` steht, kann der ganze Block dort gelöscht werden.
-const heightToMaps = MAT.heightToMaps ?? fallbackHeightToMaps;
-const pfbm = MAT.pfbm ?? fallbackPfbm;
-const grainAt = MAT.grainAt ?? fallbackGrainAt;
-const colorTexture = MAT.colorTexture ?? fallbackColorTexture;
+// **Die Rückfallkopie am Dateiende ist entfallen.** Sie stand hier, weil
+// `heightToMaps`, `pfbm`, `grainAt` und `colorTexture` in materials.js zwar
+// vorhanden, aber nicht exportiert waren, und weil jene Datei in der damaligen
+// Runde jemand anderem gehörte. Der Vermerk sagte: „Sobald `export` davor
+// steht, kann der ganze Block dort gelöscht werden."
+//
+// Drei von vieren waren nie exportiert worden, und `MAT.pfbm ?? fallbackPfbm`
+// hat das still verdeckt — der Bau meldete es dreimal als
+// `IMPORT_IS_UNDEFINED`, und die Kopien liefen weiter. Vor dem Löschen wurden
+// beide Fassungen Zeichen für Zeichen verglichen: identisch bis auf die
+// Namen (`FALLBACK_PERM`, `fallbackHash2`) und einen lokalen Bezeichner in
+// `pvalue` (`d` gegen `dd`). Der Bildstand muss deshalb bitgleich bleiben, und
+// genau daran ist der Umbau zu prüfen.
+const { heightToMaps, pfbm, grainAt, colorTexture } = MAT;
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 const smoothstep = (a, b, v) => {
@@ -587,142 +591,4 @@ function boxBlur(src, size, radius) {
     }
   }
   return out;
-}
-
-// --- Rückfallkopie aus materials.js ------------------------------------------
-//
-// Wird nur benutzt, solange materials.js `heightToMaps`, `pfbm`, `grainAt` und
-// `colorTexture` nicht exportiert. Identisches Verhalten – insbesondere die
-// **Periodizität** des Rauschens, ohne die eine achtzehnfach gekachelte
-// Bodenfläche ein Nahtgitter zeigt (die Begründung steht ausführlich in
-// materials.js:30). Sobald die Exporte da sind, kann alles ab hier weg.
-const FALLBACK_PERM = (() => {
-  const p = new Uint8Array(256);
-  for (let i = 0; i < 256; i++) p[i] = i;
-  let seed = 0x9e3779b9;
-  for (let i = 255; i > 0; i--) {
-    seed = (Math.imul(seed ^ (seed >>> 15), 0x85ebca6b) + 0x165667b1) | 0;
-    const j = (seed >>> 8) % (i + 1);
-    const t = p[i];
-    p[i] = p[j];
-    p[j] = t;
-  }
-  return p;
-})();
-
-function fallbackHash2(xi, yi, seed) {
-  return FALLBACK_PERM[(FALLBACK_PERM[(xi + seed) & 255] + yi) & 255] / 255;
-}
-
-function fallbackGrainAt(x, y, seed) {
-  return fallbackHash2(x & 255, y & 255, seed);
-}
-
-function fallbackPvalue(u, v, period, seed) {
-  const xi = Math.floor(u);
-  const yi = Math.floor(v);
-  const xf = u - xi;
-  const yf = v - yi;
-  const sx = xf * xf * (3 - 2 * xf);
-  const sy = yf * yf * (3 - 2 * yf);
-  const x0 = ((xi % period) + period) % period;
-  const y0 = ((yi % period) + period) % period;
-  const x1 = (x0 + 1) % period;
-  const y1 = (y0 + 1) % period;
-  const a = fallbackHash2(x0, y0, seed);
-  const b = fallbackHash2(x1, y0, seed);
-  const c = fallbackHash2(x0, y1, seed);
-  const dd = fallbackHash2(x1, y1, seed);
-  return a * (1 - sx) * (1 - sy) + b * sx * (1 - sy) + c * (1 - sx) * sy + dd * sx * sy;
-}
-
-function fallbackPfbm(u, v, period, octaves = 4, seed = 0) {
-  let sum = 0;
-  let amp = 0.5;
-  let freq = 1;
-  let norm = 0;
-  for (let i = 0; i < octaves; i++) {
-    sum += fallbackPvalue(u * freq, v * freq, period * freq, seed + i * 31) * amp;
-    norm += amp;
-    amp *= 0.5;
-    freq *= 2;
-  }
-  return sum / norm;
-}
-
-function fallbackHeightToMaps({
-  size = 256,
-  repeat = [1, 1],
-  strength = 2.2,
-  height,
-  roughness = null,
-  anisotropy = 4,
-}) {
-  const field = new Float32Array(size * size);
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) field[y * size + x] = height(x, y);
-  }
-  const wrap = (v) => (((v % size) + size) % size);
-  const at = (x, y) => field[wrap(y) * size + wrap(x)];
-
-  const normalCanvas = document.createElement('canvas');
-  normalCanvas.width = normalCanvas.height = size;
-  const normalCtx = normalCanvas.getContext('2d');
-  const normalImage = normalCtx.createImageData(size, size);
-
-  let roughCanvas = null;
-  let roughImage = null;
-  if (roughness) {
-    roughCanvas = document.createElement('canvas');
-    roughCanvas.width = roughCanvas.height = size;
-    roughImage = roughCanvas.getContext('2d').createImageData(size, size);
-  }
-
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dx = at(x + 1, y) - at(x - 1, y);
-      const dy = at(x, y + 1) - at(x, y - 1);
-      const nx = -dx * strength;
-      const ny = -dy * strength;
-      const len = Math.hypot(nx, ny, 1);
-      const i = (y * size + x) * 4;
-      normalImage.data[i] = ((nx / len) * 0.5 + 0.5) * 255;
-      normalImage.data[i + 1] = ((ny / len) * 0.5 + 0.5) * 255;
-      normalImage.data[i + 2] = (1 / len) * 0.5 * 255 + 127;
-      normalImage.data[i + 3] = 255;
-      if (roughImage) {
-        const r = roughness(at(x, y), x, y);
-        roughImage.data[i] = roughImage.data[i + 1] = roughImage.data[i + 2] = r;
-        roughImage.data[i + 3] = 255;
-      }
-    }
-  }
-  normalCtx.putImageData(normalImage, 0, 0);
-
-  const normalMap = new THREE.CanvasTexture(normalCanvas);
-  const maps = { normalMap };
-  if (roughCanvas) {
-    roughCanvas.getContext('2d').putImageData(roughImage, 0, 0);
-    maps.roughnessMap = new THREE.CanvasTexture(roughCanvas);
-  }
-  for (const map of Object.values(maps)) {
-    map.wrapS = map.wrapT = THREE.RepeatWrapping;
-    map.repeat.set(repeat[0], repeat[1]);
-    map.anisotropy = anisotropy;
-  }
-  maps.field = field;
-  return maps;
-}
-
-function fallbackColorTexture(size, draw, repeat = [1, 1]) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  draw(ctx, size);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(repeat[0], repeat[1]);
-  texture.anisotropy = 4;
-  return texture;
 }

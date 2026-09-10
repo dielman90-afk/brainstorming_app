@@ -74,7 +74,7 @@ function hash2(xi, yi, seed) {
 }
 
 // Feines Korn pro Pixel – Periode 256, teilt also jede Kachelgröße hier glatt.
-function grainAt(x, y, seed) {
+export function grainAt(x, y, seed) {
   return hash2(x & 255, y & 255, seed);
 }
 
@@ -98,7 +98,7 @@ function pvalue(u, v, period, seed) {
 }
 
 // `u`/`v` in Gitterzellen, `period` die Zellzahl über eine Kachel (ganzzahlig).
-function pfbm(u, v, period, octaves = 4, seed = 0) {
+export function pfbm(u, v, period, octaves = 4, seed = 0) {
   let sum = 0;
   let amp = 0.5;
   let freq = 1;
@@ -189,7 +189,7 @@ export function heightToMaps({
 
 // Farbkachel aus einer Zeichenfunktion. Immer sRGB und gekachelt – jede
 // Farbtextur hier ist eine Materialoberfläche, keine Benutzeroberfläche.
-function colorTexture(size, draw, repeat = [1, 1]) {
+export function colorTexture(size, draw, repeat = [1, 1]) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
