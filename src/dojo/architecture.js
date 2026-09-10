@@ -478,7 +478,7 @@ export function buildArchitecture() {
   // aneinander; mit 5,5 cm waren das elf Zentimeter Schwarz gegen eine
   // Mattenbreite von einundneunzig, also zwölf Prozent des Feldes. Echte Heri
   // sind drei bis vier Zentimeter breit, zusammen also acht statt zwölf Prozent.
-  const borderGeo = new THREE.BoxGeometry(TATAMI.long, 0.005, 0.04);
+  const borderGeo = new THREE.BoxGeometry(TATAMI.long, 0.002, 0.04);
   const mats = [];
   const borders = [];
   const matY = 0.055 + TATAMI.thickness / 2;
@@ -528,7 +528,19 @@ export function buildArchitecture() {
   // gehören zum Verband; ein 4,5-Matten-Raum besteht aus vier Matten um eine.
   const QUADRAT = TATAMI.long; // 1,82 m — zwei Matten, egal in welcher Lage
   const HALB = TATAMI.short / 2; // 0,455 m
-  const heriY = 0.055 + TATAMI.thickness + 0.0015;
+  // **1,6 statt 4 Millimeter ueber der Mattenflaeche.**
+  //
+  // Die Borte lag bei 0,1115 und war 5 mm hoch, stand also bis 0,114 — vier
+  // Millimeter ueber einer Mattenoberkante von 0,110. Auf einem vier
+  // Zentimeter breiten Streifen ist das ein Verhaeltnis von 1 : 10, und der
+  // Pruefer hat es als Stufe gelesen: „die dunklen Baender haben eine
+  // sichtbare Seitenwand, der Boden ist gestuft". Eine Heri ist aufgenaeht,
+  // nicht aufgelegt.
+  //
+  // Ganz buendig geht nicht — die Borte liegt innerhalb der Mattenflaeche und
+  // wuerde mit ihr um dieselbe Tiefe streiten. 1,6 mm ist der Abstand, bei dem
+  // keine Seitenwand mehr liest und trotzdem nichts flimmert.
+  const heriY = 0.055 + TATAMI.thickness + 0.0006;
   // Abstand der Borte von der Mattenmitte, quer zur Längsachse. Die Borte
   // sitzt knapp **über** der Mattenoberkante: Vorher lag sie auf halber
   // Mattenhöhe, also vollständig im Tatami versteckt, und das Feld las sich als
@@ -608,7 +620,15 @@ export function buildArchitecture() {
       // Ein Gewebemuster bekommt sie damit noch nicht — dafür bräuchte es eine
       // eigene Karte, und die kostet Texturspeicher für ein Band von vier
       // Zentimetern. Steht offen.
-      new THREE.MeshStandardMaterial({ color: 0x343a47, roughness: 0.72 }),
+      //
+      // **Und noch einmal heller.** Die Stufe war nur die halbe Miete: Gemessen
+      // stand die Borte in `e-tatami` bei L 41 gegen L 141 der Mattenflaeche —
+      // Faktor 3,4. Der Pruefer hat den Boden daraufhin als „Gitterrost"
+      // gelesen, und das ist nachvollziehbar: Bei acht Zentimetern Dunkel je
+      // einundneunzig Zentimeter Matte entscheidet der Tonwert darueber, ob man
+      // ein Band sieht oder eine Fuge. 0x4c5568 hebt sie auf rund 60 — immer
+      // noch klar das Dunkelste am Boden, aber Leinen und kein Loch.
+      new THREE.MeshStandardMaterial({ color: 0x4c5568, roughness: 0.72 }),
       borders,
       {
         cast: false,
@@ -1059,9 +1079,50 @@ export function buildArchitecture() {
 
   // Längsunterzug auf der Mittelachse, etwas tiefer – bricht die reine
   // Querstreifung und stützt die Querbalken optisch ab.
-  const spine = new THREE.Mesh(board(0.22, 0.2, ROOM.maxZ - ROOM.minZ, 0.7), hinokiDark);
-  spine.position.set(0, ROOM.ceilingY - 0.28, (ROOM.minZ + ROOM.maxZ) / 2);
+  const spineGeos = [
+    board(0.22, 0.2, ROOM.maxZ - ROOM.minZ, 0.7).translate(
+      0,
+      ROOM.ceilingY - 0.28,
+      (ROOM.minZ + ROOM.maxZ) / 2
+    ),
+  ];
+
+  // **Munamochi-bashira: der Laengsunterzug endete im Fensterband.**
+  //
+  // Gerechnet: Der Unterzug liegt bei 3,67 und ist 0,2 hoch, seine Unterkante
+  // also bei **3,57**. Das Ranma reicht von 3,05 bis **3,72**. Die letzten
+  // fuenfzehn Zentimeter des Balkens standen damit im Papierband — er lief auf
+  // die Nordwand zu und endete dort an einem Oberlicht, mit sichtbarer
+  // Schnittflaeche und ohne irgendein Auflager. Der Pruefer hat es genau so
+  // beschrieben, und es steht in der Bildmitte von `a-halle`, ueber der
+  // Tokonoma.
+  //
+  // Ein Balken endet nicht in der Luft. Ein Firstpfosten traegt ihn: von der
+  // Unterkante des Balkens auf die Oberkante der geschlossenen Wand, quer durch
+  // das Ranma-Feld, das er dort ausfuellt. Achtzehn Zentimeter gegen die
+  // zweiundzwanzig des Balkens — ein Pfosten ist nie breiter als das, was er
+  // traegt.
+  //
+  // Beide Pfosten und der Balken sind **ein** Netz. Drei Koerper aus demselben
+  // Holz sind sonst drei Zeichenaufrufe, und das Budget stand nach diesem Paket
+  // bei 117 von 120.
+  const PFOSTEN = 0.18;
+  const pfostenH = ROOM.ceilingY - 0.38 - ROOM.wallTop;
+  for (const zz of [ROOM.minZ, ROOM.maxZ]) {
+    spineGeos.push(
+      // Halbe Pfostentiefe nach innen, damit er ganz im Raum steht und nicht
+      // zur Haelfte in der Wand.
+      board(PFOSTEN, pfostenH, PFOSTEN, 0.02).translate(
+        0,
+        ROOM.wallTop + pfostenH / 2,
+        zz + (zz < 0 ? PFOSTEN / 2 : -PFOSTEN / 2)
+      )
+    );
+  }
+  const spine = new THREE.Mesh(mergeGeometries(spineGeos, false), hinokiDark);
+  spine.name = 'dojo-first';
   spine.castShadow = true;
+  spine.receiveShadow = true;
   roof.add(spine);
 
   // --- Walmdach von außen ---------------------------------------------------

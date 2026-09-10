@@ -2637,6 +2637,19 @@ export function buildProps() {
 
     // Stege, Kämpfer und Sturzleiste in dunklem Holz – sie kommen in den
     // Holzeimer und kosten damit keinen eigenen Zeichenaufruf.
+    //
+    // **Nicht mehr fast schwarz.** 0x2f2419 hat eine Helligkeit von 38 und war
+    // damit dunkler als jede andere Fläche im Bild — dunkler als der Sockel,
+    // dunkler als die Mattenborte, dunkler als das Innere der Bildnische. Elf
+    // solche Stege zerhacken eine Wandmalerei, die zusammenhängen soll, und
+    // der Prüfer hat sie folgerichtig nicht als Rahmenhölzer gelesen, sondern
+    // als **Löcher in der Wand**: „ein Spalt zwischen zwei Schiebeelementen
+    // ist ein Millimeterschlitz".
+    //
+    // Es sind aber keine Spalte, sondern Stege, und ein Steg ist Holz. Alles
+    // andere Holz im Haus steht bei 0x9a7b56; ein Fusuma-Rahmen ist dunkler
+    // lackiert, aber er ist nicht schwarz. 0x5a4630 liegt dazwischen.
+    const STEG = 0x5a4630;
     for (let i = 0; i <= FUSUMA.panels; i++) {
       const z = FUSUMA.z0 + breite * i;
       B.wood.geos.push(
@@ -2646,7 +2659,7 @@ export function buildProps() {
             (FUSUMA.y0 + FUSUMA.y1) / 2,
             z
           ),
-          0x2f2419
+          STEG
         )
       );
     }
@@ -2658,7 +2671,7 @@ export function buildProps() {
             y,
             (FUSUMA.z0 + FUSUMA.z1) / 2
           ),
-          0x2f2419
+          STEG
         )
       );
     }

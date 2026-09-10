@@ -1419,3 +1419,74 @@ hat es als `prebuild` gemeldet, wie es dafür gebaut wurde. Gesehen habe ich es
 trotzdem erst zwei Läufe später, weil mein `grep` über die Bauausgabe nur nach
 `^✓` und `^error` suchte und die Meldung des Linters durchfallen liess. Das
 Werkzeug hat funktioniert, meine Prüfung der Ausgabe nicht.
+
+## Paket P — drei harte Baufehler aus dem dritten Prüferbericht
+
+Nach den Paketen I bis O ist der Prüfer noch einmal über alle sechs Kameras
+gelaufen und hat zwanzig Befunde geliefert. Drei davon sind Baufehler, die man
+rechnen kann statt sie zu beurteilen — die kommen zuerst.
+
+### Der Längsunterzug endete im Fensterband (Befund 6)
+
+Gerechnet: Der Unterzug liegt bei y = 3,67 und ist 0,20 hoch, seine Unterkante
+also bei **3,57**. Das Ranma reicht von 3,05 bis **3,72**. Die letzten fünfzehn
+Zentimeter des Balkens standen damit im Papierband — er lief auf die Nordwand
+zu und endete dort an einem Oberlicht, mit sichtbarer Schnittfläche und ohne
+jedes Auflager. Der Prüfer hat es genau so gesehen, und es steht in der
+Bildmitte von `a-halle`, direkt über der Tokonoma.
+
+Ein Balken endet nicht in der Luft. Ein **Firstpfosten** trägt ihn: von der
+Unterkante des Balkens auf die Oberkante der geschlossenen Wand, quer durch das
+Ranma-Feld, das er dabei ausfüllt. 18 cm gegen die 22 des Balkens — ein Pfosten
+ist nie breiter als das, was er trägt.
+
+**Beide Pfosten und der Balken sind ein Netz.** Beim ersten Anlauf waren es drei
+eigene Meshes, und das Budget sprang von 113 auf **117** von 120 Draw-Calls. Drei
+Körper aus demselben Holz sind drei Zeichenaufrufe; verschmolzen ist es einer.
+
+### Die Mattenborte war eine Stufe und ein Graben (Befund 9)
+
+Zwei Fehler an derselben Stelle, und ich habe zuerst nur den einen gesehen.
+
+**Die Stufe.** Die Borte lag bei 0,1115 und war 5 mm hoch, stand also bis 0,114
+— vier Millimeter über einer Mattenoberkante von 0,110. Auf einem vier
+Zentimeter breiten Streifen ist das 1 : 10, und der Prüfer las es als
+Seitenwand: „der Boden ist gestuft". Jetzt 2 mm hoch bei 0,1106, also **1,6 mm
+statt 4**. Ganz bündig geht nicht, weil die Borte innerhalb der Mattenfläche
+liegt und mit ihr um dieselbe Tiefe stritte.
+
+**Der Tonwert — und das war der eigentliche Befund.** Nach der
+Geometrieänderung habe ich nachgemessen, und der Boden sah exakt gleich aus:
+Borte L 41 gegen Mattenfläche L 141, **Faktor 3,46**, unverändert. Die Stufe war
+nur die halbe Miete. Bei acht Zentimetern Dunkel je einundneunzig Zentimeter
+Matte entscheidet der Tonwert, ob man ein Band sieht oder eine Fuge — und bei
+Faktor 3,5 sieht man eine Fuge. Der Vorwurf „Gitterrost" ist berechtigt.
+
+0x343a47 → 0x4c5568. **L 41 → 66, Faktor 3,46 → 2,13.** Immer noch das Dunkelste
+am Boden, aber Leinen und kein Loch.
+
+### Die Fusuma-Stege — und eine Zahl des Prüfers, die nicht stimmt (Befund 15)
+
+Er meldet „senkrechte Fugen mit L nahe null — dunkler als jede andere Fläche in
+beiden Bildern". **Gemessen stimmt das nicht.** Die drei Stege in `e-tatami`
+standen bei L 103,5, 115,7 und 107,8 gegen ein Goldfeld von 160,0. Dunkel, aber
+weit von null.
+
+Der Befund dahinter ist trotzdem richtig: 0x2f2419 hat eine Eigenhelligkeit von
+38, und alles andere Holz im Haus steht bei 0x9a7b56. Elf fast schwarze Stege
+zerhacken eine Wandmalerei, die zusammenhängen soll. Ein Fusuma-Rahmen ist
+dunkler lackiert als eine Diele, aber er ist kein Loch. 0x5a4630 → **L 111,7 /
+122,3 / 115,9**.
+
+**Die dunkelste Spalte in diesem Bereich ist gar kein Steg.** Bei x = 361–363
+steht L 74; ein Raycast durch diese Bildpunkte trifft `dojo-walls`. Das ist ein
+Schatten auf dem Putz, und der bleibt.
+
+**Regression:** Insel, Nachthimmel, Zen bitgleich. `c-engawa` bitgleich.
+`env-matrix` 0,03 % — das ist meine eigene Konstrukt-Änderung von vorhin, kein
+Rückschlag. Im Dojo `e-tatami` 7,7 %, `a-halle` 4,9 %, `b-shoji` 4,3 %,
+`f-gegenlicht` 3,6 %, `d-suedfront` 1,0 %. Budget: **113** Draw-Calls von 120,
+313 178 Dreiecke von 350 000 (von 313 130 — die beiden Pfosten kosten 48),
+42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-33`.
