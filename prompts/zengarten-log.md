@@ -2940,3 +2940,125 @@ zu färben, der sie wirft.
 Ein reines Multiplizieren: dunkler, ohne den Ton anzufassen. Trotz
 `toneMapped: false` und grauer Textur entsteht dort **kein** grauer Schleier.
 Auch das war ein Verdacht, und auch er trägt nicht.
+
+## Paket Y — Die schwarzen Splitter im Laub waren eine Lücke im Licht
+
+Der Prüfer der dritten Runde nennt diesen Befund als einzigen, „der in fünf von
+sechs Bildern gleichzeitig auffällt": „Das Laub aller drei Bäume und des
+Bambus ist von schwarzen Splittern durchsetzt … Kein Blatt ist an der Spitze
+schwarz. Das liest sich als Russ, als Fliegenschwarm oder als kaputte
+Freistellung."
+
+### Zuerst der Verdacht, der falsch war
+
+Naheliegend war der Atlas: eine kaputte Freistellung, ein zu dunkler Farbeintrag,
+ein Alpharand. `tools/blattatlas.mjs bamboo` widerlegt das in einem Bild — der
+Bambusatlas ist sauber, kein Bildpunkt darin ist dunkler als L 60. Die Splitter
+entstehen also **beim Rendern**, nicht beim Zeichnen des Atlas.
+
+Gemessen im Bambusbüschel von `f-grove` (645,245–775,375, Auswahl über
+G > B + 6):
+
+    Median der Laubbildpunkte        L 164,6
+    dunkelste 461 Bildpunkte         rgb(21, 31, 3)
+
+Ein Verhältnis von 8:1 innerhalb eines Büschels. Das ist keine Modellierung,
+das ist ein Loch.
+
+### Der zweite Verdacht war ebenfalls falsch, und die Widerlegung war lehrreich
+
+Die Vermutung: Der Durchleuchtungsterm rechnet mit `geometryNormal`, also der
+Kartennormalen, und kann deshalb ein einzelnes Blatt nicht retten, dessen
+Normal-Map es quer stellt. Der Versuch — `geometryNormal` durch `normal`
+ersetzen — ergab ein **bitgleiches** Bild.
+
+Der Grund steht in threes eigenem `lights_fragment_begin`:
+
+```glsl
+vec3 geometryNormal = normal;
+```
+
+Die beiden sind dieselbe Größe. `normal` trägt zu diesem Zeitpunkt bereits die
+Normal-Map; `geometryNormal` ist nur ein zweiter Name dafür, kein
+geometrischer Gegenpol. Der Durchleuchtungsterm folgte also schon immer dem
+einzelnen Blatt.
+
+**Bitgleich ist hier kein Fehlschlag gewesen, sondern der Beweis.** Ohne den
+Versuch hätte ich am falschen Ort weitergesucht.
+
+### Die eigentliche Ursache: eine Lücke quer zur Sonne
+
+Drei Terme beleuchten ein Blatt, und alle drei waren an derselben Stelle blind:
+
+| Normale zeigt … | Lambert | Durchleuchtung | Hemisphäre |
+| --- | --- | --- | --- |
+| zur Sonne | voll | 0 (geklemmt) | je nach Neigung |
+| **quer zur Sonne** | **0** | **0** | **fast 0 bei waagerechter Normale** |
+| von der Sonne weg | 0 | voll | je nach Neigung |
+
+`fBack = max(0, dot(-L, N))` und `dot(N, L)` sind beide null, wenn die Normale
+senkrecht auf der Lichtrichtung steht. Ein Blatt in dieser Lage bekommt von
+niemandem etwas.
+
+Dass diese Lücke überhaupt so breit trifft, liegt am Blattatlas. Gemessen über
+die Blattfläche des Bambusatlas bei `normalScale` 1,15 (Alpha ≥ 110):
+
+    Neigung der Schattierungsnormalen gegen die Karte
+    Median 47,9 Grad   90. Hundertstel 66,3   Höchstwert 77,9
+
+Eine Karte kann also frontal stehen und die Hälfte ihrer Blätter trotzdem quer.
+Deshalb sitzen die Splitter **innerhalb** der Büschel und nicht an ihrem Rand,
+und deshalb ist immer nur ein Teil eines Blattes schwarz.
+
+### Die Behebung: ein Umgriff statt einer Klemme
+
+`fBack` wird vorzeichenbehaftet genommen und die Durchleuchtung über die Quere
+hinweg verbreitert:
+
+```glsl
+float fBack = -dot( fLight.direction, normal );
+float fWrap = pow( max( 0.0, ( fBack + TRANS_WRAP ) / ( 1.0 + TRANS_WRAP ) ), uTransPower );
+```
+
+Das ist kein Sockel, sondern eine Verschiebung: Zum frontal beschienenen Blatt
+hin fällt der Term auf null, dort hat Lambert längst übernommen. Die
+Begründung ist die eines Bestands — ein Blatt zwischen Blättern steht nie im
+Schwarzen, weil das Nachbarblatt es anleuchtet.
+
+`TRANS_WRAP` ist gemessen, nicht gesetzt. Im Bambusbüschel von `f-grove`,
+Schwarzanteil gegen den Zwischenabstand als Maß für die verbliebene
+Modellierung:
+
+    ohne Umgriff   p01  24,4   IQA 47,9   unter L 40   2,69 %
+    0,70           p01  71,7   IQA 36,1   unter L 40   0,13 %
+    0,96           p01  81,1   IQA 32,1   unter L 40   0,02 %
+    1,53           p01  91,7   IQA 24,6   unter L 40   0,00 %
+
+**Die 47,9 des Ausgangsstands sind kein Verlust.** Sie bestanden zum grossen
+Teil aus den Splittern selbst — Schwarz neben Hell ist Kontrast, aber keine
+Form. Breiter als 0,70 kostet Modellierung, ohne noch nennenswert Schwarz zu
+finden. Gewählt: **0,70**.
+
+### Was das in den anderen Umgebungen tut
+
+`foliageMaterial` bedient Zengarten, Dojo und Insel. Der Umgriff wirkt überall,
+und überall in dieselbe Richtung — Anteil der Laubbildpunkte unter L 40:
+
+    Zen   f-grove Büschel      2,69 %  →  0,13 %
+    Insel 5-backlight ganz    22,85 %  →  8,64 %   (p01 7,9 → 28,2)
+    Insel 1-eyelevel ganz      5,45 %  →  3,13 %
+    Dojo  c-engawa Garten      3,31 %  →  1,78 %
+    Dojo  f-gegenlicht ganz    5,64 %  →  5,62 %
+
+Das Gegenlichtbild der Insel ist der stärkste Fall, und das ist stimmig: Dort
+steht die Sonne hinter dem Nadelbaum, und dort standen die meisten Blätter
+quer. Der Dojo bewegt sich in `f-gegenlicht` kaum, weil sein Gegenlicht flach
+einfällt und die Quere dort selten getroffen wird.
+
+**Regression:** Konstrukt und Nachthimmel bitgleich. Insel und Dojo verändert,
+in beiden Fällen gemessen als Rückgang des Schwarzanteils ohne Verlust an
+Sättigung. Budget Zen: 95 Draw-Calls von 120, 96 952 Dreiecke von 350 000,
+21,86 MB Textur. Ein Shader-Eingriff ohne neue Geometrie und ohne neue Textur.
+Konsole sauber.
+
+Bildstand `tools/shots/zen-52`.

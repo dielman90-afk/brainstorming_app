@@ -976,14 +976,48 @@ function patchWind(shader, uniforms) {
 // gekostet hat. Stattdessen begrenzt der Blickterm die Reichweite: Von der
 // Sonne weg gedreht bleibt nur ein Sockel stehen.
 const TRANS_BODY = /* glsl */ `
+#define TRANS_WRAP 0.70
 #if defined( RE_Direct ) && ( NUM_DIR_LIGHTS > 0 )
   {
     IncidentLight fLight;
     getDirectionalLightInfo( directionalLights[ 0 ], fLight );
     // fLight.direction zeigt zur Lichtquelle. Gegenlicht heißt: Die Normale
     // zeigt vom Licht weg.
-    float fBack = max( 0.0, dot( -fLight.direction, geometryNormal ) );
-    float fWrap = pow( fBack, uTransPower );
+    // **Vorzeichenbehaftet, nicht geklemmt.** Geklemmt lag hier eine Luecke:
+    // Ein Blatt, das quer zur Sonne steht, bekam weder Lambert (dot(N,L) = 0)
+    // noch Durchleuchtung (fBack = 0) — und die Hemisphaere gibt einer
+    // waagerechten Normalen auch nichts. Das Ergebnis war rgb(21, 31, 3)
+    // mitten in einem Buschel, dessen Median bei L 165 liegt: die schwarzen
+    // Splitter, die der Pruefer in fuenf von sechs Bildern gleichzeitig sah.
+    //
+    // Der Blattatlas macht die Luecke breit. Gemessen ueber die Blattflaeche
+    // des Bambusatlas bei normalScale 1,15 kippt die Schattierungsnormale im
+    // Median um 47,9 Grad gegen die Karte, im 90. Hundertstel um 66,3. Die
+    // Karte kann also frontal stehen und ihre Blaetter trotzdem quer.
+    float fBack = -dot( fLight.direction, normal );
+    // Ein Blatt im Bestand steht nie im Schwarzen: Was die Sonne nicht direkt
+    // trifft, bekommt Licht vom Nachbarblatt. TRANS_WRAP verbreitert die
+    // Durchleuchtung ueber die Quere hinweg, ohne dem frontal beschienenen
+    // Blatt etwas aufzuschlagen — dort hat Lambert laengst uebernommen:
+    //
+    //     quer zur Sonne   fBack  0,0   →  0,17
+    //     53 Grad zur Sonne       -0,6  →  0,01
+    //     frontal                 -1,0  →  0,00
+    //     volles Gegenlicht       +1,0  →  1,00
+    //
+    // 0,70 ist gemessen, nicht gesetzt. Gemessen im Bambusbuschel von
+    // f-grove, Anteil der Laubbildpunkte unter L 40 gegen den Zwischenabstand
+    // als Mass fuer die verbliebene Modellierung:
+    //
+    //     ohne Umgriff   p01  24,4   IQA 47,9   unter L 40  2,69 %
+    //     0,70           p01  71,7   IQA 36,1   unter L 40  0,13 %
+    //     0,96           p01  81,1   IQA 32,1   unter L 40  0,02 %
+    //     1,53           p01  91,7   IQA 24,6   unter L 40  0,00 %
+    //
+    // Die 47,9 des Ausgangsstands sind kein Verlust: Sie bestanden zum
+    // grossen Teil aus den schwarzen Splittern selbst. Breiter als 0,70
+    // kostet Modellierung, ohne noch Schwarz zu finden.
+    float fWrap = pow( max( 0.0, ( fBack + TRANS_WRAP ) / ( 1.0 + TRANS_WRAP ) ), uTransPower );
     // Blickabhängigkeit: Ein Blatt leuchtet am stärksten, wenn man in die
     // Sonne schaut.
     //
