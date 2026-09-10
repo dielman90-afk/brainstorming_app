@@ -3,6 +3,7 @@ import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometr
 import { EXTERIOR, ROOM, SUN } from './layout.js';
 import { gravelMaterial, waterMaterial, updateWater, wetStoneOverlay } from './ground.js';
 import { graniteMaterial, boxProjectUV, mossPatina } from './stonework.js';
+import { buildBlobShadows } from './props.js';
 import {
   leafAtlas,
   cardCluster,
@@ -643,6 +644,30 @@ function buildGarden(group, r) {
   gravel.name = 'dojo-garden-kies';
   gravel.receiveShadow = true;
   group.add(gravel);
+
+  // **Kontaktflecken auf dem Kies.**
+  //
+  // Prueferbefund 3: „die Steinlaterne muesste bei 10 Grad Sonnenhoehe einen
+  // mehrere Meter langen Schatten ueber den Kies ziehen; es gibt gar keinen."
+  // Den Schatten gibt es — `solid.castShadow` steht auf true, und er ist bei
+  // 10,5 Grad rund acht Meter lang. Er faellt nur nach Westnordwesten, also von
+  // beiden Gartenkameras aus **hinter** die Laterne, wo er sich selbst
+  // verdeckt. Das steht schon in Paket A und ist dort nachgemessen worden.
+  //
+  // Was wirklich fehlt, ist etwas anderes: die Verdeckung am Fuss. Die
+  // Gartenkoerper tragen ihr gebackenes AO auf sich selbst (dunkler nach
+  // unten), der Kies darum herum aber nichts — der Gegenstand wird dunkel und
+  // der Boden bleibt hell, und genau diese Asymmetrie liest als „aufgesetzt".
+  // Ein Fleck am Fuss ist aus jeder Richtung sichtbar, ein Schlagschatten nicht.
+  //
+  // Der Kies liegt bei y0 + 0,045; der Fleck drei Millimeter darueber.
+  group.add(
+    buildBlobShadows([
+      { x: -1.85, z: G.z0 + 1.25, r: 0.62, y: y0 + 0.048, opacity: 0.9 }, // Laterne
+      { x: 1.9, z: G.z0 + 0.75, r: 0.58, y: y0 + 0.048, opacity: 0.9 }, // Becken
+      { x: 1.9, z: G.z0 + 0.15, r: 0.16, y: y0 + 0.048, opacity: 0.8 }, // Bambusrohr
+    ])
+  );
 
   // --- Feste Teile, ein Netz ------------------------------------------------
   const { solids, crowns, basin } = gardenPieces(r);

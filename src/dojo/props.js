@@ -81,9 +81,27 @@ function shadowTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 128;
   const ctx = canvas.getContext('2d');
+  // **Teller mit Rand statt Glockenkurve.**
+  //
+  // Der Verlauf war 0,50 in der Mitte, 0,24 bei 55 Prozent, 0 aussen — eine
+  // weiche Glocke, die genau dort am dunkelsten ist, wo der Gegenstand selbst
+  // steht und sie verdeckt. Gemessen in `a-halle`: Der ganze Knoten bedeckte
+  // **829 Bildpunkte**, also 0,09 Prozent des Bildes, und trug dort 12,5 Stufen
+  // bei. Ausserhalb der Silhouette blieb ein Saum mit rund 0,08 Deckkraft —
+  // etwa zehn Stufen, verteilt auf einen breiten weichen Ring. Das liest als
+  // nichts, und der Pruefer hat folgerichtig „nichts wirft einen
+  // Kontaktschatten" gemeldet.
+  //
+  // Eine Verdeckung unter einem aufliegenden Gegenstand ist keine Glocke: Sie
+  // ist **flach dunkel bis zur Kante** und faellt dann innerhalb etwa einer
+  // Objekthoehe ab. Deshalb ein Plateau bis 0,60 des Radius und der ganze
+  // Abfall dahinter. Wer einen Fleck setzt, waehlt seinen Radius jetzt so, dass
+  // 0,60 r die Standflaeche deckt — der sichtbare Saum ist dann der Abfall und
+  // nicht sein Auslaeufer.
   const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, 'rgba(0,0,0,0.5)');
-  g.addColorStop(0.55, 'rgba(0,0,0,0.24)');
+  g.addColorStop(0, 'rgba(0,0,0,0.62)');
+  g.addColorStop(0.6, 'rgba(0,0,0,0.58)');
+  g.addColorStop(0.8, 'rgba(0,0,0,0.26)');
   g.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 128, 128);
@@ -2432,7 +2450,16 @@ function bodenHoehe(x, z) {
   return aufMatte ? MATTE_OBEN : DIELE_OBEN;
 }
 
-function buildBlobShadows(spots) {
+//
+// Exportiert, weil der Garten dasselbe braucht. Der Aussenraum hat zwar echte
+// Schlagschatten — die Laterne wirft, `solid.castShadow` steht auf true —, aber
+// bei 10,5 Grad Sonnenhoehe aus dem Ostsuedosten fallen sie nach Westnordwesten,
+// also von beiden Gartenkameras aus **hinter** den Gegenstand. Was fehlt, ist
+// nicht der Schlagschatten, sondern die Verdeckung am Fuss, und die sieht man
+// aus jeder Richtung.
+//
+// `spot.y` ist dabei Pflicht: `bodenHoehe` kennt nur die Innenboeden.
+export function buildBlobShadows(spots) {
   const [sx, , sz] = sunDirection();
   const geos = [];
   for (const spot of spots) {
@@ -2699,13 +2726,14 @@ export function buildProps() {
 
   group.add(
     buildBlobShadows([
-      { x: RACK.x + 0.03, z: RACK.z, r: 0.42, opacity: 0.95 },
-      { x: MAKIWARA.x, z: MAKIWARA.z, r: 0.26, opacity: 1 },
-      { x: -0.72, z: -3.62, r: 0.36, opacity: 0.8 },
-      { x: 0.72, z: -3.62, r: 0.36, opacity: 0.8 },
+      // Radien nach der neuen Regel: 0,60 r deckt die Standflaeche.
+      { x: RACK.x + 0.03, z: RACK.z, r: 0.5, opacity: 0.95 },
+      { x: MAKIWARA.x, z: MAKIWARA.z, r: 0.34, opacity: 1 },
+      { x: -0.72, z: -3.62, r: 0.46, opacity: 0.95 },
+      { x: 0.72, z: -3.62, r: 0.46, opacity: 0.95 },
       { x: censer.x, z: censer.z, r: 0.1, y: TOKONOMA.floorY + 0.008, opacity: 1 },
       // Stangenständer statt der früheren zwei angelehnten Bokken.
-      { x: POLE.x - 0.02, z: POLE.z, r: 0.5, opacity: 0.95 },
+      { x: POLE.x - 0.02, z: POLE.z, r: 0.58, opacity: 0.95 },
       // **Die beiden Vasen am Eingang.**
       //
       // Sie standen nachweislich auf der Diele (Boden bei y = 0,055, exakt
@@ -2714,8 +2742,8 @@ export function buildProps() {
       // gemeldet, und das ist die interessante Stelle: Nicht die Lage war
       // falsch, sondern es fehlte das **Kontaktzeichen**. Ohne dunkle Fuge am
       // Fuß liest das Auge keinen Bodenkontakt, egal wo das Objekt steht.
-      { x: -1.62, z: ROOM.maxZ - 0.62, r: 0.26, opacity: 1 },
-      { x: 1.62, z: ROOM.maxZ - 0.62, r: 0.23, opacity: 1 },
+      { x: -1.62, z: ROOM.maxZ - 0.62, r: 0.32, opacity: 1 },
+      { x: 1.62, z: ROOM.maxZ - 0.62, r: 0.28, opacity: 1 },
     ])
   );
 

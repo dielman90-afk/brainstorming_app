@@ -1583,3 +1583,62 @@ die Blattpalette, Δmax 17). Im Dojo `c-engawa` 38,8 %, `f-gegenlicht` 1,9 %,
 von 120, 313 178 Dreiecke von 350 000, 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-36`.
+
+## Paket R — die Kontaktschatten gab es, man sah sie nur nicht
+
+**Prüferbefund 3 des dritten Berichts:** „Nichts wirft einen Kontaktschatten"
+— mit einer Liste: beide Zabuton, der Makiwara-Fuss, die drei Vasen, die
+Trittsteine, die Steinlaterne.
+
+Der Befund stimmt im Bild und ist in der Sache falsch. `buildBlobShadows`
+setzt seit Paket E acht Flecken: Waffenständer, Makiwara, beide Zabuton,
+Räuchergefäss, Stangenständer, beide Vasen. Sie sind da.
+
+### Warum man sie nicht sah
+
+`knotenwerte.mjs --env dojo a-halle prop-contact-shadows`:
+
+    Punkte 829   Beitrag −12,5
+
+**829 Bildpunkte für acht Flecken** — 0,09 Prozent des Bildes. Der Grund steht
+in der Textur: Der Verlauf war 0,50 Deckkraft in der Mitte, 0,24 bei 55 Prozent,
+0 aussen. Eine Glocke, die genau dort am dunkelsten ist, wo der Gegenstand
+selbst steht **und sie verdeckt**. Ausserhalb der Silhouette blieb ein Saum mit
+rund 0,08 Deckkraft, verteilt auf einen breiten weichen Ring. Das liest als
+nichts.
+
+Eine Verdeckung unter einem aufliegenden Gegenstand ist keine Glocke. Sie ist
+**flach dunkel bis zur Kante** und fällt dann innerhalb etwa einer Objekthöhe
+ab. Also ein Plateau bis 0,60 des Radius (0,62 → 0,58 Deckkraft) und der ganze
+Abfall dahinter. Dazu die Regel, nach der die Radien jetzt gewählt werden:
+**0,60 r deckt die Standfläche** — der sichtbare Saum ist dann der Abfall und
+nicht sein Ausläufer. Radien entsprechend nachgezogen, Zabuton 0,36 → 0,46.
+
+    Punkte 829 → 1672   Beitrag −12,5 → −27,4
+
+Doppelte Fläche, doppelte Tiefe.
+
+### Die Steinlaterne — der Prüfer irrt sich, aber nicht ganz
+
+„Müsste bei 10 Grad Sonnenhöhe einen mehrere Meter langen Schatten über den
+Kies ziehen; **es gibt gar keinen**." Den gibt es: `solid.castShadow` steht seit
+Paket H auf `true`, und bei 10,5 Grad ist er rund acht Meter lang. Er fällt nach
+Westnordwesten, also von **beiden** Gartenkameras aus hinter die Laterne, wo er
+sich selbst verdeckt. Das ist in Paket A gemessen und in Paket H bestätigt.
+
+Was wirklich fehlte, ist etwas anderes, und es ist der bessere Befund: Die
+Gartenkörper tragen ihr gebackenes AO **auf sich selbst** (dunkler nach unten),
+der Kies ringsum aber nichts. Der Gegenstand wird dunkel, der Boden bleibt hell
+— und genau diese Asymmetrie liest als „aufgesetzt". Ein Fleck am Fuss ist aus
+jeder Richtung sichtbar, ein Schlagschatten nicht.
+
+`buildBlobShadows` ist dafür aus `props.js` exportiert und wird jetzt auch im
+Garten benutzt, für Laterne, Becken und Bambusrohr. `spot.y` ist dort Pflicht:
+`bodenHoehe` kennt nur die Innenböden.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Im Dojo
+`c-engawa` 1,0 %, `f-gegenlicht` 0,8 %, die übrigen unter 0,2 %. Budget: **114**
+Draw-Calls von 120 (das Gartenfleckennetz ist einer), 313 184 Dreiecke von
+350 000, 42,85 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-38`.
