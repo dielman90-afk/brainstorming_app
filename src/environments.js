@@ -13070,7 +13070,20 @@ function wurzelanlauf(rOben, rFuss, hoehe, seed) {
     if (r < 1e-6) continue;
     const a = Math.atan2(pz, px);
     // Unten voll, oben ausgelaufen — der Anlauf ist am Boden am staerksten.
-    const t = 1 - (py + (hoehe + 0.06) / 2) / (hoehe + 0.06);
+    //
+    // **Die Klemmung ist nicht Kosmetik.** Am obersten Ring ist py genau die
+    // halbe Hoehe, und der Ausdruck sollte null ergeben. Bei hoehe = 0,5 wird
+    // aus (0,28 + 0,28) / 0,56 in Gleitkomma aber 1,0000000000000002, und t
+    // ist **−1,5e−16**. `Math.pow(negativ, 2,2)` ist NaN — die halbe Geometrie
+    // bekam NaN-Koordinaten, ihre Normalen wurden NaN, und die Flaeche zeichnet
+    // sich als exaktes rgb(0, 0, 0).
+    //
+    // Am Ahorn (hoehe = 0,42) faellt dieselbe Rechnung zufaellig exakt auf
+    // null, und dort ist nie etwas passiert. **Ein Fehler, der von der
+    // Bitdarstellung einer Konstanten abhaengt** — und der ueber die
+    // Spiegelungskarte des Teichs an einer Stelle sichtbar wurde, die fuenf
+    // Meter entfernt liegt. Der Weg dahin steht im Zengarten-Log, Paket AH.
+    const t = Math.min(1, Math.max(0, 1 - (py + (hoehe + 0.06) / 2) / (hoehe + 0.06)));
     const rippe = 1 + Math.pow(t, 2.2) * (0.22 * Math.max(0, Math.cos(n * a + ph1)) + 0.09 * Math.sin(2 * a + ph2));
     pos.setXYZ(v, (px / r) * r * rippe, py, (pz / r) * r * rippe);
   }
@@ -14727,25 +14740,9 @@ function createZenEnvironment() {
   // Größenordnung, in der man sie sieht.
   const trunkGeo = mergeGeometries([
     scaleUV(new THREE.CylinderGeometry(0.105, 0.21, 1.95, 10), 5).translate(0, 0.975, 0),
-    // **Die Sakura hat vorerst keinen Wurzelanlauf, und das ist kein
-    // Versehen.** Derselbe Aufruf wie beim Ahorn eine Funktion weiter oben —
-    // `scaleUV(wurzelanlauf(0.178, 0.29, 0.5, 0x5c11), 1.44)` — zeichnet hier
-    // ein Band von exakt rgb(0, 0, 0) quer ueber den Stamm, dort wo der Anlauf
-    // aus ihm heraustritt (y = 0,465). Am Ahorn, mit derselben Funktion und
-    // derselben Bauart des Merges, passiert das nicht.
-    //
-    // Reines Schwarz ist unter einem Hemisphaerenlicht nicht durch Beleuchtung
-    // zu erklaeren; es zeigt eine entartete Normale oder eine entartete
-    // Tangente an. Ich habe offen und geschlossen (`openEnded`) versucht — das
-    // Band bleibt in beiden Faellen — und die Ursache nicht gefunden.
-    //
-    // **Der Grund, warum das hier steht statt im Bild:** Der Teich nimmt seine
-    // Spiegelung mit einer Wuerfelkamera aus der Teichmitte auf, und die
-    // Sakura ist darin gross. Das schwarze Band hat die Umgebungskarte
-    // verdunkelt und damit den ganzen Teich: `zen-wasser` fiel von L 117,9
-    // (Beitrag +10,9) auf L 52,4 (Beitrag −54,6). Ein Fehler am Baum, sichtbar
-    // am Wasser fuenf Meter weiter — genau die Art Kopplung, die man ohne
-    // Regressionsdiff des eigenen Bildsatzes nicht findet.
+    // Halbmesser bei y = 0,50: 0,21 − 0,105 · 0,50/1,95 = 0,183; oben also
+    // 0,178. Kachelzahl wie am Stamm: 5 auf 1,95 m sind 1,44 auf 0,56 m.
+    scaleUV(wurzelanlauf(0.178, 0.29, 0.5, 0x5c11), 1.44),
     ...astwerk([0, 1.55, 0], SAKURA_ANSAETZE, { seed: 0x5a11, stammR: 0.085 }),
   ]);
   const trunk = new THREE.Mesh(

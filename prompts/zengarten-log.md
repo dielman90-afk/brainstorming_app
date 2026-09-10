@@ -3721,3 +3721,77 @@ von 120 unverändert, **133 140** Dreiecke von 350 000 (von 132 972), 21,86 MB
 Textur. Konsole sauber.
 
 Bildstand `tools/shots/zen-61b`.
+
+## Paket AI — Das schwarze Band war eine Gleitkommastelle
+
+Das Paket davor hat den Wurzelanlauf an der Sakura wieder herausgenommen, weil
+er ein Band von exakt rgb(0, 0, 0) quer über den Stamm zeichnete und über die
+Spiegelungskarte den ganzen Teich verdunkelte. Die Ursache stand dort als
+ungeklärt.
+
+### Die Messung, die es entschieden hat
+
+Statt weiter im Bild zu suchen: die Geometrie in Node nachbauen und ihre
+Normalen zählen. `three` lässt sich ohne Browser laden, `wurzelanlauf()` ist
+zwanzig Zeilen.
+
+    Ahorn   Punkte 60   Normale null 0   NaN  0   entartete Dreiecke 0/84
+    Sakura  Punkte 60   Normale null 0   NaN 30   entartete Dreiecke 0/84
+
+Dreissig von sechzig. Und ein Blick auf die Punkte zeigte: schon die
+**Positionen** waren NaN, nicht erst die Normalen.
+
+### Die Stelle
+
+```js
+const t = 1 - (py + (hoehe + 0.06) / 2) / (hoehe + 0.06);
+…
+const rippe = 1 + Math.pow(t, 2.2) * (…);
+```
+
+Am obersten Ring ist `py` genau die halbe Höhe, und `t` sollte null sein. Bei
+`hoehe = 0.5` wird aus (0,28 + 0,28) / 0,56 in Gleitkomma aber
+**1,0000000000000002**, und `t` ist **−1,5 · 10⁻¹⁶**.
+
+`Math.pow(negativ, 2.2)` ist NaN. Damit wurden die Koordinaten der oberen zwei
+Ringe NaN, `computeVertexNormals()` machte NaN-Normalen daraus, und der Shader
+zeichnet eine Fläche mit NaN-Normale als exaktes Schwarz.
+
+Am Ahorn ist `hoehe = 0.42`, und dieselbe Rechnung fällt zufällig exakt auf
+null. **Derselbe Code, dasselbe Verfahren, ein Fehler, der von der
+Bitdarstellung einer Konstanten abhängt.** Deshalb war er am einen Baum da und
+am anderen nicht, und deshalb war er im Bild nicht zu erraten.
+
+Die Behebung ist eine Klemmung auf [0, 1]. Der Anlauf ist an beiden Bäumen
+wieder drin.
+
+### Die Kette, rückwärts gelesen
+
+    Gleitkommarest −1,5e−16
+      → Math.pow(negativ, 2,2) = NaN
+        → 30 von 60 Punkten mit NaN-Koordinaten
+          → NaN-Normalen
+            → schwarzes Band am Sakurastamm
+              → schwarze Flaeche in der Wuerfelaufnahme aus der Teichmitte
+                → dunkle Umgebungskarte
+                  → zen-wasser von L 117,9 auf L 52,4
+
+Sieben Glieder zwischen Ursache und Symptom, und das Symptom lag fünf Meter vom
+Fehler entfernt in einem anderen Gegenstand. **Keine Bildbetrachtung führt
+diese Kette rückwärts.** Was sie geführt hat, war das Nachrechnen der Geometrie
+ausserhalb des Renderers — und der Eigenregressionsdiff, der überhaupt erst
+gezeigt hat, dass etwas nicht stimmt.
+
+### Eigenregression, gegen `zen-61b`
+
+    a-eyelevel  0,501 %      d-aerial  0,057 %      f-grove  0,171 %
+    b-pond      Δmax 1       c-torii   Δmax 1       e-sand   Δmax 1
+
+Nur die drei Bilder, die den Sakurastamm sehen, ändern sich; der Teich ist
+bitgleich, weil er in Paket AH schon auf dem richtigen Wert stand.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 99 Draw-Calls
+von 120, **133 308** Dreiecke von 350 000 (von 133 140), 21,86 MB Textur.
+Konsole sauber.
+
+Bildstand `tools/shots/zen-62`.
