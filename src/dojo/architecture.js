@@ -320,7 +320,46 @@ function buildOpening(spec) {
     // Papierfeld, außen. `rotateY(inward · π/2)` dreht die Vorderseite in den
     // Raum; bei einer Nord-/Südwand zeigt die ungedrehte Ebene bereits nach
     // +Z, für die Südseite ist sie also um π zu wenden.
-    const paper = new THREE.PlaneGeometry(panelW - fw * 2, panelH - fw * 2);
+    //
+    // **Unterteilt und mit gebackenem Verlauf.**
+    //
+    // Prüferbefund 7: „Papierflächen ohne jeden Verlauf." Gemessen in
+    // `c-engawa` die linke Shoji-Fläche bei (60–200, 100–300) L 140,4 und bei
+    // (60–200, 380–500) L 140,2 — über vierhundert Bildzeilen, also gut zwei
+    // Meter Wandhöhe, **zwei Zehntel einer Stufe**. Diese Fläche belegt vierzig
+    // Prozent des Bildes.
+    //
+    // Fünfter Fall derselben Ursache in diesem Auftrag, nach Bildnische,
+    // Sesselkissen, Bambushain und Decke. Ein Papierfeld sieht von aussen oben
+    // Himmel und unten Veranda und Boden; der Rahmen verdeckt es an seinen vier
+    // Kanten. Beides weiss das Beleuchtungsmodell nicht, weil die Normale
+    // überall dieselbe ist — und das Feld war ausserdem **ein Viereck**.
+    //
+    // Der Verlauf sitzt in den Scheitelfarben und wirkt damit auf den
+    // Albedoanteil, nicht auf das Eigenleuchten. Auf den Schattenseiten trägt
+    // die Albedo rund 120 der 140 Stufen; auf der Sonnenseite steht das
+    // Eigenleuchten mit 0,38 stärker dagegen. Dort bleibt der Verlauf also
+    // schwächer, und das ist hinnehmbar: Die Ostfront hat den Schattenriss des
+    // Hains, der ihr Zeichnung gibt.
+    const paper = new THREE.PlaneGeometry(panelW - fw * 2, panelH - fw * 2, 4, 8);
+    {
+      const pw = panelW - fw * 2;
+      const ph = panelH - fw * 2;
+      const pos = paper.attributes.position;
+      const farben = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        const lx = pos.getX(i);
+        const ly = pos.getY(i);
+        // Oben Himmel, unten Boden: 0,84 an der Unterkante, 1,00 an der Oberkante.
+        const hoch = 0.84 + 0.16 * (ly / ph + 0.5);
+        // Rahmenschatten: die letzten acht Zentimeter zur Kante.
+        const rand = Math.min(pw / 2 - Math.abs(lx), ph / 2 - Math.abs(ly));
+        const saum = 0.86 + 0.14 * Math.min(1, Math.max(0, rand / 0.08));
+        const f = hoch * saum;
+        farben[i * 3] = farben[i * 3 + 1] = farben[i * 3 + 2] = f;
+      }
+      paper.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    }
     if (axis === 'x') paper.rotateY((inward * Math.PI) / 2);
     else if (inward < 0) paper.rotateY(Math.PI);
     const [px, py, pz] = at(ct, (sillY + headY) / 2, paperD);

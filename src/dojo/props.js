@@ -1022,16 +1022,34 @@ function addMakiwara(B) {
   // Seilwicklung: eine Schraubenlinie, die der abgerundeten Rechteckkontur des
   // Polsters folgt. `TubeGeometry` mit einem Kreisquerschnitt reicht hier, weil
   // ein Seil rund ist – die Kontur steckt im Pfad, nicht im Querschnitt.
-  const TURNS = 17;
+  //
+  // **Elf Windungen statt siebzehn, und ein Abschluss.**
+  //
+  // Prueferbefund 19: „eine Folge exakt gleicher waagerechter Ringe, ohne
+  // Steigung, ohne Anfang und Ende der Umwicklung — das liest als geriffelter
+  // Griff oder Maiskolben."
+  //
+  // Die Steigung gab es: siebzehn Windungen auf 33,5 cm sind 2,0 cm je Umlauf.
+  // Nur ist das Seil 1,5 cm dick — zwei Nachbarwindungen beruehren sich fast,
+  // und was man sieht, sind aneinanderliegende Ringe. Mit elf Windungen sind es
+  // 3,0 cm, und zwischen den Windungen bleibt Polster stehen. **Die Steigung
+  // liest erst, wenn sie groesser ist als das, was sie steigt.**
+  //
+  // Das Ende gab es nicht, und das war der bessere Teil des Befunds. Eine
+  // Wicklung hoert nicht auf, sie wird abgebunden: eine senkrechte Verschnuerung
+  // ueber die untersten Windungen, und darunter zwei lose Enden.
+  const kontur = (yy) => {
+    const kk = (yy - padBottom) / (padTop - padBottom);
+    const bulge = Math.sin(Math.min(1, kk * 1.08) * Math.PI) * 0.5 + 0.62;
+    return [(0.026 + 0.03 * bulge) / 2 + 0.007, (0.098 + 0.028 * bulge) / 2 + 0.007];
+  };
+  const TURNS = 11;
   const path = [];
   const steps = TURNS * 16;
   for (let i = 0; i <= steps; i++) {
     const k = i / steps;
     const y = padBottom + 0.02 + k * (padTop - padBottom - 0.05);
-    const kk = (y - padBottom) / (padTop - padBottom);
-    const bulge = Math.sin(Math.min(1, kk * 1.08) * Math.PI) * 0.5 + 0.62;
-    const rxx = (0.026 + 0.03 * bulge) / 2 + 0.007;
-    const rzz = (0.098 + 0.028 * bulge) / 2 + 0.007;
+    const [rxx, rzz] = kontur(y);
     const a = k * TURNS * Math.PI * 2;
     // Superellipse: |cos|^0.55 rundet die Ecken, hält die Flanken aber flach.
     const ca = Math.cos(a);
@@ -1048,6 +1066,62 @@ function addMakiwara(B) {
   const rope = new THREE.TubeGeometry(curve, steps, 0.0075, 5, false);
   scaleUV(rope, 1, 3);
   put('fibre', rope, 0x8f7748, contactAO(1.4, 0.6));
+
+  // Abbindung: senkrecht ueber die untersten vier Windungen, aussen auf dem
+  // Seil liegend (daher `+ 0.014`, eine Seildicke).
+  {
+    const AZ = 0.62; // Azimut zur Raumseite hin, damit man sie sieht
+    const cz = Math.cos(AZ);
+    const sz = Math.sin(AZ);
+    const bind = [];
+    for (let i = 0; i <= 12; i++) {
+      const yy = padBottom + 0.012 + (i / 12) * 0.15;
+      const [rxx, rzz] = kontur(yy);
+      bind.push(
+        new THREE.Vector3(
+          x + Math.sign(cz) * Math.pow(Math.abs(cz), 0.55) * (rxx + 0.014),
+          yy,
+          z + Math.sign(sz) * Math.pow(Math.abs(sz), 0.55) * (rzz + 0.014)
+        )
+      );
+    }
+    const bindGeo = new THREE.TubeGeometry(
+      new THREE.CatmullRomCurve3(bind),
+      12,
+      0.0075,
+      5,
+      false
+    );
+    put('fibre', bindGeo, 0x8f7748, contactAO(1.4, 0.6));
+
+    // Zwei lose Enden, die unter der Abbindung heraushaengen. Sie sind das,
+    // was eine Wicklung von einer Riffelung unterscheidet.
+    const [erx, erz] = kontur(padBottom + 0.012);
+    for (const [dax, verk] of [
+      [-0.06, 0.11],
+      [0.05, 0.085],
+    ]) {
+      const ende = [];
+      for (let i = 0; i <= 6; i++) {
+        const t = i / 6;
+        ende.push(
+          new THREE.Vector3(
+            x + Math.sign(cz) * Math.pow(Math.abs(cz), 0.55) * (erx + 0.014) + dax * t * t,
+            padBottom + 0.014 - verk * t,
+            z + Math.sign(sz) * Math.pow(Math.abs(sz), 0.55) * (erz + 0.014) + dax * 0.4 * t
+          )
+        );
+      }
+      const endGeo = new THREE.TubeGeometry(
+        new THREE.CatmullRomCurve3(ende),
+        6,
+        0.0062,
+        5,
+        false
+      );
+      put('fibre', endGeo, 0x8f7748, contactAO(1.4, 0.6));
+    }
+  }
 }
 
 // --- Kakemono: das Hängerollbild --------------------------------------------

@@ -1759,3 +1759,64 @@ Das ist in dieser Sitzung viermal passiert (Staub, Moossaum, Kies-Albedo, hier).
 319 326 Dreiecke von 350 000, 42,85 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/dojo-42`.
+
+## Paket U — Papier mit Verlauf, und eine Wicklung mit Ende
+
+Zwei kleinere Befunde aus dem dritten Bericht.
+
+### Die Papierflächen hatten null Verlauf (Befund 7)
+
+Gemessen in `c-engawa`, linke Shoji-Fläche: bei (60–200, 100–300) L 140,4, bei
+(60–200, 380–500) L 140,2. Über vierhundert Bildzeilen — gut zwei Meter
+Wandhöhe — **zwei Zehntel einer Stufe**. Diese Fläche belegt vierzig Prozent
+des Bildes.
+
+**Fünfter Fall derselben Ursache**, nach Bildnische, Sesselkissen, Bambushain
+und Decke. Ein Papierfeld sieht von aussen oben Himmel und unten Veranda und
+Boden; der Rahmen verdeckt es an seinen vier Kanten. Das Beleuchtungsmodell
+weiss von beidem nichts, weil die Normale überall dieselbe ist — und das Feld
+war ausserdem **ein Viereck**.
+
+Jetzt 4 × 8 Felder mit gebackenem Verlauf: 0,84 an der Unterkante auf 1,00 an
+der Oberkante, dazu ein Rahmenschatten über die letzten acht Zentimeter zur
+Kante.
+
+    oben   140,4 → 137,3
+    unten  140,2 → 131,2
+    Unterschied 0,2 → **6,1 Stufen**
+
+**Auf der Sonnenseite bleibt der Verlauf schwächer**, und das steht so im
+Quelltext: Die Scheitelfarbe wirkt auf den Albedoanteil, nicht auf das
+Eigenleuchten — three legt `vColor` nur auf `diffuseColor`. Auf den
+Schattenseiten trägt die Albedo rund 120 der 140 Stufen, auf der Ostfront steht
+das Eigenleuchten mit 0,38 dagegen. Die Ostfront hat dafür den Schattenriss des
+Hains, der ihr Zeichnung gibt — der Punkt, den der Prüfer ausdrücklich als
+tragend benannt hat.
+
+### Der Strohwickel hatte keine Steigung und kein Ende (Befund 19)
+
+„Eine Folge exakt gleicher waagerechter Ringe, ohne Steigung, ohne Anfang und
+Ende der Umwicklung — das liest als geriffelter Griff oder Maiskolben."
+
+**Die Steigung gab es.** Siebzehn Windungen auf 33,5 cm sind 2,0 cm je Umlauf.
+Nur ist das Seil 1,5 cm dick — zwei Nachbarwindungen berühren sich fast, und
+was man sieht, sind aneinanderliegende Ringe. Mit elf Windungen sind es 3,0 cm,
+und zwischen den Windungen bleibt Polster stehen. **Eine Steigung liest erst,
+wenn sie grösser ist als das, was sie steigt.**
+
+**Das Ende gab es nicht**, und das war der bessere Teil des Befunds. Eine
+Wicklung hört nicht auf, sie wird abgebunden: eine senkrechte Verschnürung über
+die untersten vier Windungen, aussen auf dem Seil liegend, und darunter zwei
+lose Enden. Aus `a-halle` sind sie zu sehen; aus `f-gegenlicht` liegen sie auf
+der abgewandten Seite, und das ist richtig so — eine Abbindung sitzt an einer
+Stelle und nicht ringsum.
+
+**Regression:** Insel, Konstrukt, Nachthimmel, Zen bitgleich. Im Dojo
+`d-suedfront` 36,8 %, `c-engawa` 24,4 %, die übrigen 11 bis 14 % — aber davon
+nur **0,004 bis 0,47 Prozent** um mindestens 24 Stufen. Ein flächiger, flacher
+Verlauf über alle Papierfelder sieht in der Statistik genau so aus. Budget: 114
+Draw-Calls von 120, **326 814** Dreiecke von 350 000 (von 319 326 — die
+Unterteilung der Papierfelder kostet rund 7 000, die Abbindung 400), 42,85 MB
+Textur. Konsole sauber.
+
+Bildstand `tools/shots/dojo-45`.

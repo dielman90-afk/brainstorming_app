@@ -550,6 +550,11 @@ export function washiMaterial({
     roughness: 0.88,
     metalness: 0,
     side: THREE.DoubleSide,
+    // Der Verlauf ueber die Papierhoehe und der Rahmenschatten an den Kanten
+    // stecken in den Scheitelfarben (`buildOpening`). Sie wirken auf den
+    // Albedoanteil; das Eigenleuchten bleibt davon unberuehrt, weil three die
+    // Vertexfarbe nur auf `diffuseColor` legt.
+    vertexColors: true,
   });
   if (shadowedEmissive) shadowTheGlow(material);
   return material;
