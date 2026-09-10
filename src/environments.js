@@ -13357,7 +13357,19 @@ function createZenEnvironment() {
     // die Mitte und den Rand, dazwischen nichts. Die Kuppel und ihre Wellen
     // wurden also an 45 Stellen abgetastet, und weil der Rand auf null liegt,
     // blieb ein Kegel. Sechs Ringe kosten 265 Punkte und 528 Dreiecke.
-    const mossGeo = ringScheibe(mossR, 8, 44);
+    // **Vierzehn Ringe statt acht.** Die Punktdichte ist die Obergrenze fuer
+    // alles, was aus Scheitelfarben oder Scheitelhoehen kommt: Ein Feld mit
+    // kuerzerer Wellenlaenge als der Punktabstand wird nicht feiner, es wird
+    // Rauschen (dieselbe Grenze steht unten beim Kissenterm). Bei acht Ringen
+    // liegt der radiale Abstand auf einem Meter Halbmesser bei 12 cm, und das
+    // feinste Flecktfeld musste deshalb bei 28 cm bleiben — sichtbar als
+    // breite Tonschwankung, nicht als Korn. Vierzehn Ringe bringen ihn auf
+    // 7 cm und lassen ein zweites, feineres Feld zu.
+    //
+    // Kosten: 617 statt 353 Punkte und 1144 statt 616 Dreiecke je Insel, bei
+    // fuenf Inseln also 2640 Dreiecke mehr. Kein zusaetzlicher Zeichenaufruf —
+    // alle Inseln liegen ohnehin in einem Netz.
+    const mossGeo = ringScheibe(mossR, 14, 44);
     {
       const pos = mossGeo.attributes.position;
       const zunge = welligerUmriss(300 + i * 17, 0.24, 6);
@@ -13381,9 +13393,19 @@ function createZenEnvironment() {
     // Moospolster ist ein Kissen von drei bis sechs Zentimetern, das am Rand
     // ausläuft. Die Scheibe liegt in der XY-Ebene und wird später um −90° um X
     // gedreht; lokales +Z wird damit zu Welt-+Y.
+    const beulen = polsterRauschen(9100 + i * 71);
+    // Dieselbe Formel wie in der Schleife darunter, als Funktion — die
+    // Polsterbuescheln weiter unten muessen auf derselben Flaeche sitzen,
+    // auf der die Scheibe liegt. Zwei Abschriften derselben Formel waeren die
+    // stille Art, wie ein Buschel spaeter in der Luft haengt.
+    const polsterHoehe = (px, py) => {
+      const t = Math.min(1, Math.hypot(px, py) / mossR);
+      let h = 0.055 * Math.pow(1 - t * t, 0.65);
+      h += (beulen(px * 5.5, py * 5.5) * 0.034 + beulen(px * 9.0 + 40, py * 9.0 - 17) * 0.013) * (1 - t * t);
+      return h - 0.022 * Math.pow(t, 5.0);
+    };
     {
       const pos = mossGeo.attributes.position;
-      const beulen = polsterRauschen(9100 + i * 71);
       for (let v = 0; v < pos.count; v++) {
         const px = pos.getX(v);
         const py = pos.getY(v);
@@ -13399,13 +13421,11 @@ function createZenEnvironment() {
         // Punktabstand liegen (radial 12 cm, am Rand quer 14 cm), sonst wird
         // aus dem Relief Rauschen: 18 cm für die Polster, 11 cm für die
         // Unruhe darauf.
-        let hoehe = 0.055 * Math.pow(1 - t * t, 0.65);
-        hoehe += (beulen(px * 5.5, py * 5.5) * 0.034 + beulen(px * 9.0 + 40, py * 9.0 - 17) * 0.013) * (1 - t * t);
         // **Der Rand sinkt in den Sand.** Vorher endete das Moos bei genau
         // null und stiess in einer Linie an den Kies — eine Messerkante. Ein
-        // Polster hat einen Fuss, der unter das umgebende Korn läuft.
-        hoehe -= 0.022 * Math.pow(t, 5.0);
-        pos.setZ(v, hoehe);
+        // Polster hat einen Fuss, der unter das umgebende Korn läuft. Der
+        // ganze Ausdruck steht als `polsterHoehe` ueber der Schleife.
+        pos.setZ(v, polsterHoehe(px, py));
       }
       pos.needsUpdate = true;
       mossGeo.computeVertexNormals();
@@ -13433,7 +13453,12 @@ function createZenEnvironment() {
       // In Weltkoordinaten ausgewertet, damit die Flecken über die Grenze
       // zwischen Fleck und Ableger hinweg weiterlaufen. Lokal ausgewertet
       // trüge jedes Polster dasselbe Muster um seinen eigenen Mittelpunkt.
-      const fleck = 0.86 + fleckenRauschen((Math.cos(a) * r + x) * 3.6, (Math.sin(a) * r + y) * 3.6) * 0.5;
+      // Zwei Massstaebe: 28 cm fuer die Polsterflecken, 14 cm fuer das Korn
+      // darauf. Der zweite ist erst seit den vierzehn Ringen abtastbar.
+      const fleck =
+        0.86 +
+        fleckenRauschen((Math.cos(a) * r + x) * 3.6, (Math.sin(a) * r + y) * 3.6) * 0.5 +
+        fleckenRauschen((Math.cos(a) * r + x) * 7.1 + 23, (Math.sin(a) * r + y) * 7.1 - 11) * 0.20;
       return saum * fleck;
     });
     const moss = new THREE.Mesh(mossGeo, mossMat);
@@ -13441,6 +13466,57 @@ function createZenEnvironment() {
     moss.position.set(Math.cos(a) * r, -0.01, Math.sin(a) * r);
     moss.scale.set(1 + rand() * 0.6, 1, 0.7 + rand() * 0.5);
     moosTeile.push(moss);
+    // **Polsterbüschel auf der Fläche.**
+    //
+    // Der Grund, warum das Moos aus der Augenhöhenkamera glatt bleibt, ist
+    // kein Mangel an Feinheit, sondern die Projektion: In `b-pond` liegen
+    // anderthalb Meter Moostiefe auf 35 Bildzeilen. Radial ist die Fläche
+    // damit auf ein Zwanzigstel gestaucht, und **jede** Zeichnung darauf —
+    // Normal-Map, Scheitelfarbe, Relief — wird in dieser Richtung
+    // weggemittelt. Gemessen: `normalScale` von 1,15 auf 4,0 ändert im
+    // Moosbereich 1,33 Stufen im Mittel. Die Karte ist nicht zu schwach, sie
+    // wird nicht abgetastet.
+    //
+    // Was bei dieser Stauchung überlebt, ist die **Silhouette**: die obere
+    // Kontur der Fläche gegen den Sand. Ein Polster mit 5 cm hohen Büscheln
+    // darauf bricht diese Kontur; eine glatte Kuppel liefert eine
+    // Ellipsenlinie, und genau die hat der Prüfer als Pfütze gelesen.
+    //
+    // Eigener Zufallsstrom wie bei den Ablegern.
+    {
+      const bs = mulberry32(0x7c31d9 + i * 613);
+      const zahl = 12 + Math.floor(bs() * 8);
+      for (let k = 0; k < zahl; k++) {
+        const ba = bs() * Math.PI * 2;
+        // Wurzelverteilung, damit die Büschel flächengleich streuen statt
+        // sich in der Mitte zu häufen.
+        const br = mossR * 0.92 * Math.sqrt(bs());
+        const kr = mossR * (0.06 + bs() * 0.09);
+        const px = Math.cos(ba) * br;
+        const py = Math.sin(ba) * br;
+        const geo = ringScheibe(kr, 2, 10);
+        const bh = 0.028 + bs() * 0.030;
+        const pos = geo.attributes.position;
+        for (let v = 0; v < pos.count; v++) {
+          const t = Math.min(1, Math.hypot(pos.getX(v), pos.getY(v)) / kr);
+          pos.setZ(v, bh * Math.pow(1 - t * t, 0.55));
+        }
+        pos.needsUpdate = true;
+        geo.computeVertexNormals();
+        scaleUV(geo, (2 * kr) / (18 * 0.55));
+        // Dieselbe Fleckenfunktion in Weltkoordinaten wie die Fläche darunter,
+        // damit ein Büschel nicht heller ist als das Moos, auf dem es sitzt.
+        const wx = Math.cos(a) * r + px;
+        const wy = Math.sin(a) * r + py;
+        bakeVertexShade(geo, () => 0.86 + fleckenRauschen(wx * 3.6, wy * 3.6) * 0.5);
+        const buschel = new THREE.Mesh(geo, mossMat);
+        buschel.rotation.x = -Math.PI / 2;
+        // Etwas eingesenkt, damit der Fuss in der Fläche verschwindet statt
+        // als eigener Rand zu stehen.
+        buschel.position.set(wx, -0.01 + polsterHoehe(px, py) - 0.012, wy);
+        moosTeile.push(buschel);
+      }
+    }
     // **Ableger, damit der Umriss nicht die ganze Geschichte ist.**
     //
     // Auch mit gewelltem Rand bleibt eine geschlossene Fläche eine
@@ -14290,14 +14366,40 @@ function createZenEnvironment() {
   }
   const dustGeo = new THREE.BufferGeometry();
   dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
+  // **Alle Koerner waren gleich gross und gleich hell.** Der Pruefer las sie
+  // als „eine Reihe gleich heller Gluehwuermchen, eines davon am Himmel".
+  // Gemessen in `b-pond` ueber die Maske des Knotens: 835 Bildpunkte in acht
+  // Stuecken, die groessten 11 bis 15 Bildpunkte breit, Hoechstwert 244 — und
+  // zwei der acht sassen mitten auf einer Moosinsel, wo sie als nasser Glanz
+  // lasen. Das ist der Befund „Moos als glaenzende Pfuetze" an derselben
+  // Stelle: es war gar nicht das Moos.
+  //
+  // Der Streuwert kommt aus `ph`, das ohnehin schon gezogen ist. **Keine
+  // neue Ziehung** — jede zusaetzliche wuerde alles verschieben, was danach
+  // aus demselben Strom gebaut wird (siehe oben, 125 Ziehungen).
+  const dustStreu = new Float32Array(DUST);
+  for (let i = 0; i < DUST; i++) {
+    const t = (dustMeta[i].ph * 0.618034) % 1;
+    dustStreu[i] = t;
+  }
+  dustGeo.setAttribute('aStaub', new THREE.BufferAttribute(dustStreu, 1));
   const dust = new THREE.Points(
     dustGeo,
     new THREE.PointsMaterial({
       map: makeGlowTexture('rgba(255,240,210,0.9)', 'rgba(255,220,170,0.4)', 32),
       color: 0xffe6c0,
-      // 0,12 statt 0,08: Ein Korn soll im Nahbereich mehrere Bildpunkte
-      // breit sein. Was nur einen belegt, ist kein Staub, sondern Rauschen.
-      size: 0.12,
+      // **0,055 statt 0,12.** Der alte Wert stand hier mit der Begruendung,
+      // ein Korn solle im Nahbereich mehrere Bildpunkte breit sein. Mehrere
+      // waren es dann auch: Bei 60 Grad Bildwinkel und 720 Zeilen sind
+      // 0,12 m in drei Metern **25 Bildpunkte** Kantenlaenge. Das ist kein
+      // Staubkorn, das ist ein Nachtfalter.
+      //
+      //     0,12 m in 3 m   25 px   gemessene Kerne 11 bis 15 px
+      //     0,055 m in 3 m  11 px   Kern rund 5 px
+      //
+      // Multipliziert wird das je Korn mit `aStaub` (0,50 bis 1,25), damit
+      // nicht alle Koerner denselben Durchmesser haben.
+      size: 0.055,
       transparent: true,
       // 0,45 statt 0,7: Additiv auf einem Sand, der ohnehin bei L 200 steht,
       // schlug das Korn durch die Decke — die Hälfte der Staubbildpunkte lag
@@ -14331,7 +14433,19 @@ function createZenEnvironment() {
     dust.material.onBeforeCompile = (shader, renderer) => {
       if (vorher) vorher.call(dust.material, shader, renderer);
       shader.vertexShader = ersetzeImShader(
-        ersetzeImShader(shader.vertexShader, '#include <common>', '#include <common>\n varying float vStaubTiefe;'),
+        ersetzeImShader(
+          ersetzeImShader(
+            shader.vertexShader,
+            '#include <common>',
+            '#include <common>\n varying float vStaubTiefe;\n varying float vStaubStreu;\n attribute float aStaub;'
+          ),
+          // **Nach dem Groessenabfall, nicht davor.** `gl_PointSize` wird in
+          // `points_vert` erst hinter `project_vertex` gesetzt und danach von
+          // `USE_SIZEATTENUATION` mit der Tiefe multipliziert. Wer vor
+          // `logdepthbuf_vertex` eingreift, greift hinter beidem ein.
+          '#include <logdepthbuf_vertex>',
+          ' gl_PointSize *= 0.50 + 0.75 * aStaub;\n vStaubStreu = aStaub;\n#include <logdepthbuf_vertex>'
+        ),
         // **Nicht auf `gl_Position` zielen.** `onBeforeCompile` bekommt die
         // `#include`-Zeilen unaufgeloest; die Zuweisung steht in
         // `project_vertex` und ist hier gar nicht sichtbar. `mvPosition` ist
@@ -14340,9 +14454,16 @@ function createZenEnvironment() {
         '#include <project_vertex>\n vStaubTiefe = -mvPosition.z;'
       );
       shader.fragmentShader = ersetzeImShader(
-        ersetzeImShader(shader.fragmentShader, '#include <common>', '#include <common>\n varying float vStaubTiefe;'),
+        ersetzeImShader(
+          shader.fragmentShader,
+          '#include <common>',
+          '#include <common>\n varying float vStaubTiefe;\n varying float vStaubStreu;'
+        ),
         '#include <opaque_fragment>',
-        'diffuseColor.a *= 1.0 - smoothstep(4.0, 9.0, vStaubTiefe);\n #include <opaque_fragment>'
+        // Quadratisch, damit die schwachen Koerner deutlich in der Ueberzahl
+        // sind: Bei Gleichverteilung von `aStaub` liegt die Haelfte unter 0,5
+        // und damit unter 0,51 Deckkraft.
+        'diffuseColor.a *= (0.35 + 0.65 * vStaubStreu * vStaubStreu) * (1.0 - smoothstep(4.0, 9.0, vStaubTiefe));\n #include <opaque_fragment>'
       );
     };
     dust.material.customProgramCacheKey = () => 'zen-staub-tiefe';

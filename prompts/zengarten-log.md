@@ -3062,3 +3062,93 @@ Sättigung. Budget Zen: 95 Draw-Calls von 120, 96 952 Dreiecke von 350 000,
 Konsole sauber.
 
 Bildstand `tools/shots/zen-52`.
+
+## Paket Z — Die glänzende Pfütze war Staub, und das Moos war eine Frage der Projektion
+
+Zwei Prüferbefunde, ein Ort: „Die Moosflächen liegen als glänzende Pfütze über
+dem Harkmuster" (2) und „eine Reihe gleich heller Glühwürmchen, eines davon am
+Himmel" (11).
+
+### Es war gar nicht das Moos
+
+Die weissen Flecken auf den Moosinseln sahen aus wie nasser Glanz. Gemessen
+über die Maske des Knotens `zen-staub` in `b-pond` (`knotenwerte.mjs`,
+`knotenkasten.mjs`):
+
+    835 Bildpunkte in acht Stuecken
+    Mittel 165, p95 212, Hoechstwert 244
+    groesste Stuecke 11 bis 15 Bildpunkte breit
+    zwei davon mitten auf einer Moosinsel, zwei ueber der Horizontlinie
+
+Das ist der Staub. Zwei der acht sassen auf dem Moos, eines im Himmel — beide
+Befunde in einer einzigen Punktwolke.
+
+**Die Ursache stand als Begründung im Quelltext.** `size: 0.12` trug den
+Kommentar „Ein Korn soll im Nahbereich mehrere Bildpunkte breit sein. Was nur
+einen belegt, ist kein Staub, sondern Rauschen." Nachgerechnet: Bei 60 Grad
+Bildwinkel und 720 Zeilen ist die Brennweite 623 Bildpunkte, und 0,12 m in drei
+Metern sind damit **25 Bildpunkte**. Das ist kein Staubkorn, das ist ein
+Nachtfalter.
+
+Jetzt 0,055 m, und je Korn mit einem Streuwert multipliziert: Durchmesser mal
+0,50 bis 1,25, Deckkraft mal 0,35 bis 1,00, quadratisch verteilt, damit die
+schwachen Körner in der Überzahl sind. Der Streuwert kommt aus `ph`, das ohnehin
+gezogen wird — **keine neue Ziehung**, sonst verschiebt sich alles, was danach
+aus demselben Strom gebaut wird.
+
+    vorher    835 Bildpunkte, 8 Stuecke, groesstes 15 px, Hoechstwert 244
+    nachher   127 Bildpunkte, 5 Stuecke, groesstes  6 px, Hoechstwert 193
+
+Kein Stück mehr über der Horizontlinie.
+
+### Warum das Moos trotzdem glatt ist — und was daran zu ändern war
+
+Nach dem Staub blieb eine glatte grüne Kuppel. Der naheliegende Verdacht war
+eine zu schwache Normal-Map. Gemessen, indem `normalScale` von 1,15 auf 4,0
+gesetzt wurde:
+
+    Kasten ueber die Moosinsel in b-pond:  Δmittel 1,33  Δmax 29
+
+Bei mehr als dreifacher Stärke. **Die Karte ist nicht zu schwach, sie wird
+nicht abgetastet.** In `b-pond` liegen anderthalb Meter Moostiefe auf 35
+Bildzeilen; radial ist die Fläche auf ein Zwanzigstel gestaucht, und in dieser
+Richtung mittelt die Mip-Stufe jede Zeichnung weg — Normal-Map, Scheitelfarbe
+und Relief gleichermassen.
+
+Was bei dieser Stauchung überlebt, ist die **Silhouette**. Eine glatte Kuppel
+liefert eine Ellipsenlinie gegen den Sand, und genau die liest sich als Pfütze.
+Also drei Eingriffe, alle an der Kontur statt an der Fläche:
+
+* **Vierzehn Ringe statt acht.** Der radiale Punktabstand fällt auf einem Meter
+  Halbmesser von 12 auf 7 cm. Das ist die Obergrenze für alles, was aus
+  Scheitelfarben kommt — ein Feld mit kürzerer Wellenlänge als der Punktabstand
+  wird nicht feiner, es wird Rauschen.
+* **Ein zweiter Fleckenmassstab bei 14 cm** neben dem bestehenden bei 28 cm,
+  erst seit den vierzehn Ringen abtastbar.
+* **Zwölf bis neunzehn Polsterbüschel je Insel**, 6 bis 15 cm Halbmesser, 3 bis
+  6 cm hoch, auf `polsterHoehe()` gesetzt — derselben Funktion, die auch die
+  Fläche formt, damit kein Büschel in der Luft hängt. Sie brechen die obere
+  Kontur.
+
+Gemessen mit `moossaum.mjs` in `b-pond`:
+
+    Zustand              Zackigkeit   Saum    Korn
+    vorher                    6,72   0,962   5,213
+    14 Ringe + 2. Massstab    6,75   0,966   5,561
+    dazu Bueschel             6,74   0,961   6,531
+
+Zackigkeit und Saum bleiben, wo sie schon richtig waren; das **Korn steigt um
+25 %**. Das ist die Zahl zur Sache: Die Fläche trägt jetzt Struktur, die die
+Projektion nicht wegmittelt.
+
+**Was offen bleibt und offen bleiben muss:** Die Normal-Map des Mooses ist aus
+der Augenhöhenkamera weiterhin wirkungslos. Das ist keine Einstellung, das ist
+die Projektion. Wer dort mehr Feinheit will, muss sie in die Silhouette legen,
+nicht in eine Karte.
+
+**Regression:** Konstrukt, Nachthimmel, Insel und Dojo bitgleich. Budget: 95
+Draw-Calls von 120 (unverändert — alle Büschel liegen im selben Netz),
+**101 752** Dreiecke von 350 000 (von 96 952; die Ringe kosten 2 640, die
+Büschel 4 800 abzüglich der gesparten), 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-53`.
