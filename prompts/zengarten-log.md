@@ -3222,3 +3222,73 @@ von 350 000 (von 101 752; die Baumreihe kostet 5 380), 21,86 MB Textur.
 Konsole sauber.
 
 Bildstand `tools/shots/zen-54`.
+
+## Paket AB — Seerosen und Lotus (Prüferbefunde 4 und 13)
+
+### Das Seerosenblatt war eine Scheibe in einer Farbe
+
+Der Prüfer: „die Seerosenblätter schweben über der Fläche" und, zwei Befunde
+weiter, „neonmagentafarbene Origami-Lotusblüten".
+
+Das Blatt war eine `CircleGeometry` — ein Mittelpunkt, ein Rand, dazwischen
+nichts. Damit kann es weder eine Schüssel sein noch Rippen tragen noch einen
+Saum haben; dieselbe Grenze, an der die Moosinseln schon einmal gescheitert
+sind. Jetzt ein Ringnetz mit fünf Ringen (121 Punkte, 240 Dreiecke) und darauf:
+
+* **Die Kerbe.** Der Einschnitt bis zur Mitte ist das deutlichste Merkmal eines
+  Seerosenblatts. Der alte `thetaLength` von 1,85 π hat ihn als Tortenstück
+  geschnitten — zwei gerade Kanten; jetzt läuft er spitz zu.
+* **Schüsselform**, Rand 1,2 cm über der Mitte, mit welligem Wulst.
+* **Rippen und Saum** in den Scheitelfarben: neun Strahlen als Helligkeit
+  (Geometrie wäre bei 24 Segmenten unterabgetastet), Rand rötlich angelaufen.
+
+### Kein Blatt hatte einen Schatten im Wasser
+
+Sie schweben nicht — sie liegen bei y = 0,056 auf dem Wasser bei 0,050. Aber
+bei 19° Sonnenstand fällt der Schlagschatten eines 6 mm hohen Blattes
+vollständig **unter** das Blatt und ist unsichtbar. Was sichtbar wäre, ist das
+Wasser, dem das Blatt den Himmel wegnimmt. Also eine dunkle Scheibe knapp unter
+der Fläche, 25 % grösser als das Blatt, nach Osten versetzt.
+
+**Ein Fehler dabei, und er ist lehrreich:** Der erste Anlauf liess die
+Scheitelfarbe zum Rand hin nach Schwarz laufen und die Deckkraft bei 0,30
+stehen. Schwarz auf 30 % ist aber **dunkler** als Dunkelgrün auf 30 % — der
+Saum wurde der dunkelste Teil des Schattens statt der schwächste, und im Bild
+stand ein harter Ring um jedes Blatt. Der Abfall gehört in den Alphakanal;
+three liest ihn aus dem `color`-Attribut, wenn es vier Bestandteile hat.
+
+### Die vierte Verschiebung des Zufallsstroms
+
+`makeLilyPad` zog vorher zwei Zahlen und danach drei. Sieben Blätter, sieben
+zusätzliche Ziehungen — und im ersten Bild danach standen Lotus, Koi und
+Ufersteine woanders. Die Lehre steht in diesem Log an drei Stellen. Die Kerbe
+wird jetzt aus der Drehung abgeleitet.
+
+### Der Lotus war Origami, und zwar wörtlich
+
+`ConeGeometry(0.05, 0.14, 4)`, elfmal. **Vier Seiten heisst vier ebene Facetten
+und eine Spitze** — es gibt keine Krümmung, in der sich Licht verlaufen könnte.
+Jetzt ein Blattgitter aus 4 × 7 Punkten mit Längsbogen und Querwölbung, drei
+Kränze statt zwei (aussen flach und weit, innen steil), und die Samenkapsel als
+flacher Kegelstumpf statt als Kugel.
+
+Die Farbe war der zweite Teil: **0xff9dc2 hat den Rotkanal auf Anschlag.** In
+einer Szene, deren Sand bei L 200 steht, ist ein voll ausgesteuerter Kanal der
+hellste Punkt des Bildes. Eine Lotusblüte ist am Grund fast weiss und wird erst
+zur Spitze rosa; der Verlauf steht jetzt in den Scheitelfarben.
+
+Gemessen über die Maske des Knotens in `c-torii`:
+
+    vorher    R p50 110   p95 236   Saettigung p50 40,1 %
+    nachher   R p50 118   p95 181   Saettigung p50 33,6 %
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: **97**
+Draw-Calls von 120 (von 95 — die Blattschatten sind ein eigenes Netz mit
+eigenem Material), **113 444** Dreiecke von 350 000 (von 107 132), 21,86 MB
+Textur. Konsole sauber.
+
+**Was offen bleibt:** Der Koi ist weiterhin der hellste Fleck im Teich, und ein
+Trittstein steht unverdunkelt im Wasser. Beides gehört zu Befund 4 und kommt im
+nächsten Paket.
+
+Bildstand `tools/shots/zen-55`.

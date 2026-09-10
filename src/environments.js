@@ -12915,34 +12915,164 @@ function makeMaple(rand) {
 // und halber Sättigung ist in dieser Tonart ein Fremdkörper. Die Seerose
 // bekommt denselben olivgetönten Grundton wie das Moos und wird nur heller
 // gehalten, weil sie auf dem Wasser liegt und mehr Himmel sieht.
-const LILY_MAT = new THREE.MeshStandardMaterial({ color: 0x5d7a44, roughness: 0.72, metalness: 0, side: THREE.DoubleSide });
+const LILY_MAT = new THREE.MeshStandardMaterial({
+  color: 0x5d7a44,
+  roughness: 0.72,
+  metalness: 0,
+  side: THREE.DoubleSide,
+  // **Scheitelfarben.** Ein Seerosenblatt ist nicht einfarbig: Der Rand ist
+  // dunkler und oft roetlich angelaufen, die Rippen stehen heller als das
+  // Blattfeld dazwischen. Der Pruefer hat die Blaetter als „gruene Aufkleber"
+  // gemeldet, und ein Aufkleber ist genau das: eine Flaeche in einem Ton.
+  vertexColors: true,
+});
 // Blüten- und Kernmaterial der Lotusblüten **modulweit**, nicht je Blüte. Elf
 // Kegel und eine Kugel je Blüte mal drei Blüten waren sechsunddreißig
 // Draw-Calls für ein Detail von zehn Zentimetern; mit geteiltem Material lassen
 // sich alle drei Blüten zu zwei Meshes verschmelzen.
-const LOTUS_BLATT_MAT = new THREE.MeshStandardMaterial({ color: 0xff9dc2, roughness: 0.7, metalness: 0, side: THREE.DoubleSide });
+// **0xff9dc2 war Neon.** Der Pruefer nennt die Blueten „neonmagentafarbenes
+// Origami"; beide Haelften des Satzes hatten eine Ursache. Die Farbe: 0xff9dc2
+// hat den Rotkanal auf Anschlag (255) und Blau bei 194 — in einer Szene, deren
+// Sand bei L 200 und deren Himmel bei L 190 stehen, ist ein voll ausgesteuerter
+// Kanal der hellste Punkt des Bildes. Eine Lotusblute ist am Grund fast weiss
+// und wird erst zur Spitze hin rosa; der Verlauf steht jetzt in den
+// Scheitelfarben, und der Grundton ist gedeckt.
+const LOTUS_BLATT_MAT = new THREE.MeshStandardMaterial({
+  color: 0xffffff,
+  roughness: 0.7,
+  metalness: 0,
+  side: THREE.DoubleSide,
+  vertexColors: true,
+});
+// Ein Blatt: laenglich, an der Spitze zusammenlaufend, in der Laengsachse
+// gekruemmt und quer leicht gemuldet. Vier mal sieben Punkte, 36 Dreiecke.
+//
+// **Ein Kegel mit vier Seiten ist Origami**, und genau so hat die alte Fassung
+// ausgesehen: `ConeGeometry(0.05, 0.14, 4)`, elfmal. Vier Seiten heisst vier
+// ebene Facetten und eine Spitze — es gibt keine Krummung, in der sich Licht
+// verlaufen koennte.
+function lotusBlatt(laenge, breite) {
+  const NL = 6;
+  const NB = 3;
+  const pos = [];
+  const col = [];
+  const idx = [];
+  const grund = new THREE.Color(0xfaeef1);
+  const spitze = new THREE.Color(0xd4557f);
+  const c = new THREE.Color();
+  for (let j = 0; j <= NL; j++) {
+    const t = j / NL;
+    // Breite: am Grund schmal, in der Mitte am breitesten, zur Spitze auf null.
+    const w = breite * Math.sin(Math.pow(t, 0.72) * Math.PI) * 0.5 + breite * 0.06;
+    // Laengskruemmung: das Blatt biegt sich nach aussen und faellt zur Spitze.
+    const bogen = Math.sin(t * 1.35) * laenge * 0.30;
+    c.copy(grund).lerp(spitze, Math.pow(t, 1.5));
+    for (let i = 0; i <= NB; i++) {
+      const u = (i / NB) * 2 - 1;
+      // Querwoelbung: die Raender stehen hoch, die Mitte liegt tief.
+      pos.push(u * w, bogen + u * u * breite * 0.22, t * laenge);
+      col.push(c.r, c.g, c.b);
+    }
+  }
+  for (let j = 0; j < NL; j++) {
+    for (let i = 0; i < NB; i++) {
+      const a = j * (NB + 1) + i;
+      const b = a + NB + 1;
+      idx.push(a, b, b + 1, a, b + 1, a + 1);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  return geo;
+}
 const LOTUS_KERN_MAT = new THREE.MeshStandardMaterial({ color: 0xffe066, roughness: 0.6 });
 function makeLilyPad(rand) {
-  const pad = new THREE.Mesh(new THREE.CircleGeometry(0.16 + rand() * 0.1, 20, 0.5, Math.PI * 1.85), LILY_MAT);
+  // **Eine `CircleGeometry` hat einen Mittelpunkt und einen Rand, dazwischen
+  // nichts.** Damit kann ein Blatt weder eine Schuessel sein noch Rippen
+  // tragen noch einen dunklen Saum — dieselbe Grenze, an der die Moosinseln
+  // schon einmal gescheitert sind. Ein Ringnetz mit fuenf Ringen kostet
+  // 121 Punkte und 240 Dreiecke.
+  const rr = 0.16 + rand() * 0.1;
+  const geo = ringScheibe(rr, 5, 24);
+  const drehung = rand() * Math.PI * 2;
+  // **Kein dritter Aufruf von `rand()`.** Die alte Fassung zog genau zwei
+  // Zahlen (Halbmesser und Drehung); eine dritte verschiebt alles, was danach
+  // aus demselben Strom gebaut wird — bei sieben Blaettern sind das sieben
+  // Ziehungen, und im ersten Bild danach standen Lotus, Koi und Ufersteine
+  // woanders. Die Lehre steht in diesem Log an drei Stellen, und ich bin zum
+  // vierten Mal hineingelaufen.
+  const kerbe = (drehung * 2.39962 + 1.7) % (Math.PI * 2);
+  const pos = geo.attributes.position;
+  const farben = new Float32Array(pos.count * 3);
+  const feld = new THREE.Color(0xffffff);
+  // Rand roetlich angelaufen und dunkler, Mitte etwas geblichen.
+  const saum = new THREE.Color(0xc98f6e);
+  const c = new THREE.Color();
+  for (let v = 0; v < pos.count; v++) {
+    const px = pos.getX(v);
+    const py = pos.getY(v);
+    const t = Math.min(1, Math.hypot(px, py) / rr);
+    const w = Math.atan2(py, px);
+    // **Die Kerbe.** Ein Seerosenblatt ist nicht rund, es ist an einer Stelle
+    // bis zur Mitte eingeschnitten — das ist sein deutlichstes Merkmal. Der
+    // alte `thetaLength` von 1,85 pi hat sie als Tortenstueck geschnitten,
+    // also mit zwei geraden Kanten; hier laeuft sie spitz zu.
+    const dk = Math.abs(((w - kerbe + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+    const eng = Math.max(0, 1 - dk / 0.30);
+    const f = 1 - eng * eng * 0.96;
+    pos.setXY(v, px * f, py * f);
+    // Schuesselform: der Rand steht 1,2 cm hoeher als die Mitte, damit das
+    // Blatt Licht auf seinem Wulst faengt und nicht als Folie liegt.
+    const wellig = Math.sin(w * 3 + drehung) * 0.3 + Math.sin(w * 5 - drehung * 1.7) * 0.2;
+    pos.setZ(v, 0.012 * t * t + 0.004 * wellig * t);
+    // Rippen: neun Strahlen vom Mittelpunkt, als Helligkeit statt als Relief.
+    // Bei 24 Segmenten ist eine Rippe zwei Punkte breit — Geometrie waere
+    // hier unterabgetastet, Farbe nicht.
+    const rippe = 0.94 + 0.10 * Math.pow(Math.abs(Math.cos(w * 4.5 + drehung)), 6);
+    c.copy(feld).lerp(saum, Math.pow(t, 3.4) * 0.55);
+    c.multiplyScalar(rippe * (0.90 + 0.14 * t));
+    farben[v * 3] = c.r;
+    farben[v * 3 + 1] = c.g;
+    farben[v * 3 + 2] = c.b;
+  }
+  pos.needsUpdate = true;
+  geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  geo.computeVertexNormals();
+  const pad = new THREE.Mesh(geo, LILY_MAT);
   pad.rotation.x = -Math.PI / 2;
-  pad.rotation.z = rand() * Math.PI * 2;
+  pad.rotation.z = drehung;
+  pad.userData.lilyR = rr;
   return pad;
 }
 function makeLotus() {
   const g = new THREE.Group();
-  const petalMat = LOTUS_BLATT_MAT;
-  for (let ring = 0; ring < 2; ring++) {
-    const n = ring === 0 ? 6 : 5;
-    for (let i = 0; i < n; i++) {
-      const a = (i / n) * Math.PI * 2 + ring * 0.5;
-      const petal = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.14, 4), petalMat);
-      petal.position.set(Math.cos(a) * (0.05 + ring * 0.04), 0.05 + ring * 0.03, Math.sin(a) * (0.05 + ring * 0.04));
-      petal.rotation.set(Math.PI / 2 - (0.7 - ring * 0.3), 0, -a);
+  // Drei Kraenze statt zwei: aussen weit geoeffnet und flach, innen steil und
+  // fast geschlossen. Eine Lotusblute ist ein Kelch, kein Stern.
+  const kraenze = [
+    { n: 6, laenge: 0.145, breite: 0.062, neigung: 1.02, r: 0.036, y: 0.020 },
+    { n: 5, laenge: 0.125, breite: 0.054, neigung: 0.66, r: 0.026, y: 0.038 },
+    { n: 4, laenge: 0.095, breite: 0.042, neigung: 0.34, r: 0.014, y: 0.054 },
+  ];
+  for (let ring = 0; ring < kraenze.length; ring++) {
+    const kr = kraenze[ring];
+    const geo = lotusBlatt(kr.laenge, kr.breite);
+    for (let i = 0; i < kr.n; i++) {
+      const a = (i / kr.n) * Math.PI * 2 + ring * 0.62;
+      const petal = new THREE.Mesh(geo, LOTUS_BLATT_MAT);
+      petal.position.set(Math.cos(a) * kr.r, kr.y, Math.sin(a) * kr.r);
+      // Das Blatt zeigt in +z; erst um x kippen (Neigung gegen die Senkrechte),
+      // dann um y in seine Richtung drehen.
+      petal.rotation.order = 'YXZ';
+      petal.rotation.set(-(Math.PI / 2 - kr.neigung), -a + Math.PI / 2, 0);
       g.add(petal);
     }
   }
-  const center = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 6), LOTUS_KERN_MAT);
-  center.position.y = 0.07;
+  // Die Samenkapsel ist ein flacher Kegelstumpf, keine Kugel.
+  const center = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.018, 0.024, 9), LOTUS_KERN_MAT);
+  center.position.y = 0.068;
   g.add(center);
   return g;
 }
@@ -14141,14 +14271,69 @@ function createZenEnvironment() {
   group.add(...verschmelzeObjekte(findlinge, 'zen-findlinge'));
   // Seerosenblätter + Lotusblüten auf der Wasseroberfläche
   const seerosen = [];
+  // **Kein Blatt hatte einen Schatten im Wasser.**
+  //
+  // Der Pruefer: „die Seerosenblaetter schweben ueber der Flaeche". Sie tun
+  // es nicht — sie liegen bei y = 0,056 auf dem Wasser bei 0,05 —, aber sie
+  // sehen so aus, und der Grund ist derselbe wie bei allen Gegenstaenden
+  // dieser Szene ohne Fussverschattung: Es fehlt die kurze Verdunklung
+  // unmittelbar darunter. Bei 19 Grad Sonnenstand faellt der Schlagschatten
+  // eines 6 mm hohen Blattes vollstaendig unter das Blatt selbst und ist
+  // damit unsichtbar; was sichtbar waere, ist das Wasser, dem das Blatt den
+  // Himmel wegnimmt.
+  //
+  // Also eine dunkle Scheibe knapp unter der Wasserflaeche, etwas groesser
+  // als das Blatt und weich auslaufend. Sie liegt UNTER dem Wasser, wird also
+  // von dessen Tiefenfaerbung mitgetoent — genau richtig, denn sie ist
+  // Wassertruebung und kein Schlagschatten.
+  // **Der Abfall gehoert in die Deckkraft, nicht in die Farbe.** Der erste
+  // Anlauf liess die Scheitelfarbe zum Rand hin nach Schwarz laufen und die
+  // Deckkraft bei 0,30 stehen. Schwarz auf 30 Prozent ist aber DUNKLER als
+  // Dunkelgruen auf 30 Prozent — der Saum wurde damit der dunkelste Teil des
+  // Schattens statt der schwaechste, und im Bild stand ein harter Ring um
+  // jedes Blatt. three liest den Alphakanal aus dem `color`-Attribut, wenn es
+  // vier Bestandteile hat; genau dafuer ist er da.
+  const SCHATTEN_MAT = new THREE.MeshBasicMaterial({
+    color: 0x1d2a1a,
+    transparent: true,
+    opacity: 0.42,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    vertexColors: true,
+  });
+  const padSchatten = [];
   for (let i = 0; i < 7; i++) {
     const pad = makeLilyPad(rand);
     const a = rand() * Math.PI * 2;
     const r = rand() * 1.5;
     // Auf der Wasserfläche (+0,025), nicht darüber schwebend.
-    pad.position.set(pondCenter.x + Math.cos(a) * r * 1.15, 0.056, pondCenter.z + Math.sin(a) * r);
+    const px = pondCenter.x + Math.cos(a) * r * 1.15;
+    const pz = pondCenter.z + Math.sin(a) * r;
+    pad.position.set(px, 0.056, pz);
     seerosen.push(pad);
+    {
+      const sr = pad.userData.lilyR * 1.25;
+      const geo = ringScheibe(sr, 3, 16);
+      const sp = geo.attributes.position;
+      const sf = new Float32Array(sp.count * 4);
+      for (let v = 0; v < sp.count; v++) {
+        const t = Math.min(1, Math.hypot(sp.getX(v), sp.getY(v)) / sr);
+        sf[v * 4] = 1;
+        sf[v * 4 + 1] = 1;
+        sf[v * 4 + 2] = 1;
+        sf[v * 4 + 3] = 1 - t * t;
+      }
+      geo.setAttribute('color', new THREE.BufferAttribute(sf, 4));
+      const sch = new THREE.Mesh(geo, SCHATTEN_MAT);
+      sch.rotation.x = -Math.PI / 2;
+      // Die Sonne steht bei ZEN_SONNE tief im Westen; der Kern der
+      // Verdunklung wandert deshalb ein Stueck nach Osten aus.
+      sch.position.set(px + 0.035, 0.048, pz + 0.018);
+      sch.renderOrder = 1;
+      padSchatten.push(sch);
+    }
   }
+  group.add(...verschmelzeObjekte(padSchatten, 'zen-seerosen-schatten'));
   group.add(...verschmelzeObjekte(seerosen, 'zen-seerosen'));
   const lotusse = [];
   for (let i = 0; i < 3; i++) {
