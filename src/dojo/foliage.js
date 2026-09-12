@@ -1058,6 +1058,18 @@ const TRANS_BODY = /* glsl */ `
 export function foliageMaterial({
   atlas,
   color = 0xffffff,
+  // **Entsaettigung gehoert ans Material, nicht in die Palette.**
+  //
+  // `color` kann nur kanalweise nach unten multiplizieren und taugt deshalb
+  // zum Abdunkeln, nicht zum Entsaettigen: Ein rotes Blatt weniger rot zu
+  // machen hiesse, Gruen und Blau anzuheben, und das kann eine Multiplikation
+  // nicht. Die Palette waere der andere Hebel — und genau der ist verboten,
+  // seit eine Verdunklung fuer den Dojo dort das Bambuslaub des Zengartens
+  // mitgenommen hat (Dojo-Log, Paket VI).
+  //
+  // Also ein Mischen zur eigenen Helligkeit hin, je Material einstellbar.
+  // Vorgabe 0: Wer nichts angibt, bekommt Bild fuer Bild dasselbe wie vorher.
+  entsaettigung = 0,
   translucency = 0.9,
   windStrength = 0.06,
   transColor = 0xd9e79c,
@@ -1075,6 +1087,7 @@ export function foliageMaterial({
     uTime: { value: 0 },
     uWind: { value: windStrength },
     uTranslucency: { value: translucency },
+    uEntsaett: { value: entsaettigung },
     uTransPower: { value: transPower },
     uTransColor: { value: new THREE.Color(transColor) },
   };
@@ -1098,6 +1111,7 @@ export function foliageMaterial({
     patchWind(shader, uniforms);
     shader.fragmentShader =
       `
+uniform float uEntsaett;
 uniform float uTranslucency;
 uniform float uTransPower;
 uniform vec3 uTransColor;
@@ -1106,6 +1120,16 @@ uniform vec3 uTransColor;
         '#include <lights_fragment_end>',
         '#include <lights_fragment_end>\n' + TRANS_BODY
       );
+    // Auf der Albedo, nicht auf dem Ergebnis: So bleibt die Entsaettigung von
+    // Sonnenstand und Schatten unabhaengig.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `#include <map_fragment>
+       if (uEntsaett > 0.0) {
+         float fGrau = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(fGrau), uEntsaett);
+       }`
+    );
   };
   // Ohne eigenen Schlüssel teilt three das kompilierte Programm mit jedem
   // anderen Standardmaterial gleicher Konfiguration – das Laub bekäme dann

@@ -3900,3 +3900,78 @@ was sich nicht belegen lässt, wird nicht gebaut.
 sauber.
 
 Bildstand `tools/shots/zen-63`.
+
+## Paket AK — Der Ahorn war der einzige gesättigte Ton im Bild
+
+Prüferbefund 1.9 und der erste Teil von 1.3. Beide nachgemessen, bevor etwas
+angefasst wurde; einer bestätigt sich, einer nicht.
+
+### Widerlegt: „der kleinere Kronenklumpen hängt ohne sichtbaren Ast frei"
+
+Bei siebenfacher Vergrösserung von `d-aerial` (670,370–820,500) läuft ein Ast
+von der Stammgabel nach rechts oben bis in den kleineren Schopf. Er ist
+durchgehend, nicht verdeckt und rund vier Bildpunkte breit. Dass die Krone aus
+zwei Massen besteht, stimmt als Beschreibung — ein Ahorn mit einem tiefen
+Seitenast ist aber kein Fehler.
+
+### Bestätigt: die Sättigung
+
+Gemessen über die Knotenmasken in `d-aerial`:
+
+    zen-ahorn-karten    66,5 %
+    zen-ahorn-blobs     66,7 %
+    zen-karikomi        37,2 %
+    zen-sand            26,8 %
+    zen-sakura-karten   23,7 %
+
+**Doppelt so gesättigt wie das nächste Element, fast dreimal so gesättigt wie
+Sand und Sakura.** Ein Farbakzent darf der stärkste Ton der Szene sein, aber
+nicht ihr einziger.
+
+### Der Hebel, und warum es nicht die Palette sein durfte
+
+`color` kann nur kanalweise nach unten multiplizieren und taugt deshalb zum
+Abdunkeln, nicht zum Entsättigen: Ein rotes Blatt weniger rot zu machen hiesse,
+Grün und Blau **anzuheben**, und das kann eine Multiplikation nicht. Die
+Palette wäre der andere Hebel — und genau der ist verboten, seit eine
+Verdunklung für den Dojo dort das Bambuslaub des Zengartens mitgenommen hat
+(Dojo-Log, Paket VI).
+
+Also ein neuer Parameter an `foliageMaterial`: `entsaettigung`, ein Mischen zur
+eigenen Helligkeit hin, auf der **Albedo** vor dem Licht, damit es von
+Sonnenstand und Schatten unabhängig bleibt. Vorgabe 0 — wer nichts angibt,
+bekommt Bild für Bild dasselbe wie vorher. Ein Uniform, kein zweites
+Shader-Programm: `customProgramCacheKey` bleibt unverändert, alle Laubmaterialien
+teilen weiter eine Übersetzung.
+
+### Zwei Läufe, weil die erste Rechnung im falschen Raum stand
+
+    0,35                      66,5 %  →  61,6 %
+    0,55 + blasserer Saum     66,5 %  →  54,7 %
+
+Der erste Wert war für den sRGB-Ausgaberaum gerechnet, das Mischen läuft aber
+**linear** und vor der ACES-Kurve, die Sättigung in den dunklen Partien wieder
+aufzieht. Dazu kam, dass ein Teil der Sättigung gar nicht aus der Albedo
+stammt, sondern aus dem Durchleuchtungssaum: `transColor` stand auf 0xe0837a
+mit 45,5 % Eigensättigung und geht mit halbem Gewicht in den Term ein. Jetzt
+0xdba79f mit 29,5 %.
+
+54,7 % gegen 37,2 % beim Karikomi: Der Ahorn bleibt der stärkste Ton im Bild —
+das ist seine Aufgabe —, aber er ist nicht mehr doppelt so stark wie alles
+andere.
+
+### Der Hüllkörper war 30 Stufen dunkler als seine Karten
+
+L 52 gegen L 82, gemessen über beide Knotenmasken. Wo die Karten eine Lücke
+lassen, stand deshalb ein fast schwarzes Loch statt verschatteten Laubs — das
+ist der zweite Teil von Befund 1.3, und er stimmt. Dieselbe Rechnung wie bei den
+Karten und dazu ein Viertel heller: 0x8e3034 / 0xa03d3e / 0x7c262c wird zu
+0x914548 / 0xa65656 / 0x7e383d. Blobs danach 53,8 % statt 66,7 %.
+
+**Regression:** Alle vier anderen Umgebungen **bitgleich** — das ist die
+Gegenprobe auf die Vorgabe 0 des neuen Parameters. Im Zengarten ändern sich nur
+die beiden Bilder, die den Ahorn zeigen (`a-eyelevel` 0,07 %, `d-aerial`
+0,42 %); die anderen vier stehen bei Δmax 1. Budget unverändert: 99 Draw-Calls
+von 120, 133 308 Dreiecke von 350 000, 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-64`.

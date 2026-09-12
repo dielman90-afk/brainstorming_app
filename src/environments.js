@@ -13037,7 +13037,26 @@ function mapleMaterials() {
       // **Rosé statt Bernstein.** Siehe die Farbwahl der Krone weiter unten:
       // Der Baum ist vom Herbst in den Frühling gewechselt, und das
       // Gegenlicht eines jungen Blattes ist rosarot, nicht orange.
-      transColor: 0xe0837a,
+      transColor: 0xdba79f,
+      // **Der Ahorn war der einzige gesaettigte Ton im Bild.** Gemessen ueber
+      // die Knotenmasken in `d-aerial`:
+      //
+      //     zen-ahorn-karten    66,5 %
+      //     zen-ahorn-blobs     66,7 %
+      //     zen-karikomi        37,2 %
+      //     zen-sand            26,8 %
+      //     zen-sakura-karten   23,7 %
+      //
+      // Doppelt so gesaettigt wie das naechste Element und fast dreimal so
+      // gesaettigt wie Sand und Sakura. Ein Farbakzent darf der staerkste Ton
+      // der Szene sein, aber nicht ihr einziger — in der Totale zieht er den
+      // Blick vom Torii und vom Teich ab.
+      //
+      // 0,35 ist gerechnet, nicht geraten: Bei rgb(130,0 | 63,7 | 43,5) und
+      // einer Helligkeit von 76,3 ergibt ein Mischen von 0,35 zur Helligkeit
+      // hin rgb(111 | 74 | 55) und damit rund 50 % Saettigung — noch immer der
+      // staerkste Ton im Bild, aber im selben Feld wie der Rest.
+      entsaettigung: 0.55,
       windStrength: 0.07,
     });
   }
@@ -13156,7 +13175,13 @@ function makeMaple(rand) {
     // von cremeorange auf rosé. Der Prüfer hat am selben Punkt „deutlich
     // lauter und deutlich rauschiger modelliert als alles andere" bemängelt;
     // die neuen Töne sind eine Spur weniger gesättigt.
-    farben: [0x8e3034, 0xa03d3e, 0x7c262c],
+    // **Der Huellkoerper war 30 Helligkeitsstufen dunkler als seine Karten**
+    // (L 52 gegen L 82, gemessen ueber beide Knotenmasken). Wo die Karten eine
+    // Luecke lassen, stand deshalb ein fast schwarzes Loch statt verschatteten
+    // Laubs — der Pruefer nennt sie „dunkelbraun-violette Flecken, die als
+    // Loecher oder Schmutz lesen". Dieselbe Rechnung wie bei den Karten
+    // (0,35 zur Helligkeit hin) und dazu ein Viertel heller.
+    farben: [0x914548, 0xa65656, 0x7e383d],
     kartenFarben: [0xe6a3a0, 0xf0b4ad, 0xd99190, 0xecafa7],
   });
   krone.blobs.name = 'zen-ahorn-blobs';
