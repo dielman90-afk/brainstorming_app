@@ -3975,3 +3975,69 @@ die beiden Bilder, die den Ahorn zeigen (`a-eyelevel` 0,07 %, `d-aerial`
 von 120, 133 308 Dreiecke von 350 000, 21,86 MB Textur. Konsole sauber.
 
 Bildstand `tools/shots/zen-64`.
+
+## Paket AL — Der Teich: zwei Drittel des Befundes widerlegt, das letzte Drittel ein negatives Ergebnis
+
+Prüferbefund 1.2: „Der Teich ist eine aufliegende Linse … völlig undurchsichtig
+und olivbraun, keine Himmelsspiegelung, kein Farbverlauf mit der Tiefe, keine
+Kaustik."
+
+### Widerlegt: „keine Himmelsspiegelung"
+
+Differenziell gemessen, indem die Spiegelungsstärke des Wassers auf null gesetzt
+wurde:
+
+    mit Spiegelung     zen-wasser  L 117,9   Beitrag +10,9
+    ohne Spiegelung    zen-wasser  L  81,5   Beitrag −24,4
+    geaenderte Bildpunkte im Bild: 8,29 %
+
+**Die Spiegelung trägt 36 Helligkeitsstufen** und damit den grössten Teil der
+Wasserhelligkeit. Sie ist nicht abwesend — sie ist **strukturlos**, und das ist
+etwas anderes: Der Garten ist eine helle Sandebene, und was eine Wasserfläche
+davon spiegelt, ist in alle Richtungen dasselbe warme Beige. Eine Spiegelung
+ohne Motiv liest sich wie Deckkraft.
+
+### Keine Änderung: die Farbe
+
+„Olivbraun" trifft zu — und ist eine Entscheidung. Der Teich stand in einer
+früheren Runde auf 0x5c7358 / 0x11302f und wurde vom Prüfer damals als „das
+einzige kalte Element der Szene, wie aus einer anderen Beleuchtung
+ausgeschnitten" gemeldet. Er ist daraufhin auf 0x6d7448 / 0x1d3026 gebracht
+worden. **Ich drehe eine begründete Entscheidung nicht um, weil ein anderer
+Durchgang das Gegenteil vorzieht.**
+
+### Versucht und zurückgenommen: die Kaustik
+
+Das ist der Teil des Befundes, der stimmt und an dem sich arbeiten lässt. Zwei
+überlagerte Wellenfelder, deren Produkt an den Schnittlinien Spitzen bildet —
+die Bauart einer Kaustik ist nicht ein Muster, sondern die Kante zweier Muster.
+
+    Einstellung                         Δmittel   Δmax   ueber Δ2   ueber Δ8
+    Exponent 2,2, Staerke 0,42            0,024      6     0,345 %    0,000 %
+    Exponent 1,3, Staerke 0,55            0,105     14     2,378 %    0,019 %
+
+Hochpass im Wasserkasten (520,320–820,450), von nah nach fern:
+
+    ohne Kaustik   1,951  1,992  3,463  3,585  6,970
+    dreifach       1,954  2,005  3,474  3,608  7,014
+
+Auch dreifach verstärkt bleibt sie unter der Wahrnehmungsschwelle, und der
+Grund ist baulich: **Eine Kaustik entsteht auf dem Grund, und dieser Grund ist
+absichtlich verdeckt.** `uWasserTrueb` blendet ihn nach Beer-Lambert aus; über
+dem grössten Teil der Fläche ist er nicht zu sehen, und wo er es ist, liegt der
+Faktor (1 − Deckung) nahe null. Eine Kaustik auf einer undurchsichtigen Fläche
+wäre kein Lichteffekt, sondern ein aufgemaltes Muster.
+
+**Zurückgenommen, Bildstand wieder bitgleich.** Wer den Teich durchsichtiger
+machen will, muss zuerst die Trübung angehen — und die trägt ihre eigene
+Begründung.
+
+### Nebenbei: der Shaderlint hat wieder gegriffen
+
+Der Kommentarblock zur Kaustik enthielt Rückstriche um einen Bezeichner, und
+ein Rückstrich innerhalb eines GLSL-Template-Literals beendet die Zeichenkette.
+`tools/shaderlint.mjs` hat es als `prebuild` gemeldet, bevor ein Bild entstand:
+
+    src/environments.js:14417  Backtick im Kommentar innerhalb eines Template-Literals
+
+Dasselbe Werkzeug, dieselbe Falle, dritter Treffer. Es zahlt sich weiter aus.
