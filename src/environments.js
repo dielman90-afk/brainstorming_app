@@ -15163,29 +15163,22 @@ function createZenEnvironment() {
   // `makeGartenmauer()` steht weiter im Code: Sie ist gebaut, geprüft und in
   // fünf Zeilen wieder einzuhängen, falls die Entscheidung noch einmal fällt.
   //
-  // Sträucher als Mittelgrundmasse. Sie stehen in Gruppen, nicht in einer
-  // Reihe, und lassen Lücken zwischen sich.
-  // Näher herangerückt, seit die Mauer fehlt: Auf 9 bis 11 m standen sie an
-  // ihr; ohne sie wären es Klumpen weit draußen im leeren Kies. Auf 6 bis 8 m
-  // begrenzen sie den gestalteten Teil des Gartens, ohne ihn zu schließen.
-  const karikomiPlaetze = [
-    [-6.9, -5.3, 1.0, 0.85],
-    [-5.8, -6.4, 0.72, 0.6],
-    [-7.9, -4.0, 0.8, 0.66],
-    [1.2, -8.2, 1.15, 0.95],
-    [2.5, -7.7, 0.85, 0.7],
-    [-3.4, -8.1, 0.95, 0.78],
-    [-8.2, 0.4, 1.05, 0.88],
-    [-7.8, 1.9, 0.7, 0.55],
-    [5.6, -6.3, 0.9, 0.72],
-  ];
-  group.add(makeKarikomi(rand, karikomiPlaetze));
-  // Auch die Schnitthecken standen ohne Fuss auf dem Kies.
-  for (const [kx, kz, kr] of karikomiPlaetze) {
-    const sh = makeBlobShadow(kr * 1.12, 0.72, 0.01);
-    sh.position.set(kx, 0.01, kz);
-    kontaktschatten.push(sh);
-  }
+  // **Die Straeucher am aeusseren Rand sind auf Zuruf des Nutzers entfallen.**
+  //
+  // Neun Karikomi standen als Mittelgrundmasse auf 6 bis 8 m Abstand und
+  // sollten den gestalteten Teil des Gartens begrenzen, nachdem die Mauer
+  // herausgenommen worden war (Durchlauf 12, ebenfalls auf Zuruf). Der Nutzer
+  // hat sie als ueberfluessig bezeichnet, und diese Entscheidung gehoert ihm:
+  // Der Garten soll offen bleiben, und eine Kette gruener Ballen am Rand ist
+  // eine Einfassung mit anderen Mitteln.
+  //
+  // `makeKarikomi()` bleibt im Code stehen — gebaut, gemessen und in zwei
+  // Zeilen wieder einzuhaengen, wie `makeGartenmauer()` daneben.
+  //
+  // **Ohne Folgen fuer den Zufallsstrom.** `makeKarikomi` nimmt `rand` als
+  // Argument entgegen und ruft es kein einziges Mal; dieselbe Pruefung, die in
+  // diesem Log schon viermal gefehlt hat, ist hier vorher gemacht worden.
+  // Alles, was nach dieser Stelle gebaut wird, steht unveraendert.
 
   // Bambushain (wiegt in update)
   const bamboo = makeBambooGrove(rand, -6.5, -3.5);

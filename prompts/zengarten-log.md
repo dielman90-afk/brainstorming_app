@@ -4617,3 +4617,44 @@ Vier Lichtstärken, keine Geometrie. Die vier anderen Umgebungen **bitgleich** �
 
 Bildstand `tools/shots/zen-71` (ersetzt `zen-70`), Messwerte
 `tools/metrics/zen-71.json`.
+
+---
+
+## Paket AT — Die Sträucher am äusseren Rand sind entfallen
+
+**Auf Zuruf des Nutzers:** „In Umgebung Zen Garten entferne alle Büsche am
+äusseren Rand, diese sind überflüssig."
+
+Neun Karikomi standen auf 6 bis 8 m Abstand als Mittelgrundmasse und sollten
+den gestalteten Teil des Gartens begrenzen, nachdem die Mauer in Durchlauf 12
+herausgenommen worden war — ebenfalls auf Zuruf, und mit derselben Begründung:
+Der Garten soll offen bleiben. Eine Kette grüner Ballen am Rand ist eine
+Einfassung mit anderen Mitteln, und damit fällt sie unter dieselbe
+Entscheidung.
+
+`makeKarikomi()` bleibt im Code stehen — gebaut, gemessen und in zwei Zeilen
+wieder einzuhängen, genau wie `makeGartenmauer()` daneben.
+
+### Der Zufallsstrom bleibt unberührt, und das ist diesmal vorher geprüft
+
+`makeKarikomi(rand, plaetze)` nimmt `rand` als Argument entgegen und **ruft es
+kein einziges Mal** — nachgezählt über den ganzen Funktionskörper. Alles, was
+nach dieser Stelle aus demselben Strom gebaut wird (Bambushain, Laterne, Torii,
+Trittsteine, Blütenblätter), steht unverändert. In diesem Log ist genau diese
+Prüfung viermal ausgelassen worden; dass sie hier vorher gemacht wurde, ist der
+Unterschied zwischen einem Paket und einem halben Tag Fehlersuche.
+
+### Budget
+
+    Draw-Calls        98 -> 96 / 120
+    Dreiecke     129.574 -> 110.404 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+19 170 Dreiecke und zwei Zeichenaufrufe weniger: das Netz der Sträucher (9 576
+Dreiecke, im Schattendurchgang doppelt) und ihre neun Kontaktschatten.
+
+Die vier anderen Umgebungen **bitgleich**.
+
+Bildstand `tools/shots/zen-72` (ersetzt `zen-71`), Messwerte
+`tools/metrics/zen-72.json`.
