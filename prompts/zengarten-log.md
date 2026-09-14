@@ -4146,3 +4146,98 @@ Teichspiegelung — der Spiegel nimmt die Ferne mit auf.
 
 Bildstand `tools/shots/zen-65` (ersetzt `zen-64`), Messwerte
 `tools/metrics/zen-65.json`.
+
+---
+
+## Paket AN — Zwei Steinsorten, ein schwarzer Fleck, und eine Mulde, die nie dunkel wurde
+
+Prüferbefund 1.10: „Der Uferkranz und der grosse Findling daneben sind zwei
+unvereinbare Steinsorten — die Kiesel glänzen, der Findling ist matt. Und auf
+dem Findling liegen fast schwarze Flecken."
+
+**Die erste Hälfte stimmt, die zweite ist etwas anderes, als er denkt.**
+
+### Gemessen, bevor gebaut wurde
+
+Über die Knotenmasken in `b-pond`, und zwar **ohne alle Schlagschatten** — ein
+Stein, der im Schatten steht, ist dunkel, ohne dass sein Werkstoff etwas dafür
+kann, und genau diese Verwechslung steckt im zweiten Teil des Befundes:
+
+    zen-ufersteine   Mittel 69,6   p05 22   p50 62   p95 142   max 247   >L190 1,8 %
+    zen-findlinge    Mittel 70,8   p05 31   p50 71   p95 117   max 175   >L190 0,0 %
+
+Die Helligkeit ist fast gleich — der Unterschied ist **der Glanz**. Der
+Uferkranz brennt auf 247 aus, der Findling einen Meter daneben endet bei 175.
+Ursache ist eine Zahl: `zenNassGranite()` steht auf Rauheit 0,34, `zenGranite()`
+auf 0,80. Das sind nicht zwei Zustände desselben Steins, das sind zwei
+Werkstoffe.
+
+### Die schwarzen Flecken sind Ahornblätter
+
+Ein zweiter Durchgang mit `sun.castShadow = false` und sonst unverändert: **Die
+Flecken verschwinden vollständig.** Es sind die Schlagschatten der
+Ahornblattkarten auf einem ohnehin dunklen Stein. Kein Werkstofffehler, kein
+Schattenfehler — ein Blattschatten auf dunklem Granit hat wenig Tonwert
+übrig, unter dem er noch liegen könnte.
+
+### Die Rauheitsreihe
+
+    Rauheit   Hoechstwert   ueber L 190   ueber L 150
+    0,34          247           1,8 %        4,0 %
+    0,50          216           1,0 %        3,9 %
+    0,62          182           0,0 %        2,3 %
+    Findlinge     175           0,0 %        0,5 %   (Rauheit 0,80)
+
+**0,62.** Der Höchstwert liegt damit auf Findlingsniveau, und es bleibt genau so
+viel stehen, wie nass sein darf: 2,3 gegen 0,5 Prozent oberhalb L 150. Im Bild
+sind die weissen Lichtpunkte auf den Kieseln weg; sie lesen als nasser Granit
+statt als Obsidian.
+
+### Und der Befund, den ich selbst dazugestellt habe
+
+Ohne Schlagschatten liegt der Findling zwischen p05 31 und p95 117 — ein
+Tonwertband von 86 Stufen über einen ganzen Stein. Das ist der Grund, warum er
+als Pappe liest, und es hat eine bekannte Ursache: **Der Renderer hat keinen
+Verdeckungsterm.** Eine Mulde im Stein wird nicht dunkler, weil nichts
+nachrechnet, dass sie weniger Himmel sieht.
+
+`weatheredStoneGeometry()` kennt die Mulden aber — es hat sie selbst gemacht.
+Das Verwitterungsfeld liegt jetzt auf Wunsch in `userData.kavitaet`, normiert
+auf −1 in der tiefsten Mulde und +1 auf dem höchsten Buckel; `makeZenStone()`
+multipliziert es in die Scheitelfarben, Mulde stärker (0,70) als Grat (0,26),
+weil die Mulde Himmelslicht verliert und der Grat nur ausgeblichen ist. Kein
+Attribut, keine Textur, kein Draw-Call. Voreinstellung `false`, damit Dojo und
+Insel bitgleich bleiben.
+
+**Der Teiler war zuerst falsch, und das war lehrreich.** Rechnerisch kann das
+Feld `amount · 1,45` erreichen. Gemessen über 540 Scheitel eines Findlings
+erreicht es −0,475 bis +0,449 davon, im Kern sogar nur −0,33 bis +0,27 — ein
+fBm aus drei Oktaven schöpft seinen Bereich nicht aus. Mit dem rechnerischen
+Teiler blieb ein Zehntel des Auftrags übrig, und gemessen kam heraus: Median
+71 → 69. Nichts.
+
+Mit dem gemessenen Teiler:
+
+    zen-findlinge   Mittel 70,8 -> 67,8   p05 31 -> 28   p50 71 -> 66   p95 117 -> 118
+
+**Das ist ein kleiner Gewinn, und ich schreibe ihn nicht grösser.** Der Median
+sinkt um fünf Stufen, das Band wird um vier breiter. Der Grund ist baulich: Das
+Verwitterungsfeld hat bei Frequenz 3 bis 6,5 **eine** Mulde je Stein, nicht
+zwanzig — es verschiebt ganze Flächen, statt sie zu modellieren. Im Ausschnitt
+ist an dem rechten Findling ein Sattel zu sehen, der vorher nicht da war; in
+der Verteilung steht davon wenig, weil eine räumliche Abstufung kein Histogramm
+verändert.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120      (vorher 99)
+    Dreiecke      129.562 / 350.000 (vorher 145.980 — der Huegelzug aus Paket AM)
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Die vier anderen Umgebungen **bitgleich** (Δmittel 0,000, Δmax 0) — der
+`kavitaet`-Schalter greift nur dort, wo er gesetzt wird. Im Zengarten Δmittel
+0,04 bis 0,42, Schwerpunkt jeweils auf dem Steinwerk.
+
+Bildstand `tools/shots/zen-66` (ersetzt `zen-65`), Messwerte
+`tools/metrics/zen-66.json`.

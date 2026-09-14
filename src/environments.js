@@ -12360,7 +12360,24 @@ function zenNassGranite() {
     // 0,24 zusammen mit 45 % Verdunklung ergab schwarze, glänzende Kiesel —
     // Obsidian, nicht nasser Granit. Nasser Stein ist dunkler und glatter als
     // trockener, aber er bleibt Stein.
-    _zenNassGranit.roughness = 0.34;
+    //
+    // **0,34 war immer noch der halbe Weg dorthin.** Der Pruefer hat den
+    // Uferkranz und den Findling daneben als „zwei unvereinbare Steinsorten"
+    // gemeldet, und gemessen war das richtig: ueber die Knotenmasken in
+    // `b-pond`, ohne alle Schlagschatten, um die Beleuchtung herauszurechnen —
+    //
+    //     Rauheit   Hoechstwert   ueber L 190   ueber L 150
+    //     0,34          247           1,8 %        4,0 %
+    //     0,50          216           1,0 %        3,9 %
+    //     0,62          182           0,0 %        2,3 %
+    //     Findlinge     175           0,0 %        0,5 %   (Rauheit 0,80)
+    //
+    // Bei 0,34 brannte der Kranz auf 247 aus, waehrend der Findling einen
+    // Meter daneben bei 175 endete. Das sind nicht zwei Zustaende desselben
+    // Steins, das sind zwei Werkstoffe. 0,62 bringt den Hoechstwert auf
+    // Findlingsniveau und laesst genau so viel stehen, wie nass sein darf:
+    // 2,3 gegen 0,5 Prozent oberhalb L 150.
+    _zenNassGranit.roughness = 0.62;
     addSkyRim(_zenNassGranit, { color: 0xbcd6f0, strength: 0.18, power: 4.2 });
   }
   return _zenNassGranit;
@@ -12455,6 +12472,7 @@ function makeZenStone(rand, size, color = 0x8b8680) {
     // eine Kachel von 40 cm liefe genau einmal über den ganzen Stein und wäre
     // damit von einer Farbfläche nicht zu unterscheiden.
     uv: 0.18,
+    kavitaet: true,
   });
   // Grundfarbe als Scheitelfarbe, dann die Patina darüber. Beide schreiben in
   // dasselbe Attribut, deshalb die Reihenfolge.
@@ -12473,6 +12491,37 @@ function makeZenStone(rand, size, color = 0x8b8680) {
     seed: Math.floor(rand() * 1000),
     sun: ZEN_SUN,
   });
+
+  // **Mulden dunkel, Grate hell — sonst bleibt der Findling eine Scheibe.**
+  //
+  // Gemessen ueber die Knotenmaske in `b-pond`, ohne alle Schlagschatten,
+  // lagen die Findlinge bei p05 31, Median 71, p95 117 und Hoechstwert 175.
+  // Das ist ein Tonwertband von 86 Stufen ueber einen ganzen Stein, und im
+  // Bild liest sich das als flache Pappe. Die Ursache ist bekannt und steht
+  // in diesem Log an mehreren Stellen: **Der Renderer hat keinen
+  // Verdeckungsterm.** Eine Mulde in einem Stein wird nicht dunkler, weil
+  // nichts nachrechnet, dass sie weniger Himmel sieht.
+  //
+  // `weatheredStoneGeometry` kennt die Mulden aber, denn es hat sie selbst
+  // gemacht: Das Verwitterungsfeld schiebt jeden Punkt nach aussen oder nach
+  // innen. Dieses Feld liegt jetzt in `userData.kavitaet`, normiert auf −1 in
+  // der tiefsten Mulde und +1 auf dem hoechsten Buckel.
+  //
+  // Zwei verschiedene Betraege, und zwar mit Absicht: Die Mulde verliert
+  // Himmelslicht (starker Betrag), der Grat ist ausgeblichen und abgerieben
+  // (schwacher). Ein symmetrischer Auftrag saehe aus wie eine Marmorierung.
+  {
+    const kav = geo.userData.kavitaet;
+    const col = geo.attributes.color;
+    if (kav && col) {
+      for (let k = 0; k < col.count; k++) {
+        const t = kav[k];
+        const f = 1 + (t > 0 ? t * 0.26 : t * 0.7);
+        col.setXYZ(k, col.getX(k) * f, col.getY(k) * f, col.getZ(k) * f);
+      }
+      col.needsUpdate = true;
+    }
+  }
 
   const stone = new THREE.Mesh(geo, zenGranite());
   stone.scale.y = 0.55 + rand() * 0.3;
