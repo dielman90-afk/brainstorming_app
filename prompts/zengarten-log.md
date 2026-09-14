@@ -4241,3 +4241,86 @@ Die vier anderen Umgebungen **bitgleich** (Δmittel 0,000, Δmax 0) — der
 
 Bildstand `tools/shots/zen-66` (ersetzt `zen-65`), Messwerte
 `tools/metrics/zen-66.json`.
+
+---
+
+## Paket AO — Ein Ringband um nichts, und ein Befund, der sich nicht bestätigt hat
+
+### Befund 1.14: „Ringmitte ohne Stein" — bestätigt, im Quelltext gefunden
+
+Die Harkringe stehen als vier `uSandRinge`-Einträge, und der Kommentar
+darüber sagt, was sie sein sollen: „Um jede Steingruppe und um den Teich wird
+ein Band von konzentrischen Zügen geharkt."
+
+Die drei Steingruppen stehen bei (−3,5 | −2,5), (5,4 | 0,7) und (1 | −4,5).
+Zwei der Bänder sassen genau darauf. **Das zweite sass bei (4,0 | 1,5)** —
+1,61 m daneben, an einem Punkt, an dem nichts steht.
+
+Das ist nicht nur eine verschobene Mitte. Innerhalb des Innenradius wird gar
+nicht geharkt (`naht *= smoothstep(-0.12, 0.02, f)`), also lag dort eine
+unberührte Scheibe von 95 cm Halbmesser mitten im Kiesbett — und die
+Steingruppe selbst lag draussen im Ringband, von den Zügen überlaufen statt
+umkreist. Genau das Gegenteil dessen, was ein Karesansui tut: Die Züge laufen
+**um** einen Stein, und was sie umkreisen, ist der Grund, warum sie kreisen.
+
+Jetzt (5,4 | 0,7), Innenradius 1,05 statt 0,95 — die beiden Steine der Gruppe
+können bis 1,4 m vom Mittelpunkt reichen. Im Bild (`b-pond`, rechte Bildhälfte)
+laufen die geraden Züge dort jetzt als Ringe um das Findlingspaar.
+
+Die andere Hälfte des Befundes — „das Harkfeld hat keine Bettkante" — ist seit
+Paket S erledigt: Die Grenze steht bei 13,5 m mit ±5 m Schwankung über den
+Azimut und einem Auslauf von 1,4 m. In der Draufsicht (`tools/blick.mjs`,
+22 m über dem Garten) ist sie als unregelmässiger Rand zu sehen, hinter dem
+ungeharkter Kies liegt.
+
+### Befund 1.6: „Die Harkringe zerfallen in Striche, Umschlag bei y ≈ 500" — nicht bestätigt
+
+Neues Werkzeug `tools/sandband.mjs`. Je Zeilenband der Hub (p95 − p05), der
+helle Grat (p95 − Median) und die dunkle Rille (Median − p05). Ein Relief hat
+beides, ein Strich nur Schatten; das Verhältnis Licht/Schatten ist also der
+Umschlag, nach dem der Befund fragt.
+
+Gemessen in `e-sand` über eine Sandspalte ohne Trittstein und ohne Baumschatten
+(x 620–980):
+
+    Zeile   Hub   Licht  Schatten   L/S
+      460  64,1   13,0      51,1   0,25
+      480  55,6    9,9      45,7   0,22
+      500  54,5   11,0      43,5   0,25
+      520  54,3   11,9      42,4   0,28
+      540  52,1   11,8      40,4   0,29
+      580  47,2   10,9      36,4   0,30
+      620  47,2   14,6      32,6   0,45
+      660  43,4   14,9      28,4   0,52
+
+**Es gibt keinen Sprung bei y = 500.** Das Verhältnis gleitet monoton von 0,22
+in der Ferne auf 0,52 im Nahbereich, in Schritten von 0,02 bis 0,07 je zwanzig
+Zeilen — und es gleitet in die richtige Richtung: nah plastisch, fern flach.
+Das ist Perspektive, kein Mangel. Eine Rille, die auf einen Bildpunkt
+zusammenschrumpft, darf ihre Plastizität verlieren.
+
+Der vergrösserte Ausschnitt (620,400–1000,500, fünffach) zeigt ausserdem keine
+Unterbrechungen: Die Züge laufen durch, die Ringe um den Teich sind
+geschlossene Kurven. Das Zerfallen in Punkte und Striche, das der Prüfer in
+einer früheren Runde zu Recht gemeldet hat, ist seit der Ausblendung bei
+`fwidth(s) = 0,09…0,26` weg und ist nicht wiedergekommen.
+
+**Was in dem Band tatsächlich springt**, ist der Hub bei y 440 → 460 von 143
+auf 64. Das ist die Unterkante des Trittsteins mitsamt seinem Schlagschatten,
+nicht das Harkmuster. Wer dort ohne Maske misst, misst den Stein.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.562 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Die Änderung ist ein Uniform-Wert; Geometrie, Draw-Calls und Texturspeicher
+bleiben unberührt. Die vier anderen Umgebungen **bitgleich**. Im Zengarten
+ändert sich die rechte Sandhälfte: `b-pond` Δmittel 1,45 (11,0 % der Fläche),
+`d-aerial` 0,27, die übrigen unter 0,3 — Schwerpunkt jeweils zwischen x 822 und
+1121, also dort, wo das Band hingewandert ist.
+
+Bildstand `tools/shots/zen-67` (ersetzt `zen-66`), Messwerte
+`tools/metrics/zen-67.json`.

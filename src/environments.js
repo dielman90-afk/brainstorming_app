@@ -13869,8 +13869,22 @@ function createZenEnvironment() {
   // Die Ringbänder der Harke. Um jede Steingruppe und um den Teich wird ein
   // Band von konzentrischen Zügen geharkt, außen laufen gerade Züge.
   // (x, z, Innenradius, Breite des Bandes)
+  // **Das zweite Band stand 1,6 m neben seiner Steingruppe.**
+  //
+  // Die drei Gruppen stehen bei (−3,5 | −2,5), (5,4 | 0,7) und (1 | −4,5). Das
+  // erste und das dritte Band sassen genau darauf, das zweite bei (4,0 | 1,5)
+  // — einem Punkt, an dem nichts steht. Weil innerhalb des Innenradius gar
+  // nicht geharkt wird (`naht *= smoothstep(-0.12, 0.02, f)`), lag dort eine
+  // unberuehrte Scheibe von 95 cm mitten im Kiesbett, und die Steingruppe
+  // selbst lag draussen im Ringband statt in seiner Mitte.
+  //
+  // Der Pruefer hat es als „Ringmitte ohne Stein" gemeldet, und das ist genau
+  // das Gegenteil dessen, was ein Karesansui macht: Die Zuege laufen **um**
+  // einen Stein, und was sie umkreisen, ist der Grund, warum sie kreisen.
+  // 1,05 statt 0,95, weil die beiden Steine der Gruppe bis zu 1,4 m vom
+  // Mittelpunkt reichen koennen.
   sandMat.userData.sandUniforms.uSandRinge.value[0].set(-3.5, -2.5, 1.15, 2.6);
-  sandMat.userData.sandUniforms.uSandRinge.value[1].set(4.0, 1.5, 0.95, 2.1);
+  sandMat.userData.sandUniforms.uSandRinge.value[1].set(5.4, 0.7, 1.05, 2.1);
   sandMat.userData.sandUniforms.uSandRinge.value[2].set(1.0, -4.5, 1.1, 2.4);
   sandMat.userData.sandUniforms.uSandRinge.value[3].set(3.2, -1.2, 2.35, 3.1);
   const kahlZonen = sandMat.userData.sandUniforms.uSandKahl.value;
