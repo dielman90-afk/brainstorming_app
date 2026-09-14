@@ -12061,8 +12061,34 @@ function makeFerneHuegel() {
   // Der Ring ist nicht gleichmäßig besetzt: Zwölf Gruppen mit gestörtem
   // Winkel und wechselndem Abstand, dazu drei Lücken, durch die der Blick
   // hinausläuft. Ein geschlossener Kranz wäre wieder eine Mauer.
-  const luecken = [2, 6, 9];
-  for (let i = 0; i < 12; i++) {
+  // **Achtzehn Gruppen statt zwoelf, und drei Tiefenbaender statt einem.**
+  //
+  // Der Pruefer der sechsten Runde: „alle im selben Tonwert und derselben
+  // Saettigung, egal wie weit hinten sie stehen, sodass die Staffelung
+  // zusammenfaellt". Nachgemessen mit `tools/wasistda.mjs` liegen in `c-torii`
+  // **alle** sichtbaren Huegel zwischen **40,7 und 44,4 m** — neun Prozent
+  // Spanne. Es gibt keine Staffelung zu sehen, weil es keine gibt: Der Ring
+  // stand auf einem einzigen Halbmesser mit ein wenig Streuung, und die
+  // sichtbare Haelfte davon traf zufaellig das obere Ende.
+  //
+  // Der Nebel dieser Szene laeuft von 20 bis **62** m (der Kommentar hier sagte
+  // 46; das war falsch und hat den Ring unnoetig eng gehalten). Damit sind
+  // drei Baender zu haben, und der Nebel staffelt sie von selbst:
+  //
+  //     nah    32–36 m    Nebelanteil 29–38 %
+  //     mitte  41–45 m    Nebelanteil 50–60 %
+  //     fern   52–58 m    Nebelanteil 76–90 %
+  //
+  // Breite und Hoehe wachsen mit dem Abstand, damit ein fernes Band am Himmel
+  // nicht kleiner steht als ein nahes — gestaffelt werden soll der Tonwert,
+  // nicht die Groesse.
+  const BAENDER = [
+    [32, 4],
+    [41, 4],
+    [52, 6],
+  ];
+  const luecken = [3, 9, 14];
+  for (let i = 0; i < 18; i++) {
     if (luecken.includes(i)) {
       // Die Ziehungen trotzdem verbrauchen, damit eine Änderung an den Lücken
       // nicht alles Nachfolgende verschiebt.
@@ -12072,17 +12098,21 @@ function makeFerneHuegel() {
       rand();
       continue;
     }
-    const a = (i / 12) * Math.PI * 2 + (rand() - 0.5) * 0.34;
+    const a = (i / 18) * Math.PI * 2 + (rand() - 0.5) * 0.30;
     // **33 bis 45 m, nicht 30 bis 44.** Im ersten Anlauf stand der Ring bei
     // 30 m, und weil die Augenhöhenkamera bei z = +6 steht, lag die nächste
     // Gruppe 24 m vor ihr — groß genug, um als Kuppe im Mittelgrund zu lesen
     // statt als Ferne. Der Nebel endet bei 46 m; weiter hinaus geht nicht,
     // dort verschwindet alles vollständig.
-    const r = 33 + rand() * 12;
-    const breite = 9 + rand() * 8;
+    const band = BAENDER[i % 3];
+    const r = band[0] + rand() * band[1];
+    // Auf 41 m bezogen: Ein Ruecken im fernen Band ist im selben Bildwinkel
+    // 1,3-mal so breit und so hoch wie einer im mittleren.
+    const massstab = r / 41;
+    const breite = (9 + rand() * 8) * massstab;
     // Flacher als der erste Anlauf: 2,5 bis 6 m ergaben Halbkugeln am
     // Horizont. Ein Hügelrücken ist breit und niedrig.
-    const hoehe = 2.0 + rand() * 2.2;
+    const hoehe = (2.0 + rand() * 2.2) * massstab;
     // Drei bis fünf ineinanderlaufende Kuppen je Gruppe: Ein Hügel ist keine
     // Halbkugel, und zwei sich überschneidende lesen als Rücken mit Sattel.
     const kuppen = 4 + Math.floor(rand() * 3);
@@ -12180,6 +12210,23 @@ function makeFerneHuegel() {
       for (let v = 0; v < pos.count; v++) {
         const t = THREE.MathUtils.clamp(pos.getY(v) / khG, 0, 1);
         c.copy(unten).lerp(oben, Math.pow(t, 0.55));
+        // **Bewaldete Flanken, nicht nur ein bewaldeter Kamm.**
+        //
+        // Der Pruefer: „glatte, texturlose gruene Kuppeln ... darauf sitzen
+        // dunkle Kegel als Baeume". Beides zusammen ist der Verrat: Baeume
+        // stehen nur auf dem Umriss, die Flaeche darunter ist leer. Ein
+        // bewaldeter Ruecken ist aber ueberall bewaldet — was man aus 40 m
+        // davon sieht, ist keine einzelne Krone, sondern die **Fleckigkeit**
+        // von Bestandsgruppen: hellere Suedflanken, dunklere Mulden.
+        //
+        // Zwei Massstaebe, beide in Weltmetern: 1,6 m (Bestandsgruppe, aus
+        // 40 m rund fuenf Bildpunkte) und 0,55 m (einzelne Kronen, knapp
+        // zwei). Der Betrag ist absichtlich klein — der Nebel zieht bei 30 bis
+        // 60 Prozent ohnehin den groessten Teil wieder heraus.
+        const sprenkelA = hashNoise(pos.getX(v) * 0.62, pos.getY(v) * 0.62, pos.getZ(v) * 0.62);
+        const sprenkelB = hashNoise(pos.getX(v) * 1.8 + 31, pos.getY(v) * 1.8, pos.getZ(v) * 1.8 - 17);
+        const fleck = 1 + (sprenkelA - 0.5) * 0.30 + (sprenkelB - 0.5) * 0.16;
+        c.multiplyScalar(fleck);
         // 0,22 statt 0,30 und hoechstens 0,88: Der Fuss soll weich sein, aber
         // nicht die halbe sichtbare Flaeche einnehmen. Aus der Luftkamera
         // sieht man die Kuppen von oben, und dort war der Nebelsaum der
@@ -12216,15 +12263,30 @@ function makeFerneHuegel() {
       // was danach im Garten gebaut wird.
       {
         const bs = mulberry32(0x2ac70f + i * 331 + k * 29);
-        const zahl = 4 + Math.floor(bs() * 5);
+        // **Sieben bis achtzehn statt vier bis acht, und ueber die ganze
+        // Kuppe verteilt statt nur auf ihrem Kamm.** Der schmale Streifen
+        // (bz lief ueber ein Viertel der Kuppentiefe) war der Grund, warum
+        // der Umriss als gleichmaessiger Kamm gelesen hat: Jeder Baum stand
+        // auf der Silhouette, keiner davor oder dahinter.
+        const zahl = 7 + Math.floor(bs() * 12);
         for (let b = 0; b < zahl; b++) {
           // Entlang des Ruecken (lokales x vor der Drehung), nahe am Kamm.
-          const bx = (bs() - 0.5) * 1.25 * krB;
-          const bz = (bs() - 0.5) * 0.5 * krB * 0.72;
+          const bx = (bs() - 0.5) * 1.55 * krB;
+          const bz = (bs() - 0.5) * 1.30 * krB * 0.72;
           // Dasselbe Profil wie der Ruecken, auf dem sie stehen.
           const q = Math.min(0.97, Math.hypot(bx / krB, bz / (krB * 0.72)));
           const by = khG * Math.pow(1 - q * q, 1.35);
-          const bh = 0.45 + bs() * 0.70;
+          // **Die Hoehen mussten weiter auseinander.** 0,45 bis 1,15 sind aus
+          // 40 m ein Unterschied von einem Bildpunkt — im Bild alle gleich
+          // gross. Jetzt 0,30 bis 1,60, und weil `massstab` die Kuppe selbst
+          // mitwaechst, bleibt das Verhaeltnis in jedem Tiefenband gleich.
+          // **Und dann waren sie zu gross.** Mit 0,30 bis 1,60 stand auf dem
+          // Ruecken ein Kegel, der ein Drittel der Huegelhoehe erreichte —
+          // kein Baum mehr, ein Berg auf einem Berg. Der frueher gemessene
+          // Bereich (die Zacke soll bei 40 m ein bis zwei Bildpunkte hoch
+          // stehen) bleibt, nur die Verteilung ist quadratisch: viele kleine,
+          // wenige grosse, statt gleichverteilt.
+          const bh = (0.32 + bs() * bs() * 0.62) * massstab;
           const br = bh * (0.24 + bs() * 0.14);
           const kegel = new THREE.ConeGeometry(br, bh, 5, 1);
           const kp = kegel.attributes.position;

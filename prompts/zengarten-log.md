@@ -5287,3 +5287,92 @@ unverändert. Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 6 auf
 0,009 %. `npm run build` grün, Konsole sauber, Shaderlint hat zum **fünften
 Mal** Rückstriche im GLSL-Kommentar gefunden, bevor ein Bild entstand.
 Bildstand `tools/shots/zen-79`.
+
+## Paket BB — Die fernen Hügel standen alle auf demselben Halbmesser
+
+Befund 11 der sechsten Runde: „glatte, texturlose grüne Kuppeln mit hartem
+Umriss, alle im selben Tonwert und derselben Sättigung, egal wie weit hinten
+sie stehen, sodass die Staffelung zusammenfällt. Darauf sitzen dunkle Kegel als
+Bäume: gleichschenklige Dreiecke, alle etwa gleich groß, gleichmäßig auf dem
+Grat verteilt."
+
+Drei Vorwürfe, und alle drei stimmen.
+
+### Es gab keine Staffelung, weil es keine Tiefe gab
+
+Nachgemessen mit dem reparierten `tools/wasistda.mjs`: In `c-torii` liegen
+**alle** sichtbaren Hügel zwischen **40,7 und 44,4 m**. Neun Prozent Spanne.
+Der Ring stand auf einem einzigen Halbmesser (33 bis 45 m) mit etwas Streuung,
+und die sichtbare Hälfte traf zufällig dessen oberes Ende.
+
+Dazu ein Kommentar, der seit Langem falsch im Quelltext stand: „Der Nebel endet
+bei 46 m". Er endet bei **62** (`new THREE.Fog(0xecd9bb, 20, 62)`). Der Ring war
+also aus einem Grund eng gehalten, den es nicht gab.
+
+Jetzt achtzehn Gruppen in **drei Tiefenbändern**, und der Nebel staffelt sie von
+selbst:
+
+    nah    32–36 m    Nebelanteil 29–38 %
+    mitte  41–45 m    Nebelanteil 50–60 %
+    fern   52–58 m    Nebelanteil 76–90 %
+
+Breite und Höhe wachsen mit `r/41`, damit ein fernes Band nicht kleiner am
+Himmel steht als ein nahes — gestaffelt werden soll der Tonwert, nicht die
+Größe.
+
+Gemessen in `c-torii` über drei Hügelstellen mit ihren Abständen:
+
+    33,3 m   L 93,1    Gruenueberschuss 24,8
+    45,3 m   L 106,5   Gruenueberschuss 19,1
+    fern     L 100,1   Gruenueberschuss  6,4
+
+Weiter hinten heller und entsättigter — das ist Luftperspektive, und vorher war
+davon nichts zu messen.
+
+### Bäume standen nur auf dem Umriss
+
+`bz` lief über ein Viertel der Kuppentiefe. Jeder Baum stand damit auf der
+Silhouette, keiner davor oder dahinter — genau der Eindruck eines
+gleichmäßigen Kamms. Jetzt über die ganze Kuppe (1,30 statt 0,50 der Tiefe),
+sieben bis achtzehn statt vier bis acht, und die Höhen quadratisch verteilt
+statt gleichverteilt: viele kleine, wenige große.
+
+**Und dann waren sie zu groß.** Mit 0,30 bis 1,60 m stand auf dem Rücken ein
+Kegel, der ein Drittel der Hügelhöhe erreichte — kein Baum, ein Berg auf einem
+Berg. Zurück auf den früher gemessenen Bereich (die Zacke soll bei 40 m ein bis
+zwei Bildpunkte hoch stehen), aber mit der neuen Verteilung.
+
+### Die Flanken waren leer
+
+Ein bewaldeter Rücken ist überall bewaldet; was man aus 40 m sieht, ist keine
+einzelne Krone, sondern die **Fleckigkeit** von Bestandsgruppen. Zwei
+Rauschmaßstäbe in die Scheitelfarben: 1,6 m (aus 40 m rund fünf Bildpunkte) und
+0,55 m (knapp zwei), zusammen ±23 %.
+
+Gemessen über ein festes Stück Hügelfläche (1150–1250, 352–376):
+
+    vorher   Mittel 69,3   Streuung  9,48
+    nachher  Mittel 92,7   Streuung 14,26
+
+**Die Streuung auf der Fläche wächst um die Hälfte.**
+
+### Ein Fehlalarm, zum zweiten Mal in diesem Auftrag
+
+Bei achtfacher Vergrößerung standen am rechten Bildrand zwei sandfarbene
+Rechtecke im Hügel — scharfkantig, waagerecht begrenzt, wie Löcher. Ich war
+schon dabei, eine Faltung im Umriss zu suchen. Nachgemessen sind die Bildpunkte
+dort (79,77,25) bis (89,87,28), also **Hügelgrün**; sandfarben ist erst die
+Zeile oberhalb der Kammlinie. Es war wieder die Vergrößerung durch
+`crop.mjs` mit ihrer Nächster-Nachbar-Interpolation. Dieselbe Falle wie beim
+Harkmuster in Paket AW. **Die Zahlen entscheiden, nicht der vergrößerte
+Ausschnitt.**
+
+### Budget und Regression
+
+    Draw-Calls       96 / 120   unveraendert
+    Dreiecke    130 762 / 350 000   (+17 424 gegen zen-79)
+    Texturen      21,86 / 60   unveraendert
+
+Die Dreiecke sind die sechs zusätzlichen Gruppen und die dichteren Bäumchen.
+Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 4 auf 0,010 %.
+`npm run build` grün, Konsole sauber. Bildstand `tools/shots/zen-80`.
