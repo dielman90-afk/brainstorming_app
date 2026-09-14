@@ -4697,3 +4697,33 @@ Station gedacht, mit dem Prüferzitat darüber — und wurde quer über den Weg
 gelegt, den die Regel darunter ausschließt. Und: **Ein Fund gehört mit den
 Worten notiert, in denen er gemeldet wurde.** Aus „Staubteufel" wurde in meiner
 Liste eine „Fumarole", und danach habe ich nach etwas gesucht, das es nicht gibt.
+
+---
+
+## Nachtrag — „`d-orbit` hat keinen Terminator mehr": nachgemessen, und der Titel war das Problem
+
+Der Punkt stand seit der Selbstprüfung offen. Nachgemessen über die Scheibe in
+`tools/shots/planet-21/d-orbit.png` (Mittelpunkt 665,360, Halbmesser 310):
+
+    Diagonale unten-links -> oben-rechts
+    -1,0  L16   -0,7  L16   -0,4  L15   -0,1  L28   0,2  L41
+     0,4  L58    0,6  L70    0,8  L82    0,9  L97
+
+    Scheibe gesamt:  min 7   max 131   Mittel 38,6   Umfang 124 Stufen
+
+**Die Behauptung „es kostet die Modellierung des Körpers im Raum" trifft
+nicht zu.** Der Planet trägt 124 Tonwertstufen und einen durchgehenden Verlauf
+vom Gegenlicht zur Lichtseite — ein Faktor von sechs zwischen der dunklen und
+der hellen Flanke. Was fehlt, ist die **harte Schattenlinie**, und die fehlt
+auf ausdrücklichen Wunsch des Nutzers: Der Planet soll von allen Seiten
+beleuchtet sein. Diese Entscheidung gehört ihm.
+
+Was wirklich falsch war, ist der Titel der Kamera: „Silhouette und
+**Terminator**" verspricht etwas, das es nach dieser Entscheidung nicht mehr
+gibt, und ein falscher Titel erzeugt genau solche Befunde. Er heisst jetzt
+„Silhouette und Tonwertverlauf". Die Bilddatei heisst weiter `d-orbit.png`, der
+Vergleichsmassstab bleibt also unangetastet.
+
+Der zweite Teil des Befundes — der irreführende Hintergrund dieser Kamera — ist
+bereits erledigt: `nebel: false` und `fern: 520` stehen dort seit dem Paket,
+das den schwarzen Ring um den Planeten beseitigt hat.

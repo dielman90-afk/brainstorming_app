@@ -189,7 +189,20 @@ export const PLANET_SHOTS = [
   },
   {
     name: 'd-orbit',
-    title: 'Der ganze Planet von außen (Silhouette und Terminator)',
+    // **Kein Terminator, und das ist kein Mangel.** Der Titel hat einen
+    // versprochen, und in der Selbstpruefung stand daraufhin der Befund
+    // „`d-orbit` hat keinen Terminator mehr". Nachgemessen ueber die Scheibe
+    // (Mittelpunkt 665,360, Halbmesser 310):
+    //
+    //     Diagonale unten-links -> oben-rechts:  L 16 ... L 97
+    //     Scheibe gesamt: min 7, max 131, Mittel 38,6, Umfang 124 Stufen
+    //
+    // Der Koerper traegt also sehr wohl Modellierung — 124 Tonwertstufen und
+    // einen durchgehenden Verlauf vom Gegenlicht zur Lichtseite. Was fehlt,
+    // ist die **harte Schattenlinie**, und die fehlt auf ausdruecklichen
+    // Wunsch des Nutzers: Der Planet soll von allen Seiten beleuchtet sein.
+    // Der Titel wird deshalb ehrlich gemacht statt die Szene.
+    title: 'Der ganze Planet von außen (Silhouette und Tonwertverlauf)',
     // **Ohne Nebel und mit weiterer Fernebene.** Beides, weil diese Kamera als
     // einzige außerhalb der Modellannahme steht: Der Spieler ist immer am
     // Nordpol, dort ist die Kuppel überall 298 bis 302 m entfernt, und der
