@@ -4041,3 +4041,108 @@ ein Rückstrich innerhalb eines GLSL-Template-Literals beendet die Zeichenkette.
     src/environments.js:14417  Backtick im Kommentar innerhalb eines Template-Literals
 
 Dasselbe Werkzeug, dieselbe Falle, dritter Treffer. Es zahlt sich weiter aus.
+
+---
+
+## Paket AM — Der Hügelzug stand auf einer senkrechten Wand
+
+Prüferbefund 1.8: „Der ferne Hügelzug liest als Pappaufsteller: jeder
+Hügelkörper endet in einem harten waagerechten Schnitt, und wo zwei sich
+überlappen, steht eine senkrechte Nahtstufe (x ≈ 784–799, 945–953, 1053–1061)."
+
+**Beides bestätigt, beides dieselbe Ursache.** Ein vergrösserter Ausschnitt von
+`c-torii` (760,350–1080,400, sechsfach) zeigt genau das Beschriebene, und zwei
+der drei genannten Spaltenlagen stimmen auf wenige Bildpunkte.
+
+### Die Ursache stand in einer Zeile
+
+    pos.setXYZ(v, px * f, Math.max(0, py) * (kh / kr) * f, pz * f * 0.72);
+
+`Math.max(0, py)` klappt die **ganze untere Halbkugel** auf y = 0. Übrig bleibt
+ein halbes Ellipsoid mit einer flachen Scheibe darunter — und ein halbes
+Ellipsoid steht **senkrecht** auf dem Boden: Am Äquator fällt die Höhe mit
+unendlicher Steigung auf null. Daher beides:
+
+* der waagerechte Schnitt — die Wand trifft den Saum auf einer geraden Linie;
+* die Nahtstufen — jede Kuppe hat so eine Wand, und sobald sie vor der Flanke
+  der Nachbarin steht, ist das eine Stufe. Zwei Kuppen konnten gar nicht zu
+  einem Rücken verschmelzen.
+
+Dazu kam, dass die geklappte Halbkugel als Scheibe aus flächenlosen Dreiecken
+liegen blieb, deren Normalen `computeVertexNormals` nicht bestimmen kann.
+
+### Die Form
+
+Nur noch die obere Halbkugel als Netz, und die Höhe kommt aus einem Profil über
+dem waagerechten Abstand:
+
+    h(q) = kh · (1 − q²)^1,35        q = 0 am Scheitel, 1 am Rand
+
+Der Exponent grösser eins macht die Ableitung am Rand zu null — das Profil läuft
+waagerecht aus, benachbarte Buckel gehen ineinander über, und es gibt keine
+Wand mehr, die eine Stufe werfen könnte. Der Rand liegt bei y = 0 und damit
+44 cm unter dem Saum (−0,06); der sichtbare Fuss ist nicht der Rand, sondern die
+Schnittlinie mit dem Saum, und dort steht das Profil je nach Kuppe zwischen 24
+und 58 Grad statt bei 90.
+
+Zwei Ausgleichsfaktoren, damit der Umriss bleibt, wo er war: `1,3 · kr`, weil
+das flachere Profil auf halber Höhe bei 0,63 statt 0,87 steht, und `kh + 0,15`,
+weil der Körper 15 cm tiefer sitzt.
+
+Auflösung `SphereGeometry(krB, 24, 7, 0, 2π, 0, π/2)` statt `(kr, 12, 8)`:
+312 Dreiecke je Kuppe statt 168 bei doppelter Auflösung des Umrisses — die
+untere Halbkugel fällt weg und bezahlt den grössten Teil davon.
+
+### Gemessen
+
+Neues Werkzeug `tools/fusskante.mjs`. Die tragende Zahl ist die dritte
+Messung: In einer senkrechten Spalte liest sich eine gezeichnete Unterkante als
+**Grün — Lücke — Grün**, weil der Körper aufhört und die nächste Kuppe weiter
+unten wieder anfängt. Ein Hang, der in den Dunst läuft, hat diese Lücke nicht.
+
+    c-torii, Band x 700..1160, y 340..400
+      vorher   95,9 % der Spalten mit Lücke   6,84 Lückenpixel je Spalte
+      nachher  63,5 %                          4,45
+
+    a-eyelevel, Band x 900..1240, y 320..375
+      vorher   98,2 %                         10,72
+      nachher  87,6 %                          8,56
+
+Was übrig bleibt, ist **kein Schnitt mehr, sondern Verdeckung**: Eine nähere
+Kuppe steht vor einer entfernteren, und die Kante dazwischen gehört dorthin.
+Das ist an den vergrösserten Ausschnitten zu sehen und der Grund, warum die
+Zahl nicht gegen null geht.
+
+`e-sand` ist mit 98,8 % vor und nach der Änderung unverändert — dort verdecken
+Findlinge und Karikomi den Hügelzug fast vollständig, und die Messung sieht
+deren Grün. Kein Gegenbeweis, sondern die falsche Kamera für diese Zahl.
+
+### Nebenbefund: der Hügelzug stand seit jeher im Schattendurchgang
+
+`makeFerneHuegel()` setzt `castShadow = false` mit der Begründung, die Kuppen
+lägen ausserhalb des Ortho-Rahmens der Sonne. Die Begründung stimmt — der
+Rahmen ist 12 m im Quadrat, die Kuppen stehen bei 33 bis 45 m. Die Zuweisung
+hat aber **nie gegriffen**: Am Ende von `buildZen()` läuft eine Schleife über
+alle Netze und setzt die Schattenkennzeichen neu.
+
+    tools/dreiecke.mjs --env zen
+      vorher   Schattenwerfer 58.388 — Budget sieht 145.406   (zen-ferne: Wurf ja)
+      nachher  Schattenwerfer 41.970 — Budget sieht 128.988   (zen-ferne: Wurf —)
+
+16 418 Dreiecke, die ein zweites Mal in eine Schattenkarte gezeichnet wurden,
+aus der sie nichts beitragen können. `zen-ferne` steht jetzt in `garnicht`.
+
+### Budget und Regression
+
+    Draw-Calls        99 / 120
+    Dreiecke      145.980 / 350.000
+    Textur          21,86 / 60 MB     (+ 6 MB Umgebungskarte)
+    Konsole       frei von Errors und Warnings
+
+Die vier anderen Umgebungen sind **bitgleich** (Δmittel 0,000, Δmax 0). Die
+sechs Zen-Kameras ändern sich zwischen Δmittel 0,64 und 1,10; die Karte der
+Abweichung liegt vollständig im Hügelband, dazu ein schwacher Abdruck in der
+Teichspiegelung — der Spiegel nimmt die Ferne mit auf.
+
+Bildstand `tools/shots/zen-65` (ersetzt `zen-64`), Messwerte
+`tools/metrics/zen-65.json`.

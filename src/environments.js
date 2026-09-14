@@ -11998,15 +11998,55 @@ function makeFerneHuegel() {
       // Die Höhen der Kuppen einer Gruppe müssen weit auseinanderliegen,
       // sonst steht eine Reihe gleich hoher Buckel da.
       const kh = hoehe * (0.42 + rand() * 0.78);
-      const geo = new THREE.SphereGeometry(kr, 12, 8);
+      // **Kein halbes Ellipsoid mehr — ein Buckel mit weichem Fuss.**
+      //
+      // Der Pruefer hat die Huegel als „Pappaufsteller" gemeldet: „jeder
+      // Huegelkoerper endet in einem harten waagerechten Schnitt, und wo zwei
+      // sich ueberlappen, steht eine senkrechte Nahtstufe". Beides stimmte,
+      // und beides hatte dieselbe Ursache.
+      //
+      // Ein halbes Ellipsoid steht **senkrecht** auf dem Boden: Am Aequator
+      // ist die Flanke lotrecht, die Hoehe faellt dort mit unendlicher
+      // Steigung auf null. Das gibt erstens eine harte Kante dort, wo der
+      // Koerper den Saum trifft, und zweitens — weil jede Kuppe so eine
+      // senkrechte Wand hat — eine Stufe, sobald die Wand der einen vor der
+      // Flanke der anderen steht. Zwei Kuppen konnten so gar nicht zu einem
+      // Ruecken verschmelzen; sie blieben nebeneinandergestellte Scheiben.
+      //
+      // `Math.max(0, py)` war zudem teuer und stumpf: Die ganze untere
+      // Halbkugel — vier Breitenringe — wurde auf y = 0 geklappt und lag dort
+      // als Scheibe aus flaechenlosen Dreiecken, deren Normalen `computeVertexNormals`
+      // nicht bestimmen kann.
+      //
+      // Stattdessen: nur die obere Halbkugel als Netz, und die Hoehe kommt aus
+      // einem Profil ueber dem waagerechten Abstand,
+      //
+      //     h(q) = kh · (1 − q²)^1.35 ,  q = 0 am Scheitel, 1 am Rand.
+      //
+      // Der Exponent groesser eins macht die Ableitung am Rand zu null: Das
+      // Profil laeuft waagerecht aus, zwei benachbarte Buckel gehen ineinander
+      // ueber, und es gibt keine Wand mehr, die eine Stufe werfen koennte.
+      //
+      // Der Rand liegt bei y = 0 und damit 44 cm unter dem Saum (−0,06). Der
+      // sichtbare Fuss ist also nicht der Rand, sondern die Schnittlinie mit
+      // dem Saum, und dort steht das Profil je nach Kuppe zwischen 24 und 58
+      // Grad statt bei 90.
+      //
+      // `1,3 · kr`, weil das flachere Profil schmaler liest: Auf halber Hoehe
+      // steht das Ellipsoid bei 0,87 kr, dieses Profil bei 0,63 — die Breite
+      // bleibt so, wie sie war. `kh + 0,15` haelt den Scheitel auf derselben
+      // Weltkante wie vorher, obwohl der Koerper 15 cm tiefer sitzt.
+      const krB = kr * 1.3;
+      const khG = kh + 0.15;
+      const geo = new THREE.SphereGeometry(krB, 24, 7, 0, Math.PI * 2, 0, Math.PI / 2);
       const pos = geo.attributes.position;
       const beule = welligerUmriss(5300 + i * 41 + k * 7, 0.18, 4);
       for (let v = 0; v < pos.count; v++) {
         const px = pos.getX(v);
-        const py = pos.getY(v);
         const pz = pos.getZ(v);
         const f = beule(Math.atan2(pz, px));
-        pos.setXYZ(v, px * f, Math.max(0, py) * (kh / kr) * f, pz * f * 0.72);
+        const q = Math.min(1, Math.hypot(px, pz) / krB);
+        pos.setXYZ(v, px * f, khG * Math.pow(1 - q * q, 1.35), pz * f * 0.72);
       }
       pos.needsUpdate = true;
       geo.computeVertexNormals();
@@ -12044,7 +12084,7 @@ function makeFerneHuegel() {
       const nebel = new THREE.Color(0xecd9bb);
       const c = new THREE.Color();
       for (let v = 0; v < pos.count; v++) {
-        const t = THREE.MathUtils.clamp(pos.getY(v) / kh, 0, 1);
+        const t = THREE.MathUtils.clamp(pos.getY(v) / khG, 0, 1);
         c.copy(unten).lerp(oben, Math.pow(t, 0.55));
         // 0,22 statt 0,30 und hoechstens 0,88: Der Fuss soll weich sein, aber
         // nicht die halbe sichtbare Flaeche einnehmen. Aus der Luftkamera
@@ -12062,7 +12102,7 @@ function makeFerneHuegel() {
       geo.rotateY(a + Math.PI / 2);
       geo.translate(
         Math.cos(a) * r + Math.cos(a + Math.PI / 2) * versatz,
-        -0.35,
+        -0.5,
         Math.sin(a) * r + Math.sin(a + Math.PI / 2) * versatz
       );
       teile.push(geo.index ? geo.toNonIndexed() : geo);
@@ -12085,11 +12125,11 @@ function makeFerneHuegel() {
         const zahl = 4 + Math.floor(bs() * 5);
         for (let b = 0; b < zahl; b++) {
           // Entlang des Ruecken (lokales x vor der Drehung), nahe am Kamm.
-          const bx = (bs() - 0.5) * 1.7 * kr;
-          const bz = (bs() - 0.5) * 0.5 * kr * 0.72;
-          // Die Kuppe ist ein halbes Ellipsoid: y = kh · sqrt(1 − (x/kr)²).
-          const q = Math.min(0.98, Math.hypot(bx / kr, bz / (kr * 0.72)));
-          const by = kh * Math.sqrt(1 - q * q);
+          const bx = (bs() - 0.5) * 1.25 * krB;
+          const bz = (bs() - 0.5) * 0.5 * krB * 0.72;
+          // Dasselbe Profil wie der Ruecken, auf dem sie stehen.
+          const q = Math.min(0.97, Math.hypot(bx / krB, bz / (krB * 0.72)));
+          const by = khG * Math.pow(1 - q * q, 1.35);
           const bh = 0.45 + bs() * 0.70;
           const br = bh * (0.24 + bs() * 0.14);
           const kegel = new THREE.ConeGeometry(br, bh, 5, 1);
@@ -12108,7 +12148,7 @@ function makeFerneHuegel() {
           kegel.rotateY(a + Math.PI / 2);
           kegel.translate(
             Math.cos(a) * r + Math.cos(a + Math.PI / 2) * versatz,
-            -0.35,
+            -0.5,
             Math.sin(a) * r + Math.sin(a + Math.PI / 2) * versatz
           );
           teile.push(kegel.index ? kegel.toNonIndexed() : kegel);
@@ -12124,6 +12164,12 @@ function makeFerneHuegel() {
   // Weder werfen noch empfangen: In dieser Entfernung ist der Schattenwurf
   // ausserhalb des Ortho-Rahmens der Sonne, und ein Empfaenger mehr kostet im
   // Schattendurchgang, ohne dass man es sieht.
+  //
+  // **Diese beiden Zeilen allein reichen nicht.** Am Ende von `buildZen()`
+  // laeuft eine Schleife ueber alle Netze der Umgebung und setzt die
+  // Schattenkennzeichen neu; sie hat die Zuweisung hier ueberschrieben, und
+  // der Huegelzug stand ein Dutzend Durchlaeufe lang mit 16 418 Dreiecken im
+  // Schattendurchgang. Der Name steht dort jetzt in `garnicht`.
   mesh.castShadow = false;
   mesh.receiveShadow = false;
   return mesh;
@@ -15252,7 +15298,17 @@ function createZenEnvironment() {
     // Karten. Der Kern ist keine Blase, weil die Hüllkörper mehrere kleine
     // Schöpfe sind und nicht eine Kugel.
     const nurEmpfangen = new Set(['zen-sand', 'zen-saum', 'zen-moos']);
-    const garnicht = new Set(['zen-kontaktschatten']);
+    // **`zen-ferne` gehoert hierher, und zwar seit es den Huegelzug gibt.**
+    //
+    // In `makeFerneHuegel()` steht `castShadow = false` mit der Begruendung,
+    // der Huegelzug liege ausserhalb des Ortho-Rahmens der Sonne. Die
+    // Begruendung stimmt — der Rahmen ist 12 m im Quadrat, die Kuppen stehen
+    // bei 33 bis 45 m —, aber die Zuweisung hat nie gegriffen: Diese Schleife
+    // laeuft danach und setzt die Kennzeichen fuer jedes Netz der Umgebung neu.
+    // `tools/dreiecke.mjs` hat den Huegelzug deshalb als Werfer gefuehrt, mit
+    // 16 418 Dreiecken im zweiten Durchgang, aus denen die Schattenkarte nichts
+    // gewinnen kann.
+    const garnicht = new Set(['zen-kontaktschatten', 'zen-ferne']);
     for (const kind of group.children) {
       kind.traverse((o) => {
         if (!o.isMesh) return;
