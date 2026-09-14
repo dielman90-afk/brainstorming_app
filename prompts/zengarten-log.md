@@ -4757,3 +4757,64 @@ eigenen Änderungen, nicht Regressionen.)
 
 Bildstand `tools/shots/zen-73` (ersetzt `zen-72`), Messwerte
 `tools/metrics/zen-73.json`.
+
+---
+
+## Paket AV — Die Glanzbahn auf dem Teich feuert in keiner Prüfkamera, und das ist Geometrie
+
+Prüferbefund 4, letzter offener Teil: „bei sichtbarer Sonne im Bild gibt es
+kein einziges Spiegelglanzlicht". Der Rest dieses Befundes ist in Paket AL
+abgearbeitet — die Spiegelung trägt 36 Helligkeitsstufen, das ist gemessen.
+
+### Der Fresnelterm arbeitet
+
+Über die Knotenmaske von `zen-wasser`:
+
+    b-pond   Mittel 114,7   p95 147   max 193   ueber L 190   0,0 %
+    e-sand   Mittel 162,4   p95 201   max 209   ueber L 190  19,8 %
+
+Streifend (Kamera 45 cm über dem Boden) sieht man die Spiegelung, von schräg
+oben den Grund. Das Verhältnis, dessen Fehlen in einer früheren Runde als
+„Milchglasplatte" gemeldet war, steht also.
+
+### Die Glanzbahn trägt nichts — in keiner der sechs Kameras
+
+Differenziell geprüft, indem die Keule einmal auf null und einmal auf eins
+gesetzt wurde:
+
+    Keule = 0   b-pond 114,7   e-sand 162,4   (identisch mit dem Auslieferungsstand)
+    Keule = 1   b-pond 171,5
+
+Der Pfad läuft also, er trifft nur nie. Über den Exponenten abgetastet:
+
+    Exponent    1    Mittel 162,6
+    Exponent    8    Mittel 117,9
+    Exponent   20    Mittel 114,8
+    Exponent  150    Mittel 114,7
+
+Daraus liegt das Skalarprodukt aus Wellennormale und Halbrichtung bei rund
+**0,75**, also **41 Grad** auseinander — und die Wellen neigen sich um wenige
+Grad. **Das Spiegelbild der Sonne liegt von keiner dieser sechs Kameras aus auf
+dem Teich.**
+
+Die Keule zu verbreitern, bis doch etwas leuchtet, hiesse ein Glanzlicht
+dorthin zu malen, wo keines hingehört. Sie bleibt eng, und die Begründung steht
+jetzt im Quelltext daneben. In der Brille sieht sie, wer sich so stellt, dass
+die Sonne jenseits des Teichs steht.
+
+**Was das über das frühere Paket sagt:** Die Glanzbahn ist dort mit einer
+ausführlichen Begründung gebaut und mit „gemessen hatte der Teich als hellsten
+Wert L 207" motiviert worden — aber **ob sie danach etwas beiträgt, ist nie
+nachgemessen worden.** Sie tut es nicht. Eingebaut und nie überprüft ist genau
+die Sorte Arbeit, die dieser Auftrag ausschliessen soll.
+
+### Der Shaderlint hat zum vierten Mal gegriffen
+
+Vier Rückstriche im neuen Kommentarblock, alle innerhalb desselben
+GLSL-Template-Literals. `tools/shaderlint.mjs` meldet sie als `prebuild`, bevor
+ein Bild entsteht.
+
+### Regression
+
+Reine Kommentare. `b-pond` und `e-sand` **bitgleich** gegen `zen-73`; Budget und
+Bildstand unverändert.

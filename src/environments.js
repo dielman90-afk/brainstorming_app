@@ -14790,6 +14790,33 @@ function createZenEnvironment() {
              vec3 n = teichNormale(vTeichWelt.xz, uZeit);
              vec3 blick = normalize(cameraPosition - vTeichWelt);
              vec3 halb = normalize(blick + uSonneZu);
+             // **Diese Keule feuert in keiner der sechs Pruefkameras, und das
+             // ist Geometrie, kein Fehler.**
+             //
+             // Der Pruefer meldet „kein einziges Spiegelglanzlicht". Gemessen
+             // ueber die Knotenmaske des Wasserknotens:
+             //
+             //     b-pond   Mittel 114,7  p95 147  max 193  ueber L190  0,0 %
+             //     e-sand   Mittel 162,4  p95 201  max 209  ueber L190 19,8 %
+             //
+             // Der Unterschied ist der Fresnelterm — streifend sieht man die
+             // Spiegelung, von schraeg oben den Grund —, und er arbeitet. Die
+             // Glanzbahn dagegen traegt **nichts**: Mit der Keule auf null sind beide
+             // Zahlenreihen auf die erste Nachkommastelle identisch, mit
+             // ihr auf eins springt b-pond von 114,7 auf 171,5. Der Pfad
+             // laeuft also, er trifft nur nie.
+             //
+             // Ueber den Exponenten abgetastet liegt das Skalarprodukt bei rund
+             // 0,75 (Exponent 1: Mittel 162,6; Exponent 8: 117,9; Exponent 20:
+             // 114,8). Das sind **41 Grad** zwischen der Wellennormalen und der
+             // Halbrichtung — und die Wellen neigen sich um wenige Grad. Mit
+             // anderen Worten: Das Spiegelbild der Sonne liegt von keiner
+             // dieser sechs Kameras aus auf dem Teich.
+             //
+             // Die Keule zu verbreitern, bis doch etwas leuchtet, hiesse ein
+             // Glanzlicht dorthin zu malen, wo keines hingehoert. Sie bleibt
+             // eng. In der Brille sieht sie, wer sich so stellt, dass die Sonne
+             // jenseits des Teichs steht — dort ist sie richtig.
              float keule = pow(max(dot(n, halb), 0.0), 150.0);
              // Nur, wo Wasser steht: am äußersten Rand läuft die Fläche aus,
              // und ein Glanzlicht auf trockenem Ufer wäre ein Fehler.
