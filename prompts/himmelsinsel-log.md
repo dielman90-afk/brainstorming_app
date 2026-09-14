@@ -3584,3 +3584,96 @@ je an ihrer Stelle im Log: die Polygonkante im Steinschatten (nicht
 reproduzierbar), 64 Prozent des Kronenzitterns (braucht eine Hülle, die die
 Krone trägt) und die 62,9 Prozent nackter Stamm (braucht hängende Zweige in
 `branchInto`, was drei Umgebungen trifft).
+
+---
+
+## Paket — Der Fingerabdruck in der Wiese und die schwarzen Wolkenränder
+
+Zwei Nutzerbefunde: „Das Gras/Boden scheint ein komisches Muster zu haben" und
+„Die Wolken sehen unnatürlich aus und haben komische, dunkle Ränder."
+
+### Das Muster: das Halmfeld drehte zu langsam
+
+Vergrössert (`6-groundcover`, 300,480–900,700, dreifach) sind es **konzentrische
+Wirbel wie ein Fingerabdruck** — im Nahfeld, wo das Halmfeld eingeblendet ist.
+
+Die Ursache steht in einer Zeile. `halmFeld` legt ein stark gestrecktes
+Streifenfeld (110 quer zu 9 längs, also 12:1) und dreht es um einen Winkel, der
+aus `korn` kommt — und `korn` hat **32 cm Zellen**. Eine Richtung, die sich erst
+nach einem Drittel Meter merklich ändert, zieht die Streifen zu langen
+zusammenhängenden Bögen aus: genau die Papillarlinien im Bild. Und weil der
+Spaltterm mit 0,55 der stärkste Summand der ganzen Zeile ist, trägt dieses
+Muster die Fläche.
+
+Eine Wiese hat diese Ordnung nicht — die Richtung eines Halmbüschels wechselt
+alle paar Zentimeter. Das Drehfeld bekommt deshalb eine eigene, viel feinere
+Quelle (Zellen von 11 cm statt 32), und die Halme werden von 11 cm auf 6 cm
+verkürzt.
+
+**Die Feinstruktur bleibt dabei erhalten** — das war die Bedingung, denn sie ist
+in drei Paketen aufgebaut worden. Hochpass über elf Bänder in `6-groundcover`,
+nah nach fern:
+
+    vorher   6,06  6,20  6,38  6,29  6,44  6,31  6,55  6,79  5,66  6,04  7,40
+    nachher  6,42  6,46  6,34  6,42  6,69  6,44  6,41  6,74  5,71  5,41  7,00
+
+Und die Tonwerte stehen still: Mittel 182,8 → 182,8, p05 164 → 164, p50 184 →
+184, p95 197 → 197. Geändert hat sich nur die **Anordnung**, und genau das
+heisst „ein Muster entfernt".
+
+### Dazu die breite Bildachse als Ausblendemass
+
+Für das Halmfeld ist die **schmale** Bildachse das richtige Mass (es ist selbst
+länglich und hat längs keine hohe Ortsfrequenz). Das feine Korn (1,2 cm) und
+das Halmkorn (4,5 cm) sind dagegen **isotrop** — sie aliasen, sobald die
+**grössere** Achse ihre Zelle überschreitet. Im untersten Bildband liegt der
+Boden unter wenigen Grad; ein Bildpunkt deckt dort längs mehrere Zentimeter.
+Beide bekommen deshalb zusätzlich eine Ausblendung über `max(|dFdx|, |dFdy|)`.
+
+**Was dort übrig bleibt, ist nicht die Narbe.** Mit allen vier Rauschtermen auf
+null steht der senkrechte Schlierenstreifen am unteren Bildrand unverändert da —
+er kommt aus der Geometrie des Inselkörpers, die dort unter wenigen Grad
+gesehen wird, nicht aus dem Shader. Das bleibt offen und ist hiermit gemessen.
+
+### Die Wolken: unter null bleibt Schwarz
+
+Nachgerechnet ergibt die Summe aus Grundwert 0,58, abgewandter Seite (−0,42),
+Selbstverschattung (−0,52), Basisabdunklung (−0,24) und Lappenversatz (−0,10)
+im schlechtesten Fall **−0,70**. Unter null bleibt Schwarz — und genau als
+schwarze Kerben an den Lappenschnitten und als dunkles Band an der Unterkante
+war es im Bild zu sehen.
+
+Der Kommentar im Code nennt den gemeinten Tiefstwert: „der Schatten bei 0,34".
+Die Selbstverschattung ist später dazugekommen und hat diesen Boden
+durchschlagen, weil sie **abgezogen** statt **hineingemischt** wurde.
+Multiplikativ gegen den Boden kann sie das nicht mehr; die Modellierung der
+Lappen bleibt vollständig, sie endet nur bei 0,34 statt im Schwarzen. Das ist
+auch die physikalisch richtige Regel: Die Schattenseite einer Haufenwolke ist
+mittelgrau, nie schwarz — sie wird vom Himmel ringsum und vom Boden darunter
+beleuchtet.
+
+    4-aerial   groesste Aufhellung +134 bei (1279 | 685)
+               9 164 Bildpunkte um mehr als 20 Stufen heller
+    5-backlight  Mittel 151,4 -> 155,0   p05 31 -> 50
+                 Anteil unter L 40  7,2 % -> 2,5 %
+
+### Und die Ballons bekommen Blumenkohl
+
+Der zweite Teil des Befundes ist die Form: makellos glatte Kugeln mit
+kreisrundem Umriss. Mehr Segmente lösen das nicht, sie machen den Kreis nur
+runder. Ein Feld über der Kugeloberfläche moduliert den Halbmesser jetzt um
+acht Prozent und bricht den Umriss auf — **ohne eine einzige Ziehung aus
+`rand`**: Der Zufall kommt aus der Position selbst und aus dem Index des
+Ballens. Keine zusätzlichen Dreiecke.
+
+### Budget und Regression
+
+    Draw-Calls        78 / 120
+    Dreiecke     320.405 / 350.000
+    Textur         17,17 / 60 MB
+    Konsole      frei von Errors und Warnings
+
+Die vier anderen Umgebungen **bitgleich**.
+
+Bildstand `tools/shots/insel-44` (ersetzt `insel-43`), Messwerte
+`tools/metrics/insel-44.json`.

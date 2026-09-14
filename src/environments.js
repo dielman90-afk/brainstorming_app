@@ -1890,6 +1890,24 @@ function grasMaterial() {
            // laenglich und beliebig gedreht; die scharfe Bildachse ist deshalb
            // das richtige Mass.
            float bpWeite = min(length(dFdx(w)), length(dFdy(w)));
+           // **Und fuer die isotropen Massstaebe die BREITE Bildachse.**
+           //
+           // Fuer das Halmfeld ist die schmale Achse das richtige Mass (siehe
+           // oben): Es ist selbst laenglich und liegt laengs der breiten Achse
+           // ohne hohe Ortsfrequenz. Das feine Korn (1,2 cm) und das Halmkorn
+           // (4,5 cm) sind dagegen **isotrop** — sie aliasen, sobald die
+           // groessere Bildachse ihre Zelle ueberschreitet, ganz gleich wie
+           // schmal die andere ist.
+           //
+           // Im untersten Bildband liegt der Boden unter einem Winkel von
+           // wenigen Grad: Ein Bildpunkt deckt dort laengs mehrere Zentimeter,
+           // quer Millimeter. Genau dort zerfiel die Narbe in senkrechte
+           // Schlieren — der Nutzer hat es als Teil des „komischen Musters"
+           // gemeldet, und es ist derselbe Streifen, den der Pruefer im
+           // Zengarten am unteren Bildrand gefunden hat.
+           float bpMax = max(length(dFdx(w)), length(dFdy(w)));
+           float feinAn = superNah * (1.0 - smoothstep(0.0040, 0.0100, bpMax));
+           float halmkornAn = ganzNah * (1.0 - smoothstep(0.0150, 0.0350, bpMax));
            float halmAn = (1.0 - smoothstep(3.0, 9.0, tiefe)) *
                           (1.0 - smoothstep(0.0030, 0.0075, bpWeite));
            // **Der Kontrast einer Wiese sitzt in den Luecken, nicht auf den
@@ -1905,11 +1923,34 @@ function grasMaterial() {
            // Der Erwartungswert dieses Ausdrucks wird abgezogen, damit die
            // Wiese ihre gemessene Helligkeit von 184,7 behaelt und nicht
            // insgesamt absackt.
-           float halmH = halmAn > 0.002 ? halmFeld(w, korn * 6.0, 110.0, 9.0) : 0.5;
+           // **Der Fingerabdruck in der Wiese: die Richtung drehte zu langsam.**
+           //
+           // Der Nutzer hat gemeldet, das Gras habe „ein komisches Muster".
+           // Vergroessert (6-groundcover, 300,480-900,700, dreifach) sind es
+           // **konzentrische Wirbel wie ein Fingerabdruck** — im Nahfeld, wo
+           // das Halmfeld eingeblendet ist.
+           //
+           // Die Ursache steht in dieser Zeile. Das Halmfeld legt ein stark
+           // gestrecktes Streifenfeld (110 quer zu 9 laengs, also 12:1) und
+           // dreht es um einen Winkel, der aus dem Korn kommt — und das Korn
+           // hat **32 cm Zellen**. Eine Richtung, die sich erst nach einem Drittel
+           // Meter merklich aendert, zieht die Streifen zu langen
+           // zusammenhaengenden Boegen aus: genau die Papillarlinien, die man
+           // im Bild sieht. Und weil der Spaltterm mit 0,55 der staerkste
+           // Summand der ganzen Zeile ist, traegt dieses Muster die Flaeche.
+           //
+           // Eine Wiese hat diese Ordnung nicht. Die Richtung eines
+           // Halmbueschels wechselt alle paar Zentimeter, nicht alle drei
+           // Handbreit. Das Drehfeld bekommt deshalb eine eigene, viel feinere
+           // Quelle (Zellen von 11 cm statt 32), und die Halme werden von 11 cm
+           // auf 6 cm verkuerzt — beides zieht die Boegen auseinander, bevor
+           // sie als Linie lesen.
+           float halmWinkel = (grasNoise(w * 9.0) - 0.5) * 6.0;
+           float halmH = halmAn > 0.002 ? halmFeld(w, halmWinkel, 110.0, 16.0) : 0.5;
            float spalt = pow(1.0 - halmH, 1.7) - 0.31;
            diffuseColor.rgb *=
-             1.0 + fleck * 0.055 + korn * 0.26 * nah + halme * 0.30 * ganzNah +
-             feinst * 0.26 * superNah - spalt * 0.55 * halmAn;
+             1.0 + fleck * 0.055 + korn * 0.26 * nah + halme * 0.30 * halmkornAn +
+             feinst * 0.26 * feinAn - spalt * 0.55 * halmAn;
            // --- Luftperspektive auf der Bodenebene ------------------------
            //
            // Der Pruefer: „Gras 1-eyelevel ferner Kamm L 180,0 / Saettigung
@@ -4210,6 +4251,37 @@ function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
     // genau so hat es der Pruefer gemeldet. Der Aufschlag betraegt rund
     // 23 000 Dreiecke ueber alle fuenfundzwanzig Wolken.
     const g = new THREE.SphereGeometry(s, gross ? 16 : 9, gross ? 12 : 7);
+    // **Eine Kugel ist keine Wolke, auch nicht mit sechzehn Segmenten.**
+    //
+    // Der Nutzer hat die Wolken als „unnatuerlich" gemeldet, und vergroessert
+    // (4-aerial, 930,380-1280,680) sieht man warum: makellos glatte Ballons
+    // mit einem kreisrunden Umriss. Die Zahl der Segmente hat das nicht
+    // geloest — sie macht den Kreis nur runder.
+    //
+    // Was einer Haufenwolke ihren Umriss gibt, sind die Blumenkohlkoepfe auf
+    // jedem Ballen. Ein Feld ueber der Kugeloberflaeche, das den Halbmesser um
+    // acht Prozent moduliert, bricht den Kreis auf, ohne die Masse zu
+    // veraendern.
+    //
+    // **Ohne eine einzige Ziehung aus `rand`.** Der Zufall kommt aus der
+    // Position selbst (`hashNoise`) und aus dem Index des Ballens; jede
+    // Ziehung hier verschoebe alles, was danach gebaut wird — die Lehre steht
+    // im Insel-Log unter Paket H und in diesem Log an vier weiteren Stellen.
+    {
+      const bp = g.attributes.position;
+      const ph = i * 7.31;
+      for (let v = 0; v < bp.count; v++) {
+        const vx = bp.getX(v) / s;
+        const vy = bp.getY(v) / s;
+        const vz = bp.getZ(v) / s;
+        const n =
+          hashNoise(vx * 2.6 + ph, vy * 2.6 - ph, vz * 2.6 + 11.7) - 0.5 +
+          (hashNoise(vx * 5.9 - ph, vy * 5.9 + ph, vz * 5.9 - 4.3) - 0.5) * 0.45;
+        const f2 = 1 + n * 0.17;
+        bp.setXYZ(v, bp.getX(v) * f2, bp.getY(v) * f2, bp.getZ(v) * f2);
+      }
+      bp.needsUpdate = true;
+    }
     // Knospen sitzen bevorzugt oben und außen auf den Ballen.
     const f = gross ? 0.55 : 1.0;
     const bx = (rand() - 0.5) * spanX * f;
@@ -4330,6 +4402,26 @@ function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
     // Helligkeitsunterschied auf 46 sRGB-Stufen zusammenschnurrt. Oben mehr
     // draufzugeben bringt dort nichts; Kontrast entsteht nur nach unten.
     let f = 0.58 + 0.34 * Math.max(0, facing) + 0.24 * up - 0.42 * Math.max(0, -facing);
+    // **Eine Wolke hat keine schwarzen Stellen, und sie hatte welche.**
+    //
+    // Der Nutzer meldet „komische, dunkle Raender". Nachgerechnet: Die Summe
+    // aus Grundwert 0,58, abgewandter Seite (−0,42), Selbstverschattung
+    // (−0,52), Basisabdunklung (−0,24) und Lappenversatz (−0,10) ergibt im
+    // schlechtesten Fall **−0,70**. Unter null bleibt Schwarz, und genau als
+    // schwarze Kerben an den Lappenschnitten und als dunkles Band an der
+    // Unterkante ist es im Bild zu sehen.
+    //
+    // Der Kommentar zwei Absaetze weiter oben nennt den gemeinten Tiefstwert:
+    // „der Schatten bei 0,34". Die Selbstverschattung ist spaeter dazugekommen
+    // und hat diesen Boden durchschlagen, weil sie **abgezogen** statt
+    // **hineingemischt** wurde.
+    //
+    // Multiplikativ gegen den Boden kann sie das nicht mehr: Die Modellierung
+    // der Lappen bleibt vollstaendig erhalten, sie endet nur bei 0,34 statt im
+    // Schwarzen. Das ist auch physikalisch die richtige Regel — die
+    // Schattenseite einer Haufenwolke ist mittelgrau, nie schwarz; sie wird
+    // vom Himmel ringsum und vom Boden darunter beleuchtet.
+    const WOLKE_BODEN = 0.34;
     // **Selbstverschattung zwischen den Lappen.**
     //
     // Der Pruefer nennt die Wolken „unbeschattete Watte". Gemessen umfasst eine
@@ -4345,7 +4437,7 @@ function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
     // Gerechnet wird es beim Bauen, wie die Kronenverdeckung: Von jedem
     // Scheitelpunkt aus fuenf Schritte Richtung Sonne, und gezaehlt, wie viel
     // Ballenmasse dabei durchquert wird. Zur Laufzeit kostet es nichts.
-    f -= 0.52 * schatten[i];
+    f = WOLKE_BODEN + Math.max(0, f - WOLKE_BODEN) * (1 - 0.52 * schatten[i]);
     // Der Lappenversatz. Er sitzt VOR dem Silberrand, damit der Rand seine
     // volle Wirkung behaelt, und ist bewusst klein: Eine Haufenwolke ist in
     // sich hell, ihre Lappen unterscheiden sich um Nuancen, nicht um Stufen.
@@ -4355,6 +4447,8 @@ function makeCloud(rand, size = 1, sunDir = null, tonR = null) {
     // und er fehlte vollständig. Er sitzt eng (hoher Exponent), damit er ein
     // Saum bleibt und nicht die halbe Wolke aufhellt.
     f += 1.00 * Math.pow(Math.max(0, facing), 7);
+    // Auch der Lappenversatz darf den Boden nicht unterschreiten.
+    f = Math.max(WOLKE_BODEN * 0.92, f);
     // Die Schattenseite ist kühl, die Sonnenseite eine Spur warm.
     c.setRGB(f * (1 + 0.06 * facing), f * (1 + 0.015 * facing), f * (1 - 0.05 * facing));
     colors[i * 3] = c.r;
