@@ -4536,3 +4536,84 @@ Material, der Dojo bekommt seines unverändert. Im Zengarten Δmax 13 bis 39 bei
 
 Bildstand `tools/shots/zen-70` (ersetzt `zen-69`), Messwerte
 `tools/metrics/zen-70.json`.
+
+---
+
+## Paket AS — Das Sonnenlicht war zu schwach, aber nicht so schwach, wie gemeldet
+
+Fünfte Prüferrunde, Befund 1: „Das Sonnenlicht ist gegenüber dem
+Umgebungslicht drastisch zu schwach dosiert — die Szene liest als Hochnebel und
+nicht als Nachmittagssonne." Belegt mit Schatten gegen Sonne aus zwei von Hand
+gesetzten Kästen: **0,75 bis 0,77**, bei einer erwarteten Trennung von zwei bis
+zweieinhalb Blenden (0,2 bis 0,4).
+
+### Aus einem Kasten gemessen ist diese Zahl zu hoch
+
+Ein Kasten trifft Halbschatten und Streiflicht mit. Richtig gemessen wird das
+**differenziell**: derselbe Durchgang zweimal, einmal mit und einmal ohne
+`sun.castShadow`, dann je Bildpunkt das Verhältnis.
+
+    Vorzustand   p01     p05     p25     Median
+    c-torii      0,331   0,517   0,673   0,738
+    e-sand       0,230   0,444   0,649   0,720
+
+Seine Zahl ist der **Median** über alle verschatteten Bildpunkte. Eine **voll**
+verschattete, himmelzugewandte Fläche stand bei 0,44 bis 0,52 — eine gute
+Blende unter der besonnten, nicht eine halbe. Der Befund trägt der Richtung
+nach, seine Grösse ist um rund das Doppelte überzeichnet.
+
+Dasselbe gilt für seine zweite Beobachtung, der Schatten sei kaum kaltverschoben
+(er misst B/R 0,78 gegen 0,73, also 7 %). Differenziell gemessen: **0,756 im
+tiefen Schatten gegen 0,651 in der Sonne**, also 16 %.
+
+### Die Umverteilung
+
+Beiträge auf einer waagerechten Fläche bei 19,4 Grad Sonnenhöhe (cos 71 = 0,326):
+
+    Sonne        4,10 · 0,326 = 1,336
+    Hemisphaere                  1,050
+    Grundleuchte                 0,350
+    Gegenlicht   0,50 · 0,174    0,087
+    nicht-Sonne / gesamt       = 0,527
+
+Ziel 0,38 bei **gleichbleibender Summe** — und genau das hat der zweite Anlauf
+(Paket 1 der ersten Runde) falsch gemacht: Er hat abgedunkelt, statt das Licht
+umzuverteilen. Alle Umgebungsquellen mal 0,722, die Sonne auf 5,35.
+
+    Nachher      p01     p05     p25     Median
+    c-torii      0,227   0,385   0,541   0,622
+    e-sand       0,141   0,320   0,519   0,598
+
+Damit liegt der Vollschatten mit 0,32 bis 0,39 im Band, das der Prüfer nennt.
+
+### Was dabei nicht passieren durfte
+
+    Kamera        Mittel    p05    p50    p95   ueber L250   unter L30
+    c-torii alt   146,2      62    152    199     0,13 %      0,62 %
+    c-torii neu   143,7      49    152    203     0,13 %      1,34 %
+    e-sand  alt   155,2      59    165    202     0,17 %      1,19 %
+    e-sand  neu   154,3      48    165    208     0,20 %      2,17 %
+    a-eye   alt   151,1      65    157    194     0,00 %      0,57 %
+    a-eye   neu   149,2      57    157    198     0,00 %      1,22 %
+
+**Der Median steht in allen drei Kameras exakt still** — die besonnte Fläche
+bleibt, wo sie war. Ausgebrannt wird nichts. Der Anteil unter L 30 verdoppelt
+sich auf ein bis zwei Prozent; der gescheiterte zweite Anlauf hatte an dieser
+Stelle 21,4 Prozent auf den Findlingen. Deren Maske selbst: p05 26 → 18,
+Median 71 → 70, Höchstwert 204 → 210.
+
+Und der Farbunterschied wächst mit: B/R im tiefen Schatten gegen Sonne
+0,756/0,651 → 0,723/0,613.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.574 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Vier Lichtstärken, keine Geometrie. Die vier anderen Umgebungen **bitgleich** —
+`sceneAmbient` ist ein Wert je Umgebung.
+
+Bildstand `tools/shots/zen-71` (ersetzt `zen-70`), Messwerte
+`tools/metrics/zen-71.json`.

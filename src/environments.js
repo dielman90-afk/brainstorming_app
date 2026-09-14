@@ -13834,11 +13834,61 @@ function createZenEnvironment() {
   // Die Hemisphäre trägt jetzt mehr, damit der Schatten Form behält statt
   // abzusaufen — sie ist die einzige Quelle dort. Kühl bleibt sie: Der
   // Farbunterschied zwischen besonnt und verschattet ist die halbe Tiefe.
-  group.add(new THREE.HemisphereLight(0xb3cdf0, 0xa8875f, 1.05));
+  // **Dritter Anlauf: 1,05 war zu viel, und diesmal steht die Zahl dahinter.**
+  //
+  // Der Pruefer hat gemeldet, das Sonnenlicht sei gegenueber dem
+  // Umgebungslicht zu schwach dosiert — die Szene lese als Hochnebel statt als
+  // Nachmittagssonne. Er hat Schatten gegen Sonne in zwei von Hand gesetzten
+  // Kaesten gemessen und 0,75 bis 0,77 gefunden.
+  //
+  // **Aus einem Kasten gemessen ist diese Zahl zu hoch**, denn ein Kasten
+  // trifft Halbschatten und Streiflicht mit. Richtig gemessen wird das
+  // differenziell: derselbe Durchgang zweimal, einmal mit und einmal ohne
+  // `sun.castShadow`, und dann je Bildpunkt das Verhaeltnis. Vorzustand:
+  //
+  //     c-torii   p01 0,331   p05 0,517   p25 0,673   Median 0,738
+  //     e-sand    p01 0,230   p05 0,444   p25 0,649   Median 0,720
+  //
+  // Sein Wert ist der Median ueber alle verschatteten Bildpunkte; eine
+  // **voll** verschattete, himmelzugewandte Flaeche stand bei 0,44 bis 0,52,
+  // also eine gute Blende unter der besonnten. Der Befund traegt also der
+  // Richtung nach, aber nicht der Groesse nach.
+  //
+  // Umgerechnet auf die Beitraege bei 19,4 Grad Sonnenhoehe (cos 71 = 0,326):
+  //
+  //     Sonne      4,10 · 0,326 = 1,336
+  //     Hemisphaere              1,050
+  //     Grundleuchte             0,350
+  //     Gegenlicht 0,50 · 0,174  0,087
+  //     nicht-Sonne / gesamt   = 0,527
+  //
+  // Ziel 0,38 bei **gleichbleibender Summe**, damit die besonnte Flaeche steht,
+  // wo sie steht — genau das hat der zweite Anlauf falsch gemacht: Er hat
+  // abgedunkelt, statt das Licht umzuverteilen. Alle Umgebungsquellen mal
+  // 0,722, die Sonne auf 5,35. Gemessen danach:
+  //
+  //     c-torii   p01 0,227   p05 0,385   Median 0,622
+  //     e-sand    p01 0,141   p05 0,320   Median 0,598
+  //
+  // und im Gesamtbild bleibt der Median exakt stehen (152 / 165 / 157 in den
+  // drei Kameras), waehrend p05 von 62 auf 49, von 59 auf 48 und von 65 auf 57
+  // faellt. Ausgebrannt wird nichts (ueber L 250: 0,13 % unveraendert), und der
+  // Anteil unter L 30 steigt von 0,6 auf 1,3 Prozent — der zweite Anlauf hatte
+  // an dieser Stelle 21,4 Prozent.
+  //
+  // **Der Himmel ist kuehl, die Sonne ist warm**, und das wird dabei staerker:
+  // Blau zu Rot im tiefen Schatten 0,756 gegen 0,651 in der Sonne, nach der
+  // Umverteilung 0,723 gegen 0,613. Der Farbunterschied zwischen besonnt und
+  // verschattet ist die halbe Tiefe.
+  group.add(new THREE.HemisphereLight(0xb3cdf0, 0xa8875f, 0.76));
 
   // 4,6 waren zu viel: Der Kies stand danach als gebleichte Fläche im Bild.
   // 4,1 hält die Lichtseite oben, ohne die Zeichnung zu verlieren.
-  const sun = new THREE.DirectionalLight(0xffd9a0, 4.1);
+  // 4,6 waren zu viel: Der Kies stand danach als gebleichte Flaeche im Bild.
+  // 5,35 ist etwas anderes als 4,6 — es geht mit einer um 28 Prozent
+  // gesenkten Umgebung einher, die Summe auf einer waagerechten Flaeche bleibt
+  // also gleich. Die Rechnung steht oben bei der Hemisphaere.
+  const sun = new THREE.DirectionalLight(0xffd9a0, 5.35);
   sun.position.set(...ZEN_SONNE);
   group.add(sun);
 
@@ -13925,7 +13975,10 @@ function createZenEnvironment() {
   // Warmes Gegenlicht aus der Gegenrichtung, das die Silhouetten von der
   // Schattenseite her ablöst. Schwächer als zuvor: Es soll die Kante zeigen,
   // nicht die Fläche aufhellen.
-  const rim = new THREE.DirectionalLight(0xffcf9c, 0.5);
+  // Mit derselben 0,722 gesenkt wie Hemisphaere und Grundleuchte: Das
+  // Gegenlicht wirft keinen Schatten und gehoert damit zu dem, was einen
+  // Schlagschatten aufhellt.
+  const rim = new THREE.DirectionalLight(0xffcf9c, 0.36);
   rim.position.set(15, 3.5, 13);
   group.add(rim);
 
@@ -15545,7 +15598,7 @@ function createZenEnvironment() {
     // die Hälfte der Flächenhelligkeit, und weil eine Hemisphärenleuchte fast
     // nur von `normal.y` abhängt, reagierte dieser Anteil auf keine Form.
     // Der Zen-Garten bringt seinen Himmelsanteil selbst mit.
-    sceneAmbient: 0.35,
+    sceneAmbient: 0.25,
 
     // **Warum die Karte erst hier entsteht und nicht beim Bauen.** Der
     // PMREM-Generator braucht einen lebenden Renderer und rechnet auf der GPU;
