@@ -4415,3 +4415,59 @@ Die vier anderen Umgebungen **bitgleich**. Im Zengarten ändern sich 0,04 bis
 
 Bildstand `tools/shots/zen-68` (ersetzt `zen-67`), Messwerte
 `tools/metrics/zen-68.json`.
+
+---
+
+## Paket AQ — Die weissen Splitter im Bambus waren Glanz, nicht Durchleuchtung
+
+Prüferbefund 1.4. In Paket AJ habe ich ihn zur Hälfte bestätigt — die 36 hellen
+Bildpunkte gibt es, die „ebenso vielen fast schwarzen Späne" nicht — und die
+hellen dem **Durchleuchtungsterm an seinem Höchstwert** zugeschrieben.
+
+**Diese Erklärung war falsch, und die Farben sagen es.** Die Splitter sind
+
+    rgb(239,231,210)  rgb(244,238,223)  rgb(238,229,207)  rgb(241,234,215)
+
+also durchweg **Rot vor Grün vor Blau**. Der Durchleuchtungston ist 0xd8f0a0
+auf einem grünen Blatt; selbst nach der ACES-Entsättigung stünde dort Grün vor
+Rot. Was Rot vor Grün setzt, ist das Sonnenlicht dieser Szene (0xffd9a0) — also
+ein **Glanzpunkt**.
+
+Bei streifendem Einfall auf eine Blattkarte, die einen Bildpunkt breit ist,
+liegt die Glanzkeule unter der Abtastweite: Übrig bleibt ein einzelner weisser
+Punkt ohne Verlauf, und genau so sieht ein „Splitter" aus. Eine breitere Keule
+verteilt dieselbe Energie und fällt unter die Schwelle.
+
+Gemessene Reihe im Kasten 180,150–380,330 von `a-eyelevel`:
+
+    Rauheit   ueber L 215   hellster
+    0,78          24          238,2
+    0,88          11          225,2
+    0,93           6          216,2
+    0,97           4          215,9
+
+**0,93 statt 0,97**, weil ein Bambusblatt eine Wachsschicht hat und aus
+Armlänge — wo ein Blatt viele Bildpunkte breit ist und der Glanz nicht mehr
+aliast — davon etwas zu sehen sein soll.
+
+Dass nichts anderes mitgeht, steht in der zweiten Zahl: unter L 45 bleiben 89
+statt 90 Bildpunkte. Die Modellierung des Laubs ist unberührt; im Ausschnitt
+ist ausser dem Verschwinden der Splitter kein Unterschied zu sehen.
+
+Der Parameter sitzt am Aufruf, nicht im gemeinsamen Material: `roughness` ist
+seit jeher ein Argument von `foliageMaterial()`, und `bambooMaterials()` ist der
+einzige Aufrufer, der ihn jetzt setzt. Ahorn, Sakura, Insel und Dojo bleiben
+unberührt — `b-pond`, in dem kein Bambus steht, ist **bitgleich**.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.574 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Die vier anderen Umgebungen bitgleich. Im Zengarten 0,02 bis 0,06 % der Fläche,
+Schwerpunkt jeweils im Bambushain.
+
+Bildstand `tools/shots/zen-69` (ersetzt `zen-68`), Messwerte
+`tools/metrics/zen-69.json`.

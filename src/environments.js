@@ -12977,6 +12977,33 @@ function bambooMaterials() {
       // Gartenlicht standen die Schöpfe als fast schwarze Klumpen über den
       // Halmen.
       color: 0xd8ecb0,
+      // **Die weissen Splitter waren Glanz, nicht Durchleuchtung.**
+      //
+      // Der Pruefer hat im Bambus weisse Splitter gemeldet; gemessen waren es
+      // im Kasten 180,150-380,330 von `a-eyelevel` 24 Bildpunkte ueber L 215,
+      // der hellste bei L 238. Im Log stand als Erklaerung der
+      // Durchleuchtungsterm an seinem Hoechstwert. **Das war falsch, und die
+      // Farben sagen es:** Die Splitter sind rgb(239,231,210) bis
+      // rgb(244,238,223) — Rot vor Gruen vor Blau. Der Durchleuchtungston ist
+      // 0xd8f0a0 auf einem gruenen Blatt und haette selbst nach der
+      // ACES-Entsaettigung Gruen vor Rot. Was hier Rot vor Gruen setzt, ist
+      // das Sonnenlicht selbst (0xffd9a0) — also ein **Glanzpunkt**.
+      //
+      // Bei streifendem Einfall auf eine Blattkarte, die einen Bildpunkt breit
+      // ist, liegt die Glanzkeule unter der Abtastweite: Was bleibt, ist ein
+      // einzelner weisser Punkt ohne Verlauf. Eine breitere Keule verteilt
+      // dieselbe Energie und faellt unter die Schwelle. Gemessene Reihe:
+      //
+      //     Rauheit   ueber L 215   hellster
+      //     0,78          24          238,2
+      //     0,88          11          225,2
+      //     0,93           6          216,2
+      //     0,97           4          215,9
+      //
+      // 0,93 statt 0,97, weil ein Bambusblatt eine Wachsschicht hat und aus
+      // Armlaenge — wo ein Blatt viele Bildpunkte breit ist und der Glanz
+      // nicht mehr aliast — davon etwas zu sehen sein soll.
+      roughness: 0.93,
       translucency: 0.95,
       transColor: 0xd8f0a0,
       windStrength: 0.11,
