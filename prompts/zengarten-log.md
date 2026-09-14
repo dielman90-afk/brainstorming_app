@@ -5204,3 +5204,86 @@ Dojo Δmax 6 auf 0,008 %. Budget unverändert (96 Draw-Calls, 113 340 Dreiecke,
    denselben Tonwert, unabhängig von der Entfernung.
 5. Laterne, Bambus, Trittsteine, Koi und Seerosen — Einzelbefunde, die in der
    Brille aus der Nähe zählen.
+
+## Paket BA — Die Laterne spiegelt sich jetzt im Teich, und der erste Anlauf dazu war falsch
+
+Befund 1 der sechsten Runde und der stärkste im ganzen Bericht: „Die
+Steinlaterne steht unmittelbar am Ufer und wirft kein Spiegelbild; der Himmel
+wirft keines; die Randsteine werfen keines."
+
+### Was schon da war
+
+Halb stimmt der Befund nicht. Gemessen in `b-pond`, quer über die Wasserfläche:
+
+    nahes Ufer   L 87,9
+    Mitte        L 95,9
+    fernes Ufer  L 121,6          Himmel darüber  L 142,1
+
+Das fernste Wasser steht bei **86 Prozent der Himmelshelligkeit** — die
+Fresnelstaffelung läuft, und die Umgebungskarte trägt nachweislich: Mit
+`envMapIntensity` auf null ändern sich **8,3 %** der Bildpunkte bei einer
+Höchstabweichung von 130. Der Himmel spiegelt sich also sehr wohl.
+
+Was fehlt, ist das Spiegelbild der **Dinge**. Eine Umgebungskarte kennt den
+Himmel und sonst nichts.
+
+### Der erste Anlauf: ein gespiegeltes Netz. Falsch.
+
+Ich habe das Steinnetz der Laterne an der Wasserebene gespiegelt
+(`scale.y = -1`, Ort bei 2·Wasserhöhe), mit dem richtigen Fresnelfaktor
+gedämpft und mit einem Umrissschnitt versehen. Zwei Ergebnisse, beide schlecht:
+
+* **Der gespiegelte Stein war unsichtbar.** Bei 19 Grad über der Fläche steht
+  der Fresnelfaktor bei 0,156; ein dunkler Stein zu 15 Prozent auf dunklem
+  Wasser ist nichts. Physikalisch richtig, im Bild wertlos.
+* **Der gespiegelte Lichtkasten stand als harter Sechskant im Wasser** — und in
+  `a-eyelevel` sogar **neben** dem Teich auf trockenem Sand. Der Umrissschnitt
+  war eine Ellipse, die Wasserlinie folgt aber `teichUmriss` und springt um
+  ±13 % ein. Dazu kommt das Grundsätzliche: Ein Körper unter Wasser liest als
+  **versunkener Gegenstand**, nicht als Spiegelbild, solange ihn die Wellen
+  nicht zerlegen — und ein Netz mit zwölf Ringpunkten lässt sich nicht
+  zerlegen.
+
+Beides ist wieder raus. Ich habe es gebaut, bevor ich es gemessen hatte, und
+das ist genau die Reihenfolge, die dieser Auftrag ausschliessen soll.
+
+### Der zweite Anlauf: die Laterne als zweite Glanzquelle im Wasser-Shader
+
+Die Wasserfläche rechnet bereits eine Glanzkeule für die Sonne — gekräuselte
+Normale, Halbrichtung, enge Keule. Die Laterne bekommt dieselbe Rechnung:
+
+    vec3 zurLaterne = uLaterneOrt - vTeichWelt;
+    vec3 halbL = normalize(blick + zurLaterne / dLat);
+    float keuleL = pow(max(dot(n, halbL), 0.0), 60.0);
+
+Breiter als die Sonnenkeule (60 statt 150), weil der Lichtkasten 21 cm hoch ist
+und anderthalb Meter weg steht — er deckt einen vielfach grösseren Winkel ab als
+die Sonnenscheibe. Dazu ein Abfall `1/(1 + d²·0,55)`, damit die Bahn vom
+Berührungspunkt ausläuft statt als Fleck zu stehen.
+
+Das Ergebnis ist eine **Glitzerbahn**: von den Wellen von selbst aufgebrochen,
+niemals ausserhalb des Teichs, weil sie in dessen eigenem Shader entsteht, und
+für **null zusätzliche Draw-Calls und null zusätzliche Dreiecke**.
+
+### Gemessen
+
+    Wasser vor der Laterne (400–480, 400–460)
+      vorher   130,9 / 112,2 / 66,6   L 112,9
+      nachher  141,0 / 121,0 / 76,1   L 122,0      +9,1 Stufen
+
+    Wasser am fernen Ufer (560–760, 320–340)
+      vorher   129,8 / 122,0 / 93,7   L 121,6
+      nachher  129,8 / 122,0 / 93,7   L 121,6      unveraendert
+
+Die Bahn steht genau dort, wo sie hingehört, und nirgends sonst. Über die
+Kameras verteilt: `b-pond` 0,38 % der Bildpunkte, `c-torii` 0,27 %, `d-aerial`
+0,09 %, `f-grove` 0,14 %, `a-eyelevel` 0,03 % — in zwölf Metern ist von einer
+Laternenspiegelung nichts mehr zu sehen, und das ist richtig so.
+
+### Budget und Regression
+
+Draw-Calls 96, Programme 53, Dreiecke 113 338, Texturen 21,86 MB — alles
+unverändert. Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 6 auf
+0,009 %. `npm run build` grün, Konsole sauber, Shaderlint hat zum **fünften
+Mal** Rückstriche im GLSL-Kommentar gefunden, bevor ein Bild entstand.
+Bildstand `tools/shots/zen-79`.

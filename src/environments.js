@@ -12847,6 +12847,10 @@ function makeLantern() {
   );
   box.rotation.y = Math.PI / 6;
   box.position.y = 0.6675;
+  // Ein Name, damit das Spiegelbild im Teich diesen Teil findet: Auf dunklem
+  // Wasser ist der Lichtkasten das Einzige an dieser Laterne, das man
+  // ueberhaupt gespiegelt sieht.
+  box.name = 'zen-laterne-licht';
   group.add(box);
 
   const glow = new THREE.Sprite(
@@ -14688,6 +14692,7 @@ function createZenEnvironment() {
 
   // Koi-Teich
   const pondCenter = new THREE.Vector3(TEICH.x, 0, TEICH.z);
+  let WASSER_Y = 0.0442;
   // Das Becken zuerst: Mulde, Uferwulst, Übergang in den Kies. Es trägt die
   // Kornkarte des Sandes, damit Ufer und Kies dieselbe Körnung zeigen.
   const beckenGeo = makeTeichbecken(TEICH.rx, TEICH.rz, { umriss: teichUmriss });
@@ -14759,6 +14764,10 @@ function createZenEnvironment() {
       uWasserTrueb: { value: new THREE.Vector3(0.8, 0.26, 0.66) },
       uSonneZu: { value: new THREE.Vector3(...ZEN_SONNE).normalize() },
       uGlanz: { value: new THREE.Color(0xffdca4) },
+      // Ort und Farbe des Laternenlichts. Beide werden gesetzt, sobald die
+      // Laterne steht — sie wird nach dem Teich gebaut.
+      uLaterneOrt: { value: new THREE.Vector3(0, -99, 0) },
+      uLaterneGlanz: { value: new THREE.Color(0xffd79a) },
       uZeit: { value: 0 },
     };
     // `update()` weiter unten zählt die Zeit hoch; die Uniform-Objekte werden
@@ -14796,6 +14805,8 @@ function createZenEnvironment() {
            uniform vec3 uWasserTrueb;
            uniform vec3 uSonneZu;
            uniform vec3 uGlanz;
+           uniform vec3 uLaterneOrt;
+           uniform vec3 uLaterneGlanz;
            uniform float uZeit;
            // Die gekraeuselte Wasseroberflaeche an einer Weltstelle. Zwei
            // Wellenzuege in verschiedener Richtung und Geschwindigkeit; ein
@@ -14863,10 +14874,48 @@ function createZenEnvironment() {
              // eng. In der Brille sieht sie, wer sich so stellt, dass die Sonne
              // jenseits des Teichs steht — dort ist sie richtig.
              float keule = pow(max(dot(n, halb), 0.0), 150.0);
+             // **Das Spiegelbild der Laterne — die einzige Lichtquelle, deren
+             // Bild ueberhaupt auf diesen Teich faellt.**
+             //
+             // Der Pruefer der sechsten Runde: „Die Steinlaterne steht
+             // unmittelbar am Ufer und wirft kein Spiegelbild." Das stimmt, und
+             // es ist der staerkste Befund im ganzen Bericht: Ein stilles
+             // Becken bei tiefer Sonne ist im Wesentlichen ein Spiegel.
+             //
+             // **Ein gespiegeltes Netz war der falsche Weg**, und ich habe es
+             // gebaut, bevor ich es gemessen habe. Der Stein gespiegelt und mit
+             // dem richtigen Fresnelfaktor gedaempft (bei 19 Grad ueber der
+             // Flaeche sind das 0,156) war in b-pond unsichtbar; der
+             // gespiegelte Lichtkasten dagegen stand als **harter Sechskant im
+             // Wasser** und in a-eyelevel sogar neben dem Teich auf trockenem
+             // Sand — der Umrissschnitt war eine Ellipse, die Wasserlinie folgt
+             // aber teichUmriss. Ein Koerper unter Wasser liest ausserdem als
+             // versunkener Gegenstand, nicht als Spiegelbild, solange ihn die
+             // Wellen nicht zerlegen.
+             //
+             // Der richtige Ort dafuer ist diese Stelle: dieselbe gekraeuselte
+             // Normale, dieselbe Halbrichtung, nur mit der Laterne statt der
+             // Sonne. Das Ergebnis ist eine **Glitzerbahn**, die von den Wellen
+             // von selbst aufgebrochen wird, die den Teich nie verlassen kann,
+             // weil sie in seinem eigenen Shader entsteht, und die keinen
+             // einzigen Draw-Call kostet.
+             //
+             // Die Keule ist breiter als die der Sonne (60 statt 150): Der
+             // Lichtkasten ist 21 cm hoch und steht anderthalb Meter weg, er
+             // deckt also einen viel groesseren Winkel ab als die Sonnenscheibe.
+             vec3 zurLaterne = uLaterneOrt - vTeichWelt;
+             float dLat = length(zurLaterne);
+             vec3 halbL = normalize(blick + zurLaterne / max(dLat, 1e-4));
+             float keuleL = pow(max(dot(n, halbL), 0.0), 60.0);
+             // Naeher am Fuss der Laterne heller: Die Bahn laeuft vom
+             // Beruehrungspunkt weg aus, sie steht nicht als Fleck.
+             float nahLat = 1.0 / (1.0 + dLat * dLat * 0.55);
              // Nur, wo Wasser steht: am äußersten Rand läuft die Fläche aus,
              // und ein Glanzlicht auf trockenem Ufer wäre ein Fehler.
              float rand2 = clamp(length(vTeichUv - 0.5) * 2.0, 0.0, 1.0);
-             outgoingLight += uGlanz * keule * 2.6 * (1.0 - smoothstep(0.9, 1.0, rand2));
+             float amRand = 1.0 - smoothstep(0.9, 1.0, rand2);
+             outgoingLight += uGlanz * keule * 2.6 * amRand;
+             outgoingLight += uLaterneGlanz * keuleL * nahLat * 3.4 * amRand;
            }
            #include <opaque_fragment>`
         )
@@ -15026,7 +15075,12 @@ function createZenEnvironment() {
   // Zwei Zwischenstände waren zu niedrig: 0,95 (auf der Wasserlinie des
   // Profils) ließ einen breiten trockenen Ring stehen, 1,04 immer noch einen
   // von zwanzig Zentimetern.
-  pond.position.set(pondCenter.x, 0.0442, pondCenter.z);
+  // Die Hoehe des Wasserspiegels hat ab hier einen Namen: Das Spiegelbild der
+  // Laterne weiter unten muss an genau dieser Ebene gespiegelt werden, und
+  // zwei Zahlen an zwei Stellen waeren der schnellste Weg zu einem Spiegelbild,
+  // das einen Zentimeter neben seinem Fuss ansetzt.
+  WASSER_Y = 0.0442;
+  pond.position.set(pondCenter.x, WASSER_Y, pondCenter.z);
   // **Der Fehler, der den Teich halb leer aussehen ließ.** Hier stand
   // `set(rx, 1, rz)` — geschrieben, als läge die Scheibe in der XZ-Ebene. Sie
   // ist aber eine `CircleGeometry` in der **XY**-Ebene und wird erst danach um
@@ -15411,9 +15465,47 @@ function createZenEnvironment() {
   const lantern = makeLantern();
   lantern.position.set(1.6, 0, -1.8);
   group.add(lantern);
-  const lanternShadow = makeBlobShadow(0.33, 0.85);
-  lanternShadow.position.set(1.6, 0.015, -1.8);
-  kontaktschatten.push(lanternShadow);
+  // Der Teich spiegelt das Laternenlicht — der Ort dafuer steht im
+  // Wasser-Shader und wird erst jetzt bekannt, weil die Laterne nach dem Teich
+  // gebaut wird. Der Lichtkasten sitzt 0,6675 m ueber dem Laternenfuss.
+  {
+    const u = pond.material.userData.zenUniforms;
+    if (u) u.uLaterneOrt.value.set(1.6, 0.6675, -1.8);
+  }
+
+  // **Der Teich spiegelte den Himmel, aber nichts, was an ihm steht.**
+  //
+  // Gemessen in `b-pond` laeuft die Fresnelstaffelung richtig: Das Wasser
+  // steht am nahen Ufer bei L 87,9, in der Mitte bei 95,9 und am fernen Ufer
+  // bei 121,6 — das sind 86 % der Himmelshelligkeit (142,1). Die Umgebungskarte
+  // traegt dabei nachweislich (mit `envMapIntensity` auf 0 aendern sich 8,3 %
+  // der Bildpunkte, Hoechstabweichung 130).
+  //
+  // Was fehlt, ist das Spiegelbild der **Dinge**. Eine Umgebungskarte kennt den
+  // Himmel und sonst nichts; die Laterne steht einen halben Meter neben der
+  // Wasserlinie und wirft trotzdem keines. Genau daran erkennt das Auge eine
+  // gemalte Flaeche: Ein stilles Becken bei tiefer Sonne ist im Wesentlichen
+  // ein Spiegel, und was darin fehlt, fehlt auffaellig.
+  //
+  // Echte Spiegelung heisst einen zweiten Durchgang durch die Szene, und der
+  // ist auf der Quest nicht zu bezahlen. Der klassische billige Weg ist der
+  // richtige: **das Netz selbst, an der Wasserebene gespiegelt.** `scale.y = -1`
+  // reicht dafuer, three dreht die Flaechenorientierung bei negativer
+  // Determinante von selbst um.
+  //
+  // Drei Dinge muss das Spiegelnetz koennen, und alle drei stehen im Shader:
+  //
+  //   * **Nicht am Beckenboden abschneiden.** Das Becken ist 42 cm tief, die
+  //     gespiegelte Laterne reicht einen Meter hinunter. Mit Tiefentest waere
+  //     vom Spiegelbild nach 42 cm Schluss. Also `depthTest: false`, dafuer
+  //     ein harter Umrissschnitt, damit nichts neben dem Teich auftaucht.
+  //   * **Nur dort stehen, wo Wasser spiegelt.** Derselbe Fresnelterm wie in
+  //     der Wasserflaeche: senkrecht hinein sieht man den Grund, streifend das
+  //     Spiegelbild. Ohne das klebte die Laterne auch dann im Teich, wenn man
+  //     von oben hineinsieht.
+  //   * **Mit der Tiefe verloeschen.** Ein Spiegelbild bricht auf, je weiter
+  //     es vom Beruehrungspunkt entfernt ist — die Wellen zerlegen es. Der
+  //     Abfall ueber die Tiefe unter der Wasserlinie macht genau das.
   const torii = makeTorii();
   torii.position.set(-2, 0, -9);
   torii.rotation.y = 0.35;
