@@ -928,6 +928,24 @@ export function weatheredStoneGeometry(base, seed = 1, options = {}) {
     // Voreinstellung `false`: Das Dojo und alles andere, was diese Funktion
     // schon benutzt, bleibt bitgleich.
     kavitaet = false,
+    // **Bruchflaechen: das, was einen Findling von einer Kartoffel trennt.**
+    //
+    // Rauschen allein rundet. Es kann eine Kugel beulen, aber es kann keine
+    // ebene Flaeche machen, und schon gar keine Kante, an der zwei ebene
+    // Flaechen aufeinandertreffen. Genau das hat ein Granitfindling: ein paar
+    // grosse Bruchflaechen aus dem Bruch oder aus dem Frost, dazwischen
+    // gerundete Verwitterung.
+    //
+    // Jede Ebene wird im **normierten Ellipsoidraum** angesetzt (jede Achse
+    // durch ihre halbe Ausdehnung geteilt) und die Kappe darueber flach auf
+    // sie gelegt. Weil die Ruecktransformation affin ist, bleibt eine Ebene
+    // eine Ebene — auch nachdem der Stein in x, y und z verschieden skaliert
+    // wurde.
+    //
+    // `{ n: [x, y, z], d }` mit n auf Laenge 1 und d als Abstand vom
+    // Mittelpunkt in Einheiten des Halbmessers: 0,6 schneidet eine grosse
+    // Kappe ab, 0,9 nur eine Ecke.
+    brueche = null,
   } = options;
 
   const g = densify ? densified(base) : base.clone();
@@ -974,6 +992,24 @@ export function weatheredStoneGeometry(base, seed = 1, options = {}) {
       px += (ex / len) * hx * a;
       pz += (ez / len) * hz * a;
       py += (ey / len) * hyAmp * a;
+
+      if (brueche) {
+        let bx = (px - cx) / hx;
+        let by = (py - cy) / hy;
+        let bz = (pz - cz) / hz;
+        for (let k = 0; k < brueche.length; k++) {
+          const n = brueche[k].n;
+          const ueber = bx * n[0] + by * n[1] + bz * n[2] - brueche[k].d;
+          if (ueber > 0) {
+            bx -= n[0] * ueber;
+            by -= n[1] * ueber;
+            bz -= n[2] * ueber;
+          }
+        }
+        px = cx + bx * hx;
+        py = cy + by * hy;
+        pz = cz + bz * hz;
+      }
 
       d = [px, py, pz, a];
       cache.set(key, d);

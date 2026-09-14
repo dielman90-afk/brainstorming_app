@@ -12569,7 +12569,43 @@ function makeZenStone(rand, size, color = 0x8b8680) {
   // danach im Garten gebaut wird.
   const formSame = rand() * 1000;
   const sr = mulberry32(Math.floor(formSame) + 1);
-  const geo = weatheredStoneGeometry(new THREE.IcosahedronGeometry(size, 2), formSame, {
+  // **Rauschen rundet, es bricht nicht.** Der Pruefer hat die Findlinge in
+  // der fuenften Runde immer noch als „Kartoffeln mit aufgemalten Schatten"
+  // gemeldet, und das frueher gebaute Streuen von `amount`, `frequency` und
+  // `bevel` hat daran nichts geaendert — es streut die Rundung, nicht die
+  // Form. Was fehlte, war die **ebene Flaeche mit einer Kante daran**.
+  //
+  // Zwei bis vier Bruchebenen je grossem Stein, null bis eine je Uferkiesel:
+  // Ein Kiesel am Wasser ist rundgeschliffen, ein Findling nicht. Der Strom
+  // dafuer ist eigen (`+7717`), damit weder `rand` noch `sr` eine Ziehung
+  // mehr macht — jede zusaetzliche Ziehung verschoebe alles, was danach im
+  // Garten gebaut wird.
+  const br = mulberry32(Math.floor(formSame) + 7717);
+  const gross = size > 0.25;
+  const wieViele = gross ? 2 + Math.floor(br() * 3) : br() < 0.45 ? 1 : 0;
+  const brueche = [];
+  for (let k = 0; k < wieViele; k++) {
+    // Gleichverteilte Richtung auf der Kugel — nicht zwei Winkel gleichverteilt
+    // ziehen, das haeuft die Ebenen an den Polen.
+    const zz = br() * 2 - 1;
+    const phi = br() * Math.PI * 2;
+    const rr = Math.sqrt(Math.max(0, 1 - zz * zz));
+    brueche.push({
+      n: [Math.cos(phi) * rr, zz, Math.sin(phi) * rr],
+      // **Die erste Ebene schneidet immer tief.** Mit einem gemeinsamen
+      // Bereich von 0,60 bis 0,88 fuer alle Ebenen bekam ein Stein
+      // gelegentlich nur drei flache Anschliffe und blieb rund — im Bild
+      // stand dann neben einem gebrochenen Findling wieder eine Kartoffel.
+      // Die erste Ebene liegt deshalb sicher tief (0,54 bis 0,66), die
+      // weiteren streuen darueber.
+      d: gross ? (k === 0 ? 0.54 + br() * 0.12 : 0.66 + br() * 0.22) : 0.82 + br() * 0.12,
+    });
+  }
+  // **Unterteilung 3 statt 2, aber nur fuer die grossen.** Eine Bruchkante ist
+  // so gerade wie das Netz, durch das sie laeuft: Auf 320 Facetten haette sie
+  // eine sichtbare Treppe. Die sechzehn Uferkiesel bleiben bei 2 — sie sind
+  // im Bild 10 bis 30 Bildpunkte gross.
+  const geo = weatheredStoneGeometry(new THREE.IcosahedronGeometry(size, gross ? 3 : 2), formSame, {
     // **0,22 bis 0,48 statt 0,18 bis 0,40, und 3,0 bis 6,5 statt 1,5 bis 3,7.**
     // Beide Bereiche gehoeren zur Unterteilung darueber: Auf 42 Punkten war
     // eine Frequenz von 3 unterabgetastet, auf 162 traegt sie. Mit den alten
@@ -12585,6 +12621,15 @@ function makeZenStone(rand, size, color = 0x8b8680) {
     // damit von einer Farbfläche nicht zu unterscheiden.
     uv: 0.18,
     kavitaet: true,
+    brueche: wieViele ? brueche : null,
+    // **100 Grad hat nie eine Kante stehen lassen.** Der Test in
+    // `smoothNormalsByPosition` verwirft eine Nachbarflaeche erst, wenn sie
+    // mehr als `crease` von der eigenen abweicht — bei 100 Grad also
+    // praktisch nie. Genau deshalb hatte kein Stein dieser Szene eine Kante,
+    // obwohl die Funktion einen Knickwinkel kennt. Eine Bruchkante steht bei
+    // 40 bis 90 Grad; mit 46 bleibt sie hart, waehrend die gerundete
+    // Verwitterung (benachbarte Facetten unter 25 Grad) weiter glatt bleibt.
+    crease: wieViele ? 46 : 100,
   });
   // Grundfarbe als Scheitelfarbe, dann die Patina darüber. Beide schreiben in
   // dasselbe Attribut, deshalb die Reihenfolge.

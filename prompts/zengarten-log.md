@@ -4948,3 +4948,80 @@ eine Zahl zu drehen, bis eine Messung entsteht, die nichts belegt.
 
 Nur Werkzeuge; `src/` unveraendert. `npm run build` gruen, alle sechs
 Zen-Kameras bitgleich gegen `zen-73`.
+
+## Paket AX — Die Findlinge bekommen Bruchflaechen
+
+Befund 8 der fuenften Runde: „Kartoffeln mit aufgemalten Schatten". Derselbe
+Befund stand schon in einer frueheren Runde als „glatte, abgerundete
+Kartoffelformen, ohne Kanten, Bruchflaechen, Schichtung oder Charakter", und ich
+hatte darauf `amount`, `frequency` und `bevel` je Stein gestreut. **Das war die
+falsche Antwort auf die richtige Frage:** Gestreut wurde damit die Rundung, nicht
+die Form. Rauschen kann eine Kugel beulen; es kann keine ebene Flaeche machen
+und schon gar keine Kante, an der zwei ebene Flaechen aufeinandertreffen.
+
+### Zwei Ursachen, beide in einer Zahl
+
+**Erstens: `crease = 100`.** `weatheredStoneGeometry` kennt einen Knickwinkel,
+ab dem eine Kante hart bleibt — und der Test in `smoothNormalsByPosition`
+verwirft eine Nachbarflaeche erst, wenn sie **mehr als** `crease` von der
+eigenen abweicht. Bei 100 Grad also praktisch nie. Die Funktion hatte den
+Schalter, er stand nur auf „alles glaetten". Kein Stein dieser Szene hatte
+jemals eine Kante.
+
+**Zweitens: es gab nichts zu knicken.** Selbst mit scharfen Normalen bleibt ein
+verrauschtes Ikosaeder rund. Neu ist deshalb `brueche` in
+`weatheredStoneGeometry`: eine Liste von Ebenen, gegen die jeder Punkt geklemmt
+wird. Angesetzt wird im **normierten Ellipsoidraum** — jede Achse durch ihre
+halbe Ausdehnung geteilt —, damit die Ruecktransformation affin bleibt und eine
+Ebene eine Ebene bleibt, auch nachdem der Stein in x, y und z verschieden
+skaliert wurde.
+
+Je Findling zwei bis vier Ebenen, je Uferkiesel null oder eine: Ein Kiesel am
+Wasser ist rundgeschliffen, ein Findling nicht.
+
+**Die erste Ebene schneidet immer tief.** Mit einem gemeinsamen Bereich von 0,60
+bis 0,88 fuer alle Ebenen kam es vor, dass ein Stein nur flache Anschliffe
+bekam und rund blieb — im Bild stand dann neben einem gebrochenen Findling
+wieder eine Kartoffel. Die erste liegt jetzt sicher bei 0,54 bis 0,66, die
+weiteren streuen zwischen 0,66 und 0,88.
+
+**Unterteilung 2 → 3, aber nur fuer die acht grossen.** Eine Bruchkante ist so
+gerade wie das Netz, durch das sie laeuft; auf 320 Facetten haette sie eine
+sichtbare Treppe. Die sechzehn Uferkiesel bleiben bei 2 — sie sind im Bild 10
+bis 30 Bildpunkte gross.
+
+Der Zufallsstrom dafuer ist eigen (`mulberry32(formSame + 7717)`). **Keine
+zusaetzliche Ziehung aus `rand` oder `sr`** — jede verschoebe alles, was danach
+im Garten gebaut wird.
+
+### Gemessen
+
+Tonwertverteilung ueber die Knotenmaske `zen-findlinge` in `b-pond`, ohne alle
+Schlagschatten (`tools/knotenwerte.mjs --ohne-werfer`):
+
+    vorher   p05 31   p50 71   p95 117   max 175
+    nachher  p05 20   p50 74   p95 132   max 184
+
+**Das Tonwertband p05→p95 waechst von 86 auf 112 Stufen, also um 30 Prozent.**
+Das ist der Unterschied zwischen „Pappe mit Farbverlauf" und „Koerper": Die
+neuen Flaechen stehen in verschiedenen Winkeln zur Sonne, und der Renderer
+macht daraus verschiedene Tonwerte — ohne dass etwas aufgemalt werden muesste.
+
+### Budget
+
+    Draw-Calls       96 / 120   unveraendert
+    Dreiecke    113 340 / 350 000   (+2 240 gegen zen-73)
+    Texturen      21,86 / 60   unveraendert
+
+Die 2 240 Dreiecke sind genau die acht Findlinge von Unterteilung 2 auf 3.
+
+### Regression
+
+`weatheredStoneGeometry` bekommt `brueche = null` als Vorgabe und behaelt
+`crease = 100`; alles, was die Funktion sonst benutzt, ist unberuehrt. Gemessen:
+Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 7 auf 0,010 % der
+Bildpunkte (das bekannte Rauschband dieser Umgebung). Im Zen-Garten aendern
+sich 0,75 bis 5,1 % der Bildpunkte, Schwerpunkt jeweils auf den Steingruppen.
+
+`npm run build` gruen, Konsole frei von Errors und Warnings. Neuer Bildstand
+`tools/shots/zen-76`.
