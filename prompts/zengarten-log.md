@@ -5103,3 +5103,104 @@ aendern sich 0,012 bis 0,020 % der Bildpunkte, ausschliesslich die Koerner in
 mittlerer Tiefe; `d-aerial` bitgleich. Insel, Konstrukt und Nachthimmel
 bitgleich, Dojo Δmax 7 auf 0,012 % (bekanntes Rauschband). Bildstand
 `tools/shots/zen-77`.
+
+## Paket AZ — Der Schatten war nicht zu flach, er war zu warm
+
+Sechste Prüferrunde, Befund 3: „Schatten ohne Kraft und ohne Farbe". Zwei
+Behauptungen, und nur eine stimmt.
+
+### Was nicht stimmt: die Tiefe
+
+Der Prüfer misst in `c-torii` besonnten Sand (194,172,134) gegen beschatteten
+(153,135,105) und nennt das „ein Viertel dunkler". Beide Zahlen sind richtig —
+**aber der zweite Kasten ist kein Schatten, er ist ein Mittelwert über
+Halbschatten, Rillenkämme und Schattenkern.** Die dunkelsten zehn Prozent
+desselben Kastens liegen bei (89,83,69), also **L 83,5 gegen L 174,7 —
+Verhältnis 0,478**. Ein voller Schlagschatten ist hier halb so hell wie die
+besonnte Fläche, und das ist für einen Aussenraum richtig.
+
+Das ist inzwischen das **dritte Mal**, dass ein Prüferbefund zur Schattentiefe
+auf demselben Fehler beruht: Der Mittelwert über eine Maske, die zum grösseren
+Teil gar nicht im Schatten liegt, ist nicht die Tiefe des Schattens.
+
+### Was stimmt: die Farbe
+
+Hier hat er recht, und es ist der wichtigere Teil. Gemessen als Verhältnis Rot
+zu Blau:
+
+    besonnter Sand      R/B 1,448
+    Schattenmittel      R/B 1,456   <- identisch
+    Schattenkern        R/B 1,298
+
+Im Mittel ist der Schatten ein **reines neutrales Abdunkeln**, im Kern kühlt er
+um ganze zehn Prozent ab. Was goldene Stunde ausmacht, ist aber die
+**Warm-Kalt-Trennung**: Die besonnte Fläche bekommt Sonnenlicht (warm), die
+beschattete nur noch Himmelslicht (kühl). Zehn Prozent davon liest kein Mensch.
+
+### Die Ursache war eine weisse Grundleuchte
+
+`src/main.js` hält eine `HemisphereLight(0xffffff, 0x334455)` als Grundleuchte
+für alle Umgebungen; der Zen-Garten hat sie über `sceneAmbient` auf 0,25
+gestellt. **Sie ist von oben reinweiss.** Der Zen-Garten hat daneben eine eigene
+Hemisphäre in 0xb3cdf0 (Himmelsblau) mit 0,76 — und genau deren Blau wird von
+der weissen Grundleuchte wieder herausgemischt. Die beiden arbeiten
+gegeneinander.
+
+Nachgerechnet für eine nach oben zeigende Fläche, linear: Die Zen-Hemisphäre
+gibt (0,331 | 0,456 | 0,662), also R/B **0,50**. Die weisse Grundleuchte gibt
+(0,25 | 0,25 | 0,25), also R/B **1,00**. Zusammen 0,637. Ohne sie bliebe 0,50 —
+und weil der Sand selbst warm ist, schlägt das bis ins Bild durch.
+
+### Gemessene Reihe
+
+`sceneAmbient` in drei Schritten, jedes Mal `c-torii` neu gerendert:
+
+    Grundleuchte   Sonne L   Schatten L   Verhaeltnis   Warm-Kalt-Spanne
+    0,25            174,7        83,5        0,478          0,150
+    0,10            169,8        70,5        0,415          0,248
+    0,00            166,2        60,8        0,366          0,346
+
+Die Spanne ist der Abstand der beiden R/B-Werte. Sie **wächst auf das
+2,3fache**, während die besonnte Fläche nur **5 Prozent** verliert. Das ist das
+Verhältnis, auf das es ankommt: Der Schatten wird tiefer und kühler, das Licht
+bleibt, wo es war.
+
+`sceneAmbient` steht jetzt auf **0**. Die Grundleuchte war ein Notbehelf; der
+Garten hat seine eigene Hemisphäre, seine Sonne, sein warmes Gegenlicht vom
+Sandboden und eine Umgebungskarte. Er braucht keine zusätzliche weisse Lampe.
+
+### Läuft etwas zu?
+
+Anteil der Bildpunkte unter L 16, alle sechs Kameras, vorher gegen nachher:
+
+    a-eyelevel  0,23 %  ->  0,43 %        d-aerial  0,05 %  ->  0,13 %
+    b-pond      0,62 %  ->  1,24 %        e-sand    0,43 %  ->  0,74 %
+    c-torii     0,25 %  ->  0,50 %        f-grove   0,17 %  ->  0,32 %
+
+Der Anteil verdoppelt sich und bleibt trotzdem unter anderthalb Prozent. Das
+Bildmittel sinkt um 3 bis 7 Stufen. Nichts säuft ab.
+
+### Regression und Budget
+
+Nur der Zen-Garten hat eine eigene `sceneAmbient`; die anderen vier behalten
+`AMBIENT_STANDARD`. Gemessen: Insel, Konstrukt und Nachthimmel **bitgleich**,
+Dojo Δmax 6 auf 0,008 %. Budget unverändert (96 Draw-Calls, 113 340 Dreiecke,
+21,86 MB). `npm run build` grün, Konsole sauber. Bildstand `tools/shots/zen-78`.
+
+### Offen aus derselben Prüferrunde, nach Wirkung
+
+1. **Der Teich hat keine Spiegelung.** Kein Laternenbild, kein Himmel, kein
+   Glanzpunkt — eine trübe olivgraue Fläche. Das ist der stärkste Blickfang der
+   Szene und das schwächste Element darin.
+2. **Keine Einfassung.** Ein Karesansui ist durch seinen Rahmen definiert; hier
+   läuft der Kies bis zum Horizont. Steht im Widerspruch zu einer früheren
+   Prüferrunde, die ausdrücklich „Ferne statt Mauer" verlangt hat — eine
+   niedrige Mauer, über die die fernen Hügel weiter sichtbar bleiben, erfüllt
+   beides.
+3. **Zwei Harkmuster kreuzen sich**, und die Rillen laufen unter den
+   Trittsteinen durch, statt um sie herumgeführt zu werden.
+4. **Die fernen Hügel** tragen ihre Bäumchen nur auf der Silhouette, als gleich
+   grosse Zacken; auf den Hügelflächen steht keiner. Dazu haben alle Hügel
+   denselben Tonwert, unabhängig von der Entfernung.
+5. Laterne, Bambus, Trittsteine, Koi und Seerosen — Einzelbefunde, die in der
+   Brille aus der Nähe zählen.

@@ -15813,7 +15813,7 @@ function createZenEnvironment() {
     // die Hälfte der Flächenhelligkeit, und weil eine Hemisphärenleuchte fast
     // nur von `normal.y` abhängt, reagierte dieser Anteil auf keine Form.
     // Der Zen-Garten bringt seinen Himmelsanteil selbst mit.
-    sceneAmbient: 0.25,
+    sceneAmbient: 0.0,
 
     // **Warum die Karte erst hier entsteht und nicht beim Bauen.** Der
     // PMREM-Generator braucht einen lebenden Renderer und rechnet auf der GPU;
