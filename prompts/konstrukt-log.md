@@ -1862,3 +1862,55 @@ Tiefensegmente kosten 4 416), 1,98 MB Textur. Build grün, Konsole frei von
 Errors und Warnings.
 
 Bildstand `tools/shots/konst-04`.
+
+---
+
+## Das Konstrukt hat keinen Schatten mehr
+
+**Auf Zuruf des Nutzers:** „Die Umgebung Konstrukt soll wie bei Matrix keinen
+Schatten haben. Es ist eine rein weiße Umgebung."
+
+Entfallen ist beides, was es an Schatten gab:
+
+* der **Schlagschatten** — `key.castShadow`, die Schattenkarte mit ihren
+  1024 Texeln auf ±3 m (5,9 mm je Texel, die schärfste des Projekts), die
+  Werferauswahl nach Hüllkugelhalbmesser und die `ShadowMaterial`-Ebene mit
+  ihrer gemessenen Farbe 0x1c2127, Deckkraft 0,36 und dem Gefälle entlang der
+  Bodenprojektion der Lichtrichtung;
+* die **Aufstandsflecken** — die drei einzelnen unter Sesseln und Fernseher,
+  der grosse gemeinsame darunter und die fünf am Konsolenständer.
+
+Alles davon steht weiter im Code, samt Kommentaren und Messwerten; es ist in
+wenigen Zeilen wieder einzuhängen.
+
+### Was das kostet, und was es bringt
+
+Was es kostet, steht in den Kommentaren, die dort seit dem Schattenpaket
+stehen: **In einer weissen Leere ist der Schatten die einzige Angabe darüber,
+wo ein Gegenstand steht.** Ohne ihn schwebt die Sitzgruppe. Das Konstrukt aus
+dem Film ist aber genau das — eine Ladeumgebung ohne Ort, ohne Zeit und ohne
+Lichtquelle; die Entscheidung gehört dem Nutzer. Die Eigenschattierung durch
+das gerichtete Licht bleibt, die Möbel sind also weiterhin plastisch.
+
+Was es bringt, ist erheblich:
+
+    Draw-Calls     49 -> 24 / 120
+    Dreiecke   98.436 -> 50.898 / 350.000
+    Textur       1,98 / 60 MB
+    Konsole    frei von Errors und Warnings
+
+**Der Schattendurchgang war die Hälfte dieser Umgebung.** Jeder Werfer wird ein
+zweites Mal gezeichnet; bei einer Sitzgruppe aus Dutzenden kleiner Teile ist
+das genau die Verdopplung, die hier wegfällt.
+
+### Regression
+
+Die vier anderen Umgebungen sind **bitgleich** — gemessen gegen den frischen
+Stand `zen-72` und nicht gegen `konstrukt-36`. Letzterer ist für die anderen
+vier veraltet: Seit er entstand, sind im Zengarten acht, auf der Insel und im
+Dojo mehrere Pakete gelaufen, und ein Diff dagegen zeigt deren Änderungen, nicht
+meine. Das ist der Grund, warum jeder Bildstand die Regressionsbilder **aller**
+Umgebungen mitführt und beim Ersetzen mitgeführt werden muss.
+
+Bildstand `tools/shots/konstrukt-37` (ersetzt `konstrukt-36`), Messwerte
+`tools/metrics/konst-04.json`.

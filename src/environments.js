@@ -17608,20 +17608,8 @@ function makeConsoleStand(width, depth, height) {
   // Dieselbe Behandlung wie am Sessel: ein Fleck je Fuss zusaetzlich zum
   // grossen. Der Ausstellwinkel der Beine (0,1 rad ueber die Beinhoehe) wandert
   // dabei mit — der Fuss steht nicht unter seinem Anschlusspunkt.
-  const standFuesse = [makeBlobShadow(0.42, 0.62, 0.006)];
-  const ausstellung = Math.tan(0.1) * legH;
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const fleck = makeBlobShadow(0.06, 0.9, 0.004);
-      fleck.position.set(
-        sx * (width / 2 - 0.05 + ausstellung),
-        0.004,
-        sz * (depth / 2 - 0.05 + ausstellung)
-      );
-      standFuesse.push(fleck);
-    }
-  }
-  group.add(verschmelzeSchatten(standFuesse, 'staender-kontakt'));
+  // Auch hier keine Aufstandsflecken mehr — siehe die Begruendung weiter
+  // unten in `makeConstructLounge()`.
   return group;
 }
 
@@ -17780,23 +17768,18 @@ function makeConstructLounge() {
   // Gruppe. Der bindet zwar zusammen, aber er sitzt unter niemandem: Ein Sessel
   // steht 1,06 m von der Mitte, sein Fuss also am Rand des Flecks, wo dieser
   // schon fast ausgeblendet ist.
-  for (const [x, z, r] of [
-    [-CHAIR_X, CHAIR_Z, 0.58],
-    [CHAIR_X, CHAIR_Z, 0.58],
-    [0, TV_Z, 0.42],
-  ]) {
-    const fleck = makeBlobShadow(r, 0.34, 0.005);
-    fleck.position.set(x, 0.005, z);
-    group.add(fleck);
-  }
-
-  // Der gemeinsame Fleck bleibt, aber nur noch halb so kräftig: Er bindet die
-  // Gruppe zusammen, das Stehen besorgen jetzt die drei einzelnen.
-  const shade = makeBlobShadow(1.8, 0.12, 0.004);
-  // Mittig unter der Gruppe – wandert mit, wenn die Sessel weiter nach hinten
-  // rücken, sonst steht die Sitzgruppe halb neben ihrem eigenen Schatten.
-  shade.position.z = (CHAIR_Z + TV_Z) / 2;
-  group.add(shade);
+  // **Die Kontaktflecken sind auf Zuruf des Nutzers entfallen.**
+  //
+  // „Die Umgebung Konstrukt soll wie bei Matrix keinen Schatten haben. Es ist
+  // eine rein weisse Umgebung." Das gilt fuer jede Art von Schatten, also auch
+  // fuer die weichen Aufstandsflecken unter Sesseln, Fernseher und Staender
+  // und fuer den grossen gemeinsamen Fleck darunter.
+  //
+  // Was das kostet, steht in den Kommentaren oben: Ein Gegenstand ohne
+  // Verdunklung an seiner Aufstandsflaeche steht nicht, er schwebt. Genau das
+  // ist im Konstrukt gewollt — eine Ladeumgebung ohne Ort, ohne Zeit und ohne
+  // Lichtquelle. Der Code der Flecken bleibt stehen; sie sind in einer Zeile
+  // wieder einzuhaengen.
 
   return { group, update: (time) => console3d.update(time) };
 }
@@ -18071,22 +18054,25 @@ function createMatrixEnvironment() {
   // Das Ziel wandert zur Sitzgruppe mit, die Lichtposition um denselben Betrag:
   // Ein gerichtetes Licht kennt nur die Differenz, die Lichtrichtung bleibt
   // damit exakt dieselbe wie vorher.
+  // **Kein Schlagschatten mehr — auf Zuruf des Nutzers.**
+  //
+  // „Die Umgebung Konstrukt soll wie bei Matrix keinen Schatten haben. Es ist
+  // eine rein weisse Umgebung."
+  //
+  // Alles, was oben ueber die Schaerfe dieser Schattenkarte steht (5,9 mm je
+  // Texel, die schaerfste des Projekts), gilt weiter und bleibt im Kommentar
+  // stehen: Der Kasten von +/-3 m, die Schwelle von 6 cm Huellkugel, die
+  // Schattenebene aus `ShadowMaterial` mit ihrem Gefaelle — es ist gebaut,
+  // gemessen und in wenigen Zeilen wieder einzuhaengen.
+  //
+  // Was die Entscheidung kostet, ist genau das, was diese Arbeit eingebracht
+  // hat: In einer weissen Leere ist der Schatten die einzige Angabe darueber,
+  // wo ein Gegenstand steht. Ohne ihn schwebt die Sitzgruppe. Das Konstrukt
+  // aus dem Film ist aber genau das — eine Ladeumgebung ohne Ort, ohne Zeit
+  // und ohne Lichtquelle; die Entscheidung gehoert dem Nutzer.
   key.position.set(-3.5, 5, 1.1);
   key.target.position.set(0, 0, -3.9);
-  key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024);
-  {
-    const sc = key.shadow.camera;
-    sc.left = -3;
-    sc.right = 3;
-    sc.top = 3;
-    sc.bottom = -3;
-    sc.near = 3;
-    sc.far = 16;
-    sc.updateProjectionMatrix();
-  }
-  key.shadow.bias = -0.0004;
-  key.shadow.normalBias = 0.02;
+  key.castShadow = false;
   group.add(key);
   group.add(key.target);
   const rim = new THREE.DirectionalLight(0xdce6f0, 0.35);
@@ -18122,7 +18108,7 @@ function createMatrixEnvironment() {
   // der im Schatten der Rueckenlehne hell bleibt, faellt sofort auf.
   lounge.group.traverse((o) => {
     if (!o.isMesh || o.name === 'blob-shadow') return;
-    o.receiveShadow = true;
+    o.receiveShadow = false;
     if (!o.geometry.boundingSphere) o.geometry.computeBoundingSphere();
     const r = o.geometry.boundingSphere?.radius ?? 0;
     // Instanzierte Meshes zaehlen als eines und tragen viele Koerper; sie
@@ -18134,7 +18120,11 @@ function createMatrixEnvironment() {
     // Schattendurchgang. Gemessen: 48 auf 50 Draw-Calls, fuer den Schatten von
     // zwei Knoepfen auf der Gehaeusewand, die es ohnehin nicht gibt. Was
     // ausdruecklich nicht werfen soll, sagt es hier selbst.
-    if ((r >= 0.06 || o.isInstancedMesh) && !o.userData.keinWerfer) o.castShadow = true;
+    // Ohne Schattenkarte traegt ein Werfer nichts bei und kostet trotzdem
+    // einen zweiten Zeichenaufruf. Die gemessene Schwelle bleibt als Kommentar
+    // stehen; die Zuweisung ist stillgelegt.
+    o.castShadow = false;
+    void r;
   });
   group.add(lounge.group);
 
@@ -18246,13 +18236,11 @@ function createMatrixEnvironment() {
     );
   };
   schattenMat.customProgramCacheKey = () => 'konstrukt-schatten-v1';
-  const schattenBoden = new THREE.Mesh(new THREE.CircleGeometry(12, 48), schattenMat);
-  schattenBoden.name = 'schattenboden';
-  schattenBoden.rotation.x = -Math.PI / 2;
-  schattenBoden.position.y = -0.015;
-  schattenBoden.receiveShadow = true;
-  schattenBoden.renderOrder = 1;
-  group.add(schattenBoden);
+  // Die Schattenebene ist mit dem Schlagschatten entfallen. `schattenMat`
+  // bleibt darueber stehen: Sie traegt die Farbe, die Deckkraft und das
+  // Gefaelle, die alle drei gemessen sind, und ist zusammen mit
+  // `key.castShadow` in wenigen Zeilen wieder einzuhaengen.
+  void schattenMat;
 
   return {
     id: 'matrix',
