@@ -12519,7 +12519,25 @@ function zenGranite() {
     // die Lichtspitze, um derentwillen 0,66 gewaehlt wurde, geht dabei nicht
     // verloren: Auf den Findlingen liegt der Anteil ueber L 230 bei 0,66 wie
     // bei 0,80 auf 0,00 Prozent — die Spitze war dort ohnehin nie.
-    _zenGranit.roughness = 0.8;
+    // **0,90 statt 0,80 — eine Regression aus Paket AS, von mir gebaut.**
+    //
+    // Die Reihe darueber ist mit einer Sonne von 4,1 gemessen. In Paket AS ist
+    // sie auf 5,35 gestiegen (bei gleichzeitig gesenkter Umgebung, damit die
+    // Summe auf einer waagerechten Flaeche steht) — dreissig Prozent mehr
+    // gerichtetes Licht auf genau die Glanzkeule, um die es hier geht.
+    //
+    // Und prompt war der Befund zurueck, den 0,80 einmal beseitigt hatte.
+    // Gemessen am vordersten Trittstein in `e-sand` (Kasten 0,455-75,492), dem
+    // Stein, der 45 cm vor der Kamera liegt:
+    //
+    //     Rauheit   Median   p95   Hoechstwert   ueber L 250
+    //     0,80        226    253       255         10,7 %
+    //     0,90        205    235       250          0,0 %
+    //     0,97        197    221       236          0,0 %
+    //
+    // 0,90 nimmt das Ausbrennen vollstaendig weg und kostet 21 Stufen Median;
+    // 0,97 kostet weitere acht, ohne noch etwas zu gewinnen.
+    _zenGranit.roughness = 0.9;
     // Ein schmaler Himmelssaum an der Silhouettenkante. Kleiner Betrag, hoher
     // Exponent: Auf einer flach schattierten Fläche wird ein weicher
     // Fresnel-Saum sonst zur **Flächen**helligkeit statt zur Kante, und alles
@@ -14496,7 +14514,25 @@ function createZenEnvironment() {
     // Umriss: ein Vieleck mit ungleichen Radien, nicht ein Kreis. Wenige
     // Segmente, damit die Kante gebrochen liest statt rund.
     const ecken = 7 + Math.floor(rand() * 3);
-    const geo = new THREE.CylinderGeometry(groesse, groesse * 0.94, 0.075, ecken);
+    // **Die Kante war ein Rasiermesser.**
+    //
+    // Der Pruefer hat den Stein aus 45 cm beschrieben: „die Oberseite eine
+    // ebene Facette, die Seitenwand ein einfarbig braunes Band, die Kante
+    // rasiermesserscharf". Das ist genau das, was eine `CylinderGeometry` mit
+    // einem Hoehensegment liefert — zwei Deckflaechen, ein Mantel, und
+    // dazwischen ein Normalensprung von neunzig Grad.
+    //
+    // Ein Trittstein wird seit Jahrzehnten betreten und vom Regen gewaschen;
+    // seine Kanten sind gerundet, nicht gebrochen. Vier Hoehensegmente und ein
+    // Fassprofil legen diese Rundung an:
+    //
+    //     f(h) = 1 − 0,18 · |h|^1,6      h = −1 am Boden, +1 an der Oberkante
+    //
+    // Der Exponent groesser eins laesst die Mitte unberuehrt und zieht nur die
+    // beiden Raender ein; `computeVertexNormals` macht daraus einen weichen
+    // Uebergang statt einer Kante. Kosten: 48 Dreiecke je Stein, bei sieben
+    // Steinen 336.
+    const geo = new THREE.CylinderGeometry(groesse, groesse * 0.94, 0.075, ecken, 4);
     {
       const pos = geo.attributes.position;
       const umriss = welligerUmriss(820 + i * 31, 0.26, 4);
@@ -14505,7 +14541,9 @@ function createZenEnvironment() {
         const pz = pos.getZ(v);
         const r = Math.hypot(px, pz);
         if (r < 1e-5) continue;
-        const f = umriss(Math.atan2(pz, px));
+        const h = pos.getY(v) / 0.0375;
+        const kante = 1 - 0.07 * Math.pow(Math.min(1, Math.abs(h)), 3.0);
+        const f = umriss(Math.atan2(pz, px)) * kante;
         pos.setX(v, px * f);
         pos.setZ(v, pz * f);
       }
@@ -15224,7 +15262,25 @@ function createZenEnvironment() {
     // gleich Tiefe" – das Ergebnis waren dunkle Pflaumen mit rosa Sprenkeln
     // darauf. Tiefe entsteht durch **Helligkeitsunterschied innerhalb einer
     // Farbe**, nicht durch eine zweite Farbe.
-    farben: [0xc98fa6, 0xd6a0b4, 0xbc8398],
+    // **Und der Huellkoerper war trotzdem eine zweite Farbe.**
+    //
+    // Der Pruefer hat „kraeftig blauviolette Fehlflecken mit scharfer Kante
+    // mitten in der rosa Masse" gemeldet. Gemessen im Kronenkasten von
+    // `a-eyelevel` (0,60-270,240), Bildpunkte mit G < min(R,B) − 14:
+    // **797 von 48 600, also 1,64 Prozent**, typisch rgb(136 | 107 | 140) bei
+    // L 116 — gegen eine Bluetenmasse bei L 219.
+    //
+    // Die Toene oben waren 0xc98fa6, 0xd6a0b4 und 0xbc8398. Der letzte hat
+    // rgb(188 | 131 | 152): Gruen liegt **21 Stufen unter Blau**, waehrend die
+    // Karten mit 0xffe4ee nur 10 darunter liegen. Der Huellkoerper war also
+    // nicht dieselbe Farbe in dunkler, sondern eine magentastichigere — und
+    // weil er im Kernschatten der Karten liegt und nur die kuehle Hemisphaere
+    // abbekommt, kippt er im Bild vollends ins Violette.
+    //
+    // Jetzt sind es die Kartenfarben selbst, mal 0,80. Damit stimmt der Ton
+    // per Konstruktion, und der Abstand ist der, der gemeint war: eine
+    // Helligkeitsstufe innerhalb einer Farbe.
+    farben: [0xccb6be, 0xcca8b5, 0xc69ead],
     kartenFarben: [0xffe4ee, 0xffd2e2, 0xf8c6d8],
   });
   sakuraKrone.blobs.name = 'zen-sakura-blobs';

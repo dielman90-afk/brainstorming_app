@@ -4658,3 +4658,102 @@ Die vier anderen Umgebungen **bitgleich**.
 
 Bildstand `tools/shots/zen-72` (ersetzt `zen-71`), Messwerte
 `tools/metrics/zen-72.json`.
+
+---
+
+## Paket AU — Drei Befunde der fünften Runde, und eine Regression von mir
+
+### Die blauvioletten Flecken in der Sakura: halb erklärt, halb behoben
+
+Prüferbefund 6: „kräftig blauviolette Kleckse mit scharfer Kante mitten in der
+rosa Masse". Gemessen im Kronenkasten von `a-eyelevel` (0,60–270,240),
+Bildpunkte mit G < min(R,B) − 14: **797 von 48 600, also 1,64 Prozent**,
+typisch rgb(136 | 107 | 140) bei L 116 — gegen eine Blütenmasse bei L 219.
+
+Per Strahl nachgesehen ist das **keine** Rückseite und kein Ast: Die Flecken
+sind `zen-sakura-karten`, also Blütenkarten im Kernschatten des eigenen Baums.
+Dort fällt kein Sonnenlicht mehr, es bleibt die Hemisphäre — und deren
+Himmelston 0xb3cdf0 hat Blau als stärksten Kanal. Eine rosa Karte (R > B > G)
+mal ein blaues Licht ergibt R ≈ B > G, also Violett. **Das ist physikalisch
+richtig**; verschattete Kirschblüten unter blauem Himmel sind tatsächlich
+lavendelgrau.
+
+Ein Teil davon war es aber nicht. Die Hüllkörper der Krone standen auf
+0xc98fa6, 0xd6a0b4 und 0xbc8398; der letzte hat rgb(188 | 131 | 152) — Grün
+liegt **21 Stufen unter Blau**, während die Karten mit 0xffe4ee nur 10 darunter
+liegen. Der Hüllkörper war also nicht dieselbe Farbe in dunkler, sondern eine
+magentastichigere, obwohl der Kommentar daneben genau das Gegenteil verlangt.
+Jetzt sind es die Kartenfarben selbst, mal 0,80.
+
+    magenta im Kronenkasten   797 (1,64 %)  ->  591 (1,22 %)   Median L 105 -> 108
+
+**Ein Viertel des Befundes, nicht mehr.** Den Rest würde nur eine wärmere
+Hemisphäre wegnehmen — und die ist in Paket AS gerade bewusst kühl gestellt
+worden, weil der Farbunterschied zwischen besonnt und verschattet die halbe
+Tiefe trägt. Das steht hier als Abwägung, nicht als Versäumnis.
+
+### Die Trittsteinkante war ein Rasiermesser
+
+Prüferbefund 9: „die Oberseite eine ebene Facette, die Seitenwand ein
+einfarbig braunes Band, die Kante rasiermesserscharf". Das ist genau das, was
+eine `CylinderGeometry` mit **einem** Höhensegment liefert: zwei Deckflächen,
+ein Mantel, dazwischen ein Normalensprung von neunzig Grad.
+
+Vier Höhensegmente und ein Fassprofil `f(h) = 1 − 0,07 · |h|³` legen die
+Rundung an, die ein betretener und gewaschener Stein hat. 336 Dreiecke für
+sieben Steine.
+
+**Der erste Anlauf war zu stark und hat es verschlimmert.** Mit
+`1 − 0,18 · |h|^1,6` wurde aus der Kante ein Fass: Die Mantelnormalen kippten so
+weit nach unten, dass die Seitenwand schwarz wurde, und an der Deckkante stand
+ein ausgebrannter Splitter. Der Exponent drei lässt die Mitte unberührt und
+zieht nur den äussersten Ring ein — eine Fase, kein Fass.
+
+### Versucht und zurückgenommen: Rücklicht am Steinfuss
+
+Die Seitenwand steht bei Median **L 22** und mit 52 Prozent unter L 40. Der
+naheliegende Griff — ein aufgehellter Fuss in den Scheitelfarben, wie die
+Verdeckung bei den Findlingen — hat **nichts** bewirkt: Mittel 61,0 auf 60,8.
+
+Der Grund ist derselbe wie bei der Laternenunterseite, nur umgekehrt: **Albedo
+hat keinen Hebel, wo kein Licht ist.** Anderthalbmal fast nichts ist fast
+nichts. Der Term ist wieder heraus; was diese Fläche bräuchte, ist Licht, nicht
+Farbe.
+
+### Und eine Regression, die ich in Paket AS gebaut habe
+
+Die Rauheitsreihe von `zenGranite()` ist mit einer Sonne von **4,1** gemessen
+worden. In Paket AS ist sie auf 5,35 gestiegen — dreissig Prozent mehr
+gerichtetes Licht auf genau die Glanzkeule, um die es dort ging. Und prompt war
+der Befund zurück, den 0,80 einmal beseitigt hatte.
+
+Gemessen am vordersten Trittstein in `e-sand` (Kasten 0,455–75,492), dem Stein
+45 cm vor der Kamera:
+
+    Rauheit   Median   p95   Hoechstwert   ueber L 250
+    0,80        226    253       255         10,7 %
+    0,90        205    235       250          0,0 %
+    0,97        197    221       236          0,0 %
+
+**0,90.** Das Ausbrennen ist vollständig weg und kostet 21 Stufen Median; 0,97
+kostet weitere acht, ohne noch etwas zu gewinnen.
+
+Die Lehre steht schon zweimal in diesem Log und gilt jetzt zum dritten Mal:
+**Wer die Lichtstärke ändert, macht jede Rauheitsreihe ungültig, die davor
+gemessen wurde.**
+
+### Budget und Regression
+
+    Draw-Calls        96 / 120
+    Dreiecke     111.100 / 350.000   (+696, die Fase der sieben Trittsteine)
+    Textur         21,86 / 60 MB
+    Konsole      frei von Errors und Warnings
+
+`env-night` und `env-matrix` **bitgleich** gegen den frischen Stand `insel-44`,
+`env-dojo` mit Δmax 4 auf 0,009 % im bekannten Rauschband des Gartenlaubs.
+(Gegen `zen-72` gemessen zeigen `env-island`, `env-matrix` und `env-dojo` die
+Pakete dieser Sitzung in den jeweils anderen Umgebungen — das sind meine
+eigenen Änderungen, nicht Regressionen.)
+
+Bildstand `tools/shots/zen-73` (ersetzt `zen-72`), Messwerte
+`tools/metrics/zen-73.json`.
