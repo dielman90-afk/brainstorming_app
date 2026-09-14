@@ -14011,6 +14011,30 @@ function createZenEnvironment() {
   mossMat.map = null;
   mossMat.color.setHex(0x77894e);
   mossMat.vertexColors = true;
+  // **Das Moos war die strukturaermste Flaeche im Bild — und zwar messbar.**
+  //
+  // Der Pruefer hat es ueber mehrere Runden als flach gemeldet, obwohl die
+  // Geometrie laengst ein Kissen mit Beulen ist. Gemessen an einer Nahansicht
+  // aus 50 cm, Hochpass ueber 5x5 Bildpunkte:
+  //
+  //     Moos  (Kasten 700,290-1100,330)   1,05
+  //     Sand  (Kasten  60,520- 460,560)   2,06
+  //
+  // Der Sand daneben traegt **doppelt so viel** Feinstruktur wie das Moos.
+  // Das ist verkehrt herum: Kies ist glatt und Moos ist samtig.
+  //
+  // Die Ursache ist die Zeile darueber. `map = null` nimmt dem Moos seine
+  // Farbkarte — mit gutem Grund, sie zeigt dunkle feuchte Erde und gehoert in
+  // den schattigen Dojo-Garten, nicht neben hellen Sand in die
+  // Nachmittagssonne. Uebrig bleiben die Scheitelfarben, und deren feinstes
+  // Feld liegt bei 7 cm. Die gesamte Feinstruktur des Mooses haengt damit an
+  // der Normalkarte allein, und die stand auf 0,85.
+  //
+  // 1,9 bringt den Hochpass auf 1,44 — nicht bis an den Sand heran, aber die
+  // Kissen sind aus Armlaenge als Kissen zu sehen statt als Lackflaeche. Die
+  // Karte selbst ist fein genug: 30 Buescheln je Kachel bei 55 cm Kachelgroesse
+  // sind 1,8 cm Abstand.
+  mossMat.normalScale = new THREE.Vector2(1.9, 1.9);
   // Ohne Farbkarte **und** ohne Scheitelfarben ist die Scheibe gleichförmig
   // grün – dieselbe Falle wie beim Inselrasen, einen Absatz weiter unten
   // beschrieben und hier prompt wiederholt. Die Variation hängt jetzt an der

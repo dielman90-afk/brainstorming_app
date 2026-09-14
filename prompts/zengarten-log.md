@@ -4471,3 +4471,68 @@ Schwerpunkt jeweils im Bambushain.
 
 Bildstand `tools/shots/zen-69` (ersetzt `zen-68`), Messwerte
 `tools/metrics/zen-69.json`.
+
+---
+
+## Paket AR — Das Moos war die strukturärmste Fläche im Bild, und das ist eine Zahl
+
+Prüferbefund 1.5: Das Moos liest flach. Der Befund steht seit mehreren Runden,
+obwohl die **Geometrie** längst ein Kissen mit Beulen und ausgefranstem Rand
+ist — 14 Ringe, 617 Punkte je Insel, zwei Beulenfelder.
+
+Gemessen an einer Nahansicht aus 50 cm (`tools/blick.mjs`, Pos −1,2 | 0,55 | 1,0),
+Hochpass über 5×5 Bildpunkte:
+
+    Moos  (Kasten 700,290-1100,330)   1,05
+    Sand  (Kasten  60,520- 460,560)   2,06
+
+**Der Kies daneben trägt doppelt so viel Feinstruktur wie das Moos.** Das ist
+verkehrt herum: Kies ist glatt, Moos ist samtig.
+
+### Die Ursache stand eine Zeile über dem Befund
+
+    mossMat.map = null;
+
+Das nimmt dem Moos seine Farbkarte, und zwar mit gutem Grund — sie zeigt dunkle
+feuchte Erde und gehört in den schattigen Dojo-Garten, nicht neben hellen Sand
+in die Nachmittagssonne. Übrig bleiben die Scheitelfarben, und deren feinstes
+Feld liegt bei 7 cm, der Grenze der Punktdichte. Die **gesamte** Feinstruktur
+des Mooses hing damit an der Normalkarte allein, und die stand auf 0,85.
+
+Die Karte selbst ist fein genug: `MOSS_TUFTS = 30` Büschel je Kachel bei 55 cm
+Kachelgrösse sind 1,8 cm Abstand. Es fehlte nur der Ausschlag.
+
+    normalScale   Hochpass im Moos
+    0,85              1,05
+    1,90              1,44
+
+Nicht bis an den Sand heran, aber die Kissen sind aus Armlänge als Kissen zu
+sehen statt als Lackfläche.
+
+### Flimmerprobe
+
+Eine stärkere Normalkarte auf einer Bodenfläche ist ein Flimmerkandidat, und
+im Dojo-Log steht die Warnung ausdrücklich. Gemessen mit `tools/kamm.mjs
+--dreh` in `c-torii` (Kamera dreht um 0 / 0,25 / 0,5 / 0,75 Bildpunkte):
+
+    Bereich   Streuung  Zittern  Quotient  max dL
+    Moos         33,0     1,24     0,038      52
+    Sand         39,6     0,99     0,025      68
+
+Der Quotient liegt bei 0,038 gegen 0,025 des Sandes daneben. Zum Vergleich: Im
+Insel-Log steht ein angenommener Vordergrund mit **0,776**. Kein Flimmerbefund.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.574 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Ein Materialparameter, keine Geometrie, keine Textur. Die vier anderen
+Umgebungen **bitgleich** — `mossMaterial()` liefert je Aufruf ein neues
+Material, der Dojo bekommt seines unverändert. Im Zengarten Δmax 13 bis 39 bei
+0,1 bis 0,6 % der Fläche, Schwerpunkt jeweils auf einer Moosinsel.
+
+Bildstand `tools/shots/zen-70` (ersetzt `zen-69`), Messwerte
+`tools/metrics/zen-70.json`.
