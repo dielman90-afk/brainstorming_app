@@ -33,18 +33,41 @@ if (!SHOT || !PUNKTE.length) {
   process.exit(1);
 }
 
+const SCHUSS = shotsFor(ENV).find((s) => s.name === SHOT);
+if (!SCHUSS) {
+  process.stderr.write(`Kamera ${SHOT} gibt es in ${ENV} nicht.\n`);
+  process.exit(1);
+}
+
 const server = await startServer();
 const browser = await launchBrowser();
 try {
   const { page } = await openApp(browser);
   await selectEnv(page, ENV);
   await ladeThree(page);
-  await lockCamera(page, shotsFor(ENV).find((s) => s.name === SHOT), 6.0);
+  await lockCamera(page, SCHUSS, 6.0);
   await page.waitForTimeout(300);
   const treffer = await page.evaluate(
-    ({ punkte, breite, hoehe, gruppe, ohne }) => {
+    ({ punkte, breite, hoehe, gruppe, ohne, pos, look, fov }) => {
       const THREE = window.__THREE;
       const app = window.__app;
+      // **Ohne das schiesst dieses Werkzeug in die falsche Richtung.**
+      //
+      // `lockCamera` setzt Ort und Blick in einer eigenen rAF-Schleife. Die
+      // Weltmatrix, aus der `setFromCamera` rechnet, traegt zum Zeitpunkt
+      // dieses Aufrufs aber den Stand der App-Schleife — und der ist
+      // unverdreht. Gemessen lieferte die Bildmitte von `zen/d-aerial`
+      // daraufhin den Bodenpunkt (10 | -69) statt (0 | 0): Die Kamera stand
+      // richtig, schaute aber geradeaus.
+      //
+      // Wie lange das schon so war, weiss ich nicht. Jede Knotenzuordnung
+      // dieses Werkzeugs aus frueheren Durchlaeufen ist damit unbestaetigt.
+      app.camera.position.set(pos[0], pos[1], pos[2]);
+      app.camera.up.set(0, 1, 0);
+      app.camera.lookAt(look[0], look[1], look[2]);
+      app.camera.fov = fov;
+      app.camera.updateProjectionMatrix();
+      app.camera.updateMatrixWorld(true);
       const g = app.scene.children.find((c) => c.name === gruppe);
       const rc = new THREE.Raycaster();
       // **Punktwolken brauchen eine enge Schwelle.** Die Vorgabe fuer
@@ -73,7 +96,16 @@ try {
         };
       });
     },
-    { punkte: PUNKTE, breite: VIEWPORT.width, hoehe: VIEWPORT.height, gruppe: `env-${ENV}`, ohne: OHNE }
+    {
+      punkte: PUNKTE,
+      breite: VIEWPORT.width,
+      hoehe: VIEWPORT.height,
+      gruppe: `env-${ENV}`,
+      ohne: OHNE,
+      pos: SCHUSS.pos,
+      look: SCHUSS.look,
+      fov: SCHUSS.fov,
+    }
   );
   for (const t of treffer) {
     process.stdout.write(`${SHOT}  (${t.x},${t.y})\n`);

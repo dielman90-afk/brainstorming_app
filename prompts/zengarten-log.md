@@ -4818,3 +4818,133 @@ ein Bild entsteht.
 
 Reine Kommentare. `b-pond` und `e-sand` **bitgleich** gegen `zen-73`; Budget und
 Bildstand unverändert.
+
+## Paket AW — Befund 7 laesst sich nicht messen, und dabei faellt ein kaputtes Werkzeug auf
+
+Der Pruefer hat unter Nummer 7 „Moiré und Streifenzerfall im Harkmuster"
+gemeldet, `d-aerial`, ungefaehr (0–420, 480–719). Dieses Paket ist der Versuch,
+das nachzumessen. Er ist gescheitert — der Befund ist mit keiner Messung zu
+belegen, die ich anlegen konnte. Was dabei herauskam, ist ein Werkzeugfehler,
+der vermutlich aelter ist als dieser Befund.
+
+### Was gemessen wurde, und was dabei herauskam
+
+**Abtastung.** Die Harklinien in `d-aerial` liegen bei x = 120/220/320/400 mit
+einer Periode von **7,1 bis 10,0 Bildpunkten** und einem Hub von 125 bis 133
+Stufen (p05 ≈ 115, p95 ≈ 215). Zaehlt man statt der Halbperioden die dunklen
+Linien selbst, sind es ueber den Zeilen 630 bis 714 **20,0 bis 13,8 Bildpunkte
+Abstand**, gleitend enger nach unten. Nyquist liegt bei 2. Von Unterabtastung
+ist die Spur zwei bis dreimal entfernt.
+
+**Richtung.** Der Strukturtensor ueber Streifen von sechs Zeilen (x 300–520)
+meldet ueber die Zeilen 630 bis 714:
+
+    61,6  61,4  61,3  61,2  61,1  61,2  61,1  61,3  61,5  61,4  61,7  61,6  61,5  61,9
+
+**0,8 Grad Schwankung ueber fuenfundachtzig Zeilen**, Kohaerenz durchgehend
+0,88 bis 0,93. Die Linien wechseln ihre Richtung nicht.
+
+**Detailmenge.** Der mittlere waagerechte Nachbarunterschied je Zeile liegt
+ueber dieselben Zeilen bei 9,0 bis 10,7 — ohne Stufe.
+
+### Was ich gesucht habe und was nicht da war
+
+Ich habe in den vergroesserten Ausschnitten eine **messerscharfe waagerechte
+Bruchkante** bei Zeile 690 gesehen, unterhalb derer die Harklinien in senkrechte
+Balken zerfallen. Diese Kante ist in keiner der vier Messungen oben zu finden:
+Die Richtung bleibt bei 61 Grad, der Abstand aendert sich gleitend, die
+Detailmenge hat keine Stufe.
+
+Sie ist trotzdem im Bild zu sehen, auch bei 1:1. Was ich fuer eine Kante
+gehalten habe, ist die breite Hell-Dunkel-Modulation aus `druck` und dem groben
+Zug: eine Schwebung mit einer Periode von mehreren Metern, die von oben nach
+unten schmaler wird und deren Kanten das Auge als Grenze liest. Ein
+Richtungswechsel ist es nicht, ein Zerfall der Spur auch nicht.
+
+Ausgeschlossen habe ich dabei acht Ursachen, jede mit einem eigenen Bild:
+
+| Versuch | Wirkung auf das Band |
+| --- | --- |
+| `scharf = 1.0` (Nyquist-Ausblendung aus) | 2,248 → 2,259 |
+| grober Zug aus (`ampGrob = 0`) | Balken unveraendert |
+| Ringbaender aus (alle vier Breiten 0) | Balken unveraendert |
+| Harkfeldgrenze aus (`rand = 1.0`) | Balken unveraendert |
+| Randboeschung des Kiesbetts aus (flach) | Balken unveraendert |
+| Unterteilung 160 → 40 Segmente | Balken unveraendert |
+| Anisotropie der Sandkarten 4/8 → 16 | 2,47 → 2,47 |
+| Steigung auf den Boeschungswinkel gedeckelt | 2,248 → 2,270 |
+| Harke ganz aus (`amp = 0`) | Flaeche glatt |
+
+Nur die letzte Zeile wirkt — also ist die Zeichnung die Harke, und alles, was
+ich als Schalter verdaechtigt habe, ist keiner.
+
+### Der Werkzeugfehler
+
+`tools/wasistda.mjs` ruft `raycaster.setFromCamera(ndc, app.camera)`. Die
+Kamera steht zu diesem Zeitpunkt am richtigen **Ort** — aber ohne die Drehung,
+die `lockCamera` in seiner eigenen rAF-Schleife setzt: Die Weltmatrix, aus der
+`setFromCamera` rechnet, traegt den Stand der App-Schleife.
+
+Gemessen mit dem neuen `tools/bodenpunkt.mjs`: Die **Bildmitte** von
+`zen/d-aerial` lieferte den Bodenpunkt **(10 | −69)** statt (0 | 0). Die Kamera
+stand richtig und schaute geradeaus.
+
+Damit war jede Knotenzuordnung und jede Entfernung dieses Werkzeugs falsch.
+In diesem Paket hat es mich vier Versuche an der falschen Stelle gekostet: Das
+untere Band von `d-aerial` lag angeblich bei **18,88 und 19,71 m**, also am
+Rand der 20-m-Scheibe. Richtig sind **11,3 bis 11,7 m**, Weltradius 10 bis 12 m
+— mitten im Garten. Ich habe daraufhin die Randboeschung, die Unterteilung und
+den Saum untersucht, also drei Dinge, die an der Stelle gar nicht stehen.
+
+Beide Werkzeuge setzen jetzt Ort, Blick und Bildwinkel im Browser selbst und
+rufen `updateMatrixWorld(true)`, bevor sie rechnen. Geprueft an drei bekannten
+Stellen: Bildmitte → `zen-sand` bei 18,07 m (Abstand zum Ursprung 18,03),
+Teichmitte → `zen-wasser`, Weltort (3,69 | −1,78) gegen die gebaute Lage
+(3,2 | −1,2).
+
+**Wie viele frühere Befunde dieser Fehler verfälscht hat, weiss ich nicht.**
+Er steckte in jedem Aufruf.
+
+### Nebenbefund: die Flanke der Rille ist steiler, als Sand stehen kann
+
+Die Steigung ist `grad * (uSandTiefe / uSandTeilung) * dKamm * amp`. `dKamm`
+traegt durch die Phasenverzerrung den Faktor `dtw = 1 + 0,24·2π·cos`, der bis
+2,5 geht; zusammen mit `6h(1−h)·π` (bis 4,7) und 0,026/0,225 steht der
+Spitzenwert bei **1,36, also 54 Grad** — im Nahfeld mit `druck` bis 1,46 sogar
+bei rund **62 Grad**. Trockener Sand hat einen Boeschungswinkel von 33 bis 35
+Grad.
+
+Ein weicher Deckel bei tan 34° aendert an `d-aerial` **nichts** (2,248 →
+2,270) und wuerde im Nahfeld genau das Relief flachdruecken, das der Pruefer
+als das Beste an dieser Szene bezeichnet hat. Er ist deshalb **nicht**
+eingebaut. Die Zahl steht hier, damit sie nicht noch einmal gesucht werden
+muss: Die Rille ist bewusst ueberzeichnet, und zwar um den Faktor 1,8 gegenüber
+dem, was Sand haelt.
+
+### Neue Werkzeuge
+
+* `tools/bodenpunkt.mjs` — schneidet den Strahl der lebenden Kamera mit einer
+  waagerechten Ebene und meldet Weltort, Gartenradius und Kameraabstand. Kein
+  Netz, keine Sortierung, keine Seitenfrage. Das ist das Werkzeug, mit dem der
+  Fehler oben ueberhaupt erst sichtbar wurde.
+* `tools/streckung.mjs` — quer/laengs (verwechselbar, steht als Warnung da),
+  Spaltenmittel-Nachbarschritt und der Strukturtensor je sechs Zeilen.
+
+Eine erste Fassung von `streckung.mjs` meldete zusaetzlich die „staerkste
+Periode" aus einer Autokorrelation. Die hat in jedem Bild und jedem Band 2 oder
+4 Bildpunkte bei r = 0,95 bis 0,99 gemeldet — **weil ein glattes Profil bei
+kleinem Versatz immer hoch korreliert.** Das Mass hat Glattheit gemessen, nicht
+Periodizitaet, und ist wieder raus.
+
+### Stand des Befunds
+
+**Nummer 7 ist nicht bestaetigt und bleibt offen.** Nicht bestaetigt, weil
+Periode, Richtung, Kohaerenz und Detailmenge alle dagegen sprechen; offen, weil
+im Bild bei 1:1 trotzdem etwas zu sehen ist, das ich benennen, aber nicht
+messen kann. Vier Durchlaeufe sind verbraucht. Ich lasse es so stehen, statt
+eine Zahl zu drehen, bis eine Messung entsteht, die nichts belegt.
+
+### Regression
+
+Nur Werkzeuge; `src/` unveraendert. `npm run build` gruen, alle sechs
+Zen-Kameras bitgleich gegen `zen-73`.
