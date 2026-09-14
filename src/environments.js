@@ -12587,24 +12587,67 @@ function makeLantern() {
   // Das Dach: sechseckiger Schirm mit hochgezogenen Ecken. Gebaut aus einem
   // Kegel, dessen Randpunkte an den Ecken angehoben werden.
   {
-    const dach = new THREE.ConeGeometry(0.3, 0.17, 6, 3, true);
-    const pos = dach.attributes.position;
-    for (let v = 0; v < pos.count; v++) {
-      const x = pos.getX(v);
-      const z = pos.getZ(v);
-      const r = Math.hypot(x, z);
-      if (r < 0.02) continue;
-      const a = Math.atan2(z, x);
-      // Sechs Ecken: dort, wo cos(6a) maximal ist, hebt sich der Rand.
-      const ecke = Math.max(0, Math.cos(6 * a + Math.PI));
-      const t = r / 0.3;
-      pos.setY(v, pos.getY(v) + Math.pow(t, 2.2) * ecke * 0.085);
-      pos.setX(v, x * (1 + Math.pow(t, 2) * ecke * 0.1));
-      pos.setZ(v, z * (1 + Math.pow(t, 2) * ecke * 0.1));
-    }
-    pos.needsUpdate = true;
-    dach.computeVertexNormals();
+    // **Der Schirm war unten offen, und die flache Kamera schaut hinein.**
+    //
+    // Der Kegel stand mit `openEnded` da: keine Unterseite. Von oben faellt
+    // das nicht auf, aber `e-sand` steht 45 cm ueber dem Boden und blickt zu
+    // einer Laterne von 1,04 m **hinauf**. Die abgewandte Schirmhaelfte ist
+    // rueckseitig und wird verworfen; uebrig blieb eine helle Flaeche zwischen
+    // Schirmkante und Deckplatte, in der der Himmel durch das Dach schien.
+    // Gemessen ueber 940,256-1020,270 in `e-sand`: Mittel 164,1, Median 173 —
+    // Himmelsdunst, nicht Stein.
+    //
+    // Die Unterseite ist eine eigene Sechskantscheibe statt `openEnded: false`,
+    // weil sie zwei Dinge braucht, die der Kegeldeckel nicht mitbringt: Sie
+    // muss **dieselbe** Eckenverformung bekommen wie der Schirm, sonst haengt
+    // eine ebene Platte unter einem geschwungenen Dach — und sie muss dunkler
+    // sein.
+    const eckenSchwung = (geo) => {
+      const pos = geo.attributes.position;
+      for (let v = 0; v < pos.count; v++) {
+        const x = pos.getX(v);
+        const z = pos.getZ(v);
+        const r = Math.hypot(x, z);
+        if (r < 0.02) continue;
+        const a = Math.atan2(z, x);
+        // Sechs Ecken: dort, wo cos(6a) maximal ist, hebt sich der Rand.
+        const ecke = Math.max(0, Math.cos(6 * a + Math.PI));
+        const t = r / 0.3;
+        pos.setY(v, pos.getY(v) + Math.pow(t, 2.2) * ecke * 0.085);
+        pos.setX(v, x * (1 + Math.pow(t, 2) * ecke * 0.1));
+        pos.setZ(v, z * (1 + Math.pow(t, 2) * ecke * 0.1));
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+      return geo;
+    };
+    const dach = eckenSchwung(new THREE.ConeGeometry(0.3, 0.17, 6, 3, true));
     steine.push(steinTeil(dach, 0.87, 21).translate(0, 0.87, 0));
+
+    // Die Unterseite. `thetaStart = π/2`, damit die sechs Scheitel auf
+    // denselben Azimuten liegen wie die des Kegels (dessen erster Scheitel
+    // steht bei 90 Grad); `rotateX(π/2)` dreht die Normale nach unten.
+    //
+    // **Und sie ist russig.** Die Punktleuchte im Kasten sitzt 19 cm darunter,
+    // und bei quadratischem Abfall ist das ein Faktor von 28 gegenueber einem
+    // Meter. Mit dem Ton des uebrigen Granits stand die Unterseite bei p95 250
+    // und Hoechstwert 254 — heller als der besonnte Kies und damit die
+    // hellste Flaeche der Laterne. Die Innenseite eines Laternendachs ist vom
+    // Docht geschwaerzt; 0,42 bringt sie auf einen warmen Schein statt auf
+    // Ausbrennen.
+    {
+      const deckel = new THREE.CircleGeometry(0.3, 6, Math.PI / 2);
+      deckel.rotateX(Math.PI / 2);
+      deckel.translate(0, -0.085, 0);
+      eckenSchwung(deckel);
+      steinTeil(deckel, 0.87, 23);
+      const col = deckel.attributes.color;
+      for (let k = 0; k < col.count; k++) {
+        col.setXYZ(k, col.getX(k) * 0.42, col.getY(k) * 0.41, col.getZ(k) * 0.4);
+      }
+      col.needsUpdate = true;
+      steine.push(deckel.translate(0, 0.87, 0));
+    }
   }
   // Knauf
   steine.push(steinTeil(new THREE.SphereGeometry(0.05, 10, 7), 0.99, 22).translate(0, 0.99, 0));
@@ -12616,11 +12659,37 @@ function makeLantern() {
   // Der Lichtkörper zwischen den Pfosten. Unbeleuchtetes Material ohne
   // Tonemapping: Ein Lichtkasten am späten Nachmittag darf heller sein als der
   // Kies daneben.
+  // **Der Lichtkoerper stand frei im Rahmen, und man sah an ihm vorbei.**
+  //
+  // Der Pruefer hat das Lichtfenster bemaengelt; vergroessert (`b-pond`,
+  // 355,240-440,360, achtfach) war zu sehen, was er meint: Unter jedem
+  // Papierfeld stand ein reinweisser Streifen und darueber ein zweiter. Das
+  // war nicht das Licht, das war **der Hintergrund** — heller Sand und
+  // Wasser, durch die Laterne hindurch.
+  //
+  // Nachgerechnet: Der Kasten stand bei y = 0,67 und war 0,19 hoch, reichte
+  // also von 0,575 bis 0,765. Die Zwischenplatte darunter endet bei 0,5675,
+  // die Deckplatte darueber beginnt bei 0,77. Unten blieben 7,5 mm Luft, oben
+  // 5 mm — bei einem Kasten von 19 cm Hoehe ein Spalt von zusammen sieben
+  // Prozent, und weil dahinter der hellste Teil des Bildes steht, liest er
+  // heller als das Lichtfeld selbst.
+  //
+  // 0,215 hoch um 0,6675 herum: Der Koerper steckt jetzt oben wie unten in der
+  // Platte, nicht zwischen ihnen.
+  //
+  // **Und um dreissig Grad gedreht.** Ein Sechskant aus `CylinderGeometry`
+  // beginnt seinen ersten Scheitel bei Azimut null; die Pfosten stehen bei 30,
+  // 90, 150 Grad. Damit zeigten die **Kanten** des Lichtkoerpers in die
+  // Oeffnungen und seine Flaechen hinter die Pfosten — das Papierfeld war ein
+  // Knick statt einer Flaeche und stand dazu noch 1,5 mm zu weit innen. Um
+  // dreissig Grad gedreht liegt eine ebene Flaeche hinter jeder Oeffnung, und
+  // ihre Schulter (0,0935 m) trifft die Innenseite der Pfosten (0,0925 m).
   const box = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.108, 0.108, 0.19, 6),
+    new THREE.CylinderGeometry(0.108, 0.108, 0.215, 6),
     new THREE.MeshBasicMaterial({ color: 0xffd79a, toneMapped: false })
   );
-  box.position.y = 0.67;
+  box.rotation.y = Math.PI / 6;
+  box.position.y = 0.6675;
   group.add(box);
 
   const glow = new THREE.Sprite(

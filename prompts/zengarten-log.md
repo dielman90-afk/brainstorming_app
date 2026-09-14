@@ -4324,3 +4324,94 @@ bleiben unberührt. Die vier anderen Umgebungen **bitgleich**. Im Zengarten
 
 Bildstand `tools/shots/zen-67` (ersetzt `zen-66`), Messwerte
 `tools/metrics/zen-67.json`.
+
+---
+
+## Paket AP — Die Laterne war an zwei Stellen durchsichtig
+
+Prüferbefund 1.11, Rest: Lichtfenster und Dach.
+
+### Das Lichtfenster: man sah an ihm vorbei
+
+Vergrössert (`b-pond`, 355,240–440,360, achtfach) stand unter jedem Papierfeld
+ein reinweisser Streifen und darüber ein zweiter. Das war nicht das Licht —
+das war **der Hintergrund**: heller Sand und Wasser, durch die Laterne
+hindurch.
+
+Nachgerechnet: Der Lichtkörper sass bei y = 0,67 und war 0,19 hoch, reichte
+also von 0,575 bis 0,765. Die Zwischenplatte darunter endet bei 0,5675, die
+Deckplatte darüber beginnt bei 0,77. **Unten 7,5 mm Luft, oben 5 mm** — bei
+einem Kasten von 19 cm zusammen sieben Prozent der Höhe, und weil dahinter der
+hellste Teil des Bildes steht, liest der Spalt heller als das Lichtfeld selbst.
+
+Dazu ein zweiter, feinerer Fehler: Ein Sechskant aus `CylinderGeometry` beginnt
+seinen ersten Scheitel bei Azimut null, die Pfosten stehen bei 30, 90, 150
+Grad. Damit zeigten die **Kanten** des Lichtkörpers in die Öffnungen und seine
+Flächen hinter die Pfosten — das Papierfeld war ein Knick statt einer Fläche
+und stand dazu 1,5 mm zu weit innen.
+
+Jetzt 0,215 hoch um 0,6675 herum und um 30 Grad gedreht: Der Körper steckt oben
+wie unten in der Platte, und hinter jeder Öffnung liegt eine ebene Fläche,
+deren Schulter (0,0935 m) die Innenseite der Pfosten (0,0925 m) trifft.
+
+Gemessen an einer Nahansicht (1,25 m, 30°) über dem Fenster
+(545,185–735,440):
+
+    ueber L 250   3,678 %  ->  0,854 %
+    ueber L 230   3,833 %  ->  1,042 %
+
+Im eingefrorenen Kamerasatz ist die Laterne 90 px hoch und der Spalt ein
+Bildpunkt; `b-pond` ändert sich deshalb nur um 0,011 % der Fläche. Die
+Abweichungskarte zeigt sie als geschlossene Kontur um beide Papierfelder — der
+Fehler war genau dort und nirgends sonst.
+
+### Das Dach hatte keine Unterseite
+
+`ConeGeometry(0.3, 0.17, 6, 3, true)` — `openEnded`. Von oben fällt das nicht
+auf, aber **`e-sand` steht 45 cm über dem Boden und blickt zu einer Laterne von
+1,04 m hinauf**. Die abgewandte Schirmhälfte ist rückseitig und wird verworfen;
+übrig blieb eine helle Fläche zwischen Schirmkante und Deckplatte, in der der
+Himmel durch das Dach schien. Gemessen über 940,256–1020,270: Mittel 164,1,
+Median 173 — Himmelsdunst, nicht Stein.
+
+Die Unterseite ist jetzt eine eigene Sechskantscheibe und nicht
+`openEnded: false`, weil sie zwei Dinge braucht, die der Kegeldeckel nicht
+mitbringt: **dieselbe** Eckenverformung wie der Schirm (sonst hängt eine ebene
+Platte unter einem geschwungenen Dach) und einen dunkleren Ton. `thetaStart =
+π/2` setzt ihre sechs Scheitel auf dieselben Azimute wie die des Kegels.
+
+**Der dunklere Ton hat weniger gebracht, als er sollte, und der Grund ist
+lehrreich.** Die Punktleuchte sitzt 11,5 cm unter dem sichtbaren Ring der
+Unterseite; bei quadratischem Abfall ist das der 76-fache Wert gegenüber einem
+Meter, mal Stärke 2,5 also rund 190. Eine Fläche unter solcher Bestrahlung
+liegt tief in der Schulter des Tonemappers, und die Albedo hat dort kaum noch
+Hebel:
+
+    Unterseite 942,258-1018,268   ohne Verdunklung  Mittel 195,2
+                                  mit 0,42          Mittel 185,5
+    besonnter Kies daneben                          Mittel 122,3  p95 189
+
+**Ausgebrannt ist sie trotzdem nicht: 0,00 % reinweisse Bildpunkte.** Sie steht
+etwa so hell wie der hellste besonnte Kies — das ist eine Laterne, die
+leuchtet, nicht eine Fläche, die klippt. Sechs Dreiecke, kein Draw-Call.
+
+### Nicht angefasst
+
+Der Knauf zeigt in `b-pond` eine harte waagerechte Grenze zwischen dunkler
+Oberseite und hellem Unterbauch. Das ist der Terminator derselben Punktleuchte
+auf einer Kugel mit sieben Höhensegmenten. Bei 20 px Durchmesser ist der
+Aufwand für mehr Segmente nicht zu rechtfertigen; er steht hier, damit er nicht
+vergessen ist.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.574 / 350.000   (+12, die Dachunterseite)
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Die vier anderen Umgebungen **bitgleich**. Im Zengarten ändern sich 0,04 bis
+0,33 % der Fläche, Schwerpunkt jeweils auf der Laterne.
+
+Bildstand `tools/shots/zen-68` (ersetzt `zen-67`), Messwerte
+`tools/metrics/zen-68.json`.
