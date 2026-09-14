@@ -1332,6 +1332,28 @@ function buildScroll() {
 
   const faceGeo = new THREE.PlaneGeometry(SCROLL.w, SCROLL.h, 1, 8);
   faceGeo.translate(0, -SCROLL.h / 2 - 0.012, 0);
+  // **Das Rollbild war pechschwarz, und die Ursache ist eine fehlende
+  // Eigenschaft.**
+  //
+  // `washiMaterial()` steht auf `vertexColors: true` — gebraucht wird das von
+  // `buildOpening()`, wo der Verlauf ueber die Papierhoehe und der
+  // Rahmenschatten in den Scheitelfarben stecken. Eine `PlaneGeometry` hat
+  // aber **kein** `color`-Attribut, und WebGL liefert fuer ein fehlendes
+  // Attribut den Vorgabewert (0, 0, 0). Der Shader multipliziert die
+  // Albedo damit, und uebrig bleibt: Schwarz.
+  //
+  // Das ist die stille Sorte Fehler: Nichts bricht, nichts meldet sich in der
+  // Konsole, das Netz wird gezeichnet — es ist nur schwarz. Im Bild sah es aus
+  // wie ein dunkler Schlitz in der Nische, und der Nutzer hat es als „der
+  // Banner ist nicht mehr zu sehen" gemeldet.
+  //
+  // Weiss als Scheitelfarbe statt `vertexColors: false`: So bleibt es
+  // **dasselbe Shaderprogramm** wie die Papierflaechen der Oeffnungen, und wer
+  // dem Rollbild spaeter einen Verlauf geben will, hat das Attribut schon.
+  faceGeo.setAttribute(
+    'color',
+    new THREE.BufferAttribute(new Float32Array(faceGeo.attributes.position.count * 3).fill(1), 3)
+  );
   const faceMat = washiMaterial();
   faceMat.map = scrollTexture();
   faceMat.color = new THREE.Color(0xffffff);

@@ -976,8 +976,26 @@ export function buildArchitecture() {
     );
     lege(new THREE.PlaneGeometry(TOKONOMA.depth, NH, 6, 12), m);
   }
+  // **Der Deckel bekommt mehr Luft als die drei anderen Flaechen.**
+  //
+  // Die Innenflaechen liegen 4 mm vor der Schale, und fuer Rueckwand und
+  // Wangen reicht das: Man sieht sie fast frontal, und dabei ist der
+  // Tiefenunterschied zweier Flaechen ueber die ganze Flaeche gleich.
+  //
+  // Die Nischendecke sieht man dagegen **streifend** — sie liegt bei 2,6 m,
+  // der Betrachter steht bei 1,6 m und einen bis drei Meter davor, der
+  // Einfallswinkel ist also einstellig. Bei streifendem Blick waechst der
+  // Tiefenfehler ueber die Flaeche, und zwei Flaechen mit 4 mm Abstand koennen
+  // sich dann durchdringen — die Schale hat an derselben Stelle ihre
+  // Unterseite (`tokSides`, Deckel ueber der Nische, Unterkante genau bei
+  // `headY`).
+  //
+  // Anderthalb Zentimeter kosten nichts: Der Deckel haengt in einer 2,46 m
+  // hohen Nische einen Fingerbreit tiefer, und das ist bei keiner Kamera zu
+  // sehen. Sie nehmen aber die Moeglichkeit weg, dass dort etwas flimmert.
+  const DECKEL_LUFT = 0.015;
   const deckel = new THREE.Matrix4().makeRotationX(Math.PI / 2);
-  deckel.setPosition(TOKONOMA.centerX, TOKONOMA.headY - LUFT, WALL.north - TOKONOMA.depth / 2);
+  deckel.setPosition(TOKONOMA.centerX, TOKONOMA.headY - DECKEL_LUFT, WALL.north - TOKONOMA.depth / 2);
   lege(new THREE.PlaneGeometry(TOKONOMA.width, TOKONOMA.depth, 12, 6), deckel);
 
   const nischeMat = plasterMaterial(TOKO_PUTZ);

@@ -1999,3 +1999,88 @@ Zehn plus sechs Bilder, Δmax 0. Der Bau meldet **null** statt drei
 macht den fehlenden Export unsichtbar. Wenn so eine Brücke sein muss, gehört
 eine Bedingung dazu, die laut wird, sobald sie nicht mehr gebraucht wird —
 oder man liest die Baumeldungen.
+
+---
+
+## Paket VIII — Das Rollbild war pechschwarz, und die Ursache ist ein fehlendes Attribut
+
+**Nutzerbefund:** „Der Banner in Dojo ist nicht mehr zu sehen und die kleine
+Decke oberhalb flackert komisch."
+
+### Das Rollbild: schwarz statt Washi
+
+Aus einem Meter Abstand angesehen (`tools/blick.mjs`, Pos 0 | 1,62 | −5,2) war
+das Kakemono ein **pechschwarzes Rechteck**. Aufhängestab, Schnur und Haken
+standen richtig da; darunter hing ein schwarzes Blatt.
+
+Die Ursache ist eine Zeile, die gar nicht im Rollbild steht:
+
+    washiMaterial() → vertexColors: true
+
+Gebraucht wird das von `buildOpening()`, wo der Verlauf über die Papierhöhe und
+der Rahmenschatten in den Scheitelfarben stecken. Eine `PlaneGeometry` hat aber
+**kein `color`-Attribut**, und WebGL liefert für ein fehlendes Attribut den
+Vorgabewert **(0, 0, 0)**. Der Shader multipliziert die Albedo damit — übrig
+bleibt Schwarz.
+
+Das ist die stille Sorte Fehler: Nichts bricht, nichts meldet sich in der
+Konsole, das Netz wird gezeichnet. Es ist nur schwarz.
+
+Behoben mit einem weissen `color`-Attribut auf der Rollbildfläche, **nicht** mit
+`vertexColors: false`: So bleibt es dasselbe Shaderprogramm wie die
+Papierflächen der Öffnungen, und wer dem Rollbild später einen Verlauf geben
+will, hat das Attribut schon. Im Bild steht jetzt wieder, was gebaut war:
+Brokatmontierung, weisses Washi, der Pinselzug und das rote Siegel.
+
+### Die Decke darüber: gemessen, und der Befund liess sich nicht nachstellen
+
+`tools/kamm.mjs --dreh` (Kamera dreht um 0 / 0,25 / 0,5 / 0,75 Bildpunkte) über
+die Nordwand in `a-halle`:
+
+    Bereich          Streuung  Zittern  Quotient  max dL
+    Nischendecke        24,7     0,31     0,013      20
+    Nischensturz        33,7     0,60     0,018      43
+    ueber der Nische    65,0     2,86     0,044      57
+    Ranma links         59,6     2,72     0,046      70
+    Ranma rechts        59,8     3,39     0,057     125
+
+**Die Nischendecke selbst ist der ruhigste Bereich der ganzen Wand.** Auch der
+senkrechte Wackeltest (`--hoch`, 1,5/3,0/4,5 mm) findet dort nichts (Quotient
+0,001). Zwei Standbilder aus 1 cm versetzten Kamerapositionen zeigen an der
+Decke keine fleckigen Umschläge, also kein Z-Fighting.
+
+Was in diesem Bereich wirklich zittert, ist das **Ranma** — sein Sprossengitter
+steht bei 26 mm Stärke auf zehn Meter Entfernung bei rund anderthalb
+Bildpunkten. Es ist in Paket V schon einmal vergröbert worden (18 → 26 mm), und
+der Wert liegt mit 0,046 bis 0,057 im selben Band wie Flächen, die in diesem
+Projekt als ruhig angenommen wurden (Zen-Kies 0,025, Zen-Moos 0,038). Ich
+vergröbere es nicht ein zweites Mal auf Verdacht.
+
+Die Lichtschächte waren es nicht: Mit `dojo-light-shafts` ausgeblendet bleiben
+alle drei Werte **auf die zweite Stelle gleich**.
+
+**Eine Vorkehrung ohne Messbeleg habe ich trotzdem getroffen.** Die vier
+Innenflächen der Nische liegen 4 mm vor der Schale. Für Rückwand und Wangen
+reicht das, weil man sie fast frontal sieht. Die Decke sieht man dagegen
+**streifend** — sie liegt bei 2,6 m, der Betrachter bei 1,6 m —, und bei
+streifendem Blick wächst der Tiefenfehler über die Fläche. Genau dort hat die
+Schale mit der Unterkante ihres eigenen Deckels eine zweite Fläche. 15 mm statt
+4 mm kosten nichts und nehmen die Möglichkeit weg.
+
+### Budget und Regression
+
+    Draw-Calls       114 / 120
+    Dreiecke     323.646 / 350.000
+    Textur         42,85 / 60 MB
+    Konsole      frei von Errors und Warnings
+
+Alles unverändert — ein Attribut und eine Zahl.
+
+`a-halle` ändert sich um 0,15 % der Fläche, `d-suedfront` um 0,10 %,
+Schwerpunkt jeweils genau auf dem Rollbild. `c-engawa` und `f-gegenlicht`
+stehen mit 21 % beziehungsweise 1,4 % im bekannten **Rauschband des
+Gartenlaubs** — die Abweichungskarte liegt vollständig auf Farnen, Büschen und
+Kronen, also auf dem, was der Wind bewegt; die Nische ist darin schwarz.
+
+Bildstand `tools/shots/dojo-49` (ersetzt `dojo-48`), Messwerte
+`tools/metrics/dojo-49.json`.
