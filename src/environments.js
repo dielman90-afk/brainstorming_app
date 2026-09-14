@@ -15579,7 +15579,7 @@ function createZenEnvironment() {
         // Quadratisch, damit die schwachen Koerner deutlich in der Ueberzahl
         // sind: Bei Gleichverteilung von `aStaub` liegt die Haelfte unter 0,5
         // und damit unter 0,51 Deckkraft.
-        'diffuseColor.a *= (0.35 + 0.65 * vStaubStreu * vStaubStreu) * (1.0 - smoothstep(4.0, 9.0, vStaubTiefe));\n #include <opaque_fragment>'
+        'diffuseColor.a *= (0.35 + 0.65 * vStaubStreu * vStaubStreu) * (1.0 - smoothstep(2.0, 4.6, vStaubTiefe));\n #include <opaque_fragment>'
       );
     };
     dust.material.customProgramCacheKey = () => 'zen-staub-tiefe';

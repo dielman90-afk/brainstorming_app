@@ -5025,3 +5025,81 @@ sich 0,75 bis 5,1 % der Bildpunkte, Schwerpunkt jeweils auf den Steingruppen.
 
 `npm run build` gruen, Konsole frei von Errors und Warnings. Neuer Bildstand
 `tools/shots/zen-76`.
+
+## Paket AY — Der schwebende weisse Punkt war ein Staubkorn; zwei Befunde loesen sich in Luft auf
+
+Drei Befunde der fuenften Runde, mit dem reparierten `wasistda` nachgeprueft.
+
+### Befund 13: „Wasserpflanzen stehen auf dem Ufersand" — nicht bestaetigt
+
+Zehn Punkte in `b-pond` abgetastet, jeweils direkt unter der Unterkante eines
+Lotus- oder Seerosenstuecks (Kaesten aus `knotenkasten.mjs`, die Pflanzen selbst
+aus der Trefferliste ausgeblendet). **Unter jedem einzelnen liegt
+`zen-wasser`**, in 2,95 bis 4,44 m, darunter das Teichbecken. Auch die beiden
+aeussersten Seerosenstuecke am linken und unteren Beckenrand.
+
+Die Umstellung auf `wasserPlatz()` — Streuung am selben `teichUmriss` wie die
+Wasserflaeche, mit Loch um den Laternensockel — hat also gehalten. Der Befund
+stammt aus einem Bildstand davor.
+
+### Befund 14: „Kies ohne Korn bei 45 cm" — im Wesentlichen erledigt
+
+Hochpassreihe ueber `e-sand`, zehn Baender von nah nach fern:
+
+    3,59  4,17  4,75  5,24  6,15  6,99  7,36  8,36  9,94  12,17
+
+Das erste Band liegt bei **0,86 m Kameraabstand** (`tools/bodenpunkt.mjs`), das
+letzte bei rund 2,3 m. Der Anstieg nach hinten betraegt Faktor 3,4 — vor dem
+Paket mit der achtfach gespannten Kornkarte waren es 4,8.
+
+**Der Rest des Anstiegs ist kein fehlendes Korn im Nahfeld, sondern das
+Aliasing der Harkrillen in der Ferne** — dieselbe Stelle, an der das schon
+einmal stand. Im Bild bei 1:1 traegt der Kies unmittelbar vor der Kamera
+sichtbare Koerner: dunkle Tupfen von zwei bis drei Bildpunkten auf einer
+welligen Flaeche. Der Befund bleibt als Restposten stehen, nicht als offener
+Fehler.
+
+### Befund 16a: der schwebende weisse Punkt bei (571–576, 382–386)
+
+Der Punkt steht in `a-eyelevel` mitten zwischen den beiden Torii-Stuetzen, ueber
+dem fernen Sand, ohne Bezug zu irgendetwas. Er ist +17 Stufen heller als der
+Hintergrund (221,197,158 gegen 204,182,145) und rund drei Bildpunkte im Kern.
+
+**Gesucht per Ausschluss, weil `wasistda` bei Sprites unzuverlaessig bleibt:**
+Die Trefferliste meldete „(Sprite) bei 6,88 m", und die fuenf Bodennebel-Sprites
+sind die einzigen Sprites in der Naehe. Mit ausgeblendeten Nebel-Sprites war der
+Punkt **unveraendert** — die fuenf tragen in dieser Kamera ueberhaupt nichts
+bei. Mit ausgeblendetem `zen-staub` war er **weg**. (Dass eine Sprite-Abfrage
+hier falsch liegt, hat einen eigenen Grund: `Sprite.raycast` rechnet mit der
+`modelViewMatrix` des letzten Bildes, nicht mit einer frisch gesetzten Kamera.)
+
+Es ist also ein **Staubkorn**. Es ist weder zu gross noch zu hell — mit drei
+Bildpunkten Kern liegt es genau auf dem Wert, der in einem frueheren Paket
+gemessen und eingestellt wurde. Was es zum Fehler macht, ist die **Lage**: ein
+einzelnes Korn in vier bis fuenf Metern, allein vor einem fernen Hintergrund,
+liest als vergessenes Sprite und nicht als Atmosphaere.
+
+Der Tiefenabfall der Deckkraft war auf `smoothstep(4.0, 9.0)` gesetzt und
+laesst damit einzelne Koerner bis neun Meter stehen. Neu ist
+`smoothstep(2.0, 4.6)` — das passt zu der Begruendung, die schon danebensteht:
+„Staub, der Licht faengt, ist ohnehin eine Erscheinung des Nahbereichs".
+
+Gemessen:
+
+    Punkt (573,384)     221,197,158  ->  205,183,146   (Hintergrund 204,182,145)
+    zen-staub a-eyelevel   267 Bildpunkte  ->  171
+    zen-staub b-pond        —              ->   80
+    zen-staub c-torii       —              ->  285
+    zen-staub e-sand        —              ->   91
+    zen-staub f-grove       —              ->  148
+
+Der Punkt ist mit einer Stufe Unterschied unsichtbar; zwei Drittel des Staubs
+im Nahfeld bleiben stehen, und in allen fuenf Bodenkameras ist er weiter da.
+
+### Regression
+
+`npm run build` gruen, Konsole frei von Errors und Warnings. Im Zen-Garten
+aendern sich 0,012 bis 0,020 % der Bildpunkte, ausschliesslich die Koerner in
+mittlerer Tiefe; `d-aerial` bitgleich. Insel, Konstrukt und Nachthimmel
+bitgleich, Dojo Δmax 7 auf 0,012 % (bekanntes Rauschband). Bildstand
+`tools/shots/zen-77`.
