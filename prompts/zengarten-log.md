@@ -5376,3 +5376,73 @@ Ausschnitt.**
 Die Dreiecke sind die sechs zusätzlichen Gruppen und die dichteren Bäumchen.
 Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 4 auf 0,010 %.
 `npm run build` grün, Konsole sauber. Bildstand `tools/shots/zen-80`.
+
+## Paket BC — Die Harkzüge brechen mitten im Strich ab (teilweise behoben)
+
+Befund 5 der sechsten Runde: „ein geradliniges Kammuster und eine Bogenschar
+laufen übereinander hinweg und ergeben ein Karomuster".
+
+### Gemessen: es ist kein Karomuster, es sind abgebrochene Züge
+
+Strukturtensor über 40×40-Fenster quer durch die Naht in `e-sand`, Zeile
+585–625:
+
+    x        480    520    560    600    640
+    Kohaerenz 0,70   0,17   0,22   0,23   0,36
+    Kontrast  5,1    4,5    5,2    5,3    4,1
+
+**Die Kohärenz bricht auf 0,17 ein, während der Kontrast stehen bleibt.** Es
+wird dort also genauso viel gezeichnet wie daneben, nur ohne vorherrschende
+Richtung. Bei 3,2 mm je Bildpunkt (aus `tools/bodenpunkt.mjs`) ist die Zone
+rund 25 cm breit.
+
+Bei dreifacher Vergrösserung ist zu sehen, was die Zahl bedeutet: Links stehen
+tiefe Rillen mit hartem Schatten im Grund, rechts dieselbe Richtung, aber flach
+und verwaschen — und dazwischen **enden die Züge mitten im Strich**, jeder an
+einer anderen Stelle. Kein Gärtner hebt die Harke auf halber Bahn.
+
+Die Ursache ist `naht`: Der Term blendet die Amplitude im Abstand |f − w| von
+der Aussenkante eines Ringbandes aus. Diese Kante ist ein **Kreis** um den
+Teich; die geraden Züge kreuzen ihn schräg. Statt einer Linie, an der alle Züge
+enden, sagt die Amplitude über eine lange, von der Zugrichtung abhängige
+Strecke ab.
+
+### Reihe über die Breite der Ausblendung
+
+    0,30 m (breiter)   Kohaerenz 0,11 – 0,16   Kontrast unveraendert
+    0,09 m (Ist)       Kohaerenz 0,337         Kontrast 4,82
+    0,025 m (enger)    Kohaerenz 0,374         Kontrast 4,87
+
+Breiter macht es **schlechter** — der Auslauf wird länger, die Züge werden noch
+undeutlicher. Enger macht es besser: Die Züge laufen bis an die Kante und hören
+dort auf, die Enden sind scharf. **+11 % Kohärenz bei unverändertem Kontrast.**
+Die Ausblendung steht jetzt auf 0,025 m.
+
+### Was offen bleibt
+
+Das ist eine Verbesserung, keine Lösung. Die Bandkante bleibt ein Kreis, der die
+geraden Züge schräg schneidet, also enden sie weiterhin an verstreuten Stellen
+statt auf einer gemeinsamen Linie. Richtig wäre, die Kante der Zuggeometrie
+folgen zu lassen — ein Umbau von `sandRelief`, nicht eine Zahl. **Der Befund
+bleibt als offen im Log stehen.**
+
+### Ein Messfehler von mir, und was daraus folgt
+
+Der erste Versuch mit 0,30 hat sieben 40×40-Fenster auf **der falschen
+Bildzeile** verglichen und „byte-identisch" gemeldet. Ich war schon dabei zu
+prüfen, ob der Shader-Quelltext überhaupt beim Renderer ankommt. Die
+Bilddifferenz über das **ganze** Bild sagt: 9,6 % der Bildpunkte, Höchstwert
+137 — die Änderung war deutlich, sie lag nur woanders.
+
+**Ein Stichprobenfenster ist keine Regressionsprüfung.** `tools/diff.mjs` läuft
+in zwei Sekunden und hätte den Fehlschluss verhindert. Das ist in diesem
+Auftrag der dritte Fall, in dem eine zu enge Messung eine falsche Antwort
+gegeben hat — nach der Vergrösserung von `crop.mjs` bei Harkmuster und Hügeln.
+
+### Regression und Budget
+
+Zen ändert sich um 0,6 bis 3,0 % der Bildpunkte, jeweils an den Bandkanten.
+Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 4 auf 0,009 %. Eine
+Shader-Konstante kann Draw-Calls, Dreiecke und Texturspeicher nicht ändern;
+die Zahlen aus `zen-80` gelten unverändert (96 / 130 762 / 21,86 MB).
+`npm run build` grün, Konsole sauber. Bildstand `tools/shots/zen-81`.

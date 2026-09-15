@@ -11164,7 +11164,7 @@ function sandMaterial() {
                phi = f;
                grad = d / r;
              }
-             naht *= smoothstep(0.0, 0.09, abs(f - uSandRinge[i].w));
+             naht *= smoothstep(0.0, 0.025, abs(f - uSandRinge[i].w));
              // Innerhalb der Insel selbst wird nicht geharkt.
              naht *= smoothstep(-0.12, 0.02, f);
            }
