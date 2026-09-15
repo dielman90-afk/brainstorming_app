@@ -32,7 +32,80 @@ import { makeZonesWalk } from '../walkable.js';
 // Die zweite Spalte ist der eigentliche Grund für die Höhe des Werts: Der
 // Vorwurf am Garten war nie „zu dunkel im Mittel", sondern die schwarzen Löcher
 // zwischen den Blättern. Genau die füllt das Himmelslicht.
-const SKY_INTENSITY = 4.5;
+// **Und dann noch einmal verdoppelt: 4,5 → 9,0.**
+//
+// Prüferbefund 1 zum Dojo lautete „draussen ist dunkler als drinnen — die
+// Tageszeit kippt", und er stimmt. Gemessen mit `tools/tageslicht.mjs` in
+// `c-engawa`:
+//
+//     Kies rechts   L  60,8      Diele innen   L 133,3
+//     Kies links       76,5      Shoji-Papier    132,2
+//     Laubwand        100,7
+//
+// Eine offene Tuer an einem sonnigen Nachmittag muss von innen ein blendend
+// heller Ausschnitt sein, kein dunkelgruenes Loch.
+//
+// **Es liegt nicht am Schatten.** Nimmt man jeden Schattenwurf heraus, steigt
+// der Kies von 60,8 auf 67,2 — sechs Stufen. Er steht nicht im Schatten, er
+// bekommt schlicht kein Licht. Die Bilanz je Quelle sagt, warum:
+//
+//     Quelle                        Kies    Diele innen
+//     DirectionalLight 1,9           3,9            0,0
+//     HemisphereLight 0,85           4,3           20,9
+//     Himmelskarte                  45,1            0,0
+//
+// Die Sonne traegt zum Kies **vier Stufen** bei und zum Innenboden gar nichts
+// (bei 11° Sonnenhoehe fangen die Dachueberstaende sie ab, und das ist
+// bauphysikalisch richtig). Der Aussenraum haengt damit vollstaendig an dieser
+// einen Zahl hier, der Innenraum gar nicht — die Innenmaterialien haben am
+// Desktop keine Umgebungskarte. Es gibt also genau einen Regler.
+//
+// Die Reihe (`--himmelsreihe`), Innenwerte stehen unbewegt daneben:
+//
+//     Faktor   Kies re.  Kies li.  Laubwand   (Diele 133,3, Papier 132,2)
+//        1,0       60,8      76,5     100,7
+//        2,0       92,0     109,7     133,8
+//        2,6      106,6     124,9     148,0
+//        3,2      118,9     137,6     159,5
+//        4,0      132,6     151,4     171,6
+//
+// Gewaehlt ist **2,0**. Ab 2,6 kippt das Laub im Bild ins Blasse: Ueber L 150
+// liegt es im flachen Bereich der ACES-Kurve und verliert seine Saettigung —
+// dieselbe Lehre wie bei Wolken, Sonnenscheibe, Grasfase und Teichspiegelung.
+// Bei 3,2 ist der Garten hell und farblos zugleich, und das ist kein Fortschritt.
+//
+// Damit ist die Umkehrung halbiert, nicht aufgehoben: Die Laubwand steht jetzt
+// auf der Hoehe des Innenbodens statt dreissig Stufen darunter, der Kies immer
+// noch vierzig darunter. Der Rest gehoert nicht diesem Regler, sondern der
+// Albedo: Der Kies ist mit `0xa79f90` absichtlich abgedunkelt und das Laub ist
+// sehr dunkel gruen. Wer draussen wirklich heller haben will als drinnen, muss
+// beides zugleich anfassen — mehr Licht UND hellere Koerperfarben, damit die
+// Flaechen unterhalb der Flachzone bleiben. Das ist ein eigenes Paket.
+//
+// **Das eigene Paket ist jetzt gemacht: 9,0 → 14,4 (Faktor 2,0 → 3,2).**
+//
+// Der Absatz darueber sagt, warum das mit Faktor 2,0 nicht ging: „Ab 2,6 kippt
+// das Laub im Bild ins Blasse." Das galt fuer die Blattfarben von damals.
+// Inzwischen hat das Bambus-Paket die Blattpalette um ein Fuenftel abgedunkelt
+// — aus einem anderen Grund (der Hain las als bereifte Konifere), aber mit
+// genau der Wirkung, die hier fehlte: Spielraum nach oben.
+//
+// Differenziell gemessen in `c-engawa`, jeweils auf den eigenen Bildpunkten
+// des Knotens (`knotenwerte.mjs`, nicht Kaesten):
+//
+//     SKY    Kies    Bambuslaub   Azaleenpolster   Laub ueber L 150
+//     9,0    105,7      134,2           54,8            48,0 %
+//    11,7    121,4      141,6           64,7            54,4 %
+//    14,4    134,6      147,8           73,6            60,4 %
+//
+// Innen zum Vergleich, unbewegt: Engawa-Diele 141,5, Shoji-Papier 140,2.
+//
+// Bei 14,4 steht der Kies mit 134,6 auf der Hoehe des Innenraums statt vierzig
+// Stufen darunter, und die Azaleen kommen von 54,8 auf 73,6 — sie waren das
+// Dunkelste im Bild. Das Laub bezahlt es mit zwoelf Prozentpunkten mehr in der
+// Flachzone, und deshalb geht die Blattpalette gleichzeitig noch einmal
+// herunter. **Beide Regler zusammen, wie es hier stand.**
+const SKY_INTENSITY = 14.4;
 
 // Außenbauteile, die die Himmelskarte in der Brille wieder abgeben. Alles, was
 // hier **nicht** steht, behält sie – das sind die Polster, die Kartenbüschel,

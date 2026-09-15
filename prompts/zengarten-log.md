@@ -974,3 +974,4405 @@ Zwei kleinere Befunde fielen dabei mit ab und sind ebenfalls behoben:
   Draw-Calls, die Schöpfe sind Instanzen.
 * **Zu viele Blätter.** 320 fallende Blätter sind kein Kirschbaum im Wind,
   sondern ein Schneesturm. Jetzt 90.
+
+## Durchlauf 13 — Der Prüfer sieht den Zen-Garten zum ersten Mal seit dem Umbau
+
+Nach dem Nachthimmel und der Himmelsinsel ist der Zen-Garten an der Reihe. Der
+Prüfer hat sechs Bilder bekommen, ausdrücklich mit der Ansage, was für eine
+Szene das ist (japanischer Garten, rein prozedural, bewusst stilisiert,
+Nachmittagslicht), und hat **fünfzehn Mängel** gemeldet, nach visueller Wirkung
+sortiert:
+
+1. Moosflächen sind flache Klebebilder
+2. Das Wasser ist eine tote milchige Scheibe ohne Spiegelung
+3. Es gibt keine Welt hinter dem Garten — leerer Sand bis zum Horizont
+4. Kein Objekt berührt den Boden (Torii-Fuß, Stämme, Trittsteine, Laternensockel)
+5. Das Laternenlicht leuchtet nichts an
+6. Der Bambus hat keine Halmknoten und liest sich nicht als Bambus
+7. Das Torii hat einen einzigen Farbton ohne Flächentrennung
+8. Der Sand ist zwei verschiedene Materialien; Aliasing in der Ferne; die
+   Harkung läuft unter den Steinen durch
+9. Die Terrassenkante der Sandfläche ist ungestaltet
+10. Die Baumkronen sind Alpha-Blobs ohne Gegenlicht
+11. Alle Steine sind derselbe Stein
+12. Zwei Jahreszeiten gleichzeitig (Sakura und Herbstahorn), zwei Farbausreißer
+13. Der Garten ist unbelebt
+14. Wolken als parallele Schlieren, harte helle Bande am Horizont
+15. Komposition von `a-eyelevel` und `d-aerial`
+
+Ausdrücklich gelobt und nicht anzutasten: das Sandrelief im Nahbereich, die
+weichen Laubschatten, der Farbklang, die Silhouette des Torii, die
+Luftperspektive auf den fernen Steinen, die unregelmäßige Setzung der
+Trittsteine.
+
+**Budgetlage vorweg** (`tools/metrics/zen-16.json`): 93 von 120 Draw-Calls,
+74 606 von 350 000 Dreiecken, 21,53 von 60 MB Textur. Dreiecke sind hier
+reichlich da, **Draw-Calls sind knapp** — 27 frei. Alles, was neu dazukommt,
+muss in ein bestehendes Mesh verschmelzen oder instanziert werden.
+
+## Paket A — Die Moosinseln hatten fünfundvierzig Punkte (Prüferbefund 1)
+
+Im Quelltext stand über dem Moos ein Absatz, der eine Kuppel mit Buckeln
+beschreibt, dazu ein gewellter Umriss und ein Feuchtsaum im Sand daneben. Im
+Bild lag trotzdem ein Abziehbild. Der Grund steht in einer einzigen Zeile:
+
+    const mossGeo = new THREE.CircleGeometry(mossR, 44);
+
+**`CircleGeometry` hat einen Punkt in der Mitte und 44 auf dem Rand. Dazwischen
+liegt nichts.** Jede Höhenfunktion wurde also an genau diesen 45 Stellen
+abgetastet, und weil der Rand definitionsgemäß auf null liegt, blieb von der
+Kuppel ein Kegel und von den Buckeln nichts. Der Kommentar war richtig, die
+Geometrie konnte ihn nicht tragen.
+
+### Gemessen
+
+`tools/moossaum.mjs` misst innerhalb der differenziellen Maske eines Knotens
+vier Zahlen: **Kantensprung** (Helligkeitsunterschied über die Umrisslinie),
+**Zackigkeit** (Randlänge geteilt durch die Wurzel der Fläche — für einen Kreis
+3,54, und kleiner geht es nicht), **Saum** (Helligkeit im Randstreifen geteilt
+durch die im Innern) und **Korn** (mittleres |L − Mittel(5×5)|, also
+Feinstruktur ohne die weichen Schattenverläufe).
+
+**Zwei eigene Fehler beim Messen, der zweite schlimmer als der erste.**
+
+* Mit Schlagschatten misst `Saum` nicht den Saum, sondern den Baum: Der
+  Laubschatten liegt in `c-torii` mitten auf der Fläche, also im Innern,
+  während die Ableger am Rand in der Sonne stehen. Der Rand kam auf 1,068 —
+  unabhängig davon, was die Scheitelfarben taten.
+* Der Ausweg, „nur die besonnten Bildpunkte zu zählen, also alles über dem
+  Mittelwert", war der schlimmere Fehler: **Ein dunkler Saum liegt unter dem
+  Mittelwert und wird von genau diesem Filter weggeworfen.** Die Zahl blieb bei
+  1,00. Aufgeflogen ist es an einer Probe mit verdreifachter Saumstärke: Der
+  Kantensprung stieg von 33,99 auf 47,59, die Scheitelfarbe kam also sehr wohl
+  im Bild an — nur nicht in meiner Messung. Ein Maß, das sein eigenes Signal
+  herausfiltert, misst nichts.
+
+Richtig ist `--ohne-werfer`: alle Schlagschatten aus, dann bleibt als
+Verdunklung nur, was zum Polster selbst gehört.
+
+Und der **Kantensprung ist zweideutig**, das gehört dazugesagt: Ein Abziehbild
+springt hart, ein Polster mit dunklem Kontaktsaum aber auch — der Saum *ist*
+ein dunkler Strich. Steigt er, während `Saum` unter 1 fällt, ist das ein
+gewonnener Kontaktschatten und kein verlorener Übergang.
+
+### Was geändert wurde
+
+* **`ringScheibe(r, ringe, segmente)`** statt `CircleGeometry`: acht Ringe zu 44
+  Segmenten, 353 Punkte und 704 Dreiecke je Fleck. Erst damit ist Relief
+  überhaupt darstellbar.
+* **Buckel aus einem Feld über zwei Achsen**, Wellenlängen 18 cm und 11 cm über
+  dem Punktabstand (radial 12 cm, quer am Rand 14 cm).
+* **Der Rand sinkt in den Sand** (−2,2 cm mit hoher Potenz), statt bei genau
+  null an den Kies zu stoßen.
+* **Der Saum ist dunkler statt heller.** Vorher stand dort `1 + rand2² · 0,35`:
+  Der Umriss war der *hellste* Streifen der Fläche — genau die Signatur eines
+  ausgestanzten Aufklebers. Direkt daneben ein zweiter Fehler: `hypot(x, z)` in
+  einer Scheibe, die in der XY-Ebene liegt. z ist dort die Höhe; der Abstand
+  vom Mittelpunkt war gar nicht der Abstand.
+* **Ableger**: drei bis sechs kleinere Polster am Rand jedes Flecks, aus einem
+  eigenen Zufallsstrom (sonst verschöbe sich alles, was danach gebaut wird), im
+  selben Mesh verschmolzen — **null zusätzliche Draw-Calls**.
+
+### Zwei Fehler, die erst der Umbau sichtbar gemacht hat
+
+Beide standen vorher schon im Code und waren auf 45 Punkten unsichtbar:
+
+* **Ein Speichenrad in jedem Fleck.** Die Höhe war mit `kissen(a · 1,7)`
+  moduliert — einer Funktion, die *nur vom Winkel abhängt*. Auf einem Ringnetz
+  ist das ein Stern aus Speichen. Gefallen; die Buckel kommen jetzt aus zwei
+  Achsen.
+* **Ein zweites Speichenrad aus der Farbe.** `hashNoise` liefert je
+  Scheitelpunkt einen unabhängigen Wert; auf einem Ringnetz liegen die Punkte
+  auf Speichen, und ein unabhängiger Wert je Punkt wird über die langen
+  schmalen Dreiecke **radial verschmiert**. Ersetzt durch ein weiches Feld, in
+  Weltmetern ausgewertet, damit die Flecken über die Grenze zwischen Fleck und
+  Ableger hinweg weiterlaufen.
+
+Dieselbe Unterscheidung also zweimal: Für ein Feld über einer Fläche braucht es
+ein Rauschen, keinen Hash. Sie stand seit dem Uferwulst des Teichs im Log.
+
+### Ergebnis
+
+Alle Zahlen mit `--ohne-werfer`, vorher → nachher:
+
+    Bild            Kantensprung   Zackigkeit      Saum        Korn
+    a-eyelevel     23,23 → 37,73  8,64 → 11,75  1,001 → 0,946  3,99 → 6,99
+    c-torii        26,99 → 40,64  4,73 →  7,80  1,008 → 0,943  2,87 → 4,78
+    d-aerial       22,85 → 39,95  7,34 →  9,48  1,019 → 0,966  3,86 → 6,81
+
+Die Zackigkeit steigt in `c-torii` um zwei Drittel: Das ist der Ausschlag der
+Ableger, die die eine Linie zwischen Grün und Sand in mehrere zerlegen. Der
+Saum fällt in allen drei Bildern unter 1, das Polster verschattet sich also
+endlich an seinem eigenen Fuß. Das Korn steigt um drei Viertel.
+
+### Kosten
+
+    Draw-Calls      93 → 93         unverändert
+    Dreiecke    74 606 → 79 576     (+4 970, 22,7 % des Budgets)
+    Textur       21,53 MB → 21,53   unverändert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 6 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+## Paket B — Der Teich spiegelte, nur nichts mit einer Form (Prüferbefund 2)
+
+Der Prüfer: „eine tote milchige Scheibe. Keinerlei Spiegelung — nicht vom
+Himmel, nicht vom Torii, nicht von der direkt danebenstehenden Laterne, nicht
+von den Ufersteinen. Keine Glanzlichter, keine Wellen. Und: der Teich ist als
+einziges Element kalt."
+
+### Der erste Verdacht war falsch, und die Messung hat es sofort gesagt
+
+Naheliegend war „das Wasser hat gar keine Umgebungskarte". `tools/spiegelanteil.mjs`
+hängt die Karte differenziell ab und wieder an; was sich ändert, ist die
+Spiegelung. In `b-pond`: **77 717 Bildpunkte, 8,43 % des Bildes, mittlere
+Änderung 109 Stufen.** Der Teich spiegelte also nicht nur, die Spiegelung war
+der größte Teil seiner Helligkeit.
+
+Nachgesehen, was in der Karte steht: `buildSkyEnvironment()` baut eine Kugel
+mit einem Himmels-Shader — ein Verlauf und eine Sonnenscheibe, sonst nichts.
+**Ein Verlauf, gespiegelt, bleibt ein Verlauf.** Der Garten kam in der Karte
+nicht vor.
+
+### Was geändert wurde
+
+**Die Karte ist jetzt eine Aufnahme des Gartens.** Beim ersten Sichtbarwerden
+sechs Bilder von der Mitte des Teichs aus, 35 cm über dem Wasser, durch den
+PMREM gefaltet. Ausgeblendet wird alles, was nicht zum Garten gehört (Karten,
+Tafel, die anderen vier Umgebungen) und alles, was auf dem Wasser liegt — die
+Wasserfläche selbst würde sich sonst spiegeln, Seerosen und Lotus stünden
+doppelt im Bild. Zur Laufzeit kostet das nichts: Es bleibt der eine Abgriff,
+den das Material ohnehin macht.
+
+**Ohne Tone-Mapping aufgenommen.** Der Renderer wendet ACES auch auf
+Renderziele an; eine so aufgenommene Karte trüge die Kurve schon in sich und
+bekäme sie beim Zeichnen ein zweites Mal.
+
+**`envMapIntensity` von 1,5 auf 1,0.** Gemessen an einer flachen Kamera über
+dem Teich: freier Himmel dicht über dem Horizont L 175 bis 181, Wasser L 210.
+**Ein Spiegel kann nicht heller sein als das, was er spiegelt.** Jetzt 195 —
+der Rest über dem Himmelswert ist der eigene Körper des Wassers und gehört
+dorthin.
+
+**Wärmere Wassertöne.** 0x5c7358 → 0x6d7448 und 0x11302f → 0x1d3026. Der
+Prüfer hatte recht: Die alten Werte waren blaugrün, während Sand, Stein, Holz
+und Himmel warm stehen.
+
+**Eine gerechnete Glanzbahn.** Eine enge Keule um die Halbrichtung zwischen
+Blick und Sonne, auf einer Fläche, deren Neigung aus zwei wandernden
+Wellenzügen kommt. Aus der Umgebungskarte kommt sie nicht: Der PMREM faltet die
+Sonnenscheibe bei Rauheit 0,09 zu einem weichen Fleck, und 256 Bildpunkte je
+Würfelseite sind für eine Scheibe von einem halben Grad viel zu grob.
+
+### Was ich versucht habe und was nicht ging
+
+**Ein erkennbares Spiegelbild von Torii und Laterne ist mit einer
+Umgebungskarte nicht zu haben, und das ist gemessen, nicht vermutet.** Probe:
+Rauheit 0, Clearcoat-Rauheit 0, Kräuselung aus, dazu ein Durchgang mit der
+**rohen** Würfelkarte statt der gefalteten. Das Bild war in allen drei Ständen
+bis auf den Bildpunkt dasselbe — eine weiße Fläche. Der Grund ist Geometrie und
+kein Fehler: Von den Winkeln, unter denen dieser Teich in den Prüfbildern zu
+sehen ist, zeigt die Spiegelrichtung in den hellen Horizontsaum des Himmels.
+Der Torii steht daneben, nicht dort.
+
+Ein echtes Spiegelbild bräuchte eine ebene Spiegelung oder einen
+Schablonendurchgang mit gespiegelten Kopien. Beides ist machbar — die vier
+lohnenden Gegenstände (Torii, Laterne, Ufersteine, Findlinge) sind bereits je
+ein verschmolzenes Netz, kosteten also vier Draw-Calls von 27 freien. **Offen,
+mit dieser Begründung**, nicht als „geht nicht" abgetan.
+
+**Die Glanzbahn ist in keinem der sechs Prüfbilder zu sehen** — auch das
+gemessen und nicht übersehen. Sie braucht eine Kamera, die über das Wasser
+**zur Sonne** blickt; alle sechs festen Kameras blicken von ihr weg. Der
+Nachweis, dass sie steht, ist deshalb ein freies Bild:
+`tools/shots/zen-19/x-glanzbahn.png`, Kamera bei (5,9 | 1,35 | 0,25). Dort
+läuft eine helle, von den Wellen zerlegte Lichtbahn über den Teich. Das gehört
+zu Prüferbefund 15 (Komposition): Keine der sechs Kameras nutzt das Gegenlicht
+über dem Wasser.
+
+### Ein Nebenbefund am Prüfstand
+
+`measure.mjs` hat `envMap` **in keiner Zählung** geführt. Aufgefallen ist es
+hier: Die größte einzelne Textur der Umgebung wechselte von einem
+Himmelsverlauf auf eine Aufnahme des Gartens, und der Texturwert blieb auf die
+zweite Stelle gleich. Die Karte wird jetzt getrennt ausgewiesen — **6 MB** beim
+Zen-Garten. Getrennt und nicht dazugerechnet, damit die Zahlen früherer Läufe
+vergleichbar bleiben; verschwiegen wird sie nicht mehr. Die alte Himmelskarte
+war gleich groß (`PMREMGenerator.fromScene` benutzt dieselbe Würfelgröße 256),
+das ist aus dem Quelltext von three abgeleitet und nicht gemessen.
+
+### Ergebnis
+
+    Spiegelanteil b-pond        8,43 % des Bildes, mittlere Aenderung 89,2
+    Wasser gegen Himmel      210 → 195   (Himmel ueber dem Horizont 175–181)
+    Ton                      blaugruen → olivgruen mit Bernsteinanteil
+    Glanzbahn                nicht vorhanden → vorhanden (nur gegen die Sonne)
+
+    Draw-Calls      93 → 93        unveraendert
+    Dreiecke    79 576 → 79 576    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert, dazu 6 MB Umgebungskarte
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+## Paket C — Eine Ferne, aber keine Mauer (Prüferbefund 3)
+
+Der Prüfer: „`d-aerial` zeigt es unbarmherzig: eine Handvoll Objekte auf einem
+winzigen Fleck, ringsum bis zum Horizont vollkommen leerer, strukturloser Sand.
+Keine Einfassung, keine Mauer, keine Hecke, kein Hain im Rücken, keine Hügel,
+keine Ferne. Ein Zen-Garten ist definitionsgemäß ein umschlossener Raum."
+
+### Die naheliegende Antwort ist hier verboten
+
+`makeGartenmauer()` steht im Code, gebaut und geprüft, und ist in fünf Zeilen
+wieder einzuhängen. Sie ist in **Durchlauf 12 auf ausdrücklichen Zuruf des
+Nutzers** herausgenommen worden; der Grund steht dort: Sie hat geleistet, was
+sie sollte, aber sie hat den Garten geschlossen — aus dem offenen Kiesfeld
+unter weitem Himmel wurde ein Hof. Diese Entscheidung gehört dem Nutzer, nicht
+dem Prüfer, und sie wird hier nicht rückgängig gemacht.
+
+Der Befund hat trotzdem einen Kern, und der ist nicht die Einfassung, sondern
+die **Tiefenstaffelung**: Vordergrund, Mittelgrund, dann nichts. Die
+Luftperspektive hatte nichts zu staffeln.
+
+### Was geändert wurde
+
+Ein **Hügelzug in 33 bis 45 Metern**, aus vier bis sechs ineinanderlaufenden
+Kuppen je Gruppe, neun Gruppen mit drei Lücken, alles in **einem** Netz. Er
+schließt nichts:
+
+* Er steht im Nebelbereich (20 bis 46 m) und wird zu drei Vierteln in die
+  Dunstfarbe gezogen.
+* Er ist 2,0 bis 4,2 m hoch und lässt den Himmel offen.
+* Drei Lücken, durch die der Blick hinausläuft.
+
+Scheitelfarben statt einer Karte: In dieser Entfernung ist ein Texel kleiner
+als ein Bildpunkt. Was noch liest, ist der Verlauf von der dunklen Flanke zum
+lichten Rücken.
+
+**Eigener Zufallsstrom**, sonst verschöbe sich alles, was danach gebaut wird.
+Die Lücken verbrauchen ihre Ziehungen trotzdem — eine Änderung an ihnen darf
+den Rest nicht verschieben.
+
+### Zwei Anläufe
+
+Der erste stand bei 30 bis 44 m mit Höhen von 2,5 bis 6 m. Zwei Fehler,
+beide im Bild:
+
+* Die Augenhöhenkamera steht bei z = +6; die nächste Gruppe lag damit **24 m**
+  vor ihr und las als Kuppe im Mittelgrund statt als Ferne.
+* 6 m Höhe auf 8 m Breite ergeben Halbkugeln. Ein Hügelrücken ist breit und
+  niedrig; und die Kuppen einer Gruppe müssen weit auseinanderliegende Höhen
+  haben, sonst steht eine Reihe gleich hoher Buckel da.
+
+### Ergebnis
+
+    Bild            Punkte   Mittel   p05   p50   p95
+    a-eyelevel      34 954    168,2    89   182   218
+    c-torii         39 313    152,1    83   155   209
+
+Der Zug belegt also gut vier Prozent des Bildes und liegt im Tonwert zwischen
+dem Sand davor und dem Himmel darüber — genau die Schicht, die gefehlt hat.
+
+    Draw-Calls      93 → 95        (2 von 27 freien)
+    Dreiecke    79 576 → 94 360    (27 % des Budgets)
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,009 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Was offen bleibt:** Der Prüfer wollte auch einen Hain im Rücken und ein Dach.
+Beides wäre wieder ein Schritt Richtung Hof; der Hügelzug ist bewusst das
+Äußerste, was ohne Widerspruch zur Nutzerentscheidung geht. Wenn der Garten
+enger gefasst werden soll, ist das eine Frage an den Nutzer und keine, die ich
+entscheide.
+
+## Paket D — Kein Gegenstand hatte einen Fuß (Prüferbefund 4)
+
+Der Prüfer, wörtlich: „Das direkte Sonnenlicht ist da und wirft brauchbare
+lange Schatten — aber die **kurze Verschattung im Kontaktbereich** fehlt
+komplett, und genau die entscheidet darüber, ob ein Objekt steht oder schwebt."
+Aufgezählt: Torii-Fuß, Sakura-Stamm, Trittsteine, Ufersteine, Laternensockel.
+
+### Gemessen, bevor gebaut wurde
+
+`tools/knotenwerte.mjs --maske` auf `zen-kontaktschatten`: In `c-torii` kamen
+**alle dreizehn** Kontaktverdunklungen des Gartens zusammen auf **1055
+Bildpunkte** in zwei winzigen Flecken. In `e-sand`, der Nahsicht auf die
+Trittsteine, waren es **399**.
+
+Zwei Gründe, beide im Code nachlesbar:
+
+* **Die Trittsteine hatten überhaupt keine.** In der Liste der dreizehn kamen
+  sie nicht vor; ebenso wenig die neun Schnitthecken.
+* **Die vorhandenen waren enger als ihr Gegenstand.** Die Findlinge trugen
+  `size * 0.95` — die ganze Scheibe lag *unter* dem Stein und war unsichtbar.
+  Sichtbar ist nur, was über die Kante hinausschaut.
+
+### Was geändert wurde
+
+Kontaktverdunklung für die sieben Trittsteine (mit der Streckung des Steins)
+und die neun Schnitthecken; die vorhandenen weiter und kräftiger. Alle sitzen
+im selben verschmolzenen Netz — **null zusätzliche Draw-Calls**.
+
+Ein Zwischenstand war zu weit: `groesse * 1.5` ergab im Bild einen Schmierfleck
+rund um den Stein statt eines Ansatzes an ihm. Eine Kontaktverdunklung ist eng
+und dunkel, nicht weit und blass — jetzt 1,18-fach bei Deckkraft 0,8.
+
+### Ergebnis
+
+    Bild          Punkte in der Maske        p05 (dunkelste Stellen)
+    c-torii        1 055 →  2 053             96 → 46
+    e-sand           399 →  9 902             48 → 26
+    a-eyelevel     5 754 → 17 949             97 → 36
+
+Die Fläche verdreifacht bis verfünfundzwanzigfacht sich, und die dunkelsten
+Stellen sinken um 50 bis 60 Stufen: Der Ansatz ist jetzt eine dunkle Linie am
+Fuß und nicht mehr ein Hauch unter dem Gegenstand.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 360 → 94 392    (+32)
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 7 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen aus diesem Befund:** Die Ufersteine sitzen im Uferwulst und im Wasser,
+nicht auf dem Kies — für sie ist die Kontaktverdunklung das falsche Mittel; der
+Prüfer meint dort die Wasserlinie (Halbkugeln, die abgeschnitten werden statt
+einzusinken). Und dass die Harkspur ungebrochen unter den Steinen durchläuft,
+gehört zu Befund 8 und steht dort noch aus.
+
+## Paket E — Das Laternenlicht leuchtete nichts an (Prüferbefund 5)
+
+Der Prüfer: „Der Schein ist eine kreisrunde, symmetrische, weiche Scheibe, die
+hinter der Laterne im Bild klebt. Sie erhellt weder die Dachunterseite noch den
+Pfosten, noch die unmittelbar angrenzenden Steine, das Moos oder das Wasser
+30 cm darunter. Damit ist offensichtlich, dass es ein aufgeklebtes Sprite ist."
+
+Er hatte recht bis auf die Wortwahl: Es waren **zwei** aufgeklebte Dinge, die
+beide nur sich selbst zeigen — ein unbeleuchteter Kasten
+(`MeshBasicMaterial`, `toneMapped: false`) und ein additives Bildchen davor.
+Eine Lichtquelle gab es nicht.
+
+### Was geändert wurde
+
+Eine Punktleuchte im Lichtkasten, 0xffb765, Reichweite 2,6 m, Abfall
+quadratisch, **ohne Schatten**. Sie kostet keinen Draw-Call, sondern eine
+Schleifenrunde je Fragment in den Standardmaterialien der Umgebung.
+
+Ein erster Anlauf mit Stärke 3,2 war zu viel: Der Sockel leuchtete heller als
+der besonnte Kies daneben, und die Dachunterseite las als zweite Lichtquelle.
+Bei Tageslicht ist eine Steinlaterne ein Akzent, kein Scheinwerfer — jetzt 1,9.
+
+    Bild          Bildpunkte, die sich aendern     mittlere Aenderung
+    b-pond              12,4 % (>=2 Stufen)              1,30
+    c-torii              7,5 %                            0,77
+    f-grove              2,2 %                            0,28
+
+Sockel, Zwischenplatte, Dachunterseite, die Steine daneben und der Teichrand
+liegen jetzt im Schein.
+
+### Eine Korrektur am vorigen Paket, gefunden über eine Nebenzahl
+
+Der Prüfstand meldete nach dieser Änderung **55 Shader-Programme** statt der 32
+vom Ausgangsstand, und der erste Gedanke war: die neue Leuchte. **Falsch.** Die
+Zahlenreihe der Läufe zeigt, dass der Sprung ein Paket früher entstanden ist —
+beim Teichspiegel:
+
+    zen-16  32 Programme   (Ausgangsstand)
+    zen-19  55             (Paket B, Teichspiegel)
+    zen-20  55             (Paket C)
+    zen-21  55             (Paket D)
+    zen-22  55             (Paket E, Punktleuchte)
+
+Die Punktleuchte kostet also **kein einziges** zusätzliches Programm. Der
+Teichspiegel kostet 23, und das ist genau die Sorte Kosten, die in der Brille
+als Ruckler beim Betreten des Gartens ankommt.
+
+Zwei Programme davon sind gefunden und behoben: Die Aufnahme hatte blind alle
+Kinder der Szene ausgeblendet, **darunter das Grundlicht und die
+Hemisphärenaufhellung**, die in `main.js` an der Szene hängen und nicht an der
+Umgebung. Eine andere Zahl von Leuchten ist eine andere Shader-Fassung — und
+die Aufnahme entstand außerdem ohne einen Teil des Lichts. Jetzt bleiben die
+Leuchten an: 55 → 53.
+
+**Die übrigen 21 sind nicht erklärt.** Zwei Verdachte habe ich geprüft und
+beide ausgeschlossen, jeder mit einem eigenen Messlauf: das abgeschaltete
+Tone-Mapping während der Aufnahme (53 mit **und** ohne) und der Farbraum des
+Renderziels (55 mit `SRGBColorSpace` wie ohne). Es bleibt als offener Posten
+stehen, nicht als erledigt.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert
+    Programme       55 → 53        (32 im Ausgangsstand, 21 unerklaert)
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 7 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+## Paket F — Der Bambus hatte Halmknoten, man sah sie nur nicht (Prüferbefund 6)
+
+Der Prüfer: „Die Halme sind glatte grüne Röhren **ohne Halmknoten** — das ist
+das eine Merkmal, an dem Bambus erkannt wird, und es fehlt. Alle Halme haben
+denselben Durchmesser, dieselbe Farbe."
+
+### Nachgesehen statt geglaubt
+
+Geometrisch waren die Nodien da: `makeBambooStalk` setzt an jedes Internodium
+eine Scheibe. Sie ist aber nur **16 % breiter** als der Halm und 2,6 cm hoch —
+und ein Halm ist aus sechs Metern acht Bildpunkte breit. Die Scheibe war also
+einen Bildpunkt breiter als das Rohr.
+
+Was einen Nodus lesbar macht, ist nicht die Ausbuchtung, sondern der **dunkle
+Ring** und die helle Wachsbinde darüber. Beides ist Farbe, und Farbe überlebt
+die Verkleinerung. Nur konnte der Halm gar keine tragen:
+
+    _bambooMat = weatheredWoodMaterial({ tone: 0x9fbc63, vertexColors: false });
+
+Auch der Durchmesser-Vorwurf war zur Hälfte falsch: Die Halme sind 0,036 bis
+0,052 dick und der Hain skaliert sie zusätzlich mit 0,8 bis 1,4. Die **Farbe**
+war tatsächlich für alle dieselbe.
+
+### Was geändert wurde
+
+* `vertexColors: true` auf dem Halmwerkstoff.
+* Am Nodus ein dunkler Ring (Faktor 0,58), darüber eine helle Wachsbinde
+  (+26 %, nach 16 % des Internodiums aus), knapp unter dem nächsten Nodus
+  wieder etwas dunkler, damit der Ring nicht aus dem Nichts kommt.
+* Die Scheibe etwas kräftiger: 1,16 → 1,24 fach, 2,6 → 3,2 cm.
+* **Ein Farbton je Halm, ohne eine einzige neue Ziehung.** Der Same kommt aus
+  `radUnten` und `neigA` — Werten, die ohnehin gezogen wurden. Eine
+  zusätzliche Ziehung aus `rand()` hätte alles verschoben, was danach im
+  Garten gebaut wird.
+
+Alles davon ist Farbe auf vorhandener Geometrie: **null zusätzliche Dreiecke,
+null Draw-Calls.**
+
+### Ergebnis
+
+`tools/grasnarbe.mjs` über die Halme in `c-torii` (Kasten 165,380–330,470):
+
+    Nachbarunterschied    |dx|          |dy|
+    vorher                6,76          4,51
+    nachher               6,77          5,26
+
+Der **senkrechte** Unterschied steigt um 17 Prozent, der waagerechte bleibt auf
+die zweite Stelle gleich. Genau das ist die Unterschrift eines Nodus: eine
+waagerechte Gliederung. Wäre beides gestiegen, hätte ich Rauschen hinzugefügt
+statt Ringe.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Was aus diesem Befund offen bleibt, und ein Fund nebenbei
+
+Der Prüfer hat am selben Punkt auch das Laub bemängelt: „runde, kohlartige
+Klumpen, auf die Halme aufgespießt, statt schmaler, lanzettlicher
+Bambusblätter in Fächern." Das ist ein anderer Eingriff — es betrifft den
+Blattatlas und die Anordnung der Karten — und steht noch aus.
+
+**Und der Hain kostet dreizehn Draw-Calls von fünfundneunzig.** Jeder Halm ist
+ein eigenes Netz, weil `update()` ihn einzeln dreht. Verschmolzen, mit dem
+Wiegen im Scheitel-Shader wie beim Laub, wären das zwölf Draw-Calls weniger —
+die größte einzelne Reserve, die der Garten hat. Notiert für den Fall, dass
+ein späteres Paket den Platz braucht.
+
+## Paket G — Das Torii: eine Hälfte des Befunds stimmte, die andere nicht (Prüferbefund 7)
+
+Der Prüfer: „Über das gesamte Bauwerk **exakt ein Rotton** mit minimalem
+Helligkeitsunterschied zwischen Vorderfläche und Seitenfläche der Pfosten —
+obwohl die Sonne klar von links oben kommt. Keine Kantenlichter, keine Fase,
+keine Verdunkelung in den Balkenanschlüssen, keine Holzmaserung, keine
+Verwitterung."
+
+### Nachgemessen: „ein Rotton" ist nicht reproduzierbar
+
+`tools/knotenwerte.mjs` über die eigenen Bildpunkte des Knotens `zen-torii` in
+`c-torii`, 18 548 Punkte:
+
+    Mittel 86,7   p05 36   p50 79   p95 142   max 236
+
+Das ist eine Spanne von über hundert Stufen, nicht eine von 1. Der Prüfer hat
+offenbar die **zugewandten** Flächen abgetastet; die sind einander tatsächlich
+ähnlich, weil die Scheitelfärbung nur von `normal.y` und der Höhe abhängt und
+für vier senkrechte Flächen denselben Wert liefert. Der Rest der Spanne kommt
+von der besonnten Oberseite und den Unterseiten. **Der Befund in seiner
+gemessenen Form ist damit widerlegt; in seiner Beobachtung ist er richtig.**
+
+### Was wirklich fehlte, und was jetzt da ist
+
+**Erstens: Die Maserung war auf den Balken um das Zehnfache gestreckt.** Die
+Pfosten bekamen `scaleUV(pillar, 3)`, die Balken gar nichts — und eine
+`BoxGeometry` spannt ihre UVs einmal über jede Fläche. Auf dem 3,75 m langen
+Kasagi lag **eine** Kachel, auf dem Pfosten daneben drei über 3,2 m. Dasselbe
+Holz in zwei Maßstäben, und auf dem Balken eine Maserung, die so lang gezogen
+war, dass sie als gleichmäßige Fläche las. Jetzt läuft jedes Teil über
+`laenge / 0,35` UV-Einheiten; die Karte wiederholt sich intern [1, 3], deshalb
+die Höhe durch 0,35 · 3.
+
+**Zweitens: die Fugen.** Die Anschlüsse eines Myōjin-Torii stehen fest, es sind
+vier — der Nuki durch beide Pfosten, der Shimaki auf beiden Pfostenköpfen, der
+Kasagi auf dem Shimaki, die Gakuzuka zwischen beiden. Alle vier bekommen eine
+Verdunklung in der Scheitelfarbe. Ohne sie ist das Tor ein einziger Körper, dem
+jemand Kanten hineingezeichnet hat.
+
+Ein erster Anlauf war zu schwach (Δmax 20, 0,49 % der Bildpunkte); die Tiefen
+stehen jetzt rund 40 Prozent höher.
+
+### Ergebnis
+
+    zen-torii, eigene Bildpunkte   Mittel    p05
+    vorher                          86,7      36
+    nachher                         85,1      34
+
+    Bild        geaenderte Bildpunkte   Δmax
+    c-torii            0,54 %            29
+    f-grove            0,59 %            29
+    a-eyelevel         0,36 %            29
+
+**Die Zahlen sind klein, und das gehört so gesagt:** Die Fugen sind schmale
+Streifen, sie können den Mittelwert des ganzen Bauwerks nicht bewegen. Im Bild
+ist der Unterschied größer als in der Zahl — das Tor liest jetzt als gefügte
+Teile statt als ein Körper. Wer nur auf den Mittelwert sieht, würde dieses
+Paket für wirkungslos halten.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen aus diesem Befund:** Kantenlichter und eine Fase an den Balkenkanten.
+Beides bräuchte entweder zusätzliche Geometrie an jeder Kante oder einen
+eigenen Shader-Term; die Frage ist, ob ein Tor in dieser Entfernung das trägt.
+Nicht angefasst.
+
+## Paket H — Die Harke lief unter allem durch (Prüferbefund 8, erste Hälfte)
+
+Der Prüfer hat unter Nummer 8 vier Dinge zusammengefasst. Zwei davon sind hier
+erledigt, zwei stehen noch aus.
+
+### „Die Harkung ignoriert die Steine"
+
+Wörtlich: „In `d-aerial` laufen die konzentrischen Ringe ungebrochen unter dem
+Ahorn, den Felsen und den Moosgruppen durch. In einem Karesansui gibt es keine
+Ringe unter einem Stein — es gibt Ringe **um** ihn herum."
+
+Zur Hälfte war das schon gelöst: Um jede Steingruppe und um den Teich liegt ein
+Ringband, und innerhalb seines Innenradius wird nicht geharkt
+(`naht *= smoothstep(-0.12, 0.02, f)`). Um Moos und Teichufer hört die Spur
+über `uSandFeucht` auf. **Nicht** gelöst war es für die beiden Bäume und die
+sieben Trittsteine — und genau die hat der Prüfer benannt.
+
+`uSandFeucht` konnte das nicht leisten: Es unterbricht die Harke **und** färbt
+den Kies dunkler und gesättigter. Richtig am Moos, falsch unter einem
+Baumstamm. Dazu waren seine sechs Plätze vergeben (Teich plus fünf
+Moosinseln). Neu ist deshalb `uSandKahl` mit zwölf Plätzen: Ort, Halbmesser,
+Stärke — Harke aus, Farbe unberührt. Der Auslauf ist mit 22 cm eng gehalten;
+ein weicher Übergang über einen halben Meter sähe aus, als wäre die Rille dort
+verweht, und eine Harke, die um einen Stein herumgeführt wird, hört an seinem
+Rand auf.
+
+Die Änderungskarte von `d-aerial` zeigt genau die sieben Trittsteine, den Fuß
+der Sakura und den Fuß des Ahorns — und sonst nichts.
+
+### „Die Harklinien zerfallen in gepunktete, gestrichelte Muster"
+
+Der zweite Teil, und hier war die Ursache eine einzige Zahl:
+
+    float scharf = 1.0 - smoothstep(0.10, 0.34, w);
+
+`w` ist der Anteil einer Rillenperiode, den ein Bildpunkt überdeckt. 0,34 heißt
+**drei Bildpunkte je Periode** — genau der Bereich, in dem ein Streifenmuster
+in Punkte und Striche zerfällt. Die Spur stand also bis unmittelbar an die
+Nyquist-Grenze.
+
+Jetzt 0,09 bis 0,26, also Schluss bei knapp vier Bildpunkten je Periode:
+
+    a-eyelevel, Kasten 960,395–1275,445     |dx|    |dy|    Anteil >40
+    vorher                                  2,61    6,21      2,29 %
+    nachher                                 1,44    4,21      1,24 %
+
+**Ein erster Anlauf mit 0,07 bis 0,20 war zu scharf.** Im Bild war die ganze
+rechte Bildhälfte ohne Spur — auch dort, wo sie vorher sauber stand. Das
+Sandrelief im Nahbereich ist das, was der Prüfer ausdrücklich gelobt hat, und
+es darf nicht mitbezahlen.
+
+### Und ein Teil des Befunds ist nicht reproduzierbar
+
+„In VR wird das kriechen und flimmern; es ist die auffälligste Bildstörung der
+Szene." `tools/kamm.mjs --dreh` dreht die Kamera um Bruchteile eines
+Bildpunktes — die einzige Messung, die in der Ferne noch etwas sagt:
+
+    Bereich        Streuung   Zittern   Quotient
+    Harke fern       29,9      0,98      0,033
+    Harke nah        37,1      1,32      0,036
+
+Der ferne Bereich zittert **weniger** als der nahe. Die Punktierung war da und
+ist behoben; dass sie kriecht, ist gemessen nicht belegt.
+
+### Was aus Befund 8 offen bleibt
+
+* **„Der Sand ist zwei verschiedene Materialien"** mit einer sichtbaren Grenze
+  auf derselben durchgehenden Fläche. Die Grenze ist genau die eben verschobene
+  Ausblendung; ob sie jetzt als Übergang liest oder immer noch als Kante, ist
+  eine eigene Messung wert.
+* **Der Mustersprung** in `d-aerial` links oben, wo ein Bogensatz aufhört und
+  ein anderer anfängt.
+
+### Kosten
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,53 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Und zum vierten Mal in dieser Sitzung:** ein Backtick in einem
+GLSL-Kommentar innerhalb eines Template-Literals. `tools/shaderlint.mjs` als
+`prebuild` hat ihn gefangen, bevor ein Bild entstanden ist — ohne ihn wäre der
+Fehler als „Seite lädt nicht" aufgetreten.
+
+## Paket I — Die Naht bei zwanzig Metern (Prüferbefund 9 und die zweite Hälfte von 8)
+
+Der Prüfer hat dieselbe Linie zweimal gemeldet: als „der Sand ist zwei
+verschiedene Materialien … der Wechsel geschieht auf derselben durchgehenden
+Fläche und ist als Grenze sichtbar" (8) und als „eine harte Stufe quer durch
+das Bild … eine scharfe, unbehandelte Facettenkante" (9).
+
+### Drei Ursachen waren möglich, und ich habe alle drei falsch gewichtet
+
+**Erstens war da tatsächlich eine Stufe.** Das Kiesbett ist eine flache Scheibe
+bei y = −0,02, der Saum dahinter ein Ring bei y = −0,06 — **vier Zentimeter**
+auf dem ganzen Umfang, aus 1,7 m Augenhöhe in 20 m Entfernung zwei Bildpunkte.
+Das Bett neigt sich jetzt über die äußeren acht Prozent seines Halbmessers um
+dieselben vier Zentimeter nach unten und trifft den Saum bündig.
+
+**Zweitens waren es buchstäblich zwei Werkstoffe.** Das Bett ist ein
+`MeshStandardMaterial` mit Rauheit 0,95, der Saum war ein
+`MeshLambertMaterial`. Zwei Reflexionsmodelle geben unter demselben Licht
+verschiedene Tonwerte. Jetzt beide `MeshStandardMaterial`.
+
+**Drittens — und das ist es tatsächlich — fehlte dem Saum die Körnung.** Das
+Bett trägt die Kornkarte des Sandes, der Saum trug gar keine, nur eine
+Scheitelstreuung mit einer Wellenlänge von sieben Metern. Die Karte läuft
+jetzt über den Ring mit derselben Kachelgröße weiter (0,7 m), also 148,6
+Wiederholungen über die UV-Spanne einer `RingGeometry`, die den doppelten
+Außenhalbmesser abdeckt.
+
+### Und zwei eigene Fehlgriffe, die teurer waren als der Befund
+
+**Ich habe den Saum zweimal abgedunkelt, und beide Male zu Unrecht.**
+`tools/moossaum.mjs` misst den Unterschied über die Umrisslinie einer
+differenziellen Maske und meldete +22,8 Stufen. Daraufhin habe ich
+0xd9cba9 → 0xc0b496 → 0xa59b81 gezogen.
+
+Der Fehler steckt im Maß: **Die Maske eines Rings berührt außen den Himmel und
+innen den Kies.** Ihr Mittelwert mischt zwei Nähte, von denen nur eine gemeint
+war — der helle Himmel außen hat den Wert nach oben gezogen, und ich habe
+innen dagegen angearbeitet. Nach dem zweiten Schritt stand der Saum 38 Stufen
+zu dunkel.
+
+**Der zweite Fehlgriff war das Werkzeug dagegen.** Ein Blick senkrecht von oben
+schien der saubere Weg — keine Perspektive, kein Himmel. Er ist es nicht:
+`lockCamera` setzt `camera.up` fest auf (0, 1, 0), und bei senkrechtem Blick
+steht das parallel zur Blickrichtung. `lookAt` ist dort entartet, und die
+Bildorientierung fällt zufällig aus. Zwei Läufe desselben Standes lieferten
+170,8 und 148,5 für dieselbe Fläche — einen Unterschied, den ich beinahe einer
+Farbänderung zugeschrieben hätte, die diese Fläche gar nicht berührt.
+
+`tools/bodennaht.mjs` blickt deshalb aus 45 Grad: steil genug, dass die Naht
+nicht verschmiert, weit genug von der Senkrechten, dass `up` eindeutig bleibt.
+Damit war es in einem Lauf entschieden.
+
+### Ergebnis
+
+    Sprung ueber die Naht bei r = 20 m (tools/bodennaht.mjs, 45 Grad)
+    Ausgangsstand                       5,0 Stufen
+    nachher                             2,4 Stufen
+
+Der Tonsprung war also von Anfang an klein — **fünf Stufen**, nicht zweiund­
+zwanzig. Sichtbar war die Naht als **Strukturgrenze**: gekörntes Bett gegen
+glatten Ring. Genau die ist geschlossen.
+
+    Draw-Calls      95 → 95        unveraendert
+    Dreiecke    94 392 → 94 392    unveraendert
+    Textur       21,53 → 21,86 MB  (+0,33 fuer die Kornkarte des Saums)
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,010 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Und noch ein eigener Fehler
+
+`tools/naht.mjs` gab es bereits — ein Werkzeug aus dem Nachthimmel-Auftrag, das
+den leuchtenden Saum auf der Gratlinie misst. Ich habe es überschrieben. Das
+Original ist aus dem Git wiederhergestellt, das neue heißt
+`tools/bodennaht.mjs`. Wer ein Werkzeug anlegt, sieht vorher nach, ob der Name
+frei ist.
+
+## Paket J — Die Krone: der Kern des Befunds ist widerlegt (Prüferbefund 10)
+
+Der Prüfer hat vier Dinge zusammengefasst, und der schwerste Vorwurf war
+dieser: „In `f-grove` steht **die Sonne direkt hinter dem Baum**, trotzdem ist
+die Krone auf der Kameraseite gleichmäßig hell wie frontal beleuchtet — keine
+Verdunkelung, kein Randlicht, keine Durchleuchtung. Das indirekte Licht ist so
+flach eingestellt, dass die Lichtrichtung im Laub verschwindet."
+
+### Gemessen: die Durchleuchtung ist da, und sie steht nahe ihrem Maximum
+
+`tools/gegenlicht.mjs` liest den Blickterm des Laub-Shaders aus und setzt die
+Transluzenz differenziell auf 0, auf den Stand und auf das Dreifache:
+
+    Blickachse * Lichtrichtung        +0,912   (in die Sonne — der Pruefer
+                                               hatte mit der Geometrie recht)
+    geometryViewDir * lightDir        −0,912   → fView = 0,912, fView² = 0,83
+
+    Staerke der Transluzenz    Mittel im Kronenkasten
+    x 0                        139,0
+    x 1                        155,3
+    x 3                        164,0
+
+Die Durchleuchtung trägt also **16,3 Stufen** bei, und der Blickterm steht bei
+83 Prozent seines Höchstwerts. Der Befund „keine Durchleuchtung" ist damit
+widerlegt. Er ist auch erklärbar: Bis zum Insel-Paket, in dem das Vorzeichen
+dieses Terms korrigiert wurde, lief er tatsächlich auf seinem Sockel — die
+Korrektur steht in `src/dojo/foliage.js` und gilt für alle drei Umgebungen mit
+Laub.
+
+**Zwei eigene Fehler auf dem Weg dorthin.** `gegenlicht.mjs` ist an der Insel
+entstanden und hatte `env-island` an zwei Stellen fest verdrahtet. Im
+Zen-Garten hat es damit die Uniforms der **unsichtbaren** Insel verstellt und
+den Garten gemessen — und meldete folgerichtig für x0, x1 und x3 denselben
+Wert auf die Nachkommastelle. Das sah aus wie „die Transluzenz wirkt gar
+nicht" und war ein Fehler im Messgerät. Dasselbe galt für die Leuchte, aus der
+die Sonnenrichtung gelesen wird: Sie kam aus der Insel, und der Blickterm las
+sich als −0,044 statt −0,912.
+
+### Was von dem Befund bleibt, und was daran geändert ist
+
+Richtig bleibt: „Kein Astwerk innerhalb der Krone — die Äste brechen abrupt an
+der Blob-Kante ab." Der naheliegende Weg dagegen ist hier schon einmal gegangen
+und wieder verworfen worden: `astwerk()` hatte Nebenzweige, und der Kommentar
+dort sagt, warum sie fielen — „wo das außerhalb der Blattmasse lag, stand ein
+abstehender Stab in der Luft. Ein Ast, der ins Nichts zeigt, ist schlimmer als
+gar keiner."
+
+Ein **Kronenansatz** ist der Ausweg: Er bringt seinen Ast *und* seinen Schopf
+mit, kann also nirgends ins Nichts zeigen. Drei neue, weiter außen und tiefer
+als die acht davor und kleiner:
+
+    zen-sakura-karten (f-grove, ohne Schlagschatten)
+                        Zackigkeit    innen-aussen
+    vorher                 15,76         −12,68
+    nachher                17,30          −5,12
+
+Die Silhouette wird um zehn Prozent unruhiger, und der Tonabstand der Krone zu
+dem, was sie umgibt, sinkt von 12,7 auf 5,1 Stufen — sie liest weniger als
+ausgestanzte Fläche.
+
+    Draw-Calls      95 → 95        unveraendert (die Schoepfe sind Instanzen)
+    Dreiecke    94 392 → 96 744    (+2 352)
+    Textur       21,86 → 21,86 MB  unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen:** Die treppigen Alpha-Ränder an der Silhouette. Sie kommen vom
+Alpha-Test der Blattkarten; ein weicherer Übergang hieße Alpha-Blending, und
+das hieße Sortierung — für eine Krone aus überlappenden Karten ist das kein
+kleiner Schritt.
+
+## Paket K — Jeder Stein war derselbe Stein, in der Form (Prüferbefund 11)
+
+Der Prüfer: „Glatte, abgerundete Kartoffelformen, alle in derselben
+Achsproportion, alle in dunklem Braunschwarz, ohne Kanten, Bruchflächen,
+Schichtung oder Charakter. In einem Zen-Garten ist der einzelne Stein das
+kompositorische Hauptmotiv — hier sind es austauschbare Kiesel."
+
+Der **Ton** war in einem früheren Durchlauf schon gestreut (fünf Grundtöne,
+nach einer Messung von G/R und B/R über alle Findlinge). Die **Form** nicht:
+
+    weatheredStoneGeometry(new THREE.IcosahedronGeometry(size, 1), rand() * 1000, {
+      amount: 0.26,
+      frequency: 2.2,
+      bevel: 0.3,
+
+Diese drei Zahlen standen für alle sieben Findlinge, alle sechzehn Ufersteine,
+alle sieben Trittsteine und die Laternensteine auf demselben Wert. `bevel: 0.3`
+ist dabei der Grund, warum jeder Stein rund war: Er nimmt die Kante zurück.
+
+### Was geändert wurde
+
+Die drei Formzahlen kommen jetzt aus dem Samen, der ohnehin gezogen wird —
+**keine neue Ziehung**, denn jede würde alles verschieben, was danach im Garten
+gebaut wird:
+
+    amount      0,18 … 0,40   von gedrungen bis zerklüftet
+    frequency   1,5  … 3,7    grobe Bruchflächen gegen kleinteilige Verwitterung
+    bevel       0,12 … 0,42   der wichtigste: kleiner Wert laesst die Kante stehen
+
+Dazu ist die Grundfläche nicht mehr rund: `scale.x` und `scale.z` laufen von
+0,78 bis 1,28, aus demselben Strom. Ein Findling hat eine Länge und eine
+Breite.
+
+### Ergebnis, und warum die naheliegende Zahl hier in die Irre führt
+
+    zen-findlinge (c-torii, ohne Schlagschatten)
+                       Zackigkeit    Kantensprung
+    vorher                5,61          49,49
+    nachher               5,78          46,11
+
+Der Umriss aller Findlinge zusammen wird um drei Prozent unruhiger — wenig.
+**Und ein einzelner Stein wurde messbar glatter:** Über den vorderen Findling
+in `c-torii` fiel der Nachbarunterschied von |dx| 1,68 auf 1,47 und die
+Streuung von 27,3 auf 23,1.
+
+Das ist kein Rückschritt, sondern genau der Punkt: Dieser Stein hat aus seinem
+Samen einen niedrigen `amount` gezogen und ist jetzt der ruhige unter den
+sieben. Wer die Wirkung dieses Pakets an einem Stein misst, misst die
+Ziehung. Sichtbar wird sie erst über mehrere — in `d-aerial` haben die beiden
+Blöcke rechts der Mitte jetzt eine scharfe Gratlinie und eine ebene
+Bruchfläche, wo vorher zwei Kiesel lagen.
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 4 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen aus diesem Befund:** die „harten weißen Glanzflecken" auf mehreren
+Felsen, die der Prüfer als ausgefressene Spekular-Punkte beschrieben hat. In
+den aktuellen Bildern finde ich sie nicht wieder; ob sie an den genannten
+Stellen je standen oder ob ein früheres Paket sie beseitigt hat, ist nicht
+geklärt. Und die Ufersteinkette ist weiterhin gleichmäßig verteilt — die
+Streuung sitzt jetzt in der Form, nicht im Abstand.
+
+## Paket L — Zwei Jahreszeiten zehn Meter auseinander (Prüferbefund 12)
+
+Der Prüfer: „Blühende Sakura (Frühling) und leuchtend orangeroter Ahorn
+(Herbst) stehen zehn Meter auseinander. Das bricht den ‚ein Ort, eine Zeit'-Test
+bei einem japanischen Garten sofort. Zusätzlich sind genau diese beiden
+Elemente die einzigen gesättigten Farben der Szene und fallen aus dem sonst
+sehr disziplinierten Sand-Salbei-Oliv-Klang heraus."
+
+### Das ist eine Entscheidung und keine Fehlerbehebung — deshalb steht sie hier
+
+Der Widerspruch ist echt, und der naheliegende Ausweg wäre, einen der beiden
+Bäume aufzugeben. Das kostet den einzigen Farbakzent der Szene neben dem Torii.
+
+Es gibt einen dritten Weg, und er ist botanisch und nicht erfunden: Japanische
+Ahorne der Sorten **'Deshojo'** und **'Shindeshojo'** treiben im April in einem
+Karmesinrot aus, das erst später ins Grüne umschlägt. Ein solcher Baum steht
+neben einer blühenden Kirsche in derselben Woche. Der Unterschied zum
+Herbstlaub liegt im Farbton: weg vom Orange bei rund 20 Grad, hin zum Karmesin
+bei 355 bis 5 Grad.
+
+    Hüllkörper    0x9c3f22 0xb0512a 0x8a3520  →  0x8e3034 0xa03d3e 0x7c262c
+    Blattkarten   cremeorange                 →  rosé
+    Gegenlicht    0xd98f45 (Bernstein)        →  0xe0837a (Rosé)
+
+**Der Nebeneffekt ist die halbe Antwort auf den zweiten Teil des Befunds.** Der
+Prüfer hat das Magenta der Lotusblüten als „Signalton, der im Abendlicht
+nirgendwo eine Entsprechung hat" bemängelt. Jetzt hat er eine: Der Ahorn steht
+in derselben Familie.
+
+### Ergebnis
+
+Gemessen in `d-aerial` über den Farbton aller Bildpunkte mit einer Sättigung
+über 0,45 (die Zahlen enthalten auch das Torii und die warmen Sandschatten,
+sind also nicht der Baum allein):
+
+    Farbtonband        vorher   nachher
+    orange   10–40°     6840     5399
+    rot     350–10°     3711     4985
+    mittlere Saettigung  0,746    0,735
+
+Rund 1400 Bildpunkte wandern vom Orange ins Rot, und die Sättigung in diesem
+Bereich sinkt leicht.
+
+    Bild        geaenderte Bildpunkte
+    d-aerial          0,42 %
+    a-eyelevel        0,07 %   (nur der aeusserste rechte Bildrand)
+    b-pond, c-torii, e-sand, f-grove   bitgleich
+
+**Und das ist selbst ein Befund:** Der Ahorn kommt in **zwei von sechs** festen
+Kameras überhaupt vor, in einer davon nur mit dem Rand seiner Krone. Ein Baum,
+der als einer von zwei Farbakzenten geführt wird, steht damit in zwei Dritteln
+der Prüfbilder außerhalb. Das gehört zu Befund 15 (Komposition) und steht dort
+noch aus.
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 7 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Falls der Frühlingsahorn nicht gewollt ist:** Es sind drei Farbwerte und eine
+Gegenlichtfarbe in `mapleMaterials()` und `makeMaple()`; die alten stehen im
+Commit daneben.
+
+## Paket M — Die weißen Punkte waren kein Blütenblatt (Prüferbefund 13)
+
+Der Prüfer hat unter „Der Garten ist unbelebt" fünf Dinge aufgezählt. Drei
+davon sind nachgesehen und stimmen nicht, eines stimmt und ist behoben.
+
+### Was nicht stimmt
+
+**„Keine Fische im Teich."** Doch: `koi-flossen` und `koi-augen` sind in
+`b-pond` mit 29 und 14 Bildpunkten im Bild. Sie sind klein und liegen unter
+der Wasserfläche — dass man sie übersieht, ist ein Kompositionshinweis, aber
+kein fehlendes Element.
+
+**„Kein Windzeichen im Laub, alle Halme und Kronen stehen perfekt senkrecht."**
+Der Wind steht im Scheitel-Shader des Laubs (`windStrength` 0,085 für die
+Sakura, 0,07 für den Ahorn, 0,11 für den Bambus), und `updateFoliage(time)`
+zählt ihn im `update()` dieser Umgebung hoch. **Ein Standbild kann das nicht
+zeigen**, und der Prüfstand friert die Zeit auf 6,0 ein. Der Befund ist aus
+einem Standbild nicht zu erheben — weder als richtig noch als falsch.
+
+**„Die fliegenden Partikel erscheinen weiß statt rosa."** Die Blütenblätter
+sind rosa (Karte von 255|228|238 bis 246|178|203). Die weißen Punkte, die er
+an fünf Bildkoordinaten angegeben hat, sind **gar keine Blütenblätter**: Die
+differenzielle Maske von `zen-blueten` ist an diesen Stellen leer.
+
+### Was es wirklich war
+
+Ein Knotentest über alle Kinder der Umgebungsgruppe — jedes einzeln
+ausgeblendet, gemessen wird der eine Bildpunkt — hat es gefunden: Es sind die
+**Staubpartikel**, ein `THREE.Points` ohne Namen. Siebzig additive Körner über
+±12 m und bis 3,3 m Höhe, `fog: false`, Größe 0,08.
+
+Drei Dinge machten daraus Bildfehler:
+
+* **Sie standen überall.** Die Hälfte schwebte über der Horizontlinie und wurde
+  gegen den hellen Himmel gezeichnet. Ein Staubkorn ist additiv — gegen einen
+  Himmel von L 190 ist es in der Natur unsichtbar. Sichtbar wird Staub im
+  Gegenlicht vor einem **dunklen** Grund.
+* **Sie wurden mit der Entfernung nicht schwächer.** Ohne Nebel und additiv war
+  ein Korn in 20 m so hell wie eines in 2 m — nur zwei Bildpunkte groß. Zwei
+  helle Bildpunkte im leeren Himmel sind ein toter Bildpunkt.
+* **Siebzig Stück** über diese Fläche ergeben ein Sternenfeld.
+
+Jetzt ±7 m, Höhe 0,25 bis 1,5 m (also unter der Horizontlinie der
+Augenhöhenkamera), fünfundvierzig gezeichnet, Größe 0,12. Und der Knoten heißt
+`zen-staub` — ohne Namen hat mich die Suche drei Läufe gekostet.
+
+Nebenbei am selben Punkt: Der Alphatest der Blütenblätter stand auf 0,45. Auf
+sechs Bildpunkten Kantenlänge greift die Karte in eine Mipstufe, in der die
+Deckkraft über die durchsichtige Umgebung gemittelt ist; bei 0,45 fällt fast
+das ganze Blatt weg. 0,22 statt 0,45, dazu ein rosa `color` — die Fläche der
+Blätter in `a-eyelevel` steigt von 1215 auf 2236 Bildpunkten.
+
+### Ergebnis
+
+    isolierte Lichtpunkte im freien Himmel (a-eyelevel, Kasten 850,60-1270,330)
+    vorher     21
+    nachher     2
+
+    Blattflaeche zen-blueten (a-eyelevel)   1215 → 2236 Bildpunkte
+
+### Und ein Fehler von mir, der teurer war als der Befund
+
+Der erste Anlauf hat die Staubschleife von 70 auf 45 verkürzt. Das sind fünf
+Ziehungen je Korn, also **125 Ziehungen weniger** aus dem Zufallsstrom des
+Gartens — und damit verschiebt sich alles, was danach daraus gebaut wird.
+Gemessen: **18 bis 50 Prozent geänderte Bildpunkte in allen sechs Kameras**
+statt der erwarteten paar Staubkörner. Die Schleife zieht jetzt weiter
+siebzigmal und zeichnet fünfundvierzig.
+
+Diese Lehre steht seit dem Insel-Log an drei Stellen, und ich bin trotzdem
+hineingelaufen. Aufgefallen ist sie nur, weil der Regressionsvergleich zu jedem
+Paket gehört; ohne ihn wäre eine stillschweigend umgebaute Szene entstanden.
+
+    Bild        geaenderte Bildpunkte (nach der Korrektur)
+    a-eyelevel        0,49 %
+    f-grove           0,51 %
+    b-pond            0,19 %
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 7 bei 0,011 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+**Offen:** die gefallenen Blätter auf dem Sand, die der Prüfer als „winzige
+flache Farbtupfer, eher wie Schmutz" beschrieben hat. Sie sind dasselbe
+Alphatest-Problem eine Stufe kleiner und stehen noch aus.
+
+## Paket N — Die harte Bande am Horizont, und eine Änderung, die wieder ging (Prüferbefund 14)
+
+Der Prüfer hat zwei Dinge gemeldet. Eines ist behoben, beim anderen bin ich
+gescheitert und habe die Änderung zurückgenommen.
+
+### Die Bande am Horizont — und sie war meine eigene
+
+„Der Horizont selbst ist keine Auflösung, sondern eine harte helle Bande: Sand
+und Himmel treffen auf einer scharfen Linie mit einem weißlichen Saum darüber
+aufeinander."
+
+Gemessen in `a-eyelevel`, Mittelwert über die Spalten 880 bis 1150:
+
+    y      348    351    354    357    360    363    369    372
+    L    180,7  179,5  178,0  175,0  171,9  170,2  197,5  192,4
+
+Ein Sprung von **27,3 Stufen auf sechs Bildzeilen**. Und die Ursache ist nicht
+die, die der Prüfer vermutet hat, sondern **der Hügelzug aus Paket C**: Seine
+Füße liegen bei y = −0,35 und schneiden den Saum in einer geraden Linie, und
+weil die Hügel mit L 170 bis 189 dunkler sind als der genebelte Boden davor
+(197,5), stand dort eine Kante. Ich habe sie selbst gebaut, zwei Pakete vorher,
+und im Bild von Paket C nicht gesehen.
+
+Ein Hügelzug in 40 m Entfernung hat keinen sichtbaren Fuß — er beginnt dort, wo
+der Dunst aufhört, ihn zu verschlucken. Die untersten dreißig Prozent der Kuppen
+laufen jetzt in die Nebelfarbe 0xecd9bb, dieselbe, die `scene.fog` trägt. Das
+ist kein Ersatz für Nebel, sondern seine Fortsetzung: Der Nebel sättigt erst bei
+46 m, die Füße stehen bei 33.
+
+    y      348    351    354    357    360    363    366    369
+    L    180,7  179,5  178,6  181,7  184,5  188,3  193,5  198,5
+
+    groesster Sprung im Band   27,3 → 6,7 Stufen
+
+### Und eine Änderung, die ich zurückgenommen habe
+
+„Die Wolken sind ausschließlich dünne, exakt waagerechte, parallele Schlieren in
+immer derselben Stärke und Größe — keine Ballung, keine Maßstabsvariation."
+
+Der Ansatz: eine Modulation der Wolkenstärke über den Azimut mit **einem**
+Umlauf. Die schließt sich von selbst (keine senkrechte Naht) und sollte aus dem
+gleichmäßigen Schleier eine bewölkte und eine offene Himmelshälfte machen.
+Gebaut, gemessen — und wieder entfernt:
+
+    Wolkenkorn (Hochpass) in einer Rundumsicht, freie Himmelsrichtungen
+    Azimut       0     30     60     90    120    150    180
+    vorher    0,381     —      —   0,216     —      —   0,209
+    nachher   0,299  0,161  0,162  0,166  0,198  0,189  0,187
+
+Das Verhältnis zwischen der wolkigsten und der klarsten Richtung bleibt bei
+1,8 — **die Ballung ist in der Messung nicht zu sehen.** Was messbar ist: rund
+zwanzig Prozent weniger Wolke insgesamt. Eine Änderung, die ich nicht als
+Verbesserung zeigen kann, deren Preis aber messbar ist, gehört nicht in den
+Code; auch der ungenutzte Uniform-Satz nicht. Zurückgenommen, mit den Zahlen.
+
+**Was ich nicht ausgeschlossen habe:** dass die Ballung wirkt und mein Maß sie
+nicht sieht. Das Wolkenband liegt zwischen 3 und 25 Grad über dem Horizont, die
+Messkästen greifen bei 14 bis 27 Grad — also nur den oberen Rand. Ein Maß, das
+den ganzen Streifen erfasst, könnte anders ausfallen. Solange es das nicht gibt,
+bleibt der Befund offen und der Code unverändert.
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,010 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+## Paket O — Komposition: gemessen, und dann nicht entschieden (Prüferbefund 15)
+
+Der Prüfer: „`c-torii` ist gut komponiert. `a-eyelevel` dagegen legt den
+Horizont fast mittig und lässt die obere Bildhälfte vollständig leer. `d-aerial`
+zeigt, dass die Anlage in der Fläche keine Ordnung hat — die Objekte liegen als
+lockere Traube ohne Achse, ohne Blickbeziehung Torii→Teich, ohne Wegführung,
+die irgendwo hinführt. Der Weg der Trittsteine endet im Nichts."
+
+### Was gemessen ist
+
+Fläche jedes Merkmals in jeder festen Kamera, in Bildpunkten seiner eigenen
+differenziellen Maske:
+
+    Merkmal            a-eye   b-pond  c-torii  d-aerial  e-sand  f-grove
+    zen-torii           8 693  24 495   18 552   10 442   14 722   8 894
+    zen-wasser         12 178  77 347   70 957    7 526    6 426   6 525
+    zen-trittsteine    23 437  23 209    6 791    1 993   37 195  12 090
+    zen-laterne-stein   1 635   9 349    8 091      903    2 579   3 382
+    zen-sakura-karten  28 024       –        –   10 323    3 976  19 669
+    zen-ahorn-karten      611       –        –    4 953        –       –
+
+**Vier Merkmale stehen in allen sechs Bildern** — Torii, Wasser, Trittsteine,
+Laterne. So haltlos, wie der Befund klingt, ist die Anlage also nicht: Sie hat
+einen Kern, den man aus jeder Richtung sieht.
+
+**Der Ahorn ist der Ausreißer.** Er kommt in **zwei von sechs** Kameras vor, in
+einer davon mit 611 Bildpunkten — dem äußersten rechten Bildrand. Ein Baum, der
+als einer von zwei Farbakzenten gebaut ist, steht in zwei Dritteln der
+Prüfbilder außerhalb.
+
+### Was ich nicht ändere, und warum
+
+**Die Bildausschnitte sind eingefroren.** In `harness-common.mjs` steht über den
+Zen-Kameras: „DIESE WERTE DÜRFEN SICH ÜBER ALLE DURCHLÄUFE NICHT ÄNDERN – sonst
+sind die Vergleichsbilder wertlos." Der Befund an `a-eyelevel` — Horizont
+mittig, obere Bildhälfte leer — ist damit nicht mein Fehler zu beheben, sondern
+eine Eigenschaft des Prüfstands. Ein besserer Ausschnitt wäre eine **zusätzliche**
+Kamera, kein geänderter.
+
+**Und die Anlage umzustellen ist keine Messfrage.** Den Ahorn in die Blickachse
+zu rücken oder den Trittsteinpfad vom Torii zur Laterne zu führen, sind
+Entscheidungen über den Garten, nicht Korrekturen an ihm — dieselbe Art
+Entscheidung wie die Gartenmauer, die in Durchlauf 12 auf Zuruf gefallen ist.
+Zwei Dinge sprechen dagegen, sie allein zu treffen:
+
+* Der Trittsteinpfad trägt `e-sand` (37 195 Bildpunkte, die größte Fläche eines
+  Merkmals in irgendeinem Bild) und `a-eyelevel` (23 437). Ihn zum Torii zu
+  verlegen nimmt beiden Bildern ihren Vordergrund.
+* Der Ahorn steht bei (4,8 | 3,2), also hinter allen Bodenkameras. Ihn nach
+  vorn zu holen ändert die Silhouette jeder einzelnen Ansicht.
+
+**Beides liegt damit beim Nutzer.** Die Zahlen dafür stehen oben; die Änderung
+selbst ist in beiden Fällen klein — eine Position und eine Pfadgleichung.
+
+    Kein Eingriff in diesem Paket. Draw-Calls 95, Dreiecke 96 744,
+    Textur 21,86 MB.
+
+## Stand nach fünfzehn Befunden
+
+Prüferbefunde 1 bis 15 sind abgearbeitet: elf behoben, zwei widerlegt (die
+Durchleuchtung der Kronen, „ein Rotton" am Torii), eine Änderung nach der
+Messung zurückgenommen (die Wolkenballung), eine Entscheidung an den Nutzer
+zurückgegeben (die Komposition).
+
+Ausdrücklich offen, jeweils mit Begründung an ihrer Stelle im Log:
+
+* Ein erkennbares Spiegelbild im Teich (braucht eine ebene Spiegelung oder
+  einen Schablonendurchgang — die Umgebungskarte kann es nicht).
+* Die treppigen Alpha-Ränder der Blattkarten (bräuchte Alpha-Blending und
+  damit Sortierung).
+* Kantenlichter und Fasen am Torii.
+* Der Mustersprung im Harkbild links oben in `d-aerial`.
+* Die gefallenen Blätter auf dem Sand als „Schmutz".
+* Die Ufersteinkette mit gleichmäßigem Abstand.
+* Und 21 der 23 zusätzlichen Shader-Programme, die der Teichspiegel kostet.
+
+Budget: **95 von 120 Draw-Calls, 96 744 von 350 000 Dreiecken, 21,86 von 60 MB
+Textur** (dazu 6 MB Umgebungskarte, die bis Paket B in keiner Zählung stand).
+Die größte einzelne Reserve bleibt der Bambushain: dreizehn Draw-Calls, weil
+jeder Halm ein eigenes Netz ist.
+
+## Zweite Prüferrunde — was er von selbst als besser meldet, und was er neu findet
+
+Der Prüfer hat die sechs Bilder ein zweites Mal beurteilt, **ohne seine alte
+Liste**. Was er dabei ungefragt als verbessert nennt, ist die verlässlichste
+Auskunft über die fünfzehn Pakete:
+
+> „Der Sand im Nahbereich … das beste Material der Szene. **Klarer Fortschritt
+> gegenüber meinem früheren Eindruck.**"
+> „Weiche Schatten mit Halbschatten und stellenweise Blattdurchbrüchen … **Auch
+> das deutlich besser als früher.**"
+> „Die Komposition in `d`: Die Diagonale Bambushain → Teich mit Laterne → Ahorn
+> führt den Blick … **Die Anordnung ist gut**; ihr fehlt nur die Fassung."
+
+Sein Urteil in Zahlen: Boden 80 %, Licht 65 %, Wasser und Vegetation 35 %,
+Ortsdefinition 20 % gegenüber einem sehr guten stilisierten Echtzeit-Renderer.
+
+### Zwei seiner Befunde sind nachgemessen und falsch
+
+**„Das Torii wirft keinen Schatten."** Er hat bei (560,380) nachgesehen, also
+direkt unter dem Tor. Differenziell gemessen — `castShadow` aus und wieder an —
+wirft es sehr wohl: **3496 Bildpunkte, mittlere Verdunklung 59,7 Stufen,
+größte 132**, mit dem Schwerpunkt bei (867,408). Die Sonne steht tief und
+links; der Schatten liegt neun Meter weiter rechts, nicht unter dem Bauwerk.
+Auch die Laterne wirft (587 Bildpunkte, 11,5 Stufen) — schwächer, aber
+vorhanden.
+
+**„Keine Durchleuchtung im Laub."** Steht schon unter Paket J mit Zahlen; der
+Blickterm liegt bei 0,83 seines Höchstwerts, die Transluzenz trägt 16,3
+Stufen. Dass er den Effekt trotzdem nicht sieht, heißt: **16 Stufen sind zu
+wenig**, um im Gegenlicht als Glühen zu lesen. Das ist ein anderer Befund als
+„fehlt", und er steht damit wieder offen.
+
+## Paket P — Ein Trittstein war ein weißes Blatt Papier
+
+Sein Befund 5, und der beste des zweiten Durchgangs: „Die Deckfläche dieses
+Steins ist geklipptes Weiß ohne jede Zeichnung, direkt daneben eine fast
+schwarze Seitenfläche."
+
+Gemessen im Kasten 0,455–74,495 von `e-sand`: **27,7 Prozent der Fläche auf 255
+geklippt**, Median 212 gegen p05 26. Und im Ausgangsstand `zen-16` stand
+dasselbe da (Median 219, p95 255) — der Fehler ist alt und war fünfzehn Pakete
+lang unter meiner Nase.
+
+### Die Ursache, in drei Schritten gemessen
+
+Ein Durchgang über alle Leuchten der Umgebung, jede einzeln auf null:
+
+    alles an                  Median 212   Anteil 255: 27,7 %
+    ohne HemisphereLight      Median 204   Anteil 255: 26,2 %
+    ohne die Hauptsonne       Median  56   Anteil 255:  0,0 %
+    ohne das Fuelllicht       Median 212   Anteil 255: 27,7 %
+    ohne die Punktleuchte     Median 212   Anteil 255: 27,7 %
+    ohne die App-Leuchten     Median 208   Anteil 255: 27,3 %
+
+Es ist allein die Hauptsonne mit Stärke 4,1. Die Kette dahinter: Die Kamera
+steht 45 cm über dem Boden und sieht die Deckfläche **fast von der Kante** —
+bei streifendem Blick geht der Fresnel-Anteil gegen eins —, und bei Rauheit
+0,66 ist die Glanzkeule breit genug, dass die ganze Fläche darin liegt.
+
+### Was geändert wurde
+
+`zenGranite().roughness` von 0,66 auf 0,80. Die Reihe:
+
+    Rauheit   Median   Anteil 255
+    0,66        212      27,7 %
+    0,80        210       0,0 %
+    0,95        192       0,0 %
+    1,00        181       0,0 %
+
+0,80 nimmt das Ausbrennen vollständig weg und kostet zwei Stufen im Median. Und
+die Lichtspitze, um derentwillen 0,66 einmal gewählt wurde, geht nicht
+verloren: Auf den Findlingen liegt der Anteil über L 230 bei 0,66 **wie** bei
+0,80 auf 0,00 Prozent — die Spitze war dort ohnehin nie.
+
+    Trittstein in e-sand    Mittel 170,8 → 163,5   p95 255 → 246   max 255 → 254
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 5 bei 0,008 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Die Liste der zweiten Runde, für den nächsten Durchgang
+
+Neu oder wieder gemeldet, nach seiner Reihung: 1 keine Umgrenzung (und sein
+neues Argument dazu: „dann müsste der Sand außerhalb aufhören, geharkt zu sein
+— dass die Rillen bis zum Horizont durchlaufen, macht daraus einen Fehler statt
+einer Aussage"), 2 Wasser als Milchglasplatte mit unmotiviertem Farbwechsel
+zwischen den Kameras, 3 Alpha-Treppenkanten und zu schwaches Durchlicht im
+Laub, 4 Bambusblätter als Kugeln, **5 erledigt**, 6 geklonte Trittsteine, 7
+Sakura-Schatten als strukturloser Klecks mit Banding, 8 widerlegt, 9 Harkrillen
+an den Trittsteinen und ein Systemsprung im Harkbild, 10 zu große und zu helle
+Punkt-Sprites bis auf die fernen Hügel, 11 Moos mit gerader Plattenkante, 12
+neutralgraue Schatten ohne kühles Indirektlicht, 13 speckiger Glanz auf den
+Steinen, 14 Nebel frisst den Mittelgrund, 15 Laternenschein als flache Scheibe,
+16 Seerosen ohne Kontaktschatten, 17 kaum Leben unter Wasser.
+
+## Paket Q — Das Harkfeld hat jetzt einen Rand (zweite Runde, Befund 1)
+
+Der Prüfer wollte eine Umgrenzung. Die Mauer ist auf Nutzerwunsch draußen, und
+das bleibt so — aber sein Argument diesmal war ein anderes und ein besseres:
+
+> „Dann müsste der Sand außerhalb aufhören, geharkt zu sein. Dass die Rillen
+> bis zum Horizont durchlaufen, macht daraus einen Fehler statt einer Aussage."
+
+### Zuerst: seine Beobachtung stimmt so nicht
+
+Ein Blick von 6 m Höhe schräg über den Sand, Feinstruktur in dreizehn
+Entfernungsbändern (`tools/hochpass-reihe.mjs`), einmal mit und einmal mit
+`uSandTiefe = 0`, also ohne jede Harkung:
+
+    Entfernung     4,8   6,0   7,6   9,8  11,2  12,9  15,2  18,3  22,5 m
+    mit Harke     6,37  8,04  5,03  6,94  2,66  2,48  2,63  2,22  0,39
+    ohne Harke    4,05  4,56  3,12  3,02  1,85  2,34  2,63  2,22  0,39
+
+**Ab 12,9 m sind beide Reihen identisch.** Was dort draußen noch Struktur hat,
+ist das Korn des Sandes, nicht die Harke. Die Rillen laufen also nicht bis zum
+Horizont — sie sind bei dreizehn Metern zu Ende.
+
+### Und trotzdem hat er recht, nur auf dem Zielgerät
+
+Die Ausblendung hängt an zwei Dingen: an `grenze` (dem Ort) und an `scharf`
+(der Auflösung, über `fwidth`). Bei 1280×720 und 70° Bildwinkel hat der
+Prüfstand **10,3 Bildpunkte je Grad**; `scharf` erledigt die Spur dort schon
+bei dreizehn Metern, und `grenze` mit seinem sechs Meter breiten Auslauf kommt
+gar nicht mehr zum Zug.
+
+Eine Quest 3 hat je Auge 2208 Bildpunkte auf rund 96 Grad, also **23 je Grad**
+— gut das Doppelte. `fwidth` ist dort halb so groß, die Spur überlebt also
+etwa die doppelte Entfernung: bis rund 29 m. **Die Sandscheibe hat 20 m
+Halbmesser.** Auf dem Zielgerät läuft die Harkung damit tatsächlich bis an den
+Rand der Scheibe und darüber hinaus in den Saum — genau das Bild, das der
+Prüfer beschreibt, nur dass er es aus einem Bild erschlossen hat, in dem es
+nicht steht.
+
+### Was geändert wurde
+
+Der Auslauf von `grenze` von ±3,0 m auf ±0,7 m. Damit endet das geharkte Feld
+in einer Kante statt in einem Ausklingen. Eine Kreislinie wird daraus nicht:
+Der Ort schwankt über den Azimut um ±5 m.
+
+Gemessen bei **25° Bildwinkel** — 28,8 Bildpunkte je Grad, also etwas mehr als
+die Brille —, dieselbe Bänderreihe:
+
+    Band bei 12,7 m   3,371 → 2,680   (−20 %)
+    Band bei 13,5 m   2,640 → 2,225   (−16 %)
+    alle Baender dahinter   unveraendert
+
+Bei 70° Bildwinkel ist die Änderung fast unsichtbar (0,08 bis 0,24 % geänderte
+Bildpunkte in fünf der sechs Kameras), in `d-aerial` mit seinem steilen Blick
+dagegen deutlich (10,4 %). **Das ist der Punkt dieses Pakets:** Eine Änderung,
+die im Prüfstand kaum etwas tut und auf dem Zielgerät die Hälfte des Befunds
+erledigt. Ohne die Rechnung über die Winkelauflösung hätte ich sie für
+wirkungslos gehalten und wieder herausgenommen — so wie die Wolkenballung.
+
+Im Bild von `d-aerial` endet die Spur jetzt in einer unregelmäßigen Linie, und
+dahinter liegt glatter Kies.
+
+    Draw-Calls      95 → 95         unveraendert
+    Dreiecke    96 744 → 96 744     unveraendert
+    Textur       21,86 → 21,86 MB   unveraendert
+
+Insel, Nachthimmel und Matrix **bitgleich**, Dojo Δmax 4 bei 0,009 %. Build
+grün, Konsole frei von Errors und Warnings.
+
+### Und zum fünften Mal derselbe eigene Fehler
+
+Ein Backtick in einem GLSL-Kommentar innerhalb eines Template-Literals.
+`tools/shaderlint.mjs` hat ihn als `prebuild` gefangen, wie jedes Mal. Die
+Regel für mich, damit es ein sechstes Mal nicht gibt: **In GLSL-Kommentaren
+keine Backticks für Bezeichner** — der Name wird ausgeschrieben oder in
+Anführungszeichen gesetzt. Der Preis dafür, sie zu vergessen, ist eine Seite,
+die nicht lädt, und die Fehlermeldung sagt „missing ) after argument list".
+
+## Paket R — Das Durchlicht im Laub: drei Hebel gemessen, keiner trägt
+
+Der Prüfer hat in beiden Runden dasselbe gemeldet: „Die Sonne steht direkt
+hinter der Sakura, trotzdem gibt es keinerlei Durchleuchten. Kein warmes
+Aufglühen, kein Transluzenz-Saum." In Paket J hatte ich das mit Zahlen als
+widerlegt bezeichnet — der Blickterm steht bei 0,83 seines Höchstwerts, die
+Transluzenz trägt 16,3 Stufen bei. **Diese Bewertung war zu schnell.** Dass er
+den Effekt zweimal nicht sieht, heißt: sechzehn Stufen sind zu wenig. Das ist
+ein anderer Befund als „fehlt", und er stand damit wieder offen.
+
+Drei Hebel kommen dafür in Frage. Alle drei sind gebaut, gemessen und wieder
+zurückgenommen.
+
+### Hebel 1: mehr Stärke — die Kurve lässt es nicht zu
+
+    uTranslucency   x0     x1     x3
+    Kronenmittel   139,0  155,3  164,0
+
+Die dreifache Stärke bringt **8,7 Stufen**. Die Krone liegt bei L 155 im
+flachen Teil der ACES-Kurve; dort kauft mehr Radianz kaum noch Helligkeit.
+Dieselbe Lehre steht in allen drei Logs.
+
+### Hebel 2: den Sockel senken — der Term ist schon geklemmt
+
+`fGlow = fWrap * mix(0.40, 1.0, fView²)`. Der Sockel sagt, wie viel Leuchten
+ein Blatt auch dann bekommt, wenn die Sonne im Rücken der Kamera steht. 0,40
+auf 0,12 gesenkt, gemessen an zwei Kameras im selben Abstand vom Baum:
+
+    Gegenlicht    164,1 → 163,8
+    Vorderlicht   147,1 → 146,9
+
+**Nichts.** Und der Grund steht im Code: `fWrap = pow(fBack, uTransPower)` mit
+`fBack = max(0, dot(-L, N))`. Bei einem vorderlichtigen Blatt zeigt die Normale
+zum Licht, `fBack` ist null, und dann ist der Sockel gleichgültig. Er greift nur
+für Blätter, deren Normale vom Licht weg zeigt — und für die entscheidet
+ohnehin der Blickterm. Der Sockel ist kein Hebel, er ist ein Nachkommastelle.
+
+### Hebel 3: Kronenverdeckung — die Krone ist zu flach dafür
+
+`verdeckung: 1.0`, der auf der Insel gemessene und gebaute Mechanismus.
+Bandweise über die Sakura-Krone in `f-grove`, oben nach unten:
+
+    vorher    170,2  163,0  162,9  195,2  187,6  142,7   Spanne 52,5
+    nachher   171,1  163,7  162,7  195,3  187,6  142,7   Spanne 52,6
+
+Ebenfalls nichts, und auch dafür gibt es einen Grund: Die Verdeckung zählt, wie
+viel Laub **senkrecht über** einem Schopf steht. Die Insel hat kegelförmige
+Kronen von mehreren Metern Höhe; die Sakura hier ist eine flache Kuppel von
+einem Meter (Ansätze zwischen y = 2,00 und 3,04). Kaum ein Schopf hat andere
+über sich, und was übrig bleibt, zieht die Mittelwertnormierung wieder ab.
+
+### Warum keiner greift — die eigentliche Messung
+
+    Himmel hinter der Krone   Mittel 156   p50 161   p95 176
+    Krone (eigene Maske)      Mittel 151   p50 142   p95 207, max 221
+
+Die hellsten siebzehn Prozent der Krone liegen **über** dem 95. Perzentil des
+Himmels dahinter. Der Saum ist also da. Was fehlt, ist der Gegenpol: Krone und
+Himmel haben praktisch denselben Mittelwert (151 gegen 156). Ein Gegenlichtbaum
+liest, weil er dunkel ist und nur seine Ränder glühen — hier steht er in
+derselben Tonlage wie sein Hintergrund, und der Hintergrund ist der helle
+Dunsthimmel um eine tief stehende Sonne.
+
+**Der Hebel wäre also nicht mehr Leuchten, sondern eine dunklere Krone** — und
+das heißt: weniger Blattkarten, größere Lücken, mehr sichtbarer Hüllkörper.
+Gemessen deckt die Kartenschicht die Hülle fast vollständig ab (19 669 gegen
+1 167 Bildpunkte in `f-grove`). Das ist ein Eingriff in die Kronendichte und
+damit in die Silhouette jedes Baums in drei Umgebungen — kein Nachziehen einer
+Zahl. **Offen, mit dieser Begründung.**
+
+Kein Eingriff in diesem Paket. Draw-Calls 95, Dreiecke 96 744, Textur 21,86 MB.
+
+---
+
+## Paket S — Der Teich war eine Milchglasplatte, und zwar aus drei Gründen
+
+Prüferbefund 2 der zweiten Runde: *„Das Wasser ist eine opake Milchglasplatte …
+Schlimmer: die Fläche wechselt die Farbe mit dem Blickwinkel unmotiviert — in
+`a` fast reinweiß-hellgrau, in `c` blaugrau-grün, in `b` graugrün. Das liest
+nicht als Fresnel, sondern als Fehler."*
+
+Die drei Punktproben aus dem Bericht treffen in `a-eyelevel` Laub statt Wasser,
+also war zuerst eine Maske nötig. `tools/wasserton.mjs` erzeugt sie
+differenziell — Wasserfläche aus, Bild, an, Bild — und misst darin Ton,
+Sättigung, Perzentile und, mit `--durchblick`, wie viel vom Beckengrund
+überhaupt durchkommt.
+
+### Befund 1: Die Deckkraft hing gar nicht an der Kamera
+
+    Durchblick auf den Beckengrund, Stufen:
+    a-eyelevel 10,5   b-pond 12,2   c-torii 9,5
+    d-aerial    9,5   e-sand 10,8   f-grove 12,0
+
+`a-eyelevel` blickt unter 11,5° über den Teich, `d-aerial` unter 31° hinein.
+Auf Wasser ist das ein Unterschied um ein Vielfaches; hier war das Verhältnis
+**1,1**. Genau das ist eine Milchglasplatte, und es erklärt auch die zweite
+Hälfte des Befunds: Die Helligkeit schwankte über die Kameras um 54 Stufen,
+aber ohne die Gegenprobe — ohne dass bei steilem Blick der Grund auftaucht —
+kann das gar nicht als Fresnel lesen.
+
+Der Grund stand in einer Zeile: `diffuseColor.a` hing allein am Radius auf der
+Scheibe. Zwei Dinge kamen dazu, und die Reihenfolge ist lehrreich:
+
+* **Schlick allein trägt zu wenig.** Mit F0 = 0,02 auf der gekräuselten
+  Normale steht der Fresnelanteil bei 11,5° Blickhöhe auf 0,34. Das ist
+  physikalisch richtig — Wasser reflektiert streifend eben nur ein Drittel —
+  und der Durchblick bewegte sich kaum (10,5 → 11,0).
+* **Der Weg durch das Wasser ist die eigentliche Größe.** Beer-Lambert rechnet
+  mit der Strecke, nicht mit der Tiefe, und die ist Tiefe geteilt durch den
+  Sinus des Blickwinkels. Streifend das Fünffache. Erst mit diesem Faktor
+  kippte die Messung:
+
+      Durchblick nachher:
+      a-eyelevel  7,6   b-pond 12,9   c-torii  9,8
+      d-aerial   11,4   e-sand  6,0   f-grove  8,6
+
+  Verhältnis steil zu streifend jetzt **2,15** statt 0,90 — vorher stand es
+  sogar verkehrt herum.
+
+### Befund 2: Vier Fünftel des Bildes waren Spiegelung
+
+Die zweite Messung (`--zutaten`) teilt das Bild der Fläche auf:
+
+    Kamera        voll   Lackschicht   Umgebungskarte gesamt   ohne beides
+    a-eyelevel   175,6         22,9                   144,8          38,7
+    b-pond       130,9         21,6                    86,3          47,8
+    d-aerial     109,3         14,6                    54,0          57,0
+    e-sand       174,9         19,4                   156,9          34,0
+
+Die Umgebungskarte lieferte **49 bis 90 Prozent** des gesamten Bildes. Eine
+Fläche, die zu so einem Anteil aus einer glatten Himmelsspiegelung besteht,
+landet im flachen Bereich der ACES-Kurve und verliert dort ihre Farbe — dieselbe
+Lehre wie bei Wolken, Sonnenscheibe und Grasfase. Und die Gegenprobe stand
+gleich daneben:
+
+    Teichfläche   Sättigung  8,7 bis 19,0 %
+    Beckengrund   Sättigung 45 bis 52 %, Ton 35–39° (warmer Sand)
+
+Das Farbigste im ganzen Teich lag darunter und wurde von einem grauen Schleier
+zugedeckt.
+
+### Befund 3: Wasser hat eine Grenzfläche, nicht zwei
+
+`waterMaterial()` stammt aus dem Dojo, wo es das Tsukubai-Becken trägt: dunkler
+Stein unter einem Wasserfilm. Dort ist `clearcoat: 1` richtig — es sind wirklich
+zwei Schichten. Ein Gartenteich ist keine beschichtete Oberfläche, und die
+zweite Spiegelkeule war der Schleier.
+
+Der Verdacht, sie trage die Kräuselung (sie hält die zweite Normalkarte), ließ
+sich messen. `tools/wasserprobe.mjs` legt die Maske einmal fest und fährt dann
+eine Reihe von Materialständen durch, mit einem Hochpass gegen die vier
+Nachbarn als Strukturmaß — `b-pond`, 77 305 Bildpunkte:
+
+    Ist-Stand            L 130,9   Umfang 70   Sättigung 13,2 %   Hochpass 0,90
+    ior 1.333            L 128,2   Umfang 73   Sättigung 13,8 %   Hochpass 0,90
+    clearcoat 0.35       L 117,8   Umfang 67   Sättigung 15,9 %   Hochpass 0,91
+    clearcoat 0          L 109,3   Umfang 66   Sättigung 18,1 %   Hochpass 0,94
+    envInt 0.6           L 107,4   Umfang 64   Sättigung 16,6 %   Hochpass 0,85
+    ior+cc0+env0.55      L  84,2   Umfang 70   Sättigung 23,9 %   Hochpass 0,94
+
+Der Hochpass **steigt** beim Abschalten der Lackschicht. Sie hat also nichts
+aufgebrochen, sie hat zugedeckt — hier geht kein Kräuselmuster verloren. Der
+grobe Regler `envMapIntensity` dagegen nimmt Struktur mit (0,90 → 0,85) und
+schied damit aus, obwohl er die Sättigung ähnlich hebt. Ohne den Hochpass hätte
+ich vermutlich ihn genommen.
+
+Gewählt: `clearcoat = 0` und `ior = 1.333` (three rechnet ohne Angabe mit 1,5,
+also Glas). `envMapIntensity` bleibt bei 1,0.
+
+### Ergebnis über alle sechs Kameras
+
+    Sättigung          vorher → nachher
+    a-eyelevel   12,7 % → 13,0 %
+    b-pond       14,1 % → 18,1 %
+    c-torii      10,6 % → 14,1 %
+    d-aerial     19,0 % → 26,2 %
+    e-sand       15,5 % → 15,1 %
+    f-grove      16,8 % → 16,8 %
+
+    Binnenkontrast p95−p05, d-aerial  45 → 64
+    Helligkeit streifend (a) 175,6 → 150,7, steil (d) 119,3 → 89,1
+
+Die Spreizung zwischen streifendem und steilem Blick beträgt jetzt 62 Stufen
+und hat endlich ihre Gegenprobe: streifend ein heller Spiegel, steil dunkles,
+farbiges Wasser mit sichtbarem Grund. Das ist der Unterschied zwischen „wechselt
+unmotiviert die Farbe" und Fresnel.
+
+**Regression:** Insel, Matrix und Nachthimmel bitgleich (Δmax 0). Dojo Δmax 4 an
+einem Punkt, 0,010 % der Bildpunkte ≥ 2 — die zeitgetriebene Kräuselung des
+Tsukubai, nicht dieser Eingriff; das Dojo-Material ist unberührt, geändert wird
+nur die Zen-Instanz nach dem Aufruf. Budget unverändert: 95 Draw-Calls,
+96 744 Dreiecke, 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-36`.
+
+### Nebenbefund, noch offen
+
+`npm run build` meldet seit Längerem `IMPORT_IS_UNDEFINED` für `pfbm`,
+`grainAt` und `colorTexture` in `src/dojo/ground.js` — die Namen sind in
+`materials.js` vorhanden, aber nicht exportiert. Zur Laufzeit fängt das die
+Rückfallkopie am Dateiende (`MAT.pfbm ?? fallbackPfbm`), es ist also kein
+Fehler, aber es ist eine Warnung. Gehört ins Dojo-Paket.
+
+---
+
+## Paket T — Die Koi waren fünf Stufen vom Wasser entfernt
+
+Prüferbefund 17: *„kaum Leben unter Wasser."* Das ist eine Behauptung über
+Bildpunkte, und `tools/teichleben.mjs` macht sie zur Zahl — jede Lebensregung
+im Teich einzeln abschalten, Bild vergleichen, Fläche und Abhebung zählen:
+
+    b-pond      Fläche      Abhebung
+    Seerosen    5232 px     17,2 Stufen
+    Koi 0        413 px      5,2 Stufen
+    Koi 1        377 px      4,6 Stufen
+
+    e-sand      Koi 0          6 px     Koi 1   0 px
+
+Zwei Fische sind da, seit Langem, mit gebogenem Körper, Flossen und Augen. Sie
+waren nur nicht zu sehen: Ein Fisch, der sich um fünf Stufen vom Wasser
+unterscheidet, ist nicht da. Und die Ursache war **das Absorptionsmodell aus
+Paket S** — mein eigener Eingriff von vorhin. Der Weg-Faktor `pfad` machte bei
+20° Blickhöhe aus 3,4 einen effektiven Koeffizienten von 9,9; die Deckkraft
+stand über den Koi bei 0,89, es kamen elf Prozent von ihnen durch.
+
+### Der eigentliche Denkfehler: Trübung ist nicht Tiefe
+
+Beer-Lambert mit Koeffizient 3,4 beschreibt eine Wassersäule von Metern. Der
+Teich hier ist keine dreissig Zentimeter tief; reines Wasser absorbiert auf
+dieser Strecke praktisch nichts. Was den Grund eines Gartenteichs verdeckt, ist
+Schwebstoff und die Spiegelung an der Oberfläche — und Letztere steht seit
+Paket S ohnehin schon im Fresnelterm. Der Koeffizient war also doppelt gezählt
+und um eine Größenordnung zu hoch.
+
+Die Reihe (`tools/teichprobe.mjs`, Trübung als Uniform, damit die Quelle
+während des Messlaufs unangetastet bleibt) fährt beide Forderungen zugleich —
+`b-pond` für die Koi, `a-eyelevel` für den Durchblick, der bei streifendem
+Blick klein bleiben soll:
+
+    Trueb  Sockel      Koi 0   Koi 1   Wasser L   Sätt.   Durchblick a
+    3,4  0,44/0,86       5,2     4,6      104,9   19,3%           7,5
+    1,8  0,36/0,78       8,4     7,5      110,6   23,6%          11,5
+    1,2  0,30/0,72      11,4     9,9      113,7   26,7%          14,6
+    0,8  0,26/0,66      14,6    12,6      116,0   29,4%          17,5
+    0,5  0,22/0,58      18,2    16,0      117,5   31,9%          20,7
+
+Gewählt: **0,8 / 0,26 / 0,66**. Die Seerosen lesen bei 17 bis 20 Stufen, und
+das ist der Maßstab: Bei 14,6 und 12,6 stehen die Koi in derselben Größenordnung
+wie die Blätter, die im Bild unstrittig da sind.
+
+### Der Durchblick steigt — und das war die richtige Richtung
+
+Zuerst hielt ich den steigenden Durchblick bei streifendem Blick für den Preis.
+Er ist es nicht, und die Sechs-Kamera-Messung sagt, warum:
+
+                    Sättigung          Ton
+    Kamera      Paket S → T       Paket S → T      Durchblick
+    a-eyelevel   13,0 → 20,2 %     49° → 46°      7,6 → 17,5
+    b-pond       18,1 → 29,6 %     68° → 50°     12,9 → 27,9
+    c-torii      14,1 → 25,0 %     74° → 52°      9,8 → 24,1
+    d-aerial     26,2 → 37,6 %     71° → 49°     11,4 → 27,5
+    e-sand       15,1 → 19,2 %     54° → 50°      6,0 → 12,7
+    f-grove      16,8 → 26,6 %     46° → 41°      8,6 → 18,7
+
+    Ton-Spannweite ueber die sechs Kameras:  28° → 11°
+
+Das Farbigste im Teich liegt darunter — der Beckengrund steht bei 45 bis 52 %
+Sättigung. Ihn durchscheinen zu lassen ist der Weg zur Farbe, nicht der Preis
+dafür. Und die **Ton-Spannweite fällt von 28° auf 11°**: Genau das war der
+zweite Teil von Befund 2, *„wechselt die Farbe mit dem Blickwinkel
+unmotiviert"*. Der Farbwechsel ist weg; was bleibt, ist ein Helligkeitswechsel
+(147,8 streifend gegen 114,6 steil) bei gleichbleibendem Ton — und das ist
+genau, wie Fresnel aussieht.
+
+Das Verhältnis Durchblick steil zu streifend steht bei 27,9 zu 12,7, also 2,2.
+Vor Paket S waren es 9,5 zu 10,8 — es stand verkehrt herum.
+
+**Regression:** Insel, Matrix, Nachthimmel bitgleich. Dojo Δmax 5 an einem Punkt
+(0,009 % ≥ 2, die zeitgetriebene Tsukubai-Kräuselung). Budget unverändert: 95
+Draw-Calls, 96 744 Dreiecke, 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-37`.
+
+### Was dabei sichtbar wurde und noch offen ist
+
+Im Nahbild liegt das Seerosenblatt ohne Kontaktschatten auf dem Wasser
+(Prüferbefund 16). Das steht als Nächstes an.
+
+---
+
+## Paket U — Der Staub saß auf den Hügeln
+
+Prüferbefund 10: *„Punktsprites zu gross und zu hell, sie erscheinen auf den
+fernen Huegeln."* Gemessen mit `knotenwerte.mjs`, `a-eyelevel`, Maske des
+Knotens `zen-staub`:
+
+    1734 Bildpunkte   Mittel 179   p50 190   p95 250   max 255
+    49,9 % ueber L 190
+
+Das Maximum bei 255 ist der Beweis: Die Körner schneiden ab. 45 Körner auf
+1734 Bildpunkte sind ausserdem 39 Bildpunkte je Korn — bei `size: 0.12` mit
+Größenabschwächung sind das in zwei Metern rund 31 Bildpunkte Durchmesser.
+
+### Warum sie auf den Hügeln sitzen
+
+Nicht Tiefensortierung, sondern der fehlende Abfall. Die Größenabschwächung
+verkleinert das Korn mit der Entfernung, aber **jeder verbleibende Bildpunkt
+bleibt gleich hell**. In zwölf Metern steht damit ein harter weisser Punkt vor
+einem Hügel, den der Nebel bei 40 m fast weiss gewaschen hat. Der Szenennebel
+greift nicht: Er beginnt bei 20 m, und der Staub steht mit ±7 m ganz davor.
+`fog: false` am Material war insofern nicht einmal falsch — es hätte nichts
+geändert.
+
+Also ein eigener Abfall über die Sichttiefe, `smoothstep(4, 9, -mvPosition.z)`.
+Staub, der Licht fängt, ist ohnehin eine Erscheinung des Nahbereichs; was man
+in zehn Metern noch funkeln sieht, sind Insekten.
+
+**Und wieder die unaufgelösten `#include`.** Der erste Anlauf zielte auf
+`gl_Position = projectionMatrix * mvPosition;` — die Zeile steht in
+`project_vertex` und ist in `onBeforeCompile` gar nicht sichtbar.
+`ersetzeImShader` hat geworfen, wie es soll; mit `String.replace` wäre der
+Abfall still ausgefallen und ich hätte die Zahlen gedeutet. Sechstes Mal, dass
+dieser Baustein-Punkt zuschlägt, und das erste Mal, dass die Wächterfunktion es
+in einem Zug erledigt hat.
+
+### Ergebnis
+
+    zen-staub, a-eyelevel     vorher → nachher
+    Bildpunkte                  1734 → 1337
+    ueber L 190                49,9 % → 42,0 %
+    max                          255 → 253
+
+Dazu `opacity` von 0,7 auf 0,45: Additiv auf Sand, der bei L 200 steht, schlägt
+jedes Korn durch die Decke. Im Bild sind die Punkte über den fernen Hügeln, am
+Torii und über der Wasserfläche verschwunden; im Nahbereich bleibt ein
+Schimmer.
+
+**Regression:** Insel, Matrix, Nachthimmel bitgleich. Dojo Δmax 8 an einem
+Punkt. In den Zen-Kameras ändern sich 0,05 bis 0,25 % der Bildpunkte, und der
+Schwerpunkt liegt jedes Mal in der Bildmitte, wo der Staub steht. Budget
+unverändert: 95 Draw-Calls, 96 744 Dreiecke, 21,86 MB. Konsole sauber.
+
+Bildstand `tools/shots/zen-38`.
+
+### Befund 16 ist widerlegt
+
+*„Seerosenblätter ohne Kontaktschatten"* — `castShadow` ist gesetzt, und der
+Wurf kommt im Bild an. Differenziell gemessen (`teichleben.mjs --wurf`):
+
+    b-pond     Seerosen  3412 px  11,1 Stufen
+               Koi 0      286 px  12,3 Stufen
+               Koi 1      462 px  11,0 Stufen
+    d-aerial   Seerosen   406 px  13,1 Stufen
+               Koi 0       71 px  17,7 Stufen
+               Koi 1       54 px  21,4 Stufen
+
+Der Schatten ist 61 Prozent so gross wie das Blatt selbst — die Sonne steht mit
+19,4° so flach, dass er knapp danebenliegt, aber er ist da. Dass er vorher nicht
+las, lag am Wasser darüber: Vor Paket T kamen elf Prozent davon durch, jetzt
+rund fünfunddreissig.
+
+**Werkzeugfehler nebenbei:** `castShadow` auf einer *Gruppe* ist wirkungslos —
+der Wurf hängt an den Meshes darunter. Der erste Lauf meldete deshalb „Koi
+wirft 0 px", und das war kein Befund, sondern der Fehler.
+
+---
+
+## Paket V — Die ferne Erde stand über dem Himmel
+
+Prüferbefund 14: *„Der Nebel frisst den Mittelgrund."* Vier Spalten durch
+`a-eyelevel`, Himmel oben, Hügel unten:
+
+    x=400   Himmel y=300  L 172,0     Huegel y=360  L 199,9
+    x=900   Himmel y=300  L 169,6     Huegel y=340  L 203,2
+
+Sauberer gemessen mit `tools/fernsicht.mjs` — Maske der Hügel differenziell,
+Himmelsband **derselben Spalten** zwölf bis vierunddreissig Zeilen darüber (ein
+festes Rechteck hätte an manchen Spalten Hügel und an anderen Wolken erwischt):
+
+    Huegel 34 753 px   L 175,8
+    Himmel 24 426 px   L 162,6
+    Differenz          +13,2
+
+**Die ferne Erde stand dreizehn Stufen über dem Himmel darüber.** Damit kann
+sie gar nicht als Erde lesen, nur als Dunstbank — und genau das war der Befund.
+
+### Der naheliegende Griff ist der falsche
+
+Eine dunklere Nebelfarbe bringt die Ferne zurück, und die Reihe zeigt es auch:
+
+    0xecd9bb  Differenz +13,2
+    0xdfcbab  Differenz  +4,9
+    0xd3bd9c  Differenz  −3,2
+    0xc7b18f  Differenz −10,4
+
+Nur ist die Nebelfarbe hier gebunden. Die Horizontfarbe der Himmelskuppel ist
+absichtlich dieselbe (der Kommentar an `makeDome` sagt, warum): Der Sandsaum
+läuft bis dorthin, wo der Nebel gesättigt ist, und träfe dort ein anders
+getönter Himmel auf den Boden, stünde die Horizontlinie als Kante im Bild. Im
+Probebild mit 0xc7b18f war das auch prompt zu sehen — und dazu ein heller
+Streifen am Hügelfuss, weil dessen Scheitelfarben in die **alte** Nebelfarbe
+auslaufen. Man hätte drei Stellen zugleich nachziehen müssen.
+
+### Die Endweite hat die Nebenwirkung nicht
+
+Sie lässt den Hügeln mehr von ihrer eigenen Farbe, ohne den Ton zu verschieben,
+bei dem Boden und Himmel zusammentreffen. Die Hügel stehen bei 33 bis 45 m; mit
+`far = 46` waren sie zu 50 bis 96 Prozent Nebel, mit 62 nur noch zu 33 bis 63.
+
+    far 46   Huegel 175,8   Differenz  +13,2
+    far 55   Huegel 156,0   Differenz   −6,7
+    far 62   Huegel 145,3   Differenz  −17,3
+    far 70   Huegel 137,0   Differenz  −25,6
+    far 82   Huegel 129,1   Differenz  −33,5
+
+Gewählt: **62**. Bei 82 bekommen die Hügel im Bild wieder Sättigung und
+verlieren damit die Ferne; bei 55 ist der Unterschied zu klein, um eine
+Kammlinie zu tragen. Im Bild steht jetzt über die ganze Breite ein Höhenzug mit
+Kuppen und Sätteln statt einer weissen Leere, und der Sandsaum läuft weiter
+ohne Naht in den Himmel.
+
+**Regression:** Insel, Matrix, Nachthimmel bitgleich. Dojo Δmax 8 an einem
+Punkt. In den Zen-Kameras 3,3 bis 5,5 % geänderte Bildpunkte, in `d-aerial`
+24,9 % — dort ist fast das ganze Bild Boden jenseits von 20 m, also genau die
+Zone, die der Nebel betrifft. Budget unverändert: 95 Draw-Calls, 96 744
+Dreiecke, 21,86 MB. Konsole sauber.
+
+Bildstand `tools/shots/zen-39`.
+
+---
+
+## Paket W — Der Bambus hatte Kohlköpfe, weil sein Laub auf einer Kugel sass
+
+Prüferbefund 4: *„Die Bambusblätter sind Kohlköpfe."* Der Grund ist
+grundsätzlich und stand nicht im Bambuscode, sondern in `cardCluster`: Die
+Funktion verteilt die Blattkarten auf einer **Fibonacci-Kugelschale**. Was dabei
+entsteht, ist ein Ball — für eine Ahornkrone richtig, für Bambus falsch. Ein
+Bambusschopf besteht aus Seitenzweigen, an denen die Blätter in einer Ebene
+sitzen und nach unten hängen: flache Fächer, gestaffelt über das obere Drittel
+des Halms, mit Himmel dazwischen.
+
+### Der Atlas bleibt unangetastet, und zwar mit Grund
+
+Der naheliegende Verdacht war der Blattatlas. Er stimmt nicht: Die Zeichnung
+legt schon Büschel schmaler Blätter an, Breite zu Länge 1 : 11
+(`w(u) = pow(sin(PI·u^0.58), 0.8) · 0.082`). Und er wird von `src/dojo/exterior.js`
+mitbenutzt — eine Änderung dort ginge in eine Umgebung hinein, die in diesem
+Paket nicht ansteht. Geändert wird nur die Anordnung, und die steht in
+`makeBambooGrove` in `environments.js`. `squash` ist an `cardCluster` bereits ein
+Parameter; es musste kein geteilter Code angefasst werden.
+
+### Zwei Anläufe, und der erste war der Gegenfehler
+
+**Anlauf 1** — `squash: 0.3`, drei Schöpfe je Halm, Maßstab (0,40 | 0,15 | 0,40),
+Neigung 0,34 bis 0,70 rad. Ergebnis im Bild: keine Kohlköpfe mehr, dafür
+**flache Teller auf Stöcken**. Die Scheiben standen zu waagerecht, waren zu
+breit und liefen zu einer geschlossenen Decke zusammen. Der Ball war zu
+kompakt, das hier war zu flach — beides ist derselbe Fehler, nämlich eine
+geschlossene Masse ohne Zwischenraum.
+
+**Anlauf 2** — der Schlüssel war nicht die Form des einzelnen Schopfs, sondern
+**dieselbe Blattmenge auf mehr und kleinere Schöpfe**:
+
+    Karten je Schopf   34 → 18
+    cardScale        0,80 → 0,74
+    squash           0,82 → 0,45
+    Schöpfe je Halm     2 → 4, gestaffelt in Schritten von 0,145
+    Maßstab   (0,28|0,30|0,28) → (0,27|0,20|0,27)
+    Neigung             — → 0,5 bis 0,98 rad, wechselnd je Schopf
+    Ansatz              — → seitlich am Halm (0,10 bis 0,25 m), nicht auf ihm
+
+Im Bild stehen jetzt die Halme mit Knoten und Verjüngung frei, und darüber
+liegt eine lichte Krone aus einzeln lesbaren Fächern mit Himmel dazwischen.
+
+Die Drehreihenfolge ist `YXZ`, damit das Kippen **nach** dem Ausrichten wirkt:
+erst zeigt der Fächer in seine Richtung, dann fällt er nach unten. Mit der
+Vorgabe `XYZ` kippten alle Fächer in dieselbe Weltrichtung, unabhängig von
+ihrer Ausrichtung.
+
+**Kosten:** Draw-Calls unverändert 95 (die Schöpfe sind nach wie vor **eine**
+Instanz), Dreiecke 96 744 → 96 952. 18 Karten auf 52 Instanzen sind 1872
+Dreiecke gegen vorher 34 auf 26, also 1768 — die Verteilung ist praktisch
+umsonst. Textur 21,86 MB. Konsole sauber.
+
+**Regression:** Insel, Matrix, Nachthimmel bitgleich. Dojo Δmax 6 an einem
+Punkt; der geteilte Atlas und `cardCluster` selbst sind unberührt. In den
+Zen-Kameras 1,8 bis 11,0 % geänderte Bildpunkte — der Hain steht in `c-torii`
+gross im Bild, und sein **Schattenwurf** auf dem Sand ändert sich mit, was den
+Schwerpunkt der Abweichung auf den Boden zieht.
+
+Bildstand `tools/shots/zen-41`.
+
+### Was offen bleibt
+
+Die einzelnen Blattspreiten lesen aus der Nähe noch rundlicher, als Bambus sie
+hat. Das liegt an der Zeichnung im Atlas und an der Abtastung: Eine Spreite ist
+im Prüfbild rund acht mal drei Bildpunkte gross, und der Alphaschwellwert
+schneidet die Spitzen. Auf der Quest mit rund 23 px je Grad gegen 10,3 hier
+ist dieselbe Spreite doppelt so breit abgetastet. Eine Änderung am Atlas beträfe
+das Dojo mit; sie gehört in dessen Paket, nicht hierher.
+
+---
+
+## Paket X — Zwei Schattenbefunde nachgemessen: einer offen, einer widerlegt
+
+Kein Eingriff in diesem Paket, zwei neue Werkzeuge und fünf Messungen.
+
+### Befund 7: „Der Sakura-Schatten ist ein strukturloser Fleck"
+
+Zuerst brauchte es ein Mass. `tools/laubschatten.mjs` misst drei Dinge im
+differenziell gewonnenen Schattenfleck: Fläche, **Randanteil** (Umfang zu
+Fläche) und die **Löcher** — unverschattete Bereiche, die ringsum von Schatten
+umgeben sind, ermittelt durch Flutfüllung des Unverschatteten vom Bildrand her.
+
+Der Randanteil allein hätte in die Irre geführt:
+
+    Flaeche      13 701 px
+    Randanteil     33,6 %   (ein geschlossener Fleck dieser Groesse haette 3,0 %)
+
+Elffach so viel Rand wie eine Scheibe — das klingt nach aufgelöst. Die Löcher
+sagen etwas anderes:
+
+    Loecher   420,  zusammen 1186 px = 8,7 % der Schattenflaeche
+              groesstes 25 px, Median 3 px
+
+**Median drei Bildpunkte.** Das ist Rauschen am Alphaschwellwert, kein Lichtfleck.
+91,3 Prozent des Schattens sind ungebrochene Verschattung; der hohe Randanteil
+kommt von einem stark gelappten Umriss, nicht von Sprenkelung. Der Befund
+stimmt also, und jetzt mit einer Zahl.
+
+**Drei Hebel gemessen, keiner trägt:**
+
+| Eingriff | Löcheranteil | Median |
+| --- | --- | --- |
+| Stand | 8,7 % | 3 px |
+| Hüllkörper aus dem Schattenpass | 8,7 % | 3 px |
+| Alphaschwelle des Tiefenmaterials 0,42 → 0,88 | 8,7 % | 3 px |
+| Kronendichte 70 → 44 Karten je Ansatz | 8,4 % | 3 px |
+
+* **Der Hüllkörper ist für den Schatten belanglos.** Ohne ihn misst der Fleck
+  13 695 statt 13 701 Bildpunkte — sechs. Sein Schatten liegt vollständig
+  innerhalb dessen, den die Karten ohnehin werfen. Die Vermutung, er fülle die
+  Lücken zu, ist damit erledigt.
+* **Die Alphaschwelle des Tiefenmaterials bewegt gar nichts** — vier Werte von
+  0,42 bis 0,88 ergaben bis auf die letzte Stelle dieselben Zahlen. Der Grund
+  ist der Atlas: Er wird mit gefüllten Pfaden auf ein Canvas gezeichnet, das
+  Alpha ist also 0 oder 255 mit einem Bildpunkt Übergang. Eine höhere Schwelle
+  hat schlicht nichts zum Verwerfen. Die uebliche Technik, einen Laubschatten
+  ueber das Tiefenmaterial auszuduennen, greift hier nicht.
+* **Die Kronendichte auch nicht.** 484 statt 770 Karten sind 0,3 Prozentpunkte.
+
+Was bliebe, ist eine Krone, die **wirklich offen** ist — über mehr Volumen
+verteilt, mit Lücken von zehn bis dreissig Zentimetern. Das ist derselbe
+Eingriff, den Paket R schon als offen notiert hat, und aus demselben Grund:
+Er ändert die Silhouette jedes Baums in drei Umgebungen. **Offen, mit drei
+gemessenen Sackgassen mehr.**
+
+### Befund 12: „Neutralgraue Schatten ohne kühles Indirektlicht" — widerlegt
+
+`tools/schattenton.mjs` misst Ton und Sättigung derselben Bildpunkte einmal
+verschattet und einmal nicht, und schaltet danach jedes Licht der sichtbaren
+Umgebung einzeln ab, um zu sehen, wer den Schatten füllt.
+
+    beleuchtet   rgb 203,181,147   L 182,9   Ton 36,3°   Saettigung 27,4 %
+    im Schatten  rgb 143,133,116   L 134,1   Ton 38,4°   Saettigung 19,2 %
+
+Neutralgrau wäre eine Sättigung nahe null; gemessen sind 19,2 Prozent. Und das
+kühle Indirektlicht ist da — es ist sogar der Hauptfüller:
+
+    HemisphereLight #b3cdf0 1,05      56,9 Stufen von 134
+    DirectionalLight #ffd9a0 4,1       3,7
+    DirectionalLight #ffcf9c 0,5       4,1
+    PointLight #ffb765 1,9             0,0
+
+Ohne das Hemisphärenlicht steigt die Sättigung im Schatten von 19,2 auf
+**45,0 Prozent** — es ist also genau das, was den warmen Sand entsättigt.
+
+**Kräftiger blau geht — wäre aber falsch.** Die Reihe über die Himmelsfarbe:
+
+    0xb3cdf0   Schatten Saett 19,2 %  Ton  38,4°     beleuchtet Saett 27,4 %
+    0x86ace8   Schatten Saett 11,1 %  Ton  33,0°     beleuchtet Saett 27,2 %
+    0x5a8ce0   Schatten Saett  4,3 %  Ton 343,8°     beleuchtet Saett 27,4 %
+
+Die beleuchtete Fläche bleibt fast unberührt, der Schatten kippt bis ins Blaue.
+Nur: **Die Kuppel, die diese Szene beleuchtet, ist gar nicht so blau.**
+Gemessen im Bild über die Höhe:
+
+    ~35° Hoehe   (121,140,158)   Saettigung 23,4 %   Ton 209°
+    ~24°         (142,147,150)   Saettigung  5,9 %
+    ~11°         (161,156,145)   fast neutral
+    ~2°          (186,166,136)   warm
+
+Der Himmel erreicht **nirgends mehr als 23,4 Prozent** blaue Sättigung, und
+unterhalb von 24° ist er neutral bis warm. Ein Hemisphärenlicht integriert die
+ganze obere Halbkugel; sein Ergebnis kann nicht blauer sein als deren blauester
+Punkt. Mit 25,4 Prozent Sättigung steht `0xb3cdf0` bereits **über** dem, was
+die Kuppel hergibt. Es blauer zu stellen hiesse, die Schatten gegen den Himmel
+zu färben, der sie wirft.
+
+### Nebenbefund: Die aufgelegten Kontaktschatten sind sauber
+
+    beleuchtet   Ton 37,8°   Saettigung 26,4 %
+    darunter     Ton 37,8°   Saettigung 26,5 %   −19,3 Stufen
+
+Ein reines Multiplizieren: dunkler, ohne den Ton anzufassen. Trotz
+`toneMapped: false` und grauer Textur entsteht dort **kein** grauer Schleier.
+Auch das war ein Verdacht, und auch er trägt nicht.
+
+## Paket Y — Die schwarzen Splitter im Laub waren eine Lücke im Licht
+
+Der Prüfer der dritten Runde nennt diesen Befund als einzigen, „der in fünf von
+sechs Bildern gleichzeitig auffällt": „Das Laub aller drei Bäume und des
+Bambus ist von schwarzen Splittern durchsetzt … Kein Blatt ist an der Spitze
+schwarz. Das liest sich als Russ, als Fliegenschwarm oder als kaputte
+Freistellung."
+
+### Zuerst der Verdacht, der falsch war
+
+Naheliegend war der Atlas: eine kaputte Freistellung, ein zu dunkler Farbeintrag,
+ein Alpharand. `tools/blattatlas.mjs bamboo` widerlegt das in einem Bild — der
+Bambusatlas ist sauber, kein Bildpunkt darin ist dunkler als L 60. Die Splitter
+entstehen also **beim Rendern**, nicht beim Zeichnen des Atlas.
+
+Gemessen im Bambusbüschel von `f-grove` (645,245–775,375, Auswahl über
+G > B + 6):
+
+    Median der Laubbildpunkte        L 164,6
+    dunkelste 461 Bildpunkte         rgb(21, 31, 3)
+
+Ein Verhältnis von 8:1 innerhalb eines Büschels. Das ist keine Modellierung,
+das ist ein Loch.
+
+### Der zweite Verdacht war ebenfalls falsch, und die Widerlegung war lehrreich
+
+Die Vermutung: Der Durchleuchtungsterm rechnet mit `geometryNormal`, also der
+Kartennormalen, und kann deshalb ein einzelnes Blatt nicht retten, dessen
+Normal-Map es quer stellt. Der Versuch — `geometryNormal` durch `normal`
+ersetzen — ergab ein **bitgleiches** Bild.
+
+Der Grund steht in threes eigenem `lights_fragment_begin`:
+
+```glsl
+vec3 geometryNormal = normal;
+```
+
+Die beiden sind dieselbe Größe. `normal` trägt zu diesem Zeitpunkt bereits die
+Normal-Map; `geometryNormal` ist nur ein zweiter Name dafür, kein
+geometrischer Gegenpol. Der Durchleuchtungsterm folgte also schon immer dem
+einzelnen Blatt.
+
+**Bitgleich ist hier kein Fehlschlag gewesen, sondern der Beweis.** Ohne den
+Versuch hätte ich am falschen Ort weitergesucht.
+
+### Die eigentliche Ursache: eine Lücke quer zur Sonne
+
+Drei Terme beleuchten ein Blatt, und alle drei waren an derselben Stelle blind:
+
+| Normale zeigt … | Lambert | Durchleuchtung | Hemisphäre |
+| --- | --- | --- | --- |
+| zur Sonne | voll | 0 (geklemmt) | je nach Neigung |
+| **quer zur Sonne** | **0** | **0** | **fast 0 bei waagerechter Normale** |
+| von der Sonne weg | 0 | voll | je nach Neigung |
+
+`fBack = max(0, dot(-L, N))` und `dot(N, L)` sind beide null, wenn die Normale
+senkrecht auf der Lichtrichtung steht. Ein Blatt in dieser Lage bekommt von
+niemandem etwas.
+
+Dass diese Lücke überhaupt so breit trifft, liegt am Blattatlas. Gemessen über
+die Blattfläche des Bambusatlas bei `normalScale` 1,15 (Alpha ≥ 110):
+
+    Neigung der Schattierungsnormalen gegen die Karte
+    Median 47,9 Grad   90. Hundertstel 66,3   Höchstwert 77,9
+
+Eine Karte kann also frontal stehen und die Hälfte ihrer Blätter trotzdem quer.
+Deshalb sitzen die Splitter **innerhalb** der Büschel und nicht an ihrem Rand,
+und deshalb ist immer nur ein Teil eines Blattes schwarz.
+
+### Die Behebung: ein Umgriff statt einer Klemme
+
+`fBack` wird vorzeichenbehaftet genommen und die Durchleuchtung über die Quere
+hinweg verbreitert:
+
+```glsl
+float fBack = -dot( fLight.direction, normal );
+float fWrap = pow( max( 0.0, ( fBack + TRANS_WRAP ) / ( 1.0 + TRANS_WRAP ) ), uTransPower );
+```
+
+Das ist kein Sockel, sondern eine Verschiebung: Zum frontal beschienenen Blatt
+hin fällt der Term auf null, dort hat Lambert längst übernommen. Die
+Begründung ist die eines Bestands — ein Blatt zwischen Blättern steht nie im
+Schwarzen, weil das Nachbarblatt es anleuchtet.
+
+`TRANS_WRAP` ist gemessen, nicht gesetzt. Im Bambusbüschel von `f-grove`,
+Schwarzanteil gegen den Zwischenabstand als Maß für die verbliebene
+Modellierung:
+
+    ohne Umgriff   p01  24,4   IQA 47,9   unter L 40   2,69 %
+    0,70           p01  71,7   IQA 36,1   unter L 40   0,13 %
+    0,96           p01  81,1   IQA 32,1   unter L 40   0,02 %
+    1,53           p01  91,7   IQA 24,6   unter L 40   0,00 %
+
+**Die 47,9 des Ausgangsstands sind kein Verlust.** Sie bestanden zum grossen
+Teil aus den Splittern selbst — Schwarz neben Hell ist Kontrast, aber keine
+Form. Breiter als 0,70 kostet Modellierung, ohne noch nennenswert Schwarz zu
+finden. Gewählt: **0,70**.
+
+### Was das in den anderen Umgebungen tut
+
+`foliageMaterial` bedient Zengarten, Dojo und Insel. Der Umgriff wirkt überall,
+und überall in dieselbe Richtung — Anteil der Laubbildpunkte unter L 40:
+
+    Zen   f-grove Büschel      2,69 %  →  0,13 %
+    Insel 5-backlight ganz    22,85 %  →  8,64 %   (p01 7,9 → 28,2)
+    Insel 1-eyelevel ganz      5,45 %  →  3,13 %
+    Dojo  c-engawa Garten      3,31 %  →  1,78 %
+    Dojo  f-gegenlicht ganz    5,64 %  →  5,62 %
+
+Das Gegenlichtbild der Insel ist der stärkste Fall, und das ist stimmig: Dort
+steht die Sonne hinter dem Nadelbaum, und dort standen die meisten Blätter
+quer. Der Dojo bewegt sich in `f-gegenlicht` kaum, weil sein Gegenlicht flach
+einfällt und die Quere dort selten getroffen wird.
+
+**Regression:** Konstrukt und Nachthimmel bitgleich. Insel und Dojo verändert,
+in beiden Fällen gemessen als Rückgang des Schwarzanteils ohne Verlust an
+Sättigung. Budget Zen: 95 Draw-Calls von 120, 96 952 Dreiecke von 350 000,
+21,86 MB Textur. Ein Shader-Eingriff ohne neue Geometrie und ohne neue Textur.
+Konsole sauber.
+
+Bildstand `tools/shots/zen-52`.
+
+## Paket Z — Die glänzende Pfütze war Staub, und das Moos war eine Frage der Projektion
+
+Zwei Prüferbefunde, ein Ort: „Die Moosflächen liegen als glänzende Pfütze über
+dem Harkmuster" (2) und „eine Reihe gleich heller Glühwürmchen, eines davon am
+Himmel" (11).
+
+### Es war gar nicht das Moos
+
+Die weissen Flecken auf den Moosinseln sahen aus wie nasser Glanz. Gemessen
+über die Maske des Knotens `zen-staub` in `b-pond` (`knotenwerte.mjs`,
+`knotenkasten.mjs`):
+
+    835 Bildpunkte in acht Stuecken
+    Mittel 165, p95 212, Hoechstwert 244
+    groesste Stuecke 11 bis 15 Bildpunkte breit
+    zwei davon mitten auf einer Moosinsel, zwei ueber der Horizontlinie
+
+Das ist der Staub. Zwei der acht sassen auf dem Moos, eines im Himmel — beide
+Befunde in einer einzigen Punktwolke.
+
+**Die Ursache stand als Begründung im Quelltext.** `size: 0.12` trug den
+Kommentar „Ein Korn soll im Nahbereich mehrere Bildpunkte breit sein. Was nur
+einen belegt, ist kein Staub, sondern Rauschen." Nachgerechnet: Bei 60 Grad
+Bildwinkel und 720 Zeilen ist die Brennweite 623 Bildpunkte, und 0,12 m in drei
+Metern sind damit **25 Bildpunkte**. Das ist kein Staubkorn, das ist ein
+Nachtfalter.
+
+Jetzt 0,055 m, und je Korn mit einem Streuwert multipliziert: Durchmesser mal
+0,50 bis 1,25, Deckkraft mal 0,35 bis 1,00, quadratisch verteilt, damit die
+schwachen Körner in der Überzahl sind. Der Streuwert kommt aus `ph`, das ohnehin
+gezogen wird — **keine neue Ziehung**, sonst verschiebt sich alles, was danach
+aus demselben Strom gebaut wird.
+
+    vorher    835 Bildpunkte, 8 Stuecke, groesstes 15 px, Hoechstwert 244
+    nachher   127 Bildpunkte, 5 Stuecke, groesstes  6 px, Hoechstwert 193
+
+Kein Stück mehr über der Horizontlinie.
+
+### Warum das Moos trotzdem glatt ist — und was daran zu ändern war
+
+Nach dem Staub blieb eine glatte grüne Kuppel. Der naheliegende Verdacht war
+eine zu schwache Normal-Map. Gemessen, indem `normalScale` von 1,15 auf 4,0
+gesetzt wurde:
+
+    Kasten ueber die Moosinsel in b-pond:  Δmittel 1,33  Δmax 29
+
+Bei mehr als dreifacher Stärke. **Die Karte ist nicht zu schwach, sie wird
+nicht abgetastet.** In `b-pond` liegen anderthalb Meter Moostiefe auf 35
+Bildzeilen; radial ist die Fläche auf ein Zwanzigstel gestaucht, und in dieser
+Richtung mittelt die Mip-Stufe jede Zeichnung weg — Normal-Map, Scheitelfarbe
+und Relief gleichermassen.
+
+Was bei dieser Stauchung überlebt, ist die **Silhouette**. Eine glatte Kuppel
+liefert eine Ellipsenlinie gegen den Sand, und genau die liest sich als Pfütze.
+Also drei Eingriffe, alle an der Kontur statt an der Fläche:
+
+* **Vierzehn Ringe statt acht.** Der radiale Punktabstand fällt auf einem Meter
+  Halbmesser von 12 auf 7 cm. Das ist die Obergrenze für alles, was aus
+  Scheitelfarben kommt — ein Feld mit kürzerer Wellenlänge als der Punktabstand
+  wird nicht feiner, es wird Rauschen.
+* **Ein zweiter Fleckenmassstab bei 14 cm** neben dem bestehenden bei 28 cm,
+  erst seit den vierzehn Ringen abtastbar.
+* **Zwölf bis neunzehn Polsterbüschel je Insel**, 6 bis 15 cm Halbmesser, 3 bis
+  6 cm hoch, auf `polsterHoehe()` gesetzt — derselben Funktion, die auch die
+  Fläche formt, damit kein Büschel in der Luft hängt. Sie brechen die obere
+  Kontur.
+
+Gemessen mit `moossaum.mjs` in `b-pond`:
+
+    Zustand              Zackigkeit   Saum    Korn
+    vorher                    6,72   0,962   5,213
+    14 Ringe + 2. Massstab    6,75   0,966   5,561
+    dazu Bueschel             6,74   0,961   6,531
+
+Zackigkeit und Saum bleiben, wo sie schon richtig waren; das **Korn steigt um
+25 %**. Das ist die Zahl zur Sache: Die Fläche trägt jetzt Struktur, die die
+Projektion nicht wegmittelt.
+
+**Was offen bleibt und offen bleiben muss:** Die Normal-Map des Mooses ist aus
+der Augenhöhenkamera weiterhin wirkungslos. Das ist keine Einstellung, das ist
+die Projektion. Wer dort mehr Feinheit will, muss sie in die Silhouette legen,
+nicht in eine Karte.
+
+**Regression:** Konstrukt, Nachthimmel, Insel und Dojo bitgleich. Budget: 95
+Draw-Calls von 120 (unverändert — alle Büschel liegen im selben Netz),
+**101 752** Dreiecke von 350 000 (von 96 952; die Ringe kosten 2 640, die
+Büschel 4 800 abzüglich der gesparten), 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-53`.
+
+## Paket AA — Die Ferne war Nebelfarbe mit runder Kante (Prüferbefund 3, zweite Hälfte)
+
+Der Prüfer: „kein Gartenabschluss — eine endlose Sandwüste mit der geharkten
+Scheibe als Insel, ferne Hügel von Wolken nicht zu unterscheiden."
+
+### Die erste Hälfte des Befundes wird nicht bearbeitet
+
+`makeGartenmauer()` steht gebaut und geprüft im Code und ist in fünf Zeilen
+wieder einzuhängen. Sie ist in **Durchlauf 12 auf ausdrücklichen Zuruf des
+Nutzers** entfernt worden, weil sie aus dem offenen Kiesfeld einen Hof machte.
+Diese Entscheidung gehört dem Nutzer. Sie steht seit Paket C so im Log und
+bleibt so.
+
+### Die zweite Hälfte war messbar, und die Messung sagte etwas anderes als erwartet
+
+Gemessen über die Maske des Knotens `zen-ferne`, Grünüberschuss G − (R+B)/2:
+
+    a-eyelevel   Median  12,5   Mittel L 145,8   Beitrag −37,9
+    d-aerial     Median   8,5   Mittel L 180,2   Beitrag −20,9
+
+Praktisch neutrale helle Buckel. Der naheliegende Griff war, sie grüner zu
+machen — und der ist hier fast wirkungslos. Der Grünanteil des Grundtons
+0x8e9468 wurde um 52 % erhöht (auf 0x74854a), auf dem Bild kam davon **ein
+Viertel** an: Median 8,5 → 10,5.
+
+Zwei Gründe, beide bekannt und beide hier zum ersten Mal zusammen wirksam:
+
+* Der Nebel zieht bei 33 bis 56 m Kameraabstand 45 bis 85 Prozent der Farbe in
+  die Dunstfarbe.
+* Was übrig bleibt, liegt bei L 180 im **flachen Ast der ACES-Kurve**, und dort
+  ist keine Sättigung mehr zu holen. Kontrast ist nur nach unten zu gewinnen —
+  die Lehre steht seit dem Nachthimmel im Log und gilt auch hier.
+
+### Was tatsächlich hilft: die Silhouette
+
+Bei 85 % Nebel ist die Farbe erledigt, aber der **Umriss** nicht. Eine Wolke
+ist rund, ein Hügelrücken ist oben gezackt. Vier bis acht Kegel je Kuppe, 0,45
+bis 1,15 m hoch auf einem Rücken von 2 bis 4 m — gerade genug, dass eine Zacke
+bei 40 m ein bis zwei Bildpunkte hoch steht. Dazu ein dunklerer Grundton
+(0x5c6a34 / 0x333d1e statt 0x8e9468 / 0x555a3c) und ein schmalerer Nebelfuss
+(0,22 statt 0,30, und höchstens 0,88 statt vollständig).
+
+Der Nebelfuss war aus der Luftkamera der grösste Fehler: Von oben sieht man die
+Kuppen von oben, und die untersten dreissig Prozent waren schlicht in
+Nebelfarbe gemalt.
+
+    Bild          vorher                       nachher
+    a-eyelevel    L 145,8  Beitrag −37,9       L 123,6  Beitrag −59,9
+    c-torii                                    L 110,5  Beitrag −73,0
+    d-aerial      L 180,2  Beitrag −20,9       L 167,8  Beitrag −32,9
+
+    Saettigung a-eyelevel   27,9 %  →  31,7 %
+    Gruenueberschuss Median 12,5    →  14,0
+
+**Der Beitrag ist die Zahl, auf die es ankommt**: Der Hügelzug steht in
+`a-eyelevel` jetzt 60 statt 38 Stufen unter dem, was hinter ihm liegt, und in
+`c-torii` 73. Das ist der Unterschied zwischen einer Dunstbank und einem
+Rücken.
+
+**Dasselbe Muster wie beim Moos, zwei Pakete früher:** Was eine starke
+Auslöschung überlebt — dort die Stauchung der Projektion, hier der Nebel —, ist
+die Silhouette und nicht die Fläche.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 95 Draw-Calls
+von 120 (unverändert, die Kegel liegen im selben Netz), **107 132** Dreiecke
+von 350 000 (von 101 752; die Baumreihe kostet 5 380), 21,86 MB Textur.
+Konsole sauber.
+
+Bildstand `tools/shots/zen-54`.
+
+## Paket AB — Seerosen und Lotus (Prüferbefunde 4 und 13)
+
+### Das Seerosenblatt war eine Scheibe in einer Farbe
+
+Der Prüfer: „die Seerosenblätter schweben über der Fläche" und, zwei Befunde
+weiter, „neonmagentafarbene Origami-Lotusblüten".
+
+Das Blatt war eine `CircleGeometry` — ein Mittelpunkt, ein Rand, dazwischen
+nichts. Damit kann es weder eine Schüssel sein noch Rippen tragen noch einen
+Saum haben; dieselbe Grenze, an der die Moosinseln schon einmal gescheitert
+sind. Jetzt ein Ringnetz mit fünf Ringen (121 Punkte, 240 Dreiecke) und darauf:
+
+* **Die Kerbe.** Der Einschnitt bis zur Mitte ist das deutlichste Merkmal eines
+  Seerosenblatts. Der alte `thetaLength` von 1,85 π hat ihn als Tortenstück
+  geschnitten — zwei gerade Kanten; jetzt läuft er spitz zu.
+* **Schüsselform**, Rand 1,2 cm über der Mitte, mit welligem Wulst.
+* **Rippen und Saum** in den Scheitelfarben: neun Strahlen als Helligkeit
+  (Geometrie wäre bei 24 Segmenten unterabgetastet), Rand rötlich angelaufen.
+
+### Kein Blatt hatte einen Schatten im Wasser
+
+Sie schweben nicht — sie liegen bei y = 0,056 auf dem Wasser bei 0,050. Aber
+bei 19° Sonnenstand fällt der Schlagschatten eines 6 mm hohen Blattes
+vollständig **unter** das Blatt und ist unsichtbar. Was sichtbar wäre, ist das
+Wasser, dem das Blatt den Himmel wegnimmt. Also eine dunkle Scheibe knapp unter
+der Fläche, 25 % grösser als das Blatt, nach Osten versetzt.
+
+**Ein Fehler dabei, und er ist lehrreich:** Der erste Anlauf liess die
+Scheitelfarbe zum Rand hin nach Schwarz laufen und die Deckkraft bei 0,30
+stehen. Schwarz auf 30 % ist aber **dunkler** als Dunkelgrün auf 30 % — der
+Saum wurde der dunkelste Teil des Schattens statt der schwächste, und im Bild
+stand ein harter Ring um jedes Blatt. Der Abfall gehört in den Alphakanal;
+three liest ihn aus dem `color`-Attribut, wenn es vier Bestandteile hat.
+
+### Die vierte Verschiebung des Zufallsstroms
+
+`makeLilyPad` zog vorher zwei Zahlen und danach drei. Sieben Blätter, sieben
+zusätzliche Ziehungen — und im ersten Bild danach standen Lotus, Koi und
+Ufersteine woanders. Die Lehre steht in diesem Log an drei Stellen. Die Kerbe
+wird jetzt aus der Drehung abgeleitet.
+
+### Der Lotus war Origami, und zwar wörtlich
+
+`ConeGeometry(0.05, 0.14, 4)`, elfmal. **Vier Seiten heisst vier ebene Facetten
+und eine Spitze** — es gibt keine Krümmung, in der sich Licht verlaufen könnte.
+Jetzt ein Blattgitter aus 4 × 7 Punkten mit Längsbogen und Querwölbung, drei
+Kränze statt zwei (aussen flach und weit, innen steil), und die Samenkapsel als
+flacher Kegelstumpf statt als Kugel.
+
+Die Farbe war der zweite Teil: **0xff9dc2 hat den Rotkanal auf Anschlag.** In
+einer Szene, deren Sand bei L 200 steht, ist ein voll ausgesteuerter Kanal der
+hellste Punkt des Bildes. Eine Lotusblüte ist am Grund fast weiss und wird erst
+zur Spitze rosa; der Verlauf steht jetzt in den Scheitelfarben.
+
+Gemessen über die Maske des Knotens in `c-torii`:
+
+    vorher    R p50 110   p95 236   Saettigung p50 40,1 %
+    nachher   R p50 118   p95 181   Saettigung p50 33,6 %
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: **97**
+Draw-Calls von 120 (von 95 — die Blattschatten sind ein eigenes Netz mit
+eigenem Material), **113 444** Dreiecke von 350 000 (von 107 132), 21,86 MB
+Textur. Konsole sauber.
+
+**Was offen bleibt:** Der Koi ist weiterhin der hellste Fleck im Teich, und ein
+Trittstein steht unverdunkelt im Wasser. Beides gehört zu Befund 4 und kommt im
+nächsten Paket.
+
+Bildstand `tools/shots/zen-55`.
+
+## Paket AC — Der Trittstein im Teich, und ein Befund, den die Messung nicht bestätigt
+
+### Der Stein lag einen Zentimeter über dem Wasser
+
+Der Prüfer: „ein Trittstein sitzt darin, ohne dass er dunkler wird." Der Ort
+stimmt und lässt sich nachrechnen: Der Pfad endet bei rund (2,9 | 0,0), der
+Teich steht bei (3,2 | −1,2) mit den Halbachsen 2,04 und 1,70 — der Stein liegt
+bei **0,72** der Ellipse, also klar innen.
+
+Unverdunkelt war er, weil seine Oberseite bei y = 0,060 lag und das Wasser bei
+0,050. **Einen Zentimeter darüber.** Von schräg oben sieht man fast nur diese
+Oberseite, und die hat mit dem Wasser nichts zu tun. Ein Zentimeter ist
+ausserdem keine Lage, in der ein Stein je liegt: Er steht entweder im Wasser
+oder er ragt heraus.
+
+### Zwei Wege, und der erste war falsch
+
+Der erste Anlauf hat ihn zum **Sawatari** gemacht — Furtstein, Oberkante über
+dem Spiegel, Fuss bis in die Sohle, nasser Saum an der Wasserlinie. Im Bild
+stand eine Kiste im Teich:
+
+* Der Block wird dabei 40 cm dick, und seine Flanke zeigt die auf das Fünffache
+  gestreckte Kornkarte als senkrechte Streifen.
+* Der nasse Saum wurde ein **rostroter Ring**. Der Grund ist eine Umkehrung,
+  die ich nicht bedacht hatte: Unter Wasser hellt die Trübung die Fläche
+  ohnehin auf. Eine Verdunklung genau dort erzeugt keinen nassen Stein, sondern
+  eine Kante zwischen zwei Fehlern.
+
+Ein Furtstein braucht eine eigene Gestalt. Ein gestreckter Trittstein ist
+keine.
+
+Der zweite Weg ist der einfachere und der, den der Befund wörtlich verlangt:
+Der Stein **sinkt unter den Spiegel**, Oberkante 2,5 cm darunter, dazu ein
+algiger Grundton (×0,70 / 0,76 / 0,66). Dann färbt ihn das Wasser mit derselben
+tiefenabhängigen Trübung, die auch die Beckensohle trägt, und der Pfad endet am
+Wasser statt hindurchzugehen.
+
+### Der Koi ist kein weisser Splitter
+
+Der Prüfer nennt ihn „ein unleserlicher weisser Splitter". Gemessen über die
+Masken der Knoten:
+
+    Bild        Knoten         Punkte  Mittel   p95   max   Beitrag
+    b-pond      koi-koerper       937   112,3   148   169     −6,5
+    b-pond      koi-flossen        66   139,0   155   167     +6,4
+    c-torii     koi-koerper       804   103,2   152   164     −8,1
+    c-torii     koi-flossen        40   139,3   167   170     +6,7
+
+Kein Bildpunkt über L 190, der Höchstwert liegt bei 170, und der Körper ist in
+beiden Bildern **dunkler als das, was hinter ihm liegt** — nicht heller. Das
+grösste zusammenhängende Stück in `c-torii` misst 50 × 17 Bildpunkte.
+
+„Weiss" trifft also nicht zu; der Fisch steht unter dem Mittelwert seiner
+Umgebung. „Unleserlich" ist bei 50 × 17 Bildpunkten Ansichtssache und hier
+nicht durch eine Zahl zu entscheiden. **Der Befund wird deshalb nicht
+umgesetzt, sondern mit seinen Zahlen abgelegt.** Wer ihn wieder aufnimmt, soll
+mit diesen Werten anfangen und nicht mit dem Eindruck.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget unverändert: 97
+Draw-Calls von 120, 113 444 Dreiecke von 350 000, 21,86 MB Textur. Konsole
+sauber.
+
+Bildstand `tools/shots/zen-56`.
+
+## Paket AD — Der Laternenhof war stärker als das Licht, und das Torii stand in Mehl
+
+### Befund 5: eine Scheibe, die nichts beleuchtet
+
+Gemessen in `e-sand` über die Masken der beiden Knoten:
+
+    zen-laternenhof     10 507 Bildpunkte, Kreis von 124 px    Beitrag +29,0
+    zen-laternenlicht   12 559 Bildpunkte                      Beitrag  +8,0
+
+Das additive Bildchen war **dreieinhalbmal so kräftig wie die Beleuchtung**,
+die es begründen soll. Und es war eine mathematisch runde Scheibe von 124
+Bildpunkten, deren Rand gegen den hellen Himmel steht — genau das, was der
+Prüfer als „hartkantige Scheibe" meldet.
+
+Der Punkt, den er darüber hinaus macht, stimmt so nicht: Die Punktleuchte aus
+einer früheren Runde beleuchtet sehr wohl etwas, nämlich 12 559 Bildpunkte um
+8 Stufen. Sie war nur nicht zu sehen **neben** einem Hof, der viermal so stark
+war.
+
+Am späten Nachmittag hat eine Steinlaterne in klarer Luft überhaupt keinen Hof;
+sichtbar ist allenfalls ein enger Überstrahl an der Lichtöffnung. Der Hof
+schrumpft deshalb von 1,10 auf 0,42 und verliert ein Drittel seiner Deckkraft,
+die Leuchte steigt von 1,9 auf 2,5.
+
+    zen-laternenhof       562 Bildpunkte, ~40 px    Beitrag +7,8
+    zen-laternenlicht  14 306 Bildpunkte            Beitrag +9,0
+
+**Das Verhältnis ist jetzt herum:** Die Beleuchtung trägt mehr als ihr eigenes
+Sinnbild. Im Bild fangen Dachunterseite, Knauf und Sockel warmes Licht, und die
+Scheibe am Himmel ist weg.
+
+### Befund 6: das Torii hat keine Fussplatte
+
+Wörtlich richtig. Der Pfostenzylinder hörte bei y = 0 auf, darunter lag nur die
+Kontaktverdunklung aus Paket D. Im Bild ist das ein roter Stab, der in Mehl
+steckt.
+
+Ein Torii steht nicht im Boden, es steht auf einem **Kamebara** — einem
+steinernen Sockelwulst, der den Pfostenfuss umfasst und das Holz vom
+aufsteigenden Wasser trennt. Ohne ihn fällt jedes Torii binnen weniger Jahre
+am Fuss auseinander; er ist kein Zierat, sondern der Grund, warum die Dinger
+stehen. Zwei Kegelstümpfe je Pfosten, der Neigung der Pfosten folgend, beide
+Pfosten in **einem** Netz.
+
+**Ein Fehler dabei:** Der erste Anlauf gab dem Sockel Scheitelfarben von 0,74
+bis 1,00. `zenGranite()` trägt den Grundton 0xb8b2a8, und die Scheitelfarbe
+multipliziert ihn — der Sockel stand damit bei L 200 und war heller als der
+besonnte Sand daneben. Die Findlinge derselben Szene werden mit 0x8a8076 und
+Verwandten eingefärbt, also mit rund 0,54; der Sockel gehört in dieselbe Reihe
+und liegt jetzt bei 0,44 bis 0,60. Gemessen: 310 Bildpunkte bei L 97,5 gegen
+einen Sand von rund 180.
+
+**Was von Befund 6 offen bleibt:** Der Prüfer verlangt ausserdem eine Mulde und
+einen aufgeworfenen Wulst im Sand um jeden Gegenstand. Die Kontaktverdunklung
+gibt es seit Paket D und sie ist dort gemessen; eine Vertiefung im Sandnetz
+gibt es nicht. Das ginge nur über die Scheitelpunkte von `makeSandBett`, und
+die Steine werden erst nach dem Sand gesetzt — es wäre ein Umbau der
+Reihenfolge, kein Zusatz. Offen und benannt.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: **99**
+Draw-Calls von 120 (von 97 — der Sockel ist ein Netz, dazu das Material),
+**113 956** Dreiecke von 350 000 (von 113 444), 21,86 MB Textur. Konsole
+sauber.
+
+Bildstand `tools/shots/zen-57`.
+
+## Paket AE — Der Sand hatte weder Korn im Nahfeld noch Tiefe (Prüferbefund 7)
+
+Der Prüfer nennt zwei Zahlen: unter 6 % Tonwertänderung über die ganze Tiefe,
+und Hochpass 3,4 nah gegen 13,9 in der Mitte. Beide stimmen der Richtung nach.
+Eine davon hat er falsch begründet.
+
+### Das Korn: die Ursache ist Vergrösserung
+
+`tools/hochpass-reihe.mjs` in `e-sand`, neun Bänder von nah nach fern:
+
+    2,06  2,54  3,22  3,90  4,76  5,59  7,27  9,21  9,94
+
+Faktor 4,8 in die falsche Richtung, deutlicher als seine Zahlen.
+
+Die Kornkarte deckt 0,70 m auf 256 Texeln ab, also 2,7 mm je Texel. Am unteren
+Bildrand von `e-sand` liegt der Kies rund 66 cm entfernt (Kamera 0,45 m,
+Bildunterkante 34° unter der Waagerechten), wo ein Bildpunkt gut 0,5 mm
+abdeckt. Die Karte wird dort **fünffach vergrössert**, und die bilineare
+Filterung macht daraus Brei.
+
+Dieselbe Karte ein zweites Mal, auf ein Achtel der Kachel gespannt: 8,75 cm
+statt 0,70 m, also 0,34 mm je Texel. Ein Texturgriff mehr, kein Byte Speicher —
+dasselbe Verfahren, das im Nachthimmel den Faktor 8,4 auf 4,4 gebracht hat.
+
+    nachher  2,47  2,91  3,54  4,18  5,00  5,74  7,32  9,22  9,95
+
+Das Nahfeld steigt um 20 %. **Mehr ist nicht zu holen, und der Grund gehört
+dazugesagt:** Ich habe die Stärke bis 1,20 getrieben (das Sechsfache) und kam
+auf 3,08. Bei 34° Streifwinkel ist der Boden längs der Blickrichtung 2,6:1
+gestaucht; die anisotrope Filterung ist mit ihren acht Abgriffen erschöpft, und
+die untersten zwanzig Bildzeilen sind ein senkrecht verschmierter Streifen, in
+dem keine Karte mehr etwas ausrichtet. Was dort fehlt, fehlt der Auflösung,
+nicht der Textur.
+
+### Der Faktor 4,8 misst nicht, was er zu messen scheint
+
+Die fernen Bänder von `e-sand` enthalten Moos, Trittsteine und dicht gestaffelte
+Harkrillen; die nahen enthalten nur Sand. Der Hochpass zählt Objektkanten
+genauso mit wie Korn. **Die Zahl vergleicht also Kies gegen Gegenstände**, und
+ein Teil des Faktors ist ein Messartefakt, kein Bildfehler. Ich habe das
+Verhältnis trotzdem verbessert, weil die Ursache im Nahfeld unabhängig davon
+real ist.
+
+### Die Tiefe: der Nebel fängt zu spät an
+
+Median je Band über den reinen Sandbereich (y 440 bis 719, also 0,66 bis 2,3 m):
+
+    vorher    177,0  177,1  177,2  178,1  179,3  180,0     Spanne 3,0 = 1,7 %
+    nachher   168,9  169,2  169,4  170,5  172,4  174,0     Spanne 5,1 = 2,9 %
+
+Der Grund ist die Reichweite des Nebels: Er beginnt bei 20 m, und in `e-sand`
+liegt der gesamte sichtbare Sand zwischen 0,66 und 15 m. **Die
+Luftperspektive, die sonst die Tiefe trägt, ist in diesem Bild nicht
+eingeschaltet.**
+
+Der Kies bekommt deshalb einen eigenen kurzen Tiefenterm, 12 % auf den ersten
+60 cm, ausgelaufen bei 4,5 m. Er geht nach **unten**: Bei L 180 liegt die
+Fläche im flachen Ast der ACES-Kurve, und Kontrast ist dort nur nach unten zu
+gewinnen — dieselbe Lehre wie bei den fernen Hügeln zwei Pakete zuvor.
+
+**1,7 % auf 2,9 % ist weniger als die 6 %, die der Befund verlangt, und ich
+lasse es dabei.** Um in einem Bild, dessen Sand über acht Zehntel seiner Fläche
+zwischen 0,66 und 2,3 m liegt, sechs Prozent zu erzeugen, bräuchte es rund 20 %
+Amplitude auf drei Metern. Das ist keine Luftperspektive mehr, das ist eine
+Vignette um die eigenen Füsse. Der ehrliche Weg wäre, den Nebel früher
+beginnen zu lassen — aber der steht seit Paket C auf 20/62, weil genau diese
+Werte den Hügelzug tragen, und die sind zwei Pakete alt.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget unverändert: 99
+Draw-Calls von 120, 113 956 Dreiecke von 350 000, 21,86 MB Textur — der Eingriff
+ist ein zweiter Abgriff auf einer Karte, die schon gebunden ist. Konsole sauber.
+
+Bildstand `tools/shots/zen-58`.
+
+## Paket AF — Die Findlinge waren Schokolade mit Gravur (Prüferbefund 8)
+
+Der Prüfer: „nasse Schokoladenellipsoide mit Kratzlinien-Gravur." Drei Vorwürfe
+in einem Satz, und alle drei liessen sich einzeln nachweisen.
+
+### Die Farbe: sie waren die wärmste Fläche der Szene
+
+Gemessen über die Knotenmasken in `b-pond`, Verhältnis Rot zu Blau und
+Sättigung:
+
+    zen-sand           1,37   27,0 %
+    zen-trittsteine    1,40   28,4 %
+    zen-ufersteine     1,52   34,5 %
+    zen-laterne-stein  1,54   34,9 %
+    zen-findlinge      1,74   42,7 %   <- allein auf weiter Flur
+
+Zwei Ursachen, beide multiplikativ:
+
+* Die fünf Grundtöne lagen bei einem Rot-zu-Blau von **1,14**, und die Sonne
+  dieser Szene (0xffd9a0) bringt **1,59** mit. **Was unter goldenem Licht
+  neutral aussehen soll, muss im Grundton kühl sein.** Die Töne liegen jetzt bei
+  rund 1,00.
+* Die Moospatina trägt 0x4e5c2e, deren Blaukanal bei 46 von 255 liegt. Mit
+  Stärke 0,85 aufgetragen frisst sie dem Stein das Blau weg — die Findlinge
+  standen im Blaukanal bei 41,8 gegen 51,2 der Trittsteine, die dieselbe Patina
+  mit 0,45 tragen. Jetzt 0,62.
+
+    nachher  zen-findlinge  1,44   30,4 %
+
+Damit liegen sie im Feld der übrigen Steine statt darüber.
+
+### Die Kratzlinien waren die Facettenkanten
+
+Lange, gerade, ungefähr parallele Hell-Dunkel-Paare. Bei vierzehnfacher
+Vergrösserung sind sie eindeutig: Es sind die Kanten der
+`IcosahedronGeometry(size, **1**)` — 42 Punkte, 80 Dreiecke. Auf einem Stein,
+der im Bild 350 Bildpunkte breit ist, sind das Facetten von rund 40 Bildpunkten,
+und ihre Knicke stehen als Striche.
+
+Unterteilung 2 (162 Punkte, 320 Dreiecke) löst sie auf — **und macht den Stein
+zur glatten Kartoffel.** Das ist genau der Fehler, gegen den
+`weatheredStoneGeometry()` überhaupt eingeführt wurde: Bei gleichbleibender
+Verwitterungsamplitude verteilt sich dieselbe Störung auf viermal so viele
+Punkte und wird zum Rauschen.
+
+Die Verwitterung musste deshalb mit: `amount` von 0,18–0,40 auf **0,22–0,48**,
+`frequency` von 1,5–3,7 auf **3,0–6,5**. Auf 42 Punkten war eine Frequenz von 3
+unterabgetastet; auf 162 trägt sie. Danach hat der Stein Bruchflächen und einen
+Grat statt Striche.
+
+Hochpass im Kasten über den grossen Findling (950,420–1230,570), von nah nach
+fern:
+
+    vorher   3,96  2,89  3,18  6,82
+    nachher  3,50  2,63  2,99  6,16
+
+Der Feinanteil **fällt**, und das ist hier das Gewünschte: Was verschwindet,
+sind die Striche, nicht die Struktur — die steht jetzt in der Silhouette und in
+den Flächen.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 99 Draw-Calls
+von 120 unverändert, **118 356** Dreiecke von 350 000 (von 113 956; die
+Unterteilung kostet 4 400 über alle Findlinge und die kleinen Steine), 21,86 MB
+Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-59`.
+
+## Paket AG — Eine Regression von mir, und der Unterschied zwischen Busch und Stein
+
+### Zuerst der Fehler
+
+In Paket AA habe ich die Farben des fernen Hügelzugs so gesetzt:
+
+```python
+s = re.sub(r'const oben = new THREE.Color\(0x[0-9a-f]+\);', '…', s)
+```
+
+**Ohne Anzahl.** Das Muster passt auf zwei Stellen in `environments.js`, und die
+zweite ist `makeKarikomi()`. Die geschnittenen Sträucher standen seit Paket AA
+auf 0x5c6a34 / 0x333d1e — den Farben der fernen Hügel — statt auf ihren eigenen
+0x7f8f52 / 0x3d4a2b. Drei Pakete lang, in drei festgeschriebenen Bildständen.
+
+Gemessen über die Maske des Knotens in `a-eyelevel`:
+
+    falsch      rgb(67,4 | 70,5 | 42,6)   Gruenueberschuss Median 16,0
+    richtig     rgb(84,6 | 89,5 | 55,4)   Gruenueberschuss Median 21,0
+
+Die Sträucher waren **26 % zu dunkel**.
+
+Es ist derselbe Fehler wie der `sed`, der im Dojo-Log vier Materialien statt
+einem getroffen hat. Die Lehre ist nicht „vorsichtiger sein", sondern: **Eine
+Ersetzung ohne Anzahl ist eine Ersetzung über die ganze Datei, und ein
+Farbwertmuster ist nie eindeutig.** Die Stelle trägt jetzt einen Kommentar, der
+das festhält.
+
+Was den Fehler drei Pakete lang getragen hat, ist ebenfalls benennbar: Ich habe
+in jedem Paket die vier **anderen** Umgebungen auf Bitgleichheit geprüft, aber
+den Zengarten selbst nur dort angesehen, wo ich gerade gearbeitet habe. Ein
+Regressionsdiff des eigenen Bildsatzes gegen den Vorstand hätte 16 000
+veränderte Bildpunkte gezeigt.
+
+### Befund 9: dieselbe grüne Halbkuppel
+
+„Dieselbe grüne Halbkuppel bedeutet Busch, Moosstein und Berg."
+
+Für den Berg ist das seit Paket AA erledigt (Baumkamm). Für den Karikomi ist die
+runde Masse **richtig** — er ist geschnitten, das ist sein Wesen. Was fehlte,
+war die Oberfläche: Eine geschnittene Azalee hat Blattpolster von einer
+Handbreite und kleine Schattentaschen dazwischen, ein Stein mit Moos hat das
+nicht.
+
+Auf 14 × 10 Segmenten liegt bei einem Halbmesser von 0,9 m ein Punkt alle 13 cm.
+Ein Polster von 12 cm ist damit unterabgetastet und wird Rauschen statt Form —
+dieselbe Grenze wie bei den Moosinseln in Paket Z. **28 × 20** bringt den
+Punktabstand auf 6,5 cm und lässt zwei Massstäbe zu, 14 cm und 7 cm.
+
+### Die Messung, in drei Zuständen getrennt
+
+`moossaum.mjs` auf `zen-karikomi` in `a-eyelevel`:
+
+    Zustand                        Punkte  Kantensprung  Zackigkeit   Saum    Korn
+    vorher (falsche Farbe, 14x10)   16 177        36,37       20,78   1,355   8,024
+    Farbe zurueck, 14x10            16 177        29,97       20,78   1,204   6,948
+    Farbe zurueck, 28x20 + Polster  17 922        28,94       20,99   1,215   7,132
+
+**Die Trennung ist der Punkt.** Der Rückgang von Korn und Kantensprung gehört
+ganz der Farbe: Eine hellere Fläche liegt weiter im flachen Ast der ACES-Kurve
+und trägt dort weniger absoluten Kontrast. Hätte ich nur den Endstand gegen den
+Anfang gemessen, stünde hier „das Relief kostet Korn" — und das wäre falsch.
+
+Das Relief selbst bringt Korn 6,95 → 7,13 und Zackigkeit 20,78 → 20,99, und die
+Maske wächst um 1 745 Bildpunkte, weil die Polster nach aussen drücken. **Das
+ist wenig für das, was im Bild zu sehen ist**, und der Grund gehört dazu: `Korn`
+misst den Hochpass über die ganze Maske, und ein Blattpolster von 14 cm ist auf
+zehn Meter kein Hochpassmerkmal, sondern eine Form. Der Beleg dafür ist der
+Bildausschnitt, nicht die Zahl.
+
+Der **Saum** fällt von 1,355 auf 1,215 — der Rand ist weniger heller als das
+Innere und liest damit weniger als ausgestanzt. Über 1 bleibt er trotzdem, und
+das ist der nächste offene Punkt an diesen Sträuchern.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 99 Draw-Calls
+von 120 unverändert, **132 972** Dreiecke von 350 000 (von 118 356; die feinere
+Kugel kostet 14 600 über neun Sträucher), 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-60`.
+
+## Paket AH — Der Wurzelanlauf, die braune Trommel, und ein schwarzes Band, das den Teich verdunkelt hat
+
+### Befund 15: die braune Trommel am Fuss des Ahorns
+
+Zuerst identifiziert, nicht geraten. `knotenkasten.mjs` in `d-aerial`:
+
+    zen-findlinge   Stueck von 2 101 Bildpunkten bei 736,444–811,512
+
+Also ein Findling der Steingruppe 2, die bei (4 | 1,5) stand — 1,9 m vom Ahorn
+bei (4,8 | 3,2). Aus der Luftkamera decken sich beide auf dem Bild, und weil der
+Stein flach ist (`scale.y` 0,55 bis 0,85) und im Schatten des Baums steht, liest
+er als Fass hinter dem Stamm.
+
+**Der erste Versuch war zu grob:** Gruppe 2 auf (2,7 | 0,9) verschoben. Der
+Fleck war weg, aber die beiden Brocken drängten sich im Teichbild in den
+Vordergrund. Jetzt (5,4 | 0,7): Sie stehen als Steingruppe **neben** dem Wasser,
+und der Ahorn steht frei.
+
+### Befund 6, zweiter Teil: Bäume ohne Fuss
+
+Der Stamm war ein Zylinder, der bei y = 0 aufhört — im Bild eine flache Ellipse
+auf dem Sand. Ein Baum hat dort seinen breitesten Punkt. `wurzelanlauf()` setzt
+drei bis fünf Rippen an, die 6 cm **unter** null enden, damit aus keinem Winkel
+eine Schnittkante zu sehen ist.
+
+**Ein Fehlversuch dabei:** Der erste Anlauf setzte bei y = 0,20 an und lud auf
+0,255 aus. Zwanzig Zentimeter sind zu kurz, um als Schwellung zu lesen — im Bild
+sass ein Klumpen am Stamm. Ausserdem war sein oberer Halbmesser gleich dem des
+Stammes, also deckungsgleich; durch die offene Oberkante sah man hinein, und das
+gab einen hellen Fleck. Jetzt 42 cm hoch und oben 1,4 cm schmaler als der Stamm.
+
+### Und dann das schwarze Band
+
+Derselbe Aufruf an der Sakura zeichnet ein Band von **exakt rgb(0, 0, 0)** quer
+über den Stamm, dort wo der Anlauf aus ihm heraustritt (y = 0,465). Am Ahorn,
+mit derselben Funktion und derselben Bauart des Merges, passiert das nicht.
+
+Reines Schwarz ist unter einem Hemisphärenlicht nicht durch Beleuchtung zu
+erklären — es zeigt eine entartete Normale oder eine entartete Tangente an.
+Offen und geschlossen (`openEnded`) versucht: Das Band bleibt in beiden Fällen.
+**Ich habe die Ursache nicht gefunden**, und der Anlauf an der Sakura ist
+deshalb wieder draussen. Der Kommentar an der Stelle hält den Befund fest.
+
+### Die Kopplung, die ich fast übersehen hätte
+
+Der Teich nimmt seine Spiegelung mit einer Würfelkamera aus der Teichmitte auf,
+und die Sakura ist darin gross. Das schwarze Band hat die Umgebungskarte
+verdunkelt und damit **den ganzen Teich**:
+
+    mit dem Anlauf     zen-wasser  L 52,4   Beitrag −54,6
+    ohne den Anlauf    zen-wasser  L 117,9  Beitrag +10,9
+
+Ein Fehler am Baum, sichtbar am Wasser fünf Meter weiter. Ich habe ihn zuerst
+der verschobenen Steingruppe zugeschrieben und die Verschiebung zurückgenommen —
+der Teich blieb dunkel. Erst die Halbierung (Ahornanlauf behalten,
+Sakuraanlauf entfernen) hat es gezeigt.
+
+**Das ist der Beleg für die Lehre aus Paket AG:** Seit diesem Paket wird auch
+der Zengarten selbst gegen seinen Vorstand gemessen, nicht nur die vier anderen
+Umgebungen. Ohne diesen Diff wäre ein Teich aus Schlamm festgeschrieben worden.
+
+### Eigenregression dieses Pakets, gegen `zen-60`
+
+    c-torii     Δmax 1   0,000 %      e-sand   Δmax 1   0,000 %
+    f-grove     Δmax 1   0,000 %      d-aerial          0,925 %
+    a-eyelevel                        2,719 %
+    b-pond                            8,732 %
+
+`b-pond` und `d-aerial` tragen die verschobene Steingruppe, `a-eyelevel` und
+`d-aerial` den Wurzelanlauf des Ahorns. Die drei Bilder, die weder das eine noch
+das andere sehen, sind praktisch bitgleich — das ist die Gegenprobe.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 99 Draw-Calls
+von 120 unverändert, **133 140** Dreiecke von 350 000 (von 132 972), 21,86 MB
+Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-61b`.
+
+## Paket AI — Das schwarze Band war eine Gleitkommastelle
+
+Das Paket davor hat den Wurzelanlauf an der Sakura wieder herausgenommen, weil
+er ein Band von exakt rgb(0, 0, 0) quer über den Stamm zeichnete und über die
+Spiegelungskarte den ganzen Teich verdunkelte. Die Ursache stand dort als
+ungeklärt.
+
+### Die Messung, die es entschieden hat
+
+Statt weiter im Bild zu suchen: die Geometrie in Node nachbauen und ihre
+Normalen zählen. `three` lässt sich ohne Browser laden, `wurzelanlauf()` ist
+zwanzig Zeilen.
+
+    Ahorn   Punkte 60   Normale null 0   NaN  0   entartete Dreiecke 0/84
+    Sakura  Punkte 60   Normale null 0   NaN 30   entartete Dreiecke 0/84
+
+Dreissig von sechzig. Und ein Blick auf die Punkte zeigte: schon die
+**Positionen** waren NaN, nicht erst die Normalen.
+
+### Die Stelle
+
+```js
+const t = 1 - (py + (hoehe + 0.06) / 2) / (hoehe + 0.06);
+…
+const rippe = 1 + Math.pow(t, 2.2) * (…);
+```
+
+Am obersten Ring ist `py` genau die halbe Höhe, und `t` sollte null sein. Bei
+`hoehe = 0.5` wird aus (0,28 + 0,28) / 0,56 in Gleitkomma aber
+**1,0000000000000002**, und `t` ist **−1,5 · 10⁻¹⁶**.
+
+`Math.pow(negativ, 2.2)` ist NaN. Damit wurden die Koordinaten der oberen zwei
+Ringe NaN, `computeVertexNormals()` machte NaN-Normalen daraus, und der Shader
+zeichnet eine Fläche mit NaN-Normale als exaktes Schwarz.
+
+Am Ahorn ist `hoehe = 0.42`, und dieselbe Rechnung fällt zufällig exakt auf
+null. **Derselbe Code, dasselbe Verfahren, ein Fehler, der von der
+Bitdarstellung einer Konstanten abhängt.** Deshalb war er am einen Baum da und
+am anderen nicht, und deshalb war er im Bild nicht zu erraten.
+
+Die Behebung ist eine Klemmung auf [0, 1]. Der Anlauf ist an beiden Bäumen
+wieder drin.
+
+### Die Kette, rückwärts gelesen
+
+    Gleitkommarest −1,5e−16
+      → Math.pow(negativ, 2,2) = NaN
+        → 30 von 60 Punkten mit NaN-Koordinaten
+          → NaN-Normalen
+            → schwarzes Band am Sakurastamm
+              → schwarze Flaeche in der Wuerfelaufnahme aus der Teichmitte
+                → dunkle Umgebungskarte
+                  → zen-wasser von L 117,9 auf L 52,4
+
+Sieben Glieder zwischen Ursache und Symptom, und das Symptom lag fünf Meter vom
+Fehler entfernt in einem anderen Gegenstand. **Keine Bildbetrachtung führt
+diese Kette rückwärts.** Was sie geführt hat, war das Nachrechnen der Geometrie
+ausserhalb des Renderers — und der Eigenregressionsdiff, der überhaupt erst
+gezeigt hat, dass etwas nicht stimmt.
+
+### Eigenregression, gegen `zen-61b`
+
+    a-eyelevel  0,501 %      d-aerial  0,057 %      f-grove  0,171 %
+    b-pond      Δmax 1       c-torii   Δmax 1       e-sand   Δmax 1
+
+Nur die drei Bilder, die den Sakurastamm sehen, ändern sich; der Teich ist
+bitgleich, weil er in Paket AH schon auf dem richtigen Wert stand.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Budget: 99 Draw-Calls
+von 120, **133 308** Dreiecke von 350 000 (von 133 140), 21,86 MB Textur.
+Konsole sauber.
+
+Bildstand `tools/shots/zen-62`.
+
+## Paket AJ — Vierte Prüferrunde: zwei Befunde widerlegt, drei bestätigt
+
+Nach elf abgearbeiteten Befunden hat sich die Szene so weit verändert, dass die
+alte Liste nicht mehr taugte. Ein frisch unterrichteter Prüfer hat den Stand
+`zen-62` beurteilt: fünfzehn Mängel, elf Dinge, die tragen.
+
+**Sein Bericht ist detailliert und stellenweise falsch.** Drei seiner Befunde
+habe ich nachgemessen, bevor ich etwas angefasst habe. Das war richtig.
+
+### Widerlegt: „Das Torii wirft keinen Schatten" (sein schwerster Befund)
+
+Er belegt ihn mit Helligkeitswerten unmittelbar neben den Pfeilerfüssen
+(x 692–712 bei y 432 und 455) und findet dort keinen Abfall. Das stimmt — und
+sagt nichts. Bei 19 Grad Sonnenhöhe steht der Schatten eines 3,7 m hohen Tors
+**rund 10,6 m weit weg**, nicht an seinem Fuss.
+
+Differenziell gemessen (`knotenkasten.mjs`, `knotenwerte.mjs` auf `zen-torii`
+in `c-torii`):
+
+    18 488 geaenderte Bildpunkte, Beitrag −76,7
+    groesstes zusammenhaengendes Stueck: 10 445 px bei 855,409–1279,519
+
+Das Stück liegt vollständig auf dem Sand, weit rechts vom Tor. Der Schatten ist
+da, er ist gross, und er ist genau dort, wo die Sonnenhöhe ihn hinstellt.
+
+### Widerlegt: „Keine Kantenglättung, kein einziger Mischpixel"
+
+Gemessen über alle waagerechten Kantenübergänge im Toriibereich von `c-torii`
+(Sprung > 60 in der Kanalsumme), Anteil mit echtem Zwischenwert:
+
+    Torii c-torii        1 888 Kanten   68,6 % mit Mischbildpunkt
+    Trittstein e-sand      420 Kanten   83,6 %
+
+Und an drei Spalten quer über die Kasagi-Oberkante:
+
+    x=600  Himmel (179,163,140) → Rot (147, 30, 19)          hart
+    x=640  Himmel (180,163,139) → (172,131,109) → (144,29,19)  weich
+    x=700  Himmel (177,162,140) → (164, 97, 80) → (149,31,20)  weich
+
+Zwei von drei Spalten tragen einen sauberen Mischbildpunkt; die dritte trifft
+die Kante zufällig auf einer Bildpunktgrenze. **Seine Koordinaten für diese
+Kante lagen ausserdem zehn Zeilen daneben** — bei (595, 262–276) ist alles
+Himmel.
+
+### Halb bestätigt: „weisse und ebenso viele fast schwarze Splitter im Bambus"
+
+Im Kasten 150,130–400,330 von `a-eyelevel`:
+
+    ueber L 215:  36 von 50 451 Bildpunkten   (0,07 %)   hellster L 238,2
+    unter L 45:   90 von 50 451               (0,18 %)
+
+Die weissen gibt es — 36 Bildpunkte, warm-weiss, verstreut. Sie sind der
+Durchleuchtungsterm aus Paket Y an seinem Maximum, und bei L 238 ist im flachen
+ACES-Ast keine Farbe mehr übrig; deshalb weiss statt grüngelb.
+
+Die „ebenso vielen fast schwarzen Späne" gibt es **nicht**. Die 90 dunklen
+Bildpunkte sind rgb(30, 35, 4) bis rgb(38, 50, 7) — tiefes Schattengrün mit
+G > R, also Laub im Eigenschatten, nicht Schwarz. An zwei seiner drei genannten
+Koordinaten liegt **kein einziger** Bildpunkt unter L 60.
+
+### Bestätigt und behoben: Wasserpflanzen auf dem Trockenen
+
+„Eine Lotusblüte wächst am Laternenfuss auf dem Trockenen." Nachgerechnet:
+Lotus und Seerosen wurden auf einer **Ellipse** gestreut, die Wasserlinie folgt
+aber `teichUmriss` und schwankt um ±13 %. Wo der Umriss einspringt, liegt die
+Ellipse aussen — und dort steht die Laterne, die bei (1,6 | −1,8) mit 0,86 der
+Beckenellipse selbst im Teich fusst.
+
+Beide werden jetzt am **selben Umriss** gestreut wie die Wasserfläche, und um
+den Laternensockel bleibt ein Loch von 62 cm. Verschoben, nicht verworfen: Ein
+Verwurf bräuchte eine Wiederholung und damit eine unbestimmte Zahl von
+Ziehungen.
+
+### Bestätigt und behoben: der weisse Ring unter dem Lichtkasten
+
+Seine Beschreibung war zurückhaltend. Gemessen in `b-pond` über 370,300–430,320:
+
+    Hoechstwert L 255,0 — voll ausgebrannt
+    16,71 % der Kastenflaeche ueber L 215
+
+Die Ursache stand in einer Zeile: Die Zwischenplatte war
+`CylinderGeometry(0.17, 0.13, …)`, also **oben breiter als unten**. Ihre
+Oberseite war damit eine waagerechte Kreisfläche von 17 cm Halbmesser, auf der
+ein Lichtkasten von nur 10,8 cm steht — ein 6 cm breiter Ring aus hellem
+Granit, frontal in der tief stehenden Sonne.
+
+An einem Yukimi-doro ist diese Platte ein **Chidai**: unten breiter als oben,
+mit Tropfkante. Umgedreht bleiben oben 2,4 cm Ring, und die sichtbare Fläche
+ist die beschattete Unterseite. Über L 215: **16,71 % → 12,57 %**; der Rest ist
+der Lichtkasten selbst, der ausbrennen darf, weil er die Lichtquelle ist.
+
+### Was ich daraus mitnehme
+
+Ein Prüfer, der an falschen Koordinaten misst, liefert Befunde, die sich wie
+Messungen lesen und keine sind. **Drei geprüft, zwei gefallen.** Der Rest seiner
+Liste wird von hier an einzeln nachgemessen, bevor daran gearbeitet wird — und
+was sich nicht belegen lässt, wird nicht gebaut.
+
+**Regression:** Alle vier anderen Umgebungen bitgleich. Im Zengarten 0,2 bis
+2,1 % je Bild — die verschobenen Wasserpflanzen und die Laternenplatte. Budget:
+99 Draw-Calls von 120, 133 308 Dreiecke von 350 000, 21,86 MB Textur. Konsole
+sauber.
+
+Bildstand `tools/shots/zen-63`.
+
+## Paket AK — Der Ahorn war der einzige gesättigte Ton im Bild
+
+Prüferbefund 1.9 und der erste Teil von 1.3. Beide nachgemessen, bevor etwas
+angefasst wurde; einer bestätigt sich, einer nicht.
+
+### Widerlegt: „der kleinere Kronenklumpen hängt ohne sichtbaren Ast frei"
+
+Bei siebenfacher Vergrösserung von `d-aerial` (670,370–820,500) läuft ein Ast
+von der Stammgabel nach rechts oben bis in den kleineren Schopf. Er ist
+durchgehend, nicht verdeckt und rund vier Bildpunkte breit. Dass die Krone aus
+zwei Massen besteht, stimmt als Beschreibung — ein Ahorn mit einem tiefen
+Seitenast ist aber kein Fehler.
+
+### Bestätigt: die Sättigung
+
+Gemessen über die Knotenmasken in `d-aerial`:
+
+    zen-ahorn-karten    66,5 %
+    zen-ahorn-blobs     66,7 %
+    zen-karikomi        37,2 %
+    zen-sand            26,8 %
+    zen-sakura-karten   23,7 %
+
+**Doppelt so gesättigt wie das nächste Element, fast dreimal so gesättigt wie
+Sand und Sakura.** Ein Farbakzent darf der stärkste Ton der Szene sein, aber
+nicht ihr einziger.
+
+### Der Hebel, und warum es nicht die Palette sein durfte
+
+`color` kann nur kanalweise nach unten multiplizieren und taugt deshalb zum
+Abdunkeln, nicht zum Entsättigen: Ein rotes Blatt weniger rot zu machen hiesse,
+Grün und Blau **anzuheben**, und das kann eine Multiplikation nicht. Die
+Palette wäre der andere Hebel — und genau der ist verboten, seit eine
+Verdunklung für den Dojo dort das Bambuslaub des Zengartens mitgenommen hat
+(Dojo-Log, Paket VI).
+
+Also ein neuer Parameter an `foliageMaterial`: `entsaettigung`, ein Mischen zur
+eigenen Helligkeit hin, auf der **Albedo** vor dem Licht, damit es von
+Sonnenstand und Schatten unabhängig bleibt. Vorgabe 0 — wer nichts angibt,
+bekommt Bild für Bild dasselbe wie vorher. Ein Uniform, kein zweites
+Shader-Programm: `customProgramCacheKey` bleibt unverändert, alle Laubmaterialien
+teilen weiter eine Übersetzung.
+
+### Zwei Läufe, weil die erste Rechnung im falschen Raum stand
+
+    0,35                      66,5 %  →  61,6 %
+    0,55 + blasserer Saum     66,5 %  →  54,7 %
+
+Der erste Wert war für den sRGB-Ausgaberaum gerechnet, das Mischen läuft aber
+**linear** und vor der ACES-Kurve, die Sättigung in den dunklen Partien wieder
+aufzieht. Dazu kam, dass ein Teil der Sättigung gar nicht aus der Albedo
+stammt, sondern aus dem Durchleuchtungssaum: `transColor` stand auf 0xe0837a
+mit 45,5 % Eigensättigung und geht mit halbem Gewicht in den Term ein. Jetzt
+0xdba79f mit 29,5 %.
+
+54,7 % gegen 37,2 % beim Karikomi: Der Ahorn bleibt der stärkste Ton im Bild —
+das ist seine Aufgabe —, aber er ist nicht mehr doppelt so stark wie alles
+andere.
+
+### Der Hüllkörper war 30 Stufen dunkler als seine Karten
+
+L 52 gegen L 82, gemessen über beide Knotenmasken. Wo die Karten eine Lücke
+lassen, stand deshalb ein fast schwarzes Loch statt verschatteten Laubs — das
+ist der zweite Teil von Befund 1.3, und er stimmt. Dieselbe Rechnung wie bei den
+Karten und dazu ein Viertel heller: 0x8e3034 / 0xa03d3e / 0x7c262c wird zu
+0x914548 / 0xa65656 / 0x7e383d. Blobs danach 53,8 % statt 66,7 %.
+
+**Regression:** Alle vier anderen Umgebungen **bitgleich** — das ist die
+Gegenprobe auf die Vorgabe 0 des neuen Parameters. Im Zengarten ändern sich nur
+die beiden Bilder, die den Ahorn zeigen (`a-eyelevel` 0,07 %, `d-aerial`
+0,42 %); die anderen vier stehen bei Δmax 1. Budget unverändert: 99 Draw-Calls
+von 120, 133 308 Dreiecke von 350 000, 21,86 MB Textur. Konsole sauber.
+
+Bildstand `tools/shots/zen-64`.
+
+## Paket AL — Der Teich: zwei Drittel des Befundes widerlegt, das letzte Drittel ein negatives Ergebnis
+
+Prüferbefund 1.2: „Der Teich ist eine aufliegende Linse … völlig undurchsichtig
+und olivbraun, keine Himmelsspiegelung, kein Farbverlauf mit der Tiefe, keine
+Kaustik."
+
+### Widerlegt: „keine Himmelsspiegelung"
+
+Differenziell gemessen, indem die Spiegelungsstärke des Wassers auf null gesetzt
+wurde:
+
+    mit Spiegelung     zen-wasser  L 117,9   Beitrag +10,9
+    ohne Spiegelung    zen-wasser  L  81,5   Beitrag −24,4
+    geaenderte Bildpunkte im Bild: 8,29 %
+
+**Die Spiegelung trägt 36 Helligkeitsstufen** und damit den grössten Teil der
+Wasserhelligkeit. Sie ist nicht abwesend — sie ist **strukturlos**, und das ist
+etwas anderes: Der Garten ist eine helle Sandebene, und was eine Wasserfläche
+davon spiegelt, ist in alle Richtungen dasselbe warme Beige. Eine Spiegelung
+ohne Motiv liest sich wie Deckkraft.
+
+### Keine Änderung: die Farbe
+
+„Olivbraun" trifft zu — und ist eine Entscheidung. Der Teich stand in einer
+früheren Runde auf 0x5c7358 / 0x11302f und wurde vom Prüfer damals als „das
+einzige kalte Element der Szene, wie aus einer anderen Beleuchtung
+ausgeschnitten" gemeldet. Er ist daraufhin auf 0x6d7448 / 0x1d3026 gebracht
+worden. **Ich drehe eine begründete Entscheidung nicht um, weil ein anderer
+Durchgang das Gegenteil vorzieht.**
+
+### Versucht und zurückgenommen: die Kaustik
+
+Das ist der Teil des Befundes, der stimmt und an dem sich arbeiten lässt. Zwei
+überlagerte Wellenfelder, deren Produkt an den Schnittlinien Spitzen bildet —
+die Bauart einer Kaustik ist nicht ein Muster, sondern die Kante zweier Muster.
+
+    Einstellung                         Δmittel   Δmax   ueber Δ2   ueber Δ8
+    Exponent 2,2, Staerke 0,42            0,024      6     0,345 %    0,000 %
+    Exponent 1,3, Staerke 0,55            0,105     14     2,378 %    0,019 %
+
+Hochpass im Wasserkasten (520,320–820,450), von nah nach fern:
+
+    ohne Kaustik   1,951  1,992  3,463  3,585  6,970
+    dreifach       1,954  2,005  3,474  3,608  7,014
+
+Auch dreifach verstärkt bleibt sie unter der Wahrnehmungsschwelle, und der
+Grund ist baulich: **Eine Kaustik entsteht auf dem Grund, und dieser Grund ist
+absichtlich verdeckt.** `uWasserTrueb` blendet ihn nach Beer-Lambert aus; über
+dem grössten Teil der Fläche ist er nicht zu sehen, und wo er es ist, liegt der
+Faktor (1 − Deckung) nahe null. Eine Kaustik auf einer undurchsichtigen Fläche
+wäre kein Lichteffekt, sondern ein aufgemaltes Muster.
+
+**Zurückgenommen, Bildstand wieder bitgleich.** Wer den Teich durchsichtiger
+machen will, muss zuerst die Trübung angehen — und die trägt ihre eigene
+Begründung.
+
+### Nebenbei: der Shaderlint hat wieder gegriffen
+
+Der Kommentarblock zur Kaustik enthielt Rückstriche um einen Bezeichner, und
+ein Rückstrich innerhalb eines GLSL-Template-Literals beendet die Zeichenkette.
+`tools/shaderlint.mjs` hat es als `prebuild` gemeldet, bevor ein Bild entstand:
+
+    src/environments.js:14417  Backtick im Kommentar innerhalb eines Template-Literals
+
+Dasselbe Werkzeug, dieselbe Falle, dritter Treffer. Es zahlt sich weiter aus.
+
+---
+
+## Paket AM — Der Hügelzug stand auf einer senkrechten Wand
+
+Prüferbefund 1.8: „Der ferne Hügelzug liest als Pappaufsteller: jeder
+Hügelkörper endet in einem harten waagerechten Schnitt, und wo zwei sich
+überlappen, steht eine senkrechte Nahtstufe (x ≈ 784–799, 945–953, 1053–1061)."
+
+**Beides bestätigt, beides dieselbe Ursache.** Ein vergrösserter Ausschnitt von
+`c-torii` (760,350–1080,400, sechsfach) zeigt genau das Beschriebene, und zwei
+der drei genannten Spaltenlagen stimmen auf wenige Bildpunkte.
+
+### Die Ursache stand in einer Zeile
+
+    pos.setXYZ(v, px * f, Math.max(0, py) * (kh / kr) * f, pz * f * 0.72);
+
+`Math.max(0, py)` klappt die **ganze untere Halbkugel** auf y = 0. Übrig bleibt
+ein halbes Ellipsoid mit einer flachen Scheibe darunter — und ein halbes
+Ellipsoid steht **senkrecht** auf dem Boden: Am Äquator fällt die Höhe mit
+unendlicher Steigung auf null. Daher beides:
+
+* der waagerechte Schnitt — die Wand trifft den Saum auf einer geraden Linie;
+* die Nahtstufen — jede Kuppe hat so eine Wand, und sobald sie vor der Flanke
+  der Nachbarin steht, ist das eine Stufe. Zwei Kuppen konnten gar nicht zu
+  einem Rücken verschmelzen.
+
+Dazu kam, dass die geklappte Halbkugel als Scheibe aus flächenlosen Dreiecken
+liegen blieb, deren Normalen `computeVertexNormals` nicht bestimmen kann.
+
+### Die Form
+
+Nur noch die obere Halbkugel als Netz, und die Höhe kommt aus einem Profil über
+dem waagerechten Abstand:
+
+    h(q) = kh · (1 − q²)^1,35        q = 0 am Scheitel, 1 am Rand
+
+Der Exponent grösser eins macht die Ableitung am Rand zu null — das Profil läuft
+waagerecht aus, benachbarte Buckel gehen ineinander über, und es gibt keine
+Wand mehr, die eine Stufe werfen könnte. Der Rand liegt bei y = 0 und damit
+44 cm unter dem Saum (−0,06); der sichtbare Fuss ist nicht der Rand, sondern die
+Schnittlinie mit dem Saum, und dort steht das Profil je nach Kuppe zwischen 24
+und 58 Grad statt bei 90.
+
+Zwei Ausgleichsfaktoren, damit der Umriss bleibt, wo er war: `1,3 · kr`, weil
+das flachere Profil auf halber Höhe bei 0,63 statt 0,87 steht, und `kh + 0,15`,
+weil der Körper 15 cm tiefer sitzt.
+
+Auflösung `SphereGeometry(krB, 24, 7, 0, 2π, 0, π/2)` statt `(kr, 12, 8)`:
+312 Dreiecke je Kuppe statt 168 bei doppelter Auflösung des Umrisses — die
+untere Halbkugel fällt weg und bezahlt den grössten Teil davon.
+
+### Gemessen
+
+Neues Werkzeug `tools/fusskante.mjs`. Die tragende Zahl ist die dritte
+Messung: In einer senkrechten Spalte liest sich eine gezeichnete Unterkante als
+**Grün — Lücke — Grün**, weil der Körper aufhört und die nächste Kuppe weiter
+unten wieder anfängt. Ein Hang, der in den Dunst läuft, hat diese Lücke nicht.
+
+    c-torii, Band x 700..1160, y 340..400
+      vorher   95,9 % der Spalten mit Lücke   6,84 Lückenpixel je Spalte
+      nachher  63,5 %                          4,45
+
+    a-eyelevel, Band x 900..1240, y 320..375
+      vorher   98,2 %                         10,72
+      nachher  87,6 %                          8,56
+
+Was übrig bleibt, ist **kein Schnitt mehr, sondern Verdeckung**: Eine nähere
+Kuppe steht vor einer entfernteren, und die Kante dazwischen gehört dorthin.
+Das ist an den vergrösserten Ausschnitten zu sehen und der Grund, warum die
+Zahl nicht gegen null geht.
+
+`e-sand` ist mit 98,8 % vor und nach der Änderung unverändert — dort verdecken
+Findlinge und Karikomi den Hügelzug fast vollständig, und die Messung sieht
+deren Grün. Kein Gegenbeweis, sondern die falsche Kamera für diese Zahl.
+
+### Nebenbefund: der Hügelzug stand seit jeher im Schattendurchgang
+
+`makeFerneHuegel()` setzt `castShadow = false` mit der Begründung, die Kuppen
+lägen ausserhalb des Ortho-Rahmens der Sonne. Die Begründung stimmt — der
+Rahmen ist 12 m im Quadrat, die Kuppen stehen bei 33 bis 45 m. Die Zuweisung
+hat aber **nie gegriffen**: Am Ende von `buildZen()` läuft eine Schleife über
+alle Netze und setzt die Schattenkennzeichen neu.
+
+    tools/dreiecke.mjs --env zen
+      vorher   Schattenwerfer 58.388 — Budget sieht 145.406   (zen-ferne: Wurf ja)
+      nachher  Schattenwerfer 41.970 — Budget sieht 128.988   (zen-ferne: Wurf —)
+
+16 418 Dreiecke, die ein zweites Mal in eine Schattenkarte gezeichnet wurden,
+aus der sie nichts beitragen können. `zen-ferne` steht jetzt in `garnicht`.
+
+### Budget und Regression
+
+    Draw-Calls        99 / 120
+    Dreiecke      145.980 / 350.000
+    Textur          21,86 / 60 MB     (+ 6 MB Umgebungskarte)
+    Konsole       frei von Errors und Warnings
+
+Die vier anderen Umgebungen sind **bitgleich** (Δmittel 0,000, Δmax 0). Die
+sechs Zen-Kameras ändern sich zwischen Δmittel 0,64 und 1,10; die Karte der
+Abweichung liegt vollständig im Hügelband, dazu ein schwacher Abdruck in der
+Teichspiegelung — der Spiegel nimmt die Ferne mit auf.
+
+Bildstand `tools/shots/zen-65` (ersetzt `zen-64`), Messwerte
+`tools/metrics/zen-65.json`.
+
+---
+
+## Paket AN — Zwei Steinsorten, ein schwarzer Fleck, und eine Mulde, die nie dunkel wurde
+
+Prüferbefund 1.10: „Der Uferkranz und der grosse Findling daneben sind zwei
+unvereinbare Steinsorten — die Kiesel glänzen, der Findling ist matt. Und auf
+dem Findling liegen fast schwarze Flecken."
+
+**Die erste Hälfte stimmt, die zweite ist etwas anderes, als er denkt.**
+
+### Gemessen, bevor gebaut wurde
+
+Über die Knotenmasken in `b-pond`, und zwar **ohne alle Schlagschatten** — ein
+Stein, der im Schatten steht, ist dunkel, ohne dass sein Werkstoff etwas dafür
+kann, und genau diese Verwechslung steckt im zweiten Teil des Befundes:
+
+    zen-ufersteine   Mittel 69,6   p05 22   p50 62   p95 142   max 247   >L190 1,8 %
+    zen-findlinge    Mittel 70,8   p05 31   p50 71   p95 117   max 175   >L190 0,0 %
+
+Die Helligkeit ist fast gleich — der Unterschied ist **der Glanz**. Der
+Uferkranz brennt auf 247 aus, der Findling einen Meter daneben endet bei 175.
+Ursache ist eine Zahl: `zenNassGranite()` steht auf Rauheit 0,34, `zenGranite()`
+auf 0,80. Das sind nicht zwei Zustände desselben Steins, das sind zwei
+Werkstoffe.
+
+### Die schwarzen Flecken sind Ahornblätter
+
+Ein zweiter Durchgang mit `sun.castShadow = false` und sonst unverändert: **Die
+Flecken verschwinden vollständig.** Es sind die Schlagschatten der
+Ahornblattkarten auf einem ohnehin dunklen Stein. Kein Werkstofffehler, kein
+Schattenfehler — ein Blattschatten auf dunklem Granit hat wenig Tonwert
+übrig, unter dem er noch liegen könnte.
+
+### Die Rauheitsreihe
+
+    Rauheit   Hoechstwert   ueber L 190   ueber L 150
+    0,34          247           1,8 %        4,0 %
+    0,50          216           1,0 %        3,9 %
+    0,62          182           0,0 %        2,3 %
+    Findlinge     175           0,0 %        0,5 %   (Rauheit 0,80)
+
+**0,62.** Der Höchstwert liegt damit auf Findlingsniveau, und es bleibt genau so
+viel stehen, wie nass sein darf: 2,3 gegen 0,5 Prozent oberhalb L 150. Im Bild
+sind die weissen Lichtpunkte auf den Kieseln weg; sie lesen als nasser Granit
+statt als Obsidian.
+
+### Und der Befund, den ich selbst dazugestellt habe
+
+Ohne Schlagschatten liegt der Findling zwischen p05 31 und p95 117 — ein
+Tonwertband von 86 Stufen über einen ganzen Stein. Das ist der Grund, warum er
+als Pappe liest, und es hat eine bekannte Ursache: **Der Renderer hat keinen
+Verdeckungsterm.** Eine Mulde im Stein wird nicht dunkler, weil nichts
+nachrechnet, dass sie weniger Himmel sieht.
+
+`weatheredStoneGeometry()` kennt die Mulden aber — es hat sie selbst gemacht.
+Das Verwitterungsfeld liegt jetzt auf Wunsch in `userData.kavitaet`, normiert
+auf −1 in der tiefsten Mulde und +1 auf dem höchsten Buckel; `makeZenStone()`
+multipliziert es in die Scheitelfarben, Mulde stärker (0,70) als Grat (0,26),
+weil die Mulde Himmelslicht verliert und der Grat nur ausgeblichen ist. Kein
+Attribut, keine Textur, kein Draw-Call. Voreinstellung `false`, damit Dojo und
+Insel bitgleich bleiben.
+
+**Der Teiler war zuerst falsch, und das war lehrreich.** Rechnerisch kann das
+Feld `amount · 1,45` erreichen. Gemessen über 540 Scheitel eines Findlings
+erreicht es −0,475 bis +0,449 davon, im Kern sogar nur −0,33 bis +0,27 — ein
+fBm aus drei Oktaven schöpft seinen Bereich nicht aus. Mit dem rechnerischen
+Teiler blieb ein Zehntel des Auftrags übrig, und gemessen kam heraus: Median
+71 → 69. Nichts.
+
+Mit dem gemessenen Teiler:
+
+    zen-findlinge   Mittel 70,8 -> 67,8   p05 31 -> 28   p50 71 -> 66   p95 117 -> 118
+
+**Das ist ein kleiner Gewinn, und ich schreibe ihn nicht grösser.** Der Median
+sinkt um fünf Stufen, das Band wird um vier breiter. Der Grund ist baulich: Das
+Verwitterungsfeld hat bei Frequenz 3 bis 6,5 **eine** Mulde je Stein, nicht
+zwanzig — es verschiebt ganze Flächen, statt sie zu modellieren. Im Ausschnitt
+ist an dem rechten Findling ein Sattel zu sehen, der vorher nicht da war; in
+der Verteilung steht davon wenig, weil eine räumliche Abstufung kein Histogramm
+verändert.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120      (vorher 99)
+    Dreiecke      129.562 / 350.000 (vorher 145.980 — der Huegelzug aus Paket AM)
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Die vier anderen Umgebungen **bitgleich** (Δmittel 0,000, Δmax 0) — der
+`kavitaet`-Schalter greift nur dort, wo er gesetzt wird. Im Zengarten Δmittel
+0,04 bis 0,42, Schwerpunkt jeweils auf dem Steinwerk.
+
+Bildstand `tools/shots/zen-66` (ersetzt `zen-65`), Messwerte
+`tools/metrics/zen-66.json`.
+
+---
+
+## Paket AO — Ein Ringband um nichts, und ein Befund, der sich nicht bestätigt hat
+
+### Befund 1.14: „Ringmitte ohne Stein" — bestätigt, im Quelltext gefunden
+
+Die Harkringe stehen als vier `uSandRinge`-Einträge, und der Kommentar
+darüber sagt, was sie sein sollen: „Um jede Steingruppe und um den Teich wird
+ein Band von konzentrischen Zügen geharkt."
+
+Die drei Steingruppen stehen bei (−3,5 | −2,5), (5,4 | 0,7) und (1 | −4,5).
+Zwei der Bänder sassen genau darauf. **Das zweite sass bei (4,0 | 1,5)** —
+1,61 m daneben, an einem Punkt, an dem nichts steht.
+
+Das ist nicht nur eine verschobene Mitte. Innerhalb des Innenradius wird gar
+nicht geharkt (`naht *= smoothstep(-0.12, 0.02, f)`), also lag dort eine
+unberührte Scheibe von 95 cm Halbmesser mitten im Kiesbett — und die
+Steingruppe selbst lag draussen im Ringband, von den Zügen überlaufen statt
+umkreist. Genau das Gegenteil dessen, was ein Karesansui tut: Die Züge laufen
+**um** einen Stein, und was sie umkreisen, ist der Grund, warum sie kreisen.
+
+Jetzt (5,4 | 0,7), Innenradius 1,05 statt 0,95 — die beiden Steine der Gruppe
+können bis 1,4 m vom Mittelpunkt reichen. Im Bild (`b-pond`, rechte Bildhälfte)
+laufen die geraden Züge dort jetzt als Ringe um das Findlingspaar.
+
+Die andere Hälfte des Befundes — „das Harkfeld hat keine Bettkante" — ist seit
+Paket S erledigt: Die Grenze steht bei 13,5 m mit ±5 m Schwankung über den
+Azimut und einem Auslauf von 1,4 m. In der Draufsicht (`tools/blick.mjs`,
+22 m über dem Garten) ist sie als unregelmässiger Rand zu sehen, hinter dem
+ungeharkter Kies liegt.
+
+### Befund 1.6: „Die Harkringe zerfallen in Striche, Umschlag bei y ≈ 500" — nicht bestätigt
+
+Neues Werkzeug `tools/sandband.mjs`. Je Zeilenband der Hub (p95 − p05), der
+helle Grat (p95 − Median) und die dunkle Rille (Median − p05). Ein Relief hat
+beides, ein Strich nur Schatten; das Verhältnis Licht/Schatten ist also der
+Umschlag, nach dem der Befund fragt.
+
+Gemessen in `e-sand` über eine Sandspalte ohne Trittstein und ohne Baumschatten
+(x 620–980):
+
+    Zeile   Hub   Licht  Schatten   L/S
+      460  64,1   13,0      51,1   0,25
+      480  55,6    9,9      45,7   0,22
+      500  54,5   11,0      43,5   0,25
+      520  54,3   11,9      42,4   0,28
+      540  52,1   11,8      40,4   0,29
+      580  47,2   10,9      36,4   0,30
+      620  47,2   14,6      32,6   0,45
+      660  43,4   14,9      28,4   0,52
+
+**Es gibt keinen Sprung bei y = 500.** Das Verhältnis gleitet monoton von 0,22
+in der Ferne auf 0,52 im Nahbereich, in Schritten von 0,02 bis 0,07 je zwanzig
+Zeilen — und es gleitet in die richtige Richtung: nah plastisch, fern flach.
+Das ist Perspektive, kein Mangel. Eine Rille, die auf einen Bildpunkt
+zusammenschrumpft, darf ihre Plastizität verlieren.
+
+Der vergrösserte Ausschnitt (620,400–1000,500, fünffach) zeigt ausserdem keine
+Unterbrechungen: Die Züge laufen durch, die Ringe um den Teich sind
+geschlossene Kurven. Das Zerfallen in Punkte und Striche, das der Prüfer in
+einer früheren Runde zu Recht gemeldet hat, ist seit der Ausblendung bei
+`fwidth(s) = 0,09…0,26` weg und ist nicht wiedergekommen.
+
+**Was in dem Band tatsächlich springt**, ist der Hub bei y 440 → 460 von 143
+auf 64. Das ist die Unterkante des Trittsteins mitsamt seinem Schlagschatten,
+nicht das Harkmuster. Wer dort ohne Maske misst, misst den Stein.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.562 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Die Änderung ist ein Uniform-Wert; Geometrie, Draw-Calls und Texturspeicher
+bleiben unberührt. Die vier anderen Umgebungen **bitgleich**. Im Zengarten
+ändert sich die rechte Sandhälfte: `b-pond` Δmittel 1,45 (11,0 % der Fläche),
+`d-aerial` 0,27, die übrigen unter 0,3 — Schwerpunkt jeweils zwischen x 822 und
+1121, also dort, wo das Band hingewandert ist.
+
+Bildstand `tools/shots/zen-67` (ersetzt `zen-66`), Messwerte
+`tools/metrics/zen-67.json`.
+
+---
+
+## Paket AP — Die Laterne war an zwei Stellen durchsichtig
+
+Prüferbefund 1.11, Rest: Lichtfenster und Dach.
+
+### Das Lichtfenster: man sah an ihm vorbei
+
+Vergrössert (`b-pond`, 355,240–440,360, achtfach) stand unter jedem Papierfeld
+ein reinweisser Streifen und darüber ein zweiter. Das war nicht das Licht —
+das war **der Hintergrund**: heller Sand und Wasser, durch die Laterne
+hindurch.
+
+Nachgerechnet: Der Lichtkörper sass bei y = 0,67 und war 0,19 hoch, reichte
+also von 0,575 bis 0,765. Die Zwischenplatte darunter endet bei 0,5675, die
+Deckplatte darüber beginnt bei 0,77. **Unten 7,5 mm Luft, oben 5 mm** — bei
+einem Kasten von 19 cm zusammen sieben Prozent der Höhe, und weil dahinter der
+hellste Teil des Bildes steht, liest der Spalt heller als das Lichtfeld selbst.
+
+Dazu ein zweiter, feinerer Fehler: Ein Sechskant aus `CylinderGeometry` beginnt
+seinen ersten Scheitel bei Azimut null, die Pfosten stehen bei 30, 90, 150
+Grad. Damit zeigten die **Kanten** des Lichtkörpers in die Öffnungen und seine
+Flächen hinter die Pfosten — das Papierfeld war ein Knick statt einer Fläche
+und stand dazu 1,5 mm zu weit innen.
+
+Jetzt 0,215 hoch um 0,6675 herum und um 30 Grad gedreht: Der Körper steckt oben
+wie unten in der Platte, und hinter jeder Öffnung liegt eine ebene Fläche,
+deren Schulter (0,0935 m) die Innenseite der Pfosten (0,0925 m) trifft.
+
+Gemessen an einer Nahansicht (1,25 m, 30°) über dem Fenster
+(545,185–735,440):
+
+    ueber L 250   3,678 %  ->  0,854 %
+    ueber L 230   3,833 %  ->  1,042 %
+
+Im eingefrorenen Kamerasatz ist die Laterne 90 px hoch und der Spalt ein
+Bildpunkt; `b-pond` ändert sich deshalb nur um 0,011 % der Fläche. Die
+Abweichungskarte zeigt sie als geschlossene Kontur um beide Papierfelder — der
+Fehler war genau dort und nirgends sonst.
+
+### Das Dach hatte keine Unterseite
+
+`ConeGeometry(0.3, 0.17, 6, 3, true)` — `openEnded`. Von oben fällt das nicht
+auf, aber **`e-sand` steht 45 cm über dem Boden und blickt zu einer Laterne von
+1,04 m hinauf**. Die abgewandte Schirmhälfte ist rückseitig und wird verworfen;
+übrig blieb eine helle Fläche zwischen Schirmkante und Deckplatte, in der der
+Himmel durch das Dach schien. Gemessen über 940,256–1020,270: Mittel 164,1,
+Median 173 — Himmelsdunst, nicht Stein.
+
+Die Unterseite ist jetzt eine eigene Sechskantscheibe und nicht
+`openEnded: false`, weil sie zwei Dinge braucht, die der Kegeldeckel nicht
+mitbringt: **dieselbe** Eckenverformung wie der Schirm (sonst hängt eine ebene
+Platte unter einem geschwungenen Dach) und einen dunkleren Ton. `thetaStart =
+π/2` setzt ihre sechs Scheitel auf dieselben Azimute wie die des Kegels.
+
+**Der dunklere Ton hat weniger gebracht, als er sollte, und der Grund ist
+lehrreich.** Die Punktleuchte sitzt 11,5 cm unter dem sichtbaren Ring der
+Unterseite; bei quadratischem Abfall ist das der 76-fache Wert gegenüber einem
+Meter, mal Stärke 2,5 also rund 190. Eine Fläche unter solcher Bestrahlung
+liegt tief in der Schulter des Tonemappers, und die Albedo hat dort kaum noch
+Hebel:
+
+    Unterseite 942,258-1018,268   ohne Verdunklung  Mittel 195,2
+                                  mit 0,42          Mittel 185,5
+    besonnter Kies daneben                          Mittel 122,3  p95 189
+
+**Ausgebrannt ist sie trotzdem nicht: 0,00 % reinweisse Bildpunkte.** Sie steht
+etwa so hell wie der hellste besonnte Kies — das ist eine Laterne, die
+leuchtet, nicht eine Fläche, die klippt. Sechs Dreiecke, kein Draw-Call.
+
+### Nicht angefasst
+
+Der Knauf zeigt in `b-pond` eine harte waagerechte Grenze zwischen dunkler
+Oberseite und hellem Unterbauch. Das ist der Terminator derselben Punktleuchte
+auf einer Kugel mit sieben Höhensegmenten. Bei 20 px Durchmesser ist der
+Aufwand für mehr Segmente nicht zu rechtfertigen; er steht hier, damit er nicht
+vergessen ist.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.574 / 350.000   (+12, die Dachunterseite)
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Die vier anderen Umgebungen **bitgleich**. Im Zengarten ändern sich 0,04 bis
+0,33 % der Fläche, Schwerpunkt jeweils auf der Laterne.
+
+Bildstand `tools/shots/zen-68` (ersetzt `zen-67`), Messwerte
+`tools/metrics/zen-68.json`.
+
+---
+
+## Paket AQ — Die weissen Splitter im Bambus waren Glanz, nicht Durchleuchtung
+
+Prüferbefund 1.4. In Paket AJ habe ich ihn zur Hälfte bestätigt — die 36 hellen
+Bildpunkte gibt es, die „ebenso vielen fast schwarzen Späne" nicht — und die
+hellen dem **Durchleuchtungsterm an seinem Höchstwert** zugeschrieben.
+
+**Diese Erklärung war falsch, und die Farben sagen es.** Die Splitter sind
+
+    rgb(239,231,210)  rgb(244,238,223)  rgb(238,229,207)  rgb(241,234,215)
+
+also durchweg **Rot vor Grün vor Blau**. Der Durchleuchtungston ist 0xd8f0a0
+auf einem grünen Blatt; selbst nach der ACES-Entsättigung stünde dort Grün vor
+Rot. Was Rot vor Grün setzt, ist das Sonnenlicht dieser Szene (0xffd9a0) — also
+ein **Glanzpunkt**.
+
+Bei streifendem Einfall auf eine Blattkarte, die einen Bildpunkt breit ist,
+liegt die Glanzkeule unter der Abtastweite: Übrig bleibt ein einzelner weisser
+Punkt ohne Verlauf, und genau so sieht ein „Splitter" aus. Eine breitere Keule
+verteilt dieselbe Energie und fällt unter die Schwelle.
+
+Gemessene Reihe im Kasten 180,150–380,330 von `a-eyelevel`:
+
+    Rauheit   ueber L 215   hellster
+    0,78          24          238,2
+    0,88          11          225,2
+    0,93           6          216,2
+    0,97           4          215,9
+
+**0,93 statt 0,97**, weil ein Bambusblatt eine Wachsschicht hat und aus
+Armlänge — wo ein Blatt viele Bildpunkte breit ist und der Glanz nicht mehr
+aliast — davon etwas zu sehen sein soll.
+
+Dass nichts anderes mitgeht, steht in der zweiten Zahl: unter L 45 bleiben 89
+statt 90 Bildpunkte. Die Modellierung des Laubs ist unberührt; im Ausschnitt
+ist ausser dem Verschwinden der Splitter kein Unterschied zu sehen.
+
+Der Parameter sitzt am Aufruf, nicht im gemeinsamen Material: `roughness` ist
+seit jeher ein Argument von `foliageMaterial()`, und `bambooMaterials()` ist der
+einzige Aufrufer, der ihn jetzt setzt. Ahorn, Sakura, Insel und Dojo bleiben
+unberührt — `b-pond`, in dem kein Bambus steht, ist **bitgleich**.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.574 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Die vier anderen Umgebungen bitgleich. Im Zengarten 0,02 bis 0,06 % der Fläche,
+Schwerpunkt jeweils im Bambushain.
+
+Bildstand `tools/shots/zen-69` (ersetzt `zen-68`), Messwerte
+`tools/metrics/zen-69.json`.
+
+---
+
+## Paket AR — Das Moos war die strukturärmste Fläche im Bild, und das ist eine Zahl
+
+Prüferbefund 1.5: Das Moos liest flach. Der Befund steht seit mehreren Runden,
+obwohl die **Geometrie** längst ein Kissen mit Beulen und ausgefranstem Rand
+ist — 14 Ringe, 617 Punkte je Insel, zwei Beulenfelder.
+
+Gemessen an einer Nahansicht aus 50 cm (`tools/blick.mjs`, Pos −1,2 | 0,55 | 1,0),
+Hochpass über 5×5 Bildpunkte:
+
+    Moos  (Kasten 700,290-1100,330)   1,05
+    Sand  (Kasten  60,520- 460,560)   2,06
+
+**Der Kies daneben trägt doppelt so viel Feinstruktur wie das Moos.** Das ist
+verkehrt herum: Kies ist glatt, Moos ist samtig.
+
+### Die Ursache stand eine Zeile über dem Befund
+
+    mossMat.map = null;
+
+Das nimmt dem Moos seine Farbkarte, und zwar mit gutem Grund — sie zeigt dunkle
+feuchte Erde und gehört in den schattigen Dojo-Garten, nicht neben hellen Sand
+in die Nachmittagssonne. Übrig bleiben die Scheitelfarben, und deren feinstes
+Feld liegt bei 7 cm, der Grenze der Punktdichte. Die **gesamte** Feinstruktur
+des Mooses hing damit an der Normalkarte allein, und die stand auf 0,85.
+
+Die Karte selbst ist fein genug: `MOSS_TUFTS = 30` Büschel je Kachel bei 55 cm
+Kachelgrösse sind 1,8 cm Abstand. Es fehlte nur der Ausschlag.
+
+    normalScale   Hochpass im Moos
+    0,85              1,05
+    1,90              1,44
+
+Nicht bis an den Sand heran, aber die Kissen sind aus Armlänge als Kissen zu
+sehen statt als Lackfläche.
+
+### Flimmerprobe
+
+Eine stärkere Normalkarte auf einer Bodenfläche ist ein Flimmerkandidat, und
+im Dojo-Log steht die Warnung ausdrücklich. Gemessen mit `tools/kamm.mjs
+--dreh` in `c-torii` (Kamera dreht um 0 / 0,25 / 0,5 / 0,75 Bildpunkte):
+
+    Bereich   Streuung  Zittern  Quotient  max dL
+    Moos         33,0     1,24     0,038      52
+    Sand         39,6     0,99     0,025      68
+
+Der Quotient liegt bei 0,038 gegen 0,025 des Sandes daneben. Zum Vergleich: Im
+Insel-Log steht ein angenommener Vordergrund mit **0,776**. Kein Flimmerbefund.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.574 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Ein Materialparameter, keine Geometrie, keine Textur. Die vier anderen
+Umgebungen **bitgleich** — `mossMaterial()` liefert je Aufruf ein neues
+Material, der Dojo bekommt seines unverändert. Im Zengarten Δmax 13 bis 39 bei
+0,1 bis 0,6 % der Fläche, Schwerpunkt jeweils auf einer Moosinsel.
+
+Bildstand `tools/shots/zen-70` (ersetzt `zen-69`), Messwerte
+`tools/metrics/zen-70.json`.
+
+---
+
+## Paket AS — Das Sonnenlicht war zu schwach, aber nicht so schwach, wie gemeldet
+
+Fünfte Prüferrunde, Befund 1: „Das Sonnenlicht ist gegenüber dem
+Umgebungslicht drastisch zu schwach dosiert — die Szene liest als Hochnebel und
+nicht als Nachmittagssonne." Belegt mit Schatten gegen Sonne aus zwei von Hand
+gesetzten Kästen: **0,75 bis 0,77**, bei einer erwarteten Trennung von zwei bis
+zweieinhalb Blenden (0,2 bis 0,4).
+
+### Aus einem Kasten gemessen ist diese Zahl zu hoch
+
+Ein Kasten trifft Halbschatten und Streiflicht mit. Richtig gemessen wird das
+**differenziell**: derselbe Durchgang zweimal, einmal mit und einmal ohne
+`sun.castShadow`, dann je Bildpunkt das Verhältnis.
+
+    Vorzustand   p01     p05     p25     Median
+    c-torii      0,331   0,517   0,673   0,738
+    e-sand       0,230   0,444   0,649   0,720
+
+Seine Zahl ist der **Median** über alle verschatteten Bildpunkte. Eine **voll**
+verschattete, himmelzugewandte Fläche stand bei 0,44 bis 0,52 — eine gute
+Blende unter der besonnten, nicht eine halbe. Der Befund trägt der Richtung
+nach, seine Grösse ist um rund das Doppelte überzeichnet.
+
+Dasselbe gilt für seine zweite Beobachtung, der Schatten sei kaum kaltverschoben
+(er misst B/R 0,78 gegen 0,73, also 7 %). Differenziell gemessen: **0,756 im
+tiefen Schatten gegen 0,651 in der Sonne**, also 16 %.
+
+### Die Umverteilung
+
+Beiträge auf einer waagerechten Fläche bei 19,4 Grad Sonnenhöhe (cos 71 = 0,326):
+
+    Sonne        4,10 · 0,326 = 1,336
+    Hemisphaere                  1,050
+    Grundleuchte                 0,350
+    Gegenlicht   0,50 · 0,174    0,087
+    nicht-Sonne / gesamt       = 0,527
+
+Ziel 0,38 bei **gleichbleibender Summe** — und genau das hat der zweite Anlauf
+(Paket 1 der ersten Runde) falsch gemacht: Er hat abgedunkelt, statt das Licht
+umzuverteilen. Alle Umgebungsquellen mal 0,722, die Sonne auf 5,35.
+
+    Nachher      p01     p05     p25     Median
+    c-torii      0,227   0,385   0,541   0,622
+    e-sand       0,141   0,320   0,519   0,598
+
+Damit liegt der Vollschatten mit 0,32 bis 0,39 im Band, das der Prüfer nennt.
+
+### Was dabei nicht passieren durfte
+
+    Kamera        Mittel    p05    p50    p95   ueber L250   unter L30
+    c-torii alt   146,2      62    152    199     0,13 %      0,62 %
+    c-torii neu   143,7      49    152    203     0,13 %      1,34 %
+    e-sand  alt   155,2      59    165    202     0,17 %      1,19 %
+    e-sand  neu   154,3      48    165    208     0,20 %      2,17 %
+    a-eye   alt   151,1      65    157    194     0,00 %      0,57 %
+    a-eye   neu   149,2      57    157    198     0,00 %      1,22 %
+
+**Der Median steht in allen drei Kameras exakt still** — die besonnte Fläche
+bleibt, wo sie war. Ausgebrannt wird nichts. Der Anteil unter L 30 verdoppelt
+sich auf ein bis zwei Prozent; der gescheiterte zweite Anlauf hatte an dieser
+Stelle 21,4 Prozent auf den Findlingen. Deren Maske selbst: p05 26 → 18,
+Median 71 → 70, Höchstwert 204 → 210.
+
+Und der Farbunterschied wächst mit: B/R im tiefen Schatten gegen Sonne
+0,756/0,651 → 0,723/0,613.
+
+### Budget und Regression
+
+    Draw-Calls        98 / 120
+    Dreiecke      129.574 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+Vier Lichtstärken, keine Geometrie. Die vier anderen Umgebungen **bitgleich** —
+`sceneAmbient` ist ein Wert je Umgebung.
+
+Bildstand `tools/shots/zen-71` (ersetzt `zen-70`), Messwerte
+`tools/metrics/zen-71.json`.
+
+---
+
+## Paket AT — Die Sträucher am äusseren Rand sind entfallen
+
+**Auf Zuruf des Nutzers:** „In Umgebung Zen Garten entferne alle Büsche am
+äusseren Rand, diese sind überflüssig."
+
+Neun Karikomi standen auf 6 bis 8 m Abstand als Mittelgrundmasse und sollten
+den gestalteten Teil des Gartens begrenzen, nachdem die Mauer in Durchlauf 12
+herausgenommen worden war — ebenfalls auf Zuruf, und mit derselben Begründung:
+Der Garten soll offen bleiben. Eine Kette grüner Ballen am Rand ist eine
+Einfassung mit anderen Mitteln, und damit fällt sie unter dieselbe
+Entscheidung.
+
+`makeKarikomi()` bleibt im Code stehen — gebaut, gemessen und in zwei Zeilen
+wieder einzuhängen, genau wie `makeGartenmauer()` daneben.
+
+### Der Zufallsstrom bleibt unberührt, und das ist diesmal vorher geprüft
+
+`makeKarikomi(rand, plaetze)` nimmt `rand` als Argument entgegen und **ruft es
+kein einziges Mal** — nachgezählt über den ganzen Funktionskörper. Alles, was
+nach dieser Stelle aus demselben Strom gebaut wird (Bambushain, Laterne, Torii,
+Trittsteine, Blütenblätter), steht unverändert. In diesem Log ist genau diese
+Prüfung viermal ausgelassen worden; dass sie hier vorher gemacht wurde, ist der
+Unterschied zwischen einem Paket und einem halben Tag Fehlersuche.
+
+### Budget
+
+    Draw-Calls        98 -> 96 / 120
+    Dreiecke     129.574 -> 110.404 / 350.000
+    Textur          21,86 / 60 MB
+    Konsole       frei von Errors und Warnings
+
+19 170 Dreiecke und zwei Zeichenaufrufe weniger: das Netz der Sträucher (9 576
+Dreiecke, im Schattendurchgang doppelt) und ihre neun Kontaktschatten.
+
+Die vier anderen Umgebungen **bitgleich**.
+
+Bildstand `tools/shots/zen-72` (ersetzt `zen-71`), Messwerte
+`tools/metrics/zen-72.json`.
+
+---
+
+## Paket AU — Drei Befunde der fünften Runde, und eine Regression von mir
+
+### Die blauvioletten Flecken in der Sakura: halb erklärt, halb behoben
+
+Prüferbefund 6: „kräftig blauviolette Kleckse mit scharfer Kante mitten in der
+rosa Masse". Gemessen im Kronenkasten von `a-eyelevel` (0,60–270,240),
+Bildpunkte mit G < min(R,B) − 14: **797 von 48 600, also 1,64 Prozent**,
+typisch rgb(136 | 107 | 140) bei L 116 — gegen eine Blütenmasse bei L 219.
+
+Per Strahl nachgesehen ist das **keine** Rückseite und kein Ast: Die Flecken
+sind `zen-sakura-karten`, also Blütenkarten im Kernschatten des eigenen Baums.
+Dort fällt kein Sonnenlicht mehr, es bleibt die Hemisphäre — und deren
+Himmelston 0xb3cdf0 hat Blau als stärksten Kanal. Eine rosa Karte (R > B > G)
+mal ein blaues Licht ergibt R ≈ B > G, also Violett. **Das ist physikalisch
+richtig**; verschattete Kirschblüten unter blauem Himmel sind tatsächlich
+lavendelgrau.
+
+Ein Teil davon war es aber nicht. Die Hüllkörper der Krone standen auf
+0xc98fa6, 0xd6a0b4 und 0xbc8398; der letzte hat rgb(188 | 131 | 152) — Grün
+liegt **21 Stufen unter Blau**, während die Karten mit 0xffe4ee nur 10 darunter
+liegen. Der Hüllkörper war also nicht dieselbe Farbe in dunkler, sondern eine
+magentastichigere, obwohl der Kommentar daneben genau das Gegenteil verlangt.
+Jetzt sind es die Kartenfarben selbst, mal 0,80.
+
+    magenta im Kronenkasten   797 (1,64 %)  ->  591 (1,22 %)   Median L 105 -> 108
+
+**Ein Viertel des Befundes, nicht mehr.** Den Rest würde nur eine wärmere
+Hemisphäre wegnehmen — und die ist in Paket AS gerade bewusst kühl gestellt
+worden, weil der Farbunterschied zwischen besonnt und verschattet die halbe
+Tiefe trägt. Das steht hier als Abwägung, nicht als Versäumnis.
+
+### Die Trittsteinkante war ein Rasiermesser
+
+Prüferbefund 9: „die Oberseite eine ebene Facette, die Seitenwand ein
+einfarbig braunes Band, die Kante rasiermesserscharf". Das ist genau das, was
+eine `CylinderGeometry` mit **einem** Höhensegment liefert: zwei Deckflächen,
+ein Mantel, dazwischen ein Normalensprung von neunzig Grad.
+
+Vier Höhensegmente und ein Fassprofil `f(h) = 1 − 0,07 · |h|³` legen die
+Rundung an, die ein betretener und gewaschener Stein hat. 336 Dreiecke für
+sieben Steine.
+
+**Der erste Anlauf war zu stark und hat es verschlimmert.** Mit
+`1 − 0,18 · |h|^1,6` wurde aus der Kante ein Fass: Die Mantelnormalen kippten so
+weit nach unten, dass die Seitenwand schwarz wurde, und an der Deckkante stand
+ein ausgebrannter Splitter. Der Exponent drei lässt die Mitte unberührt und
+zieht nur den äussersten Ring ein — eine Fase, kein Fass.
+
+### Versucht und zurückgenommen: Rücklicht am Steinfuss
+
+Die Seitenwand steht bei Median **L 22** und mit 52 Prozent unter L 40. Der
+naheliegende Griff — ein aufgehellter Fuss in den Scheitelfarben, wie die
+Verdeckung bei den Findlingen — hat **nichts** bewirkt: Mittel 61,0 auf 60,8.
+
+Der Grund ist derselbe wie bei der Laternenunterseite, nur umgekehrt: **Albedo
+hat keinen Hebel, wo kein Licht ist.** Anderthalbmal fast nichts ist fast
+nichts. Der Term ist wieder heraus; was diese Fläche bräuchte, ist Licht, nicht
+Farbe.
+
+### Und eine Regression, die ich in Paket AS gebaut habe
+
+Die Rauheitsreihe von `zenGranite()` ist mit einer Sonne von **4,1** gemessen
+worden. In Paket AS ist sie auf 5,35 gestiegen — dreissig Prozent mehr
+gerichtetes Licht auf genau die Glanzkeule, um die es dort ging. Und prompt war
+der Befund zurück, den 0,80 einmal beseitigt hatte.
+
+Gemessen am vordersten Trittstein in `e-sand` (Kasten 0,455–75,492), dem Stein
+45 cm vor der Kamera:
+
+    Rauheit   Median   p95   Hoechstwert   ueber L 250
+    0,80        226    253       255         10,7 %
+    0,90        205    235       250          0,0 %
+    0,97        197    221       236          0,0 %
+
+**0,90.** Das Ausbrennen ist vollständig weg und kostet 21 Stufen Median; 0,97
+kostet weitere acht, ohne noch etwas zu gewinnen.
+
+Die Lehre steht schon zweimal in diesem Log und gilt jetzt zum dritten Mal:
+**Wer die Lichtstärke ändert, macht jede Rauheitsreihe ungültig, die davor
+gemessen wurde.**
+
+### Budget und Regression
+
+    Draw-Calls        96 / 120
+    Dreiecke     111.100 / 350.000   (+696, die Fase der sieben Trittsteine)
+    Textur         21,86 / 60 MB
+    Konsole      frei von Errors und Warnings
+
+`env-night` und `env-matrix` **bitgleich** gegen den frischen Stand `insel-44`,
+`env-dojo` mit Δmax 4 auf 0,009 % im bekannten Rauschband des Gartenlaubs.
+(Gegen `zen-72` gemessen zeigen `env-island`, `env-matrix` und `env-dojo` die
+Pakete dieser Sitzung in den jeweils anderen Umgebungen — das sind meine
+eigenen Änderungen, nicht Regressionen.)
+
+Bildstand `tools/shots/zen-73` (ersetzt `zen-72`), Messwerte
+`tools/metrics/zen-73.json`.
+
+---
+
+## Paket AV — Die Glanzbahn auf dem Teich feuert in keiner Prüfkamera, und das ist Geometrie
+
+Prüferbefund 4, letzter offener Teil: „bei sichtbarer Sonne im Bild gibt es
+kein einziges Spiegelglanzlicht". Der Rest dieses Befundes ist in Paket AL
+abgearbeitet — die Spiegelung trägt 36 Helligkeitsstufen, das ist gemessen.
+
+### Der Fresnelterm arbeitet
+
+Über die Knotenmaske von `zen-wasser`:
+
+    b-pond   Mittel 114,7   p95 147   max 193   ueber L 190   0,0 %
+    e-sand   Mittel 162,4   p95 201   max 209   ueber L 190  19,8 %
+
+Streifend (Kamera 45 cm über dem Boden) sieht man die Spiegelung, von schräg
+oben den Grund. Das Verhältnis, dessen Fehlen in einer früheren Runde als
+„Milchglasplatte" gemeldet war, steht also.
+
+### Die Glanzbahn trägt nichts — in keiner der sechs Kameras
+
+Differenziell geprüft, indem die Keule einmal auf null und einmal auf eins
+gesetzt wurde:
+
+    Keule = 0   b-pond 114,7   e-sand 162,4   (identisch mit dem Auslieferungsstand)
+    Keule = 1   b-pond 171,5
+
+Der Pfad läuft also, er trifft nur nie. Über den Exponenten abgetastet:
+
+    Exponent    1    Mittel 162,6
+    Exponent    8    Mittel 117,9
+    Exponent   20    Mittel 114,8
+    Exponent  150    Mittel 114,7
+
+Daraus liegt das Skalarprodukt aus Wellennormale und Halbrichtung bei rund
+**0,75**, also **41 Grad** auseinander — und die Wellen neigen sich um wenige
+Grad. **Das Spiegelbild der Sonne liegt von keiner dieser sechs Kameras aus auf
+dem Teich.**
+
+Die Keule zu verbreitern, bis doch etwas leuchtet, hiesse ein Glanzlicht
+dorthin zu malen, wo keines hingehört. Sie bleibt eng, und die Begründung steht
+jetzt im Quelltext daneben. In der Brille sieht sie, wer sich so stellt, dass
+die Sonne jenseits des Teichs steht.
+
+**Was das über das frühere Paket sagt:** Die Glanzbahn ist dort mit einer
+ausführlichen Begründung gebaut und mit „gemessen hatte der Teich als hellsten
+Wert L 207" motiviert worden — aber **ob sie danach etwas beiträgt, ist nie
+nachgemessen worden.** Sie tut es nicht. Eingebaut und nie überprüft ist genau
+die Sorte Arbeit, die dieser Auftrag ausschliessen soll.
+
+### Der Shaderlint hat zum vierten Mal gegriffen
+
+Vier Rückstriche im neuen Kommentarblock, alle innerhalb desselben
+GLSL-Template-Literals. `tools/shaderlint.mjs` meldet sie als `prebuild`, bevor
+ein Bild entsteht.
+
+### Regression
+
+Reine Kommentare. `b-pond` und `e-sand` **bitgleich** gegen `zen-73`; Budget und
+Bildstand unverändert.
+
+## Paket AW — Befund 7 laesst sich nicht messen, und dabei faellt ein kaputtes Werkzeug auf
+
+Der Pruefer hat unter Nummer 7 „Moiré und Streifenzerfall im Harkmuster"
+gemeldet, `d-aerial`, ungefaehr (0–420, 480–719). Dieses Paket ist der Versuch,
+das nachzumessen. Er ist gescheitert — der Befund ist mit keiner Messung zu
+belegen, die ich anlegen konnte. Was dabei herauskam, ist ein Werkzeugfehler,
+der vermutlich aelter ist als dieser Befund.
+
+### Was gemessen wurde, und was dabei herauskam
+
+**Abtastung.** Die Harklinien in `d-aerial` liegen bei x = 120/220/320/400 mit
+einer Periode von **7,1 bis 10,0 Bildpunkten** und einem Hub von 125 bis 133
+Stufen (p05 ≈ 115, p95 ≈ 215). Zaehlt man statt der Halbperioden die dunklen
+Linien selbst, sind es ueber den Zeilen 630 bis 714 **20,0 bis 13,8 Bildpunkte
+Abstand**, gleitend enger nach unten. Nyquist liegt bei 2. Von Unterabtastung
+ist die Spur zwei bis dreimal entfernt.
+
+**Richtung.** Der Strukturtensor ueber Streifen von sechs Zeilen (x 300–520)
+meldet ueber die Zeilen 630 bis 714:
+
+    61,6  61,4  61,3  61,2  61,1  61,2  61,1  61,3  61,5  61,4  61,7  61,6  61,5  61,9
+
+**0,8 Grad Schwankung ueber fuenfundachtzig Zeilen**, Kohaerenz durchgehend
+0,88 bis 0,93. Die Linien wechseln ihre Richtung nicht.
+
+**Detailmenge.** Der mittlere waagerechte Nachbarunterschied je Zeile liegt
+ueber dieselben Zeilen bei 9,0 bis 10,7 — ohne Stufe.
+
+### Was ich gesucht habe und was nicht da war
+
+Ich habe in den vergroesserten Ausschnitten eine **messerscharfe waagerechte
+Bruchkante** bei Zeile 690 gesehen, unterhalb derer die Harklinien in senkrechte
+Balken zerfallen. Diese Kante ist in keiner der vier Messungen oben zu finden:
+Die Richtung bleibt bei 61 Grad, der Abstand aendert sich gleitend, die
+Detailmenge hat keine Stufe.
+
+Sie ist trotzdem im Bild zu sehen, auch bei 1:1. Was ich fuer eine Kante
+gehalten habe, ist die breite Hell-Dunkel-Modulation aus `druck` und dem groben
+Zug: eine Schwebung mit einer Periode von mehreren Metern, die von oben nach
+unten schmaler wird und deren Kanten das Auge als Grenze liest. Ein
+Richtungswechsel ist es nicht, ein Zerfall der Spur auch nicht.
+
+Ausgeschlossen habe ich dabei acht Ursachen, jede mit einem eigenen Bild:
+
+| Versuch | Wirkung auf das Band |
+| --- | --- |
+| `scharf = 1.0` (Nyquist-Ausblendung aus) | 2,248 → 2,259 |
+| grober Zug aus (`ampGrob = 0`) | Balken unveraendert |
+| Ringbaender aus (alle vier Breiten 0) | Balken unveraendert |
+| Harkfeldgrenze aus (`rand = 1.0`) | Balken unveraendert |
+| Randboeschung des Kiesbetts aus (flach) | Balken unveraendert |
+| Unterteilung 160 → 40 Segmente | Balken unveraendert |
+| Anisotropie der Sandkarten 4/8 → 16 | 2,47 → 2,47 |
+| Steigung auf den Boeschungswinkel gedeckelt | 2,248 → 2,270 |
+| Harke ganz aus (`amp = 0`) | Flaeche glatt |
+
+Nur die letzte Zeile wirkt — also ist die Zeichnung die Harke, und alles, was
+ich als Schalter verdaechtigt habe, ist keiner.
+
+### Der Werkzeugfehler
+
+`tools/wasistda.mjs` ruft `raycaster.setFromCamera(ndc, app.camera)`. Die
+Kamera steht zu diesem Zeitpunkt am richtigen **Ort** — aber ohne die Drehung,
+die `lockCamera` in seiner eigenen rAF-Schleife setzt: Die Weltmatrix, aus der
+`setFromCamera` rechnet, traegt den Stand der App-Schleife.
+
+Gemessen mit dem neuen `tools/bodenpunkt.mjs`: Die **Bildmitte** von
+`zen/d-aerial` lieferte den Bodenpunkt **(10 | −69)** statt (0 | 0). Die Kamera
+stand richtig und schaute geradeaus.
+
+Damit war jede Knotenzuordnung und jede Entfernung dieses Werkzeugs falsch.
+In diesem Paket hat es mich vier Versuche an der falschen Stelle gekostet: Das
+untere Band von `d-aerial` lag angeblich bei **18,88 und 19,71 m**, also am
+Rand der 20-m-Scheibe. Richtig sind **11,3 bis 11,7 m**, Weltradius 10 bis 12 m
+— mitten im Garten. Ich habe daraufhin die Randboeschung, die Unterteilung und
+den Saum untersucht, also drei Dinge, die an der Stelle gar nicht stehen.
+
+Beide Werkzeuge setzen jetzt Ort, Blick und Bildwinkel im Browser selbst und
+rufen `updateMatrixWorld(true)`, bevor sie rechnen. Geprueft an drei bekannten
+Stellen: Bildmitte → `zen-sand` bei 18,07 m (Abstand zum Ursprung 18,03),
+Teichmitte → `zen-wasser`, Weltort (3,69 | −1,78) gegen die gebaute Lage
+(3,2 | −1,2).
+
+**Wie viele frühere Befunde dieser Fehler verfälscht hat, weiss ich nicht.**
+Er steckte in jedem Aufruf.
+
+### Nebenbefund: die Flanke der Rille ist steiler, als Sand stehen kann
+
+Die Steigung ist `grad * (uSandTiefe / uSandTeilung) * dKamm * amp`. `dKamm`
+traegt durch die Phasenverzerrung den Faktor `dtw = 1 + 0,24·2π·cos`, der bis
+2,5 geht; zusammen mit `6h(1−h)·π` (bis 4,7) und 0,026/0,225 steht der
+Spitzenwert bei **1,36, also 54 Grad** — im Nahfeld mit `druck` bis 1,46 sogar
+bei rund **62 Grad**. Trockener Sand hat einen Boeschungswinkel von 33 bis 35
+Grad.
+
+Ein weicher Deckel bei tan 34° aendert an `d-aerial` **nichts** (2,248 →
+2,270) und wuerde im Nahfeld genau das Relief flachdruecken, das der Pruefer
+als das Beste an dieser Szene bezeichnet hat. Er ist deshalb **nicht**
+eingebaut. Die Zahl steht hier, damit sie nicht noch einmal gesucht werden
+muss: Die Rille ist bewusst ueberzeichnet, und zwar um den Faktor 1,8 gegenüber
+dem, was Sand haelt.
+
+### Neue Werkzeuge
+
+* `tools/bodenpunkt.mjs` — schneidet den Strahl der lebenden Kamera mit einer
+  waagerechten Ebene und meldet Weltort, Gartenradius und Kameraabstand. Kein
+  Netz, keine Sortierung, keine Seitenfrage. Das ist das Werkzeug, mit dem der
+  Fehler oben ueberhaupt erst sichtbar wurde.
+* `tools/streckung.mjs` — quer/laengs (verwechselbar, steht als Warnung da),
+  Spaltenmittel-Nachbarschritt und der Strukturtensor je sechs Zeilen.
+
+Eine erste Fassung von `streckung.mjs` meldete zusaetzlich die „staerkste
+Periode" aus einer Autokorrelation. Die hat in jedem Bild und jedem Band 2 oder
+4 Bildpunkte bei r = 0,95 bis 0,99 gemeldet — **weil ein glattes Profil bei
+kleinem Versatz immer hoch korreliert.** Das Mass hat Glattheit gemessen, nicht
+Periodizitaet, und ist wieder raus.
+
+### Stand des Befunds
+
+**Nummer 7 ist nicht bestaetigt und bleibt offen.** Nicht bestaetigt, weil
+Periode, Richtung, Kohaerenz und Detailmenge alle dagegen sprechen; offen, weil
+im Bild bei 1:1 trotzdem etwas zu sehen ist, das ich benennen, aber nicht
+messen kann. Vier Durchlaeufe sind verbraucht. Ich lasse es so stehen, statt
+eine Zahl zu drehen, bis eine Messung entsteht, die nichts belegt.
+
+### Regression
+
+Nur Werkzeuge; `src/` unveraendert. `npm run build` gruen, alle sechs
+Zen-Kameras bitgleich gegen `zen-73`.
+
+## Paket AX — Die Findlinge bekommen Bruchflaechen
+
+Befund 8 der fuenften Runde: „Kartoffeln mit aufgemalten Schatten". Derselbe
+Befund stand schon in einer frueheren Runde als „glatte, abgerundete
+Kartoffelformen, ohne Kanten, Bruchflaechen, Schichtung oder Charakter", und ich
+hatte darauf `amount`, `frequency` und `bevel` je Stein gestreut. **Das war die
+falsche Antwort auf die richtige Frage:** Gestreut wurde damit die Rundung, nicht
+die Form. Rauschen kann eine Kugel beulen; es kann keine ebene Flaeche machen
+und schon gar keine Kante, an der zwei ebene Flaechen aufeinandertreffen.
+
+### Zwei Ursachen, beide in einer Zahl
+
+**Erstens: `crease = 100`.** `weatheredStoneGeometry` kennt einen Knickwinkel,
+ab dem eine Kante hart bleibt — und der Test in `smoothNormalsByPosition`
+verwirft eine Nachbarflaeche erst, wenn sie **mehr als** `crease` von der
+eigenen abweicht. Bei 100 Grad also praktisch nie. Die Funktion hatte den
+Schalter, er stand nur auf „alles glaetten". Kein Stein dieser Szene hatte
+jemals eine Kante.
+
+**Zweitens: es gab nichts zu knicken.** Selbst mit scharfen Normalen bleibt ein
+verrauschtes Ikosaeder rund. Neu ist deshalb `brueche` in
+`weatheredStoneGeometry`: eine Liste von Ebenen, gegen die jeder Punkt geklemmt
+wird. Angesetzt wird im **normierten Ellipsoidraum** — jede Achse durch ihre
+halbe Ausdehnung geteilt —, damit die Ruecktransformation affin bleibt und eine
+Ebene eine Ebene bleibt, auch nachdem der Stein in x, y und z verschieden
+skaliert wurde.
+
+Je Findling zwei bis vier Ebenen, je Uferkiesel null oder eine: Ein Kiesel am
+Wasser ist rundgeschliffen, ein Findling nicht.
+
+**Die erste Ebene schneidet immer tief.** Mit einem gemeinsamen Bereich von 0,60
+bis 0,88 fuer alle Ebenen kam es vor, dass ein Stein nur flache Anschliffe
+bekam und rund blieb — im Bild stand dann neben einem gebrochenen Findling
+wieder eine Kartoffel. Die erste liegt jetzt sicher bei 0,54 bis 0,66, die
+weiteren streuen zwischen 0,66 und 0,88.
+
+**Unterteilung 2 → 3, aber nur fuer die acht grossen.** Eine Bruchkante ist so
+gerade wie das Netz, durch das sie laeuft; auf 320 Facetten haette sie eine
+sichtbare Treppe. Die sechzehn Uferkiesel bleiben bei 2 — sie sind im Bild 10
+bis 30 Bildpunkte gross.
+
+Der Zufallsstrom dafuer ist eigen (`mulberry32(formSame + 7717)`). **Keine
+zusaetzliche Ziehung aus `rand` oder `sr`** — jede verschoebe alles, was danach
+im Garten gebaut wird.
+
+### Gemessen
+
+Tonwertverteilung ueber die Knotenmaske `zen-findlinge` in `b-pond`, ohne alle
+Schlagschatten (`tools/knotenwerte.mjs --ohne-werfer`):
+
+    vorher   p05 31   p50 71   p95 117   max 175
+    nachher  p05 20   p50 74   p95 132   max 184
+
+**Das Tonwertband p05→p95 waechst von 86 auf 112 Stufen, also um 30 Prozent.**
+Das ist der Unterschied zwischen „Pappe mit Farbverlauf" und „Koerper": Die
+neuen Flaechen stehen in verschiedenen Winkeln zur Sonne, und der Renderer
+macht daraus verschiedene Tonwerte — ohne dass etwas aufgemalt werden muesste.
+
+### Budget
+
+    Draw-Calls       96 / 120   unveraendert
+    Dreiecke    113 340 / 350 000   (+2 240 gegen zen-73)
+    Texturen      21,86 / 60   unveraendert
+
+Die 2 240 Dreiecke sind genau die acht Findlinge von Unterteilung 2 auf 3.
+
+### Regression
+
+`weatheredStoneGeometry` bekommt `brueche = null` als Vorgabe und behaelt
+`crease = 100`; alles, was die Funktion sonst benutzt, ist unberuehrt. Gemessen:
+Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 7 auf 0,010 % der
+Bildpunkte (das bekannte Rauschband dieser Umgebung). Im Zen-Garten aendern
+sich 0,75 bis 5,1 % der Bildpunkte, Schwerpunkt jeweils auf den Steingruppen.
+
+`npm run build` gruen, Konsole frei von Errors und Warnings. Neuer Bildstand
+`tools/shots/zen-76`.
+
+## Paket AY — Der schwebende weisse Punkt war ein Staubkorn; zwei Befunde loesen sich in Luft auf
+
+Drei Befunde der fuenften Runde, mit dem reparierten `wasistda` nachgeprueft.
+
+### Befund 13: „Wasserpflanzen stehen auf dem Ufersand" — nicht bestaetigt
+
+Zehn Punkte in `b-pond` abgetastet, jeweils direkt unter der Unterkante eines
+Lotus- oder Seerosenstuecks (Kaesten aus `knotenkasten.mjs`, die Pflanzen selbst
+aus der Trefferliste ausgeblendet). **Unter jedem einzelnen liegt
+`zen-wasser`**, in 2,95 bis 4,44 m, darunter das Teichbecken. Auch die beiden
+aeussersten Seerosenstuecke am linken und unteren Beckenrand.
+
+Die Umstellung auf `wasserPlatz()` — Streuung am selben `teichUmriss` wie die
+Wasserflaeche, mit Loch um den Laternensockel — hat also gehalten. Der Befund
+stammt aus einem Bildstand davor.
+
+### Befund 14: „Kies ohne Korn bei 45 cm" — im Wesentlichen erledigt
+
+Hochpassreihe ueber `e-sand`, zehn Baender von nah nach fern:
+
+    3,59  4,17  4,75  5,24  6,15  6,99  7,36  8,36  9,94  12,17
+
+Das erste Band liegt bei **0,86 m Kameraabstand** (`tools/bodenpunkt.mjs`), das
+letzte bei rund 2,3 m. Der Anstieg nach hinten betraegt Faktor 3,4 — vor dem
+Paket mit der achtfach gespannten Kornkarte waren es 4,8.
+
+**Der Rest des Anstiegs ist kein fehlendes Korn im Nahfeld, sondern das
+Aliasing der Harkrillen in der Ferne** — dieselbe Stelle, an der das schon
+einmal stand. Im Bild bei 1:1 traegt der Kies unmittelbar vor der Kamera
+sichtbare Koerner: dunkle Tupfen von zwei bis drei Bildpunkten auf einer
+welligen Flaeche. Der Befund bleibt als Restposten stehen, nicht als offener
+Fehler.
+
+### Befund 16a: der schwebende weisse Punkt bei (571–576, 382–386)
+
+Der Punkt steht in `a-eyelevel` mitten zwischen den beiden Torii-Stuetzen, ueber
+dem fernen Sand, ohne Bezug zu irgendetwas. Er ist +17 Stufen heller als der
+Hintergrund (221,197,158 gegen 204,182,145) und rund drei Bildpunkte im Kern.
+
+**Gesucht per Ausschluss, weil `wasistda` bei Sprites unzuverlaessig bleibt:**
+Die Trefferliste meldete „(Sprite) bei 6,88 m", und die fuenf Bodennebel-Sprites
+sind die einzigen Sprites in der Naehe. Mit ausgeblendeten Nebel-Sprites war der
+Punkt **unveraendert** — die fuenf tragen in dieser Kamera ueberhaupt nichts
+bei. Mit ausgeblendetem `zen-staub` war er **weg**. (Dass eine Sprite-Abfrage
+hier falsch liegt, hat einen eigenen Grund: `Sprite.raycast` rechnet mit der
+`modelViewMatrix` des letzten Bildes, nicht mit einer frisch gesetzten Kamera.)
+
+Es ist also ein **Staubkorn**. Es ist weder zu gross noch zu hell — mit drei
+Bildpunkten Kern liegt es genau auf dem Wert, der in einem frueheren Paket
+gemessen und eingestellt wurde. Was es zum Fehler macht, ist die **Lage**: ein
+einzelnes Korn in vier bis fuenf Metern, allein vor einem fernen Hintergrund,
+liest als vergessenes Sprite und nicht als Atmosphaere.
+
+Der Tiefenabfall der Deckkraft war auf `smoothstep(4.0, 9.0)` gesetzt und
+laesst damit einzelne Koerner bis neun Meter stehen. Neu ist
+`smoothstep(2.0, 4.6)` — das passt zu der Begruendung, die schon danebensteht:
+„Staub, der Licht faengt, ist ohnehin eine Erscheinung des Nahbereichs".
+
+Gemessen:
+
+    Punkt (573,384)     221,197,158  ->  205,183,146   (Hintergrund 204,182,145)
+    zen-staub a-eyelevel   267 Bildpunkte  ->  171
+    zen-staub b-pond        —              ->   80
+    zen-staub c-torii       —              ->  285
+    zen-staub e-sand        —              ->   91
+    zen-staub f-grove       —              ->  148
+
+Der Punkt ist mit einer Stufe Unterschied unsichtbar; zwei Drittel des Staubs
+im Nahfeld bleiben stehen, und in allen fuenf Bodenkameras ist er weiter da.
+
+### Regression
+
+`npm run build` gruen, Konsole frei von Errors und Warnings. Im Zen-Garten
+aendern sich 0,012 bis 0,020 % der Bildpunkte, ausschliesslich die Koerner in
+mittlerer Tiefe; `d-aerial` bitgleich. Insel, Konstrukt und Nachthimmel
+bitgleich, Dojo Δmax 7 auf 0,012 % (bekanntes Rauschband). Bildstand
+`tools/shots/zen-77`.
+
+## Paket AZ — Der Schatten war nicht zu flach, er war zu warm
+
+Sechste Prüferrunde, Befund 3: „Schatten ohne Kraft und ohne Farbe". Zwei
+Behauptungen, und nur eine stimmt.
+
+### Was nicht stimmt: die Tiefe
+
+Der Prüfer misst in `c-torii` besonnten Sand (194,172,134) gegen beschatteten
+(153,135,105) und nennt das „ein Viertel dunkler". Beide Zahlen sind richtig —
+**aber der zweite Kasten ist kein Schatten, er ist ein Mittelwert über
+Halbschatten, Rillenkämme und Schattenkern.** Die dunkelsten zehn Prozent
+desselben Kastens liegen bei (89,83,69), also **L 83,5 gegen L 174,7 —
+Verhältnis 0,478**. Ein voller Schlagschatten ist hier halb so hell wie die
+besonnte Fläche, und das ist für einen Aussenraum richtig.
+
+Das ist inzwischen das **dritte Mal**, dass ein Prüferbefund zur Schattentiefe
+auf demselben Fehler beruht: Der Mittelwert über eine Maske, die zum grösseren
+Teil gar nicht im Schatten liegt, ist nicht die Tiefe des Schattens.
+
+### Was stimmt: die Farbe
+
+Hier hat er recht, und es ist der wichtigere Teil. Gemessen als Verhältnis Rot
+zu Blau:
+
+    besonnter Sand      R/B 1,448
+    Schattenmittel      R/B 1,456   <- identisch
+    Schattenkern        R/B 1,298
+
+Im Mittel ist der Schatten ein **reines neutrales Abdunkeln**, im Kern kühlt er
+um ganze zehn Prozent ab. Was goldene Stunde ausmacht, ist aber die
+**Warm-Kalt-Trennung**: Die besonnte Fläche bekommt Sonnenlicht (warm), die
+beschattete nur noch Himmelslicht (kühl). Zehn Prozent davon liest kein Mensch.
+
+### Die Ursache war eine weisse Grundleuchte
+
+`src/main.js` hält eine `HemisphereLight(0xffffff, 0x334455)` als Grundleuchte
+für alle Umgebungen; der Zen-Garten hat sie über `sceneAmbient` auf 0,25
+gestellt. **Sie ist von oben reinweiss.** Der Zen-Garten hat daneben eine eigene
+Hemisphäre in 0xb3cdf0 (Himmelsblau) mit 0,76 — und genau deren Blau wird von
+der weissen Grundleuchte wieder herausgemischt. Die beiden arbeiten
+gegeneinander.
+
+Nachgerechnet für eine nach oben zeigende Fläche, linear: Die Zen-Hemisphäre
+gibt (0,331 | 0,456 | 0,662), also R/B **0,50**. Die weisse Grundleuchte gibt
+(0,25 | 0,25 | 0,25), also R/B **1,00**. Zusammen 0,637. Ohne sie bliebe 0,50 —
+und weil der Sand selbst warm ist, schlägt das bis ins Bild durch.
+
+### Gemessene Reihe
+
+`sceneAmbient` in drei Schritten, jedes Mal `c-torii` neu gerendert:
+
+    Grundleuchte   Sonne L   Schatten L   Verhaeltnis   Warm-Kalt-Spanne
+    0,25            174,7        83,5        0,478          0,150
+    0,10            169,8        70,5        0,415          0,248
+    0,00            166,2        60,8        0,366          0,346
+
+Die Spanne ist der Abstand der beiden R/B-Werte. Sie **wächst auf das
+2,3fache**, während die besonnte Fläche nur **5 Prozent** verliert. Das ist das
+Verhältnis, auf das es ankommt: Der Schatten wird tiefer und kühler, das Licht
+bleibt, wo es war.
+
+`sceneAmbient` steht jetzt auf **0**. Die Grundleuchte war ein Notbehelf; der
+Garten hat seine eigene Hemisphäre, seine Sonne, sein warmes Gegenlicht vom
+Sandboden und eine Umgebungskarte. Er braucht keine zusätzliche weisse Lampe.
+
+### Läuft etwas zu?
+
+Anteil der Bildpunkte unter L 16, alle sechs Kameras, vorher gegen nachher:
+
+    a-eyelevel  0,23 %  ->  0,43 %        d-aerial  0,05 %  ->  0,13 %
+    b-pond      0,62 %  ->  1,24 %        e-sand    0,43 %  ->  0,74 %
+    c-torii     0,25 %  ->  0,50 %        f-grove   0,17 %  ->  0,32 %
+
+Der Anteil verdoppelt sich und bleibt trotzdem unter anderthalb Prozent. Das
+Bildmittel sinkt um 3 bis 7 Stufen. Nichts säuft ab.
+
+### Regression und Budget
+
+Nur der Zen-Garten hat eine eigene `sceneAmbient`; die anderen vier behalten
+`AMBIENT_STANDARD`. Gemessen: Insel, Konstrukt und Nachthimmel **bitgleich**,
+Dojo Δmax 6 auf 0,008 %. Budget unverändert (96 Draw-Calls, 113 340 Dreiecke,
+21,86 MB). `npm run build` grün, Konsole sauber. Bildstand `tools/shots/zen-78`.
+
+### Offen aus derselben Prüferrunde, nach Wirkung
+
+1. **Der Teich hat keine Spiegelung.** Kein Laternenbild, kein Himmel, kein
+   Glanzpunkt — eine trübe olivgraue Fläche. Das ist der stärkste Blickfang der
+   Szene und das schwächste Element darin.
+2. **Keine Einfassung.** Ein Karesansui ist durch seinen Rahmen definiert; hier
+   läuft der Kies bis zum Horizont. Steht im Widerspruch zu einer früheren
+   Prüferrunde, die ausdrücklich „Ferne statt Mauer" verlangt hat — eine
+   niedrige Mauer, über die die fernen Hügel weiter sichtbar bleiben, erfüllt
+   beides.
+3. **Zwei Harkmuster kreuzen sich**, und die Rillen laufen unter den
+   Trittsteinen durch, statt um sie herumgeführt zu werden.
+4. **Die fernen Hügel** tragen ihre Bäumchen nur auf der Silhouette, als gleich
+   grosse Zacken; auf den Hügelflächen steht keiner. Dazu haben alle Hügel
+   denselben Tonwert, unabhängig von der Entfernung.
+5. Laterne, Bambus, Trittsteine, Koi und Seerosen — Einzelbefunde, die in der
+   Brille aus der Nähe zählen.
+
+## Paket BA — Die Laterne spiegelt sich jetzt im Teich, und der erste Anlauf dazu war falsch
+
+Befund 1 der sechsten Runde und der stärkste im ganzen Bericht: „Die
+Steinlaterne steht unmittelbar am Ufer und wirft kein Spiegelbild; der Himmel
+wirft keines; die Randsteine werfen keines."
+
+### Was schon da war
+
+Halb stimmt der Befund nicht. Gemessen in `b-pond`, quer über die Wasserfläche:
+
+    nahes Ufer   L 87,9
+    Mitte        L 95,9
+    fernes Ufer  L 121,6          Himmel darüber  L 142,1
+
+Das fernste Wasser steht bei **86 Prozent der Himmelshelligkeit** — die
+Fresnelstaffelung läuft, und die Umgebungskarte trägt nachweislich: Mit
+`envMapIntensity` auf null ändern sich **8,3 %** der Bildpunkte bei einer
+Höchstabweichung von 130. Der Himmel spiegelt sich also sehr wohl.
+
+Was fehlt, ist das Spiegelbild der **Dinge**. Eine Umgebungskarte kennt den
+Himmel und sonst nichts.
+
+### Der erste Anlauf: ein gespiegeltes Netz. Falsch.
+
+Ich habe das Steinnetz der Laterne an der Wasserebene gespiegelt
+(`scale.y = -1`, Ort bei 2·Wasserhöhe), mit dem richtigen Fresnelfaktor
+gedämpft und mit einem Umrissschnitt versehen. Zwei Ergebnisse, beide schlecht:
+
+* **Der gespiegelte Stein war unsichtbar.** Bei 19 Grad über der Fläche steht
+  der Fresnelfaktor bei 0,156; ein dunkler Stein zu 15 Prozent auf dunklem
+  Wasser ist nichts. Physikalisch richtig, im Bild wertlos.
+* **Der gespiegelte Lichtkasten stand als harter Sechskant im Wasser** — und in
+  `a-eyelevel` sogar **neben** dem Teich auf trockenem Sand. Der Umrissschnitt
+  war eine Ellipse, die Wasserlinie folgt aber `teichUmriss` und springt um
+  ±13 % ein. Dazu kommt das Grundsätzliche: Ein Körper unter Wasser liest als
+  **versunkener Gegenstand**, nicht als Spiegelbild, solange ihn die Wellen
+  nicht zerlegen — und ein Netz mit zwölf Ringpunkten lässt sich nicht
+  zerlegen.
+
+Beides ist wieder raus. Ich habe es gebaut, bevor ich es gemessen hatte, und
+das ist genau die Reihenfolge, die dieser Auftrag ausschliessen soll.
+
+### Der zweite Anlauf: die Laterne als zweite Glanzquelle im Wasser-Shader
+
+Die Wasserfläche rechnet bereits eine Glanzkeule für die Sonne — gekräuselte
+Normale, Halbrichtung, enge Keule. Die Laterne bekommt dieselbe Rechnung:
+
+    vec3 zurLaterne = uLaterneOrt - vTeichWelt;
+    vec3 halbL = normalize(blick + zurLaterne / dLat);
+    float keuleL = pow(max(dot(n, halbL), 0.0), 60.0);
+
+Breiter als die Sonnenkeule (60 statt 150), weil der Lichtkasten 21 cm hoch ist
+und anderthalb Meter weg steht — er deckt einen vielfach grösseren Winkel ab als
+die Sonnenscheibe. Dazu ein Abfall `1/(1 + d²·0,55)`, damit die Bahn vom
+Berührungspunkt ausläuft statt als Fleck zu stehen.
+
+Das Ergebnis ist eine **Glitzerbahn**: von den Wellen von selbst aufgebrochen,
+niemals ausserhalb des Teichs, weil sie in dessen eigenem Shader entsteht, und
+für **null zusätzliche Draw-Calls und null zusätzliche Dreiecke**.
+
+### Gemessen
+
+    Wasser vor der Laterne (400–480, 400–460)
+      vorher   130,9 / 112,2 / 66,6   L 112,9
+      nachher  141,0 / 121,0 / 76,1   L 122,0      +9,1 Stufen
+
+    Wasser am fernen Ufer (560–760, 320–340)
+      vorher   129,8 / 122,0 / 93,7   L 121,6
+      nachher  129,8 / 122,0 / 93,7   L 121,6      unveraendert
+
+Die Bahn steht genau dort, wo sie hingehört, und nirgends sonst. Über die
+Kameras verteilt: `b-pond` 0,38 % der Bildpunkte, `c-torii` 0,27 %, `d-aerial`
+0,09 %, `f-grove` 0,14 %, `a-eyelevel` 0,03 % — in zwölf Metern ist von einer
+Laternenspiegelung nichts mehr zu sehen, und das ist richtig so.
+
+### Budget und Regression
+
+Draw-Calls 96, Programme 53, Dreiecke 113 338, Texturen 21,86 MB — alles
+unverändert. Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 6 auf
+0,009 %. `npm run build` grün, Konsole sauber, Shaderlint hat zum **fünften
+Mal** Rückstriche im GLSL-Kommentar gefunden, bevor ein Bild entstand.
+Bildstand `tools/shots/zen-79`.
+
+## Paket BB — Die fernen Hügel standen alle auf demselben Halbmesser
+
+Befund 11 der sechsten Runde: „glatte, texturlose grüne Kuppeln mit hartem
+Umriss, alle im selben Tonwert und derselben Sättigung, egal wie weit hinten
+sie stehen, sodass die Staffelung zusammenfällt. Darauf sitzen dunkle Kegel als
+Bäume: gleichschenklige Dreiecke, alle etwa gleich groß, gleichmäßig auf dem
+Grat verteilt."
+
+Drei Vorwürfe, und alle drei stimmen.
+
+### Es gab keine Staffelung, weil es keine Tiefe gab
+
+Nachgemessen mit dem reparierten `tools/wasistda.mjs`: In `c-torii` liegen
+**alle** sichtbaren Hügel zwischen **40,7 und 44,4 m**. Neun Prozent Spanne.
+Der Ring stand auf einem einzigen Halbmesser (33 bis 45 m) mit etwas Streuung,
+und die sichtbare Hälfte traf zufällig dessen oberes Ende.
+
+Dazu ein Kommentar, der seit Langem falsch im Quelltext stand: „Der Nebel endet
+bei 46 m". Er endet bei **62** (`new THREE.Fog(0xecd9bb, 20, 62)`). Der Ring war
+also aus einem Grund eng gehalten, den es nicht gab.
+
+Jetzt achtzehn Gruppen in **drei Tiefenbändern**, und der Nebel staffelt sie von
+selbst:
+
+    nah    32–36 m    Nebelanteil 29–38 %
+    mitte  41–45 m    Nebelanteil 50–60 %
+    fern   52–58 m    Nebelanteil 76–90 %
+
+Breite und Höhe wachsen mit `r/41`, damit ein fernes Band nicht kleiner am
+Himmel steht als ein nahes — gestaffelt werden soll der Tonwert, nicht die
+Größe.
+
+Gemessen in `c-torii` über drei Hügelstellen mit ihren Abständen:
+
+    33,3 m   L 93,1    Gruenueberschuss 24,8
+    45,3 m   L 106,5   Gruenueberschuss 19,1
+    fern     L 100,1   Gruenueberschuss  6,4
+
+Weiter hinten heller und entsättigter — das ist Luftperspektive, und vorher war
+davon nichts zu messen.
+
+### Bäume standen nur auf dem Umriss
+
+`bz` lief über ein Viertel der Kuppentiefe. Jeder Baum stand damit auf der
+Silhouette, keiner davor oder dahinter — genau der Eindruck eines
+gleichmäßigen Kamms. Jetzt über die ganze Kuppe (1,30 statt 0,50 der Tiefe),
+sieben bis achtzehn statt vier bis acht, und die Höhen quadratisch verteilt
+statt gleichverteilt: viele kleine, wenige große.
+
+**Und dann waren sie zu groß.** Mit 0,30 bis 1,60 m stand auf dem Rücken ein
+Kegel, der ein Drittel der Hügelhöhe erreichte — kein Baum, ein Berg auf einem
+Berg. Zurück auf den früher gemessenen Bereich (die Zacke soll bei 40 m ein bis
+zwei Bildpunkte hoch stehen), aber mit der neuen Verteilung.
+
+### Die Flanken waren leer
+
+Ein bewaldeter Rücken ist überall bewaldet; was man aus 40 m sieht, ist keine
+einzelne Krone, sondern die **Fleckigkeit** von Bestandsgruppen. Zwei
+Rauschmaßstäbe in die Scheitelfarben: 1,6 m (aus 40 m rund fünf Bildpunkte) und
+0,55 m (knapp zwei), zusammen ±23 %.
+
+Gemessen über ein festes Stück Hügelfläche (1150–1250, 352–376):
+
+    vorher   Mittel 69,3   Streuung  9,48
+    nachher  Mittel 92,7   Streuung 14,26
+
+**Die Streuung auf der Fläche wächst um die Hälfte.**
+
+### Ein Fehlalarm, zum zweiten Mal in diesem Auftrag
+
+Bei achtfacher Vergrößerung standen am rechten Bildrand zwei sandfarbene
+Rechtecke im Hügel — scharfkantig, waagerecht begrenzt, wie Löcher. Ich war
+schon dabei, eine Faltung im Umriss zu suchen. Nachgemessen sind die Bildpunkte
+dort (79,77,25) bis (89,87,28), also **Hügelgrün**; sandfarben ist erst die
+Zeile oberhalb der Kammlinie. Es war wieder die Vergrößerung durch
+`crop.mjs` mit ihrer Nächster-Nachbar-Interpolation. Dieselbe Falle wie beim
+Harkmuster in Paket AW. **Die Zahlen entscheiden, nicht der vergrößerte
+Ausschnitt.**
+
+### Budget und Regression
+
+    Draw-Calls       96 / 120   unveraendert
+    Dreiecke    130 762 / 350 000   (+17 424 gegen zen-79)
+    Texturen      21,86 / 60   unveraendert
+
+Die Dreiecke sind die sechs zusätzlichen Gruppen und die dichteren Bäumchen.
+Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 4 auf 0,010 %.
+`npm run build` grün, Konsole sauber. Bildstand `tools/shots/zen-80`.

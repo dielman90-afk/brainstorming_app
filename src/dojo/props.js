@@ -6,6 +6,8 @@ import {
   MAKIWARA,
   TOKONOMA,
   WALL,
+  FIELD,
+  TATAMI,
   FREE_RADIUS,
   insideFreeZone,
   sunDirection,
@@ -79,9 +81,27 @@ function shadowTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 128;
   const ctx = canvas.getContext('2d');
+  // **Teller mit Rand statt Glockenkurve.**
+  //
+  // Der Verlauf war 0,50 in der Mitte, 0,24 bei 55 Prozent, 0 aussen — eine
+  // weiche Glocke, die genau dort am dunkelsten ist, wo der Gegenstand selbst
+  // steht und sie verdeckt. Gemessen in `a-halle`: Der ganze Knoten bedeckte
+  // **829 Bildpunkte**, also 0,09 Prozent des Bildes, und trug dort 12,5 Stufen
+  // bei. Ausserhalb der Silhouette blieb ein Saum mit rund 0,08 Deckkraft —
+  // etwa zehn Stufen, verteilt auf einen breiten weichen Ring. Das liest als
+  // nichts, und der Pruefer hat folgerichtig „nichts wirft einen
+  // Kontaktschatten" gemeldet.
+  //
+  // Eine Verdeckung unter einem aufliegenden Gegenstand ist keine Glocke: Sie
+  // ist **flach dunkel bis zur Kante** und faellt dann innerhalb etwa einer
+  // Objekthoehe ab. Deshalb ein Plateau bis 0,60 des Radius und der ganze
+  // Abfall dahinter. Wer einen Fleck setzt, waehlt seinen Radius jetzt so, dass
+  // 0,60 r die Standflaeche deckt — der sichtbare Saum ist dann der Abfall und
+  // nicht sein Auslaeufer.
   const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
-  g.addColorStop(0, 'rgba(0,0,0,0.5)');
-  g.addColorStop(0.55, 'rgba(0,0,0,0.24)');
+  g.addColorStop(0, 'rgba(0,0,0,0.62)');
+  g.addColorStop(0.6, 'rgba(0,0,0,0.58)');
+  g.addColorStop(0.8, 'rgba(0,0,0,0.26)');
   g.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 128, 128);
@@ -829,7 +849,17 @@ function seatKatana(floorY, sheathed) {
 }
 
 function addRack(B) {
-  const put = (bucket, geo, hex, shade) => B[bucket].geos.push(tint(geo, hex, shade));
+  // **Diese Requisite ist auf y = 0 gebaut, der Boden liegt hoeher.**
+  //
+  // Dieselbe Fehlerklasse wie bei den Kontaktschatten und den Sitzkissen: Die
+  // Diele liegt bei 0,055 und das Mattenfeld darauf bei 0,110; alles hier
+  // rechnet aber von null aus. Statt jede einzelne Hoehe nachzuziehen — es sind
+  // Dutzende, und beim naechsten Umbau waeren es wieder Dutzende — hebt `put`
+  // die fertige Geometrie an. `BufferGeometry.translate` gibt `this` zurueck,
+  // die Verkettung ist also gefahrlos.
+  const y0 = bodenHoehe(RACK.x, RACK.z);
+  const put = (bucket, geo, hex, shade) =>
+    B[bucket].geos.push(tint(geo.translate(0, y0, 0), hex, shade));
   const ao = contactAO(0.2);
   const postZ = [RACK.z - ARM_SPAN, RACK.z + ARM_SPAN];
 
@@ -925,7 +955,17 @@ function roundedRect(w, d, r, perCorner = 3) {
 // die einfachere Geometrie und sofort als falsch erkennbar – die Verjüngung
 // *ist* das Objekt.
 function addMakiwara(B) {
-  const put = (bucket, geo, hex, shade) => B[bucket].geos.push(tint(geo, hex, shade));
+  // **Diese Requisite ist auf y = 0 gebaut, der Boden liegt hoeher.**
+  //
+  // Dieselbe Fehlerklasse wie bei den Kontaktschatten und den Sitzkissen: Die
+  // Diele liegt bei 0,055 und das Mattenfeld darauf bei 0,110; alles hier
+  // rechnet aber von null aus. Statt jede einzelne Hoehe nachzuziehen — es sind
+  // Dutzende, und beim naechsten Umbau waeren es wieder Dutzende — hebt `put`
+  // die fertige Geometrie an. `BufferGeometry.translate` gibt `this` zurueck,
+  // die Verkettung ist also gefahrlos.
+  const y0 = bodenHoehe(MAKIWARA.x, MAKIWARA.z);
+  const put = (bucket, geo, hex, shade) =>
+    B[bucket].geos.push(tint(geo.translate(0, y0, 0), hex, shade));
   const { x, z } = MAKIWARA;
   const H = 1.6;
   const ao = contactAO(0.25);
@@ -982,16 +1022,34 @@ function addMakiwara(B) {
   // Seilwicklung: eine Schraubenlinie, die der abgerundeten Rechteckkontur des
   // Polsters folgt. `TubeGeometry` mit einem Kreisquerschnitt reicht hier, weil
   // ein Seil rund ist – die Kontur steckt im Pfad, nicht im Querschnitt.
-  const TURNS = 17;
+  //
+  // **Elf Windungen statt siebzehn, und ein Abschluss.**
+  //
+  // Prueferbefund 19: „eine Folge exakt gleicher waagerechter Ringe, ohne
+  // Steigung, ohne Anfang und Ende der Umwicklung — das liest als geriffelter
+  // Griff oder Maiskolben."
+  //
+  // Die Steigung gab es: siebzehn Windungen auf 33,5 cm sind 2,0 cm je Umlauf.
+  // Nur ist das Seil 1,5 cm dick — zwei Nachbarwindungen beruehren sich fast,
+  // und was man sieht, sind aneinanderliegende Ringe. Mit elf Windungen sind es
+  // 3,0 cm, und zwischen den Windungen bleibt Polster stehen. **Die Steigung
+  // liest erst, wenn sie groesser ist als das, was sie steigt.**
+  //
+  // Das Ende gab es nicht, und das war der bessere Teil des Befunds. Eine
+  // Wicklung hoert nicht auf, sie wird abgebunden: eine senkrechte Verschnuerung
+  // ueber die untersten Windungen, und darunter zwei lose Enden.
+  const kontur = (yy) => {
+    const kk = (yy - padBottom) / (padTop - padBottom);
+    const bulge = Math.sin(Math.min(1, kk * 1.08) * Math.PI) * 0.5 + 0.62;
+    return [(0.026 + 0.03 * bulge) / 2 + 0.007, (0.098 + 0.028 * bulge) / 2 + 0.007];
+  };
+  const TURNS = 11;
   const path = [];
   const steps = TURNS * 16;
   for (let i = 0; i <= steps; i++) {
     const k = i / steps;
     const y = padBottom + 0.02 + k * (padTop - padBottom - 0.05);
-    const kk = (y - padBottom) / (padTop - padBottom);
-    const bulge = Math.sin(Math.min(1, kk * 1.08) * Math.PI) * 0.5 + 0.62;
-    const rxx = (0.026 + 0.03 * bulge) / 2 + 0.007;
-    const rzz = (0.098 + 0.028 * bulge) / 2 + 0.007;
+    const [rxx, rzz] = kontur(y);
     const a = k * TURNS * Math.PI * 2;
     // Superellipse: |cos|^0.55 rundet die Ecken, hält die Flanken aber flach.
     const ca = Math.cos(a);
@@ -1008,6 +1066,62 @@ function addMakiwara(B) {
   const rope = new THREE.TubeGeometry(curve, steps, 0.0075, 5, false);
   scaleUV(rope, 1, 3);
   put('fibre', rope, 0x8f7748, contactAO(1.4, 0.6));
+
+  // Abbindung: senkrecht ueber die untersten vier Windungen, aussen auf dem
+  // Seil liegend (daher `+ 0.014`, eine Seildicke).
+  {
+    const AZ = 0.62; // Azimut zur Raumseite hin, damit man sie sieht
+    const cz = Math.cos(AZ);
+    const sz = Math.sin(AZ);
+    const bind = [];
+    for (let i = 0; i <= 12; i++) {
+      const yy = padBottom + 0.012 + (i / 12) * 0.15;
+      const [rxx, rzz] = kontur(yy);
+      bind.push(
+        new THREE.Vector3(
+          x + Math.sign(cz) * Math.pow(Math.abs(cz), 0.55) * (rxx + 0.014),
+          yy,
+          z + Math.sign(sz) * Math.pow(Math.abs(sz), 0.55) * (rzz + 0.014)
+        )
+      );
+    }
+    const bindGeo = new THREE.TubeGeometry(
+      new THREE.CatmullRomCurve3(bind),
+      12,
+      0.0075,
+      5,
+      false
+    );
+    put('fibre', bindGeo, 0x8f7748, contactAO(1.4, 0.6));
+
+    // Zwei lose Enden, die unter der Abbindung heraushaengen. Sie sind das,
+    // was eine Wicklung von einer Riffelung unterscheidet.
+    const [erx, erz] = kontur(padBottom + 0.012);
+    for (const [dax, verk] of [
+      [-0.06, 0.11],
+      [0.05, 0.085],
+    ]) {
+      const ende = [];
+      for (let i = 0; i <= 6; i++) {
+        const t = i / 6;
+        ende.push(
+          new THREE.Vector3(
+            x + Math.sign(cz) * Math.pow(Math.abs(cz), 0.55) * (erx + 0.014) + dax * t * t,
+            padBottom + 0.014 - verk * t,
+            z + Math.sign(sz) * Math.pow(Math.abs(sz), 0.55) * (erz + 0.014) + dax * 0.4 * t
+          )
+        );
+      }
+      const endGeo = new THREE.TubeGeometry(
+        new THREE.CatmullRomCurve3(ende),
+        6,
+        0.0062,
+        5,
+        false
+      );
+      put('fibre', endGeo, 0x8f7748, contactAO(1.4, 0.6));
+    }
+  }
 }
 
 // --- Kakemono: das Hängerollbild --------------------------------------------
@@ -1218,6 +1332,28 @@ function buildScroll() {
 
   const faceGeo = new THREE.PlaneGeometry(SCROLL.w, SCROLL.h, 1, 8);
   faceGeo.translate(0, -SCROLL.h / 2 - 0.012, 0);
+  // **Das Rollbild war pechschwarz, und die Ursache ist eine fehlende
+  // Eigenschaft.**
+  //
+  // `washiMaterial()` steht auf `vertexColors: true` — gebraucht wird das von
+  // `buildOpening()`, wo der Verlauf ueber die Papierhoehe und der
+  // Rahmenschatten in den Scheitelfarben stecken. Eine `PlaneGeometry` hat
+  // aber **kein** `color`-Attribut, und WebGL liefert fuer ein fehlendes
+  // Attribut den Vorgabewert (0, 0, 0). Der Shader multipliziert die
+  // Albedo damit, und uebrig bleibt: Schwarz.
+  //
+  // Das ist die stille Sorte Fehler: Nichts bricht, nichts meldet sich in der
+  // Konsole, das Netz wird gezeichnet — es ist nur schwarz. Im Bild sah es aus
+  // wie ein dunkler Schlitz in der Nische, und der Nutzer hat es als „der
+  // Banner ist nicht mehr zu sehen" gemeldet.
+  //
+  // Weiss als Scheitelfarbe statt `vertexColors: false`: So bleibt es
+  // **dasselbe Shaderprogramm** wie die Papierflaechen der Oeffnungen, und wer
+  // dem Rollbild spaeter einen Verlauf geben will, hat das Attribut schon.
+  faceGeo.setAttribute(
+    'color',
+    new THREE.BufferAttribute(new Float32Array(faceGeo.attributes.position.count * 3).fill(1), 3)
+  );
   const faceMat = washiMaterial();
   faceMat.map = scrollTexture();
   faceMat.color = new THREE.Color(0xffffff);
@@ -1243,12 +1379,41 @@ function buildScroll() {
     knob.rotateZ(Math.PI / 2);
     knob.translate(sx * (SCROLL.w / 2 + 0.016), -SCROLL.h - 0.012, 0);
     rodGeos.push(tint(knob, 0x17120f));
-    // Aufhängeschnur zum Haken
-    const cord = new THREE.CylinderGeometry(0.0022, 0.0022, 0.17, 5);
-    cord.translate(0, 0.085, 0);
-    cord.rotateZ(sx * 0.5);
-    cord.translate(sx * (SCROLL.w / 2 - 0.01), 0.002, 0);
+    // **Die Schnur führt jetzt wirklich zu einem Haken.**
+    //
+    // Vorher: Länge 0,17 m, um 0,5 rad geneigt. Die Spitze landete damit bei
+    // ±13,9 cm von der Mitte — die beiden Schnüre trafen sich also **gar
+    // nicht**, sie hörten in der Luft auf, und darüber hing nichts. Ein Prüfer
+    // hat es gemeldet, und der Kommentar hier sagte schon vorher „zum Haken",
+    // nur gab es keinen.
+    //
+    // Ein Kakemono hängt an **einem** Haken am Otoshigake, der kleinen Leiste
+    // unter dem Nischensturz: Die Schnur läuft vom linken Stabende hinauf zum
+    // Haken und wieder hinab zum rechten. Also zwei Schenkel, die sich in der
+    // Mitte treffen.
+    //
+    // Waagerechter Lauf 0,22 m (halbe Rollbildbreite minus 1 cm), Steigung
+    // 0,17 m: Damit sitzt die Spitze bei y = 2,592, und der Sturz liegt bei
+    // 2,6. Länge und Winkel folgen daraus — hypot(0,22 | 0,17) = 0,278 und
+    // atan(0,22 / 0,17) = 0,913 rad. Sie sind gerechnet und nicht gewählt;
+    // wer die Rollbildbreite ändert, muss beide mitziehen.
+    const CORD_RUN = SCROLL.w / 2 - 0.01;
+    const CORD_RISE = 0.17;
+    const CORD_LEN = Math.hypot(CORD_RUN, CORD_RISE);
+    const cord = new THREE.CylinderGeometry(0.0022, 0.0022, CORD_LEN, 5);
+    cord.translate(0, CORD_LEN / 2, 0);
+    cord.rotateZ(sx * Math.atan2(CORD_RUN, CORD_RISE));
+    cord.translate(sx * CORD_RUN, 0.002, 0);
     rodGeos.push(tint(cord, 0x2e2a26));
+  }
+  // Der Haken selbst: ein kurzer dunkler Stift, der aus der Leiste heraussteht.
+  // Ohne ihn bleibt die Schnur eine Linie, die im Nichts endet — und genau das
+  // sieht man sofort, auch wenn man es nicht benennen kann.
+  {
+    const haken = new THREE.CylinderGeometry(0.0045, 0.0038, 0.03, 8);
+    haken.rotateX(Math.PI / 2);
+    haken.translate(0, 0.002 + 0.17, 0.015);
+    rodGeos.push(tint(haken, 0x1d1815));
   }
   const rodMat = hinokiMaterial({ roughness: 0.7 });
   rodMat.vertexColors = true;
@@ -1266,18 +1431,33 @@ function buildScroll() {
 // --- Zabuton ------------------------------------------------------------------
 function addZabuton(B, x, z, rot) {
   const put = (geo, hex, shade) => B.fabric.geos.push(tint(geo, hex, shade));
-  const pad = roundedBox(0.56, 0.56, 0.085, 0.055, 0.035);
+  const DICKE = 0.085;
+  // **Die Kissen lagen im Mattenfeld begraben.**
+  //
+  // Sie standen bei y = 0,043 bei einer Dicke von 0,085 — also von 0,0005 bis
+  // 0,0855. Die Mattenoberkante liegt bei 0,110. Beide Kissen steckten damit
+  // vollstaendig unter den Matten, und sichtbar war von ihnen nur ihr
+  // Kontaktschatten: zwei weiche dunkle Ovale auf dem Mattenfeld, ueber denen
+  // nichts steht. Ein Pruefer hat genau das gemeldet, und er hat es erst sehen
+  // koennen, seit die Kontaktschatten selbst auf der Oberflaeche liegen —
+  // vorher waren beide unsichtbar und der Fehler damit unsichtbar quadriert.
+  //
+  // Dieselbe Fehlerklasse wie dort: eine Hoehe, die richtig war, als der Boden
+  // noch bei y = 0 lag, und die beim Anheben der Diele stehen blieb. Deshalb
+  // wird sie hier nicht wieder als Zahl gesetzt, sondern aus dem Ort bestimmt.
+  const y0 = bodenHoehe(x, z);
+  const pad = roundedBox(0.56, 0.56, DICKE, 0.055, 0.035);
   pad.rotateX(-Math.PI / 2);
   scaleUV(pad, 9, 9);
   const m = new THREE.Matrix4().makeRotationY(rot);
-  m.setPosition(x, 0.043, z);
+  m.setPosition(x, y0 + DICKE / 2, z);
   pad.applyMatrix4(m);
   put(pad, 0x3d4a63, contactAO(0.08));
 
   // Quaste in der Mitte – die Heftung, die das Kissen zusammenhält.
   const tuft = new THREE.SphereGeometry(0.017, 8, 6);
   tuft.scale(1, 0.5, 1);
-  tuft.translate(x, 0.086, z);
+  tuft.translate(x, y0 + DICKE, z);
   put(tuft, 0x2b3549);
 }
 
@@ -1480,6 +1660,28 @@ function addBokken(B, matrix, hex) {
     vs.push(k * 6);
   }
   const geo = loft(rings, vs, { capStart: true, capEnd: true, swapUV: true });
+
+  // **Die Sehne aufrichten und den Griffknauf auf den Ursprung legen.**
+  //
+  // `spineAt` biegt von s = 0 aus nach +x weg. Der Bokken laeuft aber von
+  // s = -0,24 bis s = +0,78, liegt also ganz auf einer Seite dieses Nullpunkts:
+  // Knauf bei x = 0,007, Spitze bei x = 0,072. Die Sehne steht damit um 3,7 Grad
+  // schief, und wer ihn „senkrecht" hinstellt, stellt ihn schief hin — im Bild
+  // zwei Stoecke, die aus dem Staender zu kippen scheinen. Nach der Drehung um
+  // die Sehne bleibt die Kruemmung selbst (3,1 cm Pfeilhoehe), und das ist die
+  // Sori, die ein Bokken haben soll.
+  //
+  // Zugleich wandert der Knauf auf y = 0: die Hoehe, die der Aufrufer setzt,
+  // ist dann die Hoehe des Knaufs und nicht die eines Nullpunkts irgendwo in
+  // der Mitte des Bogens.
+  const p0 = spineAt(R, -0.24).p;
+  const p1 = spineAt(R, L - 0.24).p;
+  const kipp = Math.atan2(p1.x - p0.x, p1.y - p0.y);
+  geo.rotateZ(kipp);
+  const c = Math.cos(kipp);
+  const sn = Math.sin(kipp);
+  geo.translate(-(p0.x * c - p0.y * sn) - 0.015, -(p0.x * sn + p0.y * c), 0);
+
   geo.applyMatrix4(matrix);
   B.wood.geos.push(tint(geo, hex, contactAO(0.3)));
 }
@@ -1498,7 +1700,17 @@ function addBokken(B, matrix, hex) {
 const POLE = { x: WALL.west + 0.34, z: -1.15, span: 1.22, headY: 1.42 };
 
 function addPoleRack(B) {
-  const put = (bucket, geo, hex, shade) => B[bucket].geos.push(tint(geo, hex, shade));
+  // **Diese Requisite ist auf y = 0 gebaut, der Boden liegt hoeher.**
+  //
+  // Dieselbe Fehlerklasse wie bei den Kontaktschatten und den Sitzkissen: Die
+  // Diele liegt bei 0,055 und das Mattenfeld darauf bei 0,110; alles hier
+  // rechnet aber von null aus. Statt jede einzelne Hoehe nachzuziehen — es sind
+  // Dutzende, und beim naechsten Umbau waeren es wieder Dutzende — hebt `put`
+  // die fertige Geometrie an. `BufferGeometry.translate` gibt `this` zurueck,
+  // die Verkettung ist also gefahrlos.
+  const y0 = bodenHoehe(POLE.x, POLE.z);
+  const put = (bucket, geo, hex, shade) =>
+    B[bucket].geos.push(tint(geo.translate(0, y0, 0), hex, shade));
   const ao = contactAO(0.25);
   const slots = 6;
   const step = POLE.span / slots;
@@ -1514,19 +1726,52 @@ function addPoleRack(B) {
   const sill = roundedBox(0.17, 0.07, POLE.span + 0.22, 0.014);
   sill.translate(POLE.x, 0.035, POLE.z);
   put('wood', sill, 0xc2a279, ao);
-  const head = roundedBox(0.13, 0.08, POLE.span + 0.22, 0.014);
-  head.translate(POLE.x, POLE.headY, POLE.z);
-  put('wood', head, 0xd2b184, ao);
+
+  // **Zwei Latten je Hoehe statt eines Riegels in der Mitte.**
+  //
+  // Der Kopfriegel war 0,13 m tief und stand mit seiner Mitte auf `POLE.x` —
+  // also genau dort, wo die Schaefte stehen. Er hielt die Waffen nicht, er ging
+  // durch sie hindurch. Ein Riegel, der eine Stange traegt, kann nicht an der
+  // Stelle sein, an der die Stange ist; er muss daneben sein, und zwar auf
+  // beiden Seiten, sonst faellt sie nach vorn. Das ist auch der uebliche Bau:
+  // zwei duenne Latten, die die Stangen zwischen sich klemmen.
+  //
+  // Die Latten greifen um 1,25 cm auf die Pfosten (Pfostenflanke bei 0,045,
+  // Lattenaussenkante bei 0,0675) — sie liegen also an, statt in der Luft zu
+  // enden. Innenkante 0,0325 gegen einen groessten Schaftradius von 0,021: ein
+  // Zentimeter Luft.
+  const LATTE_X = 0.05;
+  const LATTE_D = 0.035;
+  const latten = (y, hoehe, hex) => {
+    for (const sx of [-1, 1]) {
+      const l = roundedBox(LATTE_D, hoehe, POLE.span + 0.22, 0.010);
+      l.translate(POLE.x + sx * LATTE_X, y, POLE.z);
+      put('wood', l, hex, ao);
+    }
+  };
+  latten(POLE.headY, 0.075, 0xd2b184);
+  // Zweite Hoehe fuer das kurze Geraet. Jo (Oberkante 1,34) und die beiden
+  // Bokken (1,08) reichen nicht bis zum Kopfriegel — sie standen bisher voellig
+  // frei im Staender. Bei 0,90 werden alle sechs gehalten.
+  latten(0.9, 0.06, 0xc9aa7e);
 
   // Die Waffen. Jede ist ein Schaft plus höchstens ein Kopf; die Schäfte sind
   // schlichte verjüngte Zylinder, weil an einem zwei Meter langen Stab die
   // Silhouette alles ist und der Querschnitt nichts.
   const shaft = (z, len, rBase, rTop, hex, lean) => {
     const g = new THREE.CylinderGeometry(rTop, rBase, len, 8);
-    g.rotateX(lean); // leichte Rückneigung gegen den Kopfriegel
-    g.translate(POLE.x - Math.sin(lean) * len * 0.5, len / 2 + 0.06, z);
+    // Die Neigung geht um X, also **in z**, nicht in x. Der Ausgleich in x, der
+    // hier stand (`POLE.x - sin(lean) * len/2`), verschob den Schaft deshalb um
+    // 2,9 cm zur Seite, ohne irgendetwas auszugleichen — und schob die Naginata
+    // damit bis auf 5 cm an die Aussenkante des Riegels heran. Der Ausgleich
+    // gehoert in z, wo geneigt wird: dann steht der Fuss auf der Rille.
+    g.rotateX(lean);
+    g.translate(POLE.x, len / 2 + 0.06, z + Math.sin(lean) * len * 0.5);
     put('wood', g, hex, ao);
-    return len + 0.06;
+    // Die Spitze wandert beim Neigen mit — wer eine Klinge daraufsetzt, braucht
+    // beide Koordinaten. Vorher gab es nur die Hoehe zurueck, und die Klinge
+    // sass entsprechend neben dem Schaft.
+    return { y: len * Math.cos(lean) + 0.06, z: z + Math.sin(lean) * len };
   };
 
   const zs = Array.from({ length: slots }, (_, i) => z0 + i * step);
@@ -1555,11 +1800,11 @@ function addPoleRack(B) {
     // damit waagerecht: eine Klinge, die zwei Meter über dem Boden quer in der
     // Luft schwebt. Dieselbe Verwechslung wie schon zweimal bei den Sprossen.
     const blade = loft(rings, vs, { flat: true, capEnd: true });
-    blade.translate(POLE.x, top, zs[0]);
+    blade.translate(POLE.x, top.y, top.z);
     put('steel', tint(blade, 0xd7dde2), 0xd7dde2);
     // Messingzwinge am Übergang
     const collar = new THREE.CylinderGeometry(0.026, 0.026, 0.07, 8);
-    collar.translate(POLE.x, top - 0.02, zs[0]);
+    collar.translate(POLE.x, top.y - 0.02, top.z);
     put('metal', collar, 0xb08d4a);
   }
 
@@ -1568,10 +1813,10 @@ function addPoleRack(B) {
     const top = shaft(zs[1], 2.05, 0.02, 0.016, 0x6f533a, -0.03);
     const head = new THREE.ConeGeometry(0.034, 0.36, 4);
     head.rotateY(Math.PI / 4);
-    head.translate(POLE.x, top + 0.15, zs[1]);
+    head.translate(POLE.x, top.y + 0.15, top.z);
     put('steel', tint(head, 0xd7dde2), 0xd7dde2);
     const collar = new THREE.CylinderGeometry(0.028, 0.03, 0.09, 8);
-    collar.translate(POLE.x, top + 0.01, zs[1]);
+    collar.translate(POLE.x, top.y + 0.01, top.z);
     put('metal', collar, 0xb08d4a);
   }
 
@@ -1587,13 +1832,27 @@ function addPoleRack(B) {
   // Aufrecht heißt hier **gar keine Drehung**: `addBokken()` baut entlang +Y,
   // steht also von sich aus. Eine Drehung um X um 90 Grad – der erste Versuch –
   // legt es flach auf den Boden, und genau so lag es dann auch.
+  //
+  // **Die Krümmung liegt jetzt in z statt in x.** `spineAt` biegt die Klinge
+  // entlang +x, und über die 1,02 m des Bokken sind das 7,2 cm — bei senkrechtem
+  // Aufstellen also 7,2 cm Neigung nach vorn aus dem Ständer heraus, quer durch
+  // die vordere Latte. Eine Vierteldrehung um Y legt den Bogen in die Ebene des
+  // Ständers: er passt zwischen die Latten (±2,3 cm Dicke gegen 3,25 cm
+  // Innenkante) **und** man sieht ihn, weil der Ständer von Osten gesehen wird
+  // und die Krümmung damit im Profil steht statt in der Blickachse.
+  //
+  // Reihenfolge 'XYZ': erst die Vierteldrehung um Y, dann die Rückneigung um die
+  // Weltachse X — sonst würde die Neigung mitgedreht und kippte wieder nach vorn.
   for (const [i, zz] of [zs[4], zs[5]].entries()) {
-    const q = new THREE.Quaternion().setFromAxisAngle(
-      new THREE.Vector3(1, 0, 0),
-      -0.03 + i * 0.015
+    const q = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(-0.03 + i * 0.015, Math.PI / 2, 0, 'XYZ')
     );
+    // `addBokken` liefert den Knauf auf y = 0; die Hoehe hier ist also die des
+    // Knaufs. 0,06 ueber dem Boden ist dieselbe Rille, in der auch die Schaefte
+    // stehen — und `y0`, weil `addBokken` an `put` vorbei in den Eimer schreibt
+    // und die Anhebung deshalb hier stehen muss.
     const m = new THREE.Matrix4().compose(
-      new THREE.Vector3(POLE.x - 0.012, 0.3, zz),
+      new THREE.Vector3(POLE.x, y0 + 0.06, zz),
       q,
       new THREE.Vector3(1, 1, 1)
     );
@@ -2264,10 +2523,47 @@ function ikebanaStems(x, z, baseY, height, seed) {
 // Kontaktschatten sitzt nicht symmetrisch unter dem Objekt, sondern im Fuß des
 // echten Schlagschattens. Ohne den Versatz widersprechen sich Blob und
 // Shadow-Map sichtbar.
-function buildBlobShadows(spots) {
+// **Auf welcher Höhe liegt der Boden an dieser Stelle?**
+//
+// Die Diele liegt bei 0,055, das Mattenfeld darauf bei 0,055 + Mattendicke.
+// Ein Kontaktfleck, der das nicht weiss, liegt im Boden statt darauf — und
+// genau das war der Fall: Die Vorgabe stand bei **0,012**, also
+// dreiundvierzig Millimeter unter der Diele und achtundneunzig unter den
+// Matten. Gemessen trug `prop-contact-shadows` in `f-gegenlicht`
+// **null Bildpunkte** bei; der Knoten war da, man sah ihn nur nie.
+//
+// Das erklärt zugleich Prüferbefund 2 („kein einziges Objekt wirft einen
+// Schatten") für die Requisiten im Innenraum: Ihr Schlagschatten kommt nicht an
+// (die Dachüberstände halten die Sonne ab, siehe Paket B), und ihr Kontaktzeichen
+// lag begraben. Beides zusammen ergibt Gegenstände, die auf dem Boden stehen und
+// aussehen, als schwebten sie — was ein Kritiker schon einmal wörtlich gemeldet
+// hat und was der Kommentar bei den Vasen weiter unten selbst beschreibt.
+const DIELE_OBEN = 0.055;
+const MATTE_OBEN = DIELE_OBEN + TATAMI.thickness;
+function bodenHoehe(x, z) {
+  const aufMatte =
+    x >= FIELD.x0 && x <= FIELD.x1 && z >= FIELD.z0 && z <= FIELD.z0 + FIELD.rows * TATAMI.short;
+  return aufMatte ? MATTE_OBEN : DIELE_OBEN;
+}
+
+//
+// Exportiert, weil der Garten dasselbe braucht. Der Aussenraum hat zwar echte
+// Schlagschatten — die Laterne wirft, `solid.castShadow` steht auf true —, aber
+// bei 10,5 Grad Sonnenhoehe aus dem Ostsuedosten fallen sie nach Westnordwesten,
+// also von beiden Gartenkameras aus **hinter** den Gegenstand. Was fehlt, ist
+// nicht der Schlagschatten, sondern die Verdeckung am Fuss, und die sieht man
+// aus jeder Richtung.
+//
+// `spot.y` ist dabei Pflicht: `bodenHoehe` kennt nur die Innenboeden.
+export function buildBlobShadows(spots) {
   const [sx, , sz] = sunDirection();
   const geos = [];
-  for (const { x, z, r, y = 0.012, opacity = 1 } of spots) {
+  for (const spot of spots) {
+    const { x, z, r, opacity = 1 } = spot;
+    // Drei Millimeter über der Fläche, auf der der Gegenstand steht. Ohne
+    // eigene Angabe wird sie aus dem Ort bestimmt — wer einen Fleck versetzt,
+    // muss dann nicht daran denken, ob er dabei vom Brett auf die Matte wandert.
+    const y = spot.y ?? bodenHoehe(x, z) + 0.003;
     const g = new THREE.PlaneGeometry(1, 1);
     g.rotateX(-Math.PI / 2);
     g.scale(r * 2, 1, r * 2);
@@ -2464,6 +2760,19 @@ export function buildProps() {
 
     // Stege, Kämpfer und Sturzleiste in dunklem Holz – sie kommen in den
     // Holzeimer und kosten damit keinen eigenen Zeichenaufruf.
+    //
+    // **Nicht mehr fast schwarz.** 0x2f2419 hat eine Helligkeit von 38 und war
+    // damit dunkler als jede andere Fläche im Bild — dunkler als der Sockel,
+    // dunkler als die Mattenborte, dunkler als das Innere der Bildnische. Elf
+    // solche Stege zerhacken eine Wandmalerei, die zusammenhängen soll, und
+    // der Prüfer hat sie folgerichtig nicht als Rahmenhölzer gelesen, sondern
+    // als **Löcher in der Wand**: „ein Spalt zwischen zwei Schiebeelementen
+    // ist ein Millimeterschlitz".
+    //
+    // Es sind aber keine Spalte, sondern Stege, und ein Steg ist Holz. Alles
+    // andere Holz im Haus steht bei 0x9a7b56; ein Fusuma-Rahmen ist dunkler
+    // lackiert, aber er ist nicht schwarz. 0x5a4630 liegt dazwischen.
+    const STEG = 0x5a4630;
     for (let i = 0; i <= FUSUMA.panels; i++) {
       const z = FUSUMA.z0 + breite * i;
       B.wood.geos.push(
@@ -2473,7 +2782,7 @@ export function buildProps() {
             (FUSUMA.y0 + FUSUMA.y1) / 2,
             z
           ),
-          0x2f2419
+          STEG
         )
       );
     }
@@ -2485,7 +2794,7 @@ export function buildProps() {
             y,
             (FUSUMA.z0 + FUSUMA.z1) / 2
           ),
-          0x2f2419
+          STEG
         )
       );
     }
@@ -2513,13 +2822,14 @@ export function buildProps() {
 
   group.add(
     buildBlobShadows([
-      { x: RACK.x + 0.03, z: RACK.z, r: 0.42, opacity: 0.95 },
-      { x: MAKIWARA.x, z: MAKIWARA.z, r: 0.26, opacity: 1 },
-      { x: -0.72, z: -3.62, r: 0.36, opacity: 0.8 },
-      { x: 0.72, z: -3.62, r: 0.36, opacity: 0.8 },
+      // Radien nach der neuen Regel: 0,60 r deckt die Standflaeche.
+      { x: RACK.x + 0.03, z: RACK.z, r: 0.5, opacity: 0.95 },
+      { x: MAKIWARA.x, z: MAKIWARA.z, r: 0.34, opacity: 1 },
+      { x: -0.72, z: -3.62, r: 0.46, opacity: 0.95 },
+      { x: 0.72, z: -3.62, r: 0.46, opacity: 0.95 },
       { x: censer.x, z: censer.z, r: 0.1, y: TOKONOMA.floorY + 0.008, opacity: 1 },
       // Stangenständer statt der früheren zwei angelehnten Bokken.
-      { x: POLE.x - 0.02, z: POLE.z, r: 0.5, opacity: 0.95 },
+      { x: POLE.x - 0.02, z: POLE.z, r: 0.58, opacity: 0.95 },
       // **Die beiden Vasen am Eingang.**
       //
       // Sie standen nachweislich auf der Diele (Boden bei y = 0,055, exakt
@@ -2528,8 +2838,8 @@ export function buildProps() {
       // gemeldet, und das ist die interessante Stelle: Nicht die Lage war
       // falsch, sondern es fehlte das **Kontaktzeichen**. Ohne dunkle Fuge am
       // Fuß liest das Auge keinen Bodenkontakt, egal wo das Objekt steht.
-      { x: -1.62, z: ROOM.maxZ - 0.62, r: 0.26, opacity: 1 },
-      { x: 1.62, z: ROOM.maxZ - 0.62, r: 0.23, opacity: 1 },
+      { x: -1.62, z: ROOM.maxZ - 0.62, r: 0.32, opacity: 1 },
+      { x: 1.62, z: ROOM.maxZ - 0.62, r: 0.28, opacity: 1 },
     ])
   );
 

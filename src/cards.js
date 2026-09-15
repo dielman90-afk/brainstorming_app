@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
+import { wechsleHeimat, inHeimat, poseInHeimat } from './heimat.js';
 
 const CARD_W = 0.32;
 const CARD_H = 0.18;
@@ -73,6 +74,8 @@ export class IdeaCard {
     this.flowType = flowType;
 
     this.group = new THREE.Group();
+    // Inhalt, nicht Umgebung — siehe `nichtUmgebung` in tools/measure.mjs.
+    this.group.userData.nichtUmgebung = true;
     this.group.userData.card = this;
     this._build();
   }
@@ -180,8 +183,14 @@ export class IdeaCard {
 }
 
 export class CardManager {
-  constructor(scene) {
+  constructor(scene, { floorY = () => 0 } = {}) {
     this.scene = scene;
+    // Die Bodenhöhe unter dem Nutzer; siehe `arrangeInArc`. Vorgabe null,
+    // damit ohne Angabe alles bleibt, wie es war.
+    this.floorY = floorY;
+    // Wo Karten hängen: die Szene, oder auf dem Planeten dessen Weltgruppe.
+    // Die Begründung steht vollständig in heimat.js.
+    this.heimat = scene;
     this.cards = [];
     this.selected = null;
     this.spawnBatch = 0;
@@ -190,6 +199,17 @@ export class CardManager {
     // welche Form die gewählte Karte gerade hat.
     this.onSelect = null;
     this.fontStepIndex = 0;
+  }
+
+  setHeimat(ziel) {
+    const neu = ziel ?? this.scene;
+    const alt = this.heimat;
+    this.heimat = neu;
+    wechsleHeimat(alt, neu, this.cards.map((c) => c.group));
+  }
+
+  _inHeimat(v) {
+    return inHeimat(this.heimat, this.scene, v);
   }
 
   get fontStep() {
@@ -214,7 +234,7 @@ export class CardManager {
     if (quaternion) card.group.quaternion.fromArray(quaternion);
     if (colorIndex) card.setColor(colorIndex);
     if (scale) card.setScale(scale);
-    this.scene.add(card.group);
+    this.heimat.add(card.group);
     this.cards.push(card);
     return card;
   }
@@ -258,14 +278,31 @@ export class CardManager {
     const step = THREE.MathUtils.degToRad(24);
     const radius = 1.15;
     const rowOffset = (((batch + 1) % 3) - 1) * 0.24;
-    const y = THREE.MathUtils.clamp(camPos.y - 0.05 + rowOffset, 0.6, 2.1);
+    // **Die Klemmung misst ab dem Boden, nicht ab y = 0.**
+    //
+    // Hier stand `clamp(camPos.y + versatz, unten, oben)` mit absoluten
+    // Welthöhen. Das setzt stillschweigend voraus, dass der Boden bei null
+    // liegt — auf den vier flachen Umgebungen stimmt das, auf einer Kugel von
+    // 25 m Halbmesser nicht: Der Nutzer steht dort bei y ≈ 26,9, die obere
+    // Grenze schlägt an, und die Tafel landet **23,4 m unter seinen Füßen**,
+    // also im Gestein. Gemessen mit `tools/panelhoehe.mjs`.
+    //
+    // Mit dem Boden als Bezug bleibt das Verhalten auf ebenem Grund Zahl für
+    // Zahl dasselbe (dort ist `boden` null), und auf der Kugel steht die Tafel
+    // dort, wo sie hingehört.
+    const boden = this.floorY();
+    const y = boden + THREE.MathUtils.clamp(camPos.y - boden - 0.05 + rowOffset, 0.6, 2.1);
 
     cards.forEach((card, i) => {
       const angle = baseAngle + (i - (cards.length - 1) / 2) * step;
-      card.group.position.set(
-        camPos.x + Math.sin(angle) * radius,
-        y,
-        camPos.z + Math.cos(angle) * radius
+      // Gerechnet wird in Weltkoordinaten — der Halbkreis steht vor dem
+      // Nutzer, nicht vor dem Planeten. Erst danach in die Heimat umgerechnet.
+      this._inHeimat(
+        card.group.position.set(
+          camPos.x + Math.sin(angle) * radius,
+          y,
+          camPos.z + Math.cos(angle) * radius
+        )
       );
       card.group.lookAt(camPos.x, y, camPos.z);
     });
@@ -295,7 +332,9 @@ export class CardManager {
     const n = clusterDefs.length;
     const step = THREE.MathUtils.degToRad(n <= 2 ? 50 : n === 3 ? 40 : 32);
     const radius = 1.5;
-    const titleY = THREE.MathUtils.clamp(camPos.y + 0.3, 1.0, 2.2);
+    // Ebenso wie in `arrangeInArc`: Bezug ist der Boden, nicht y = 0.
+    const bodenC = this.floorY();
+    const titleY = bodenC + THREE.MathUtils.clamp(camPos.y - bodenC + 0.3, 1.0, 2.2);
 
     clusterDefs.forEach((def, i) => {
       const angle = baseAngle + (i - (n - 1) / 2) * step;
@@ -304,7 +343,7 @@ export class CardManager {
       const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
 
       const title = this.addCard(`📌 ${def.name}`, { colorIndex: def.colorIndex });
-      title.group.position.set(cx, titleY, cz);
+      this._inHeimat(title.group.position.set(cx, titleY, cz));
       title.group.lookAt(camPos.x, titleY, camPos.z);
 
       const cols = def.cards.length > 4 ? 2 : 1;
@@ -313,18 +352,20 @@ export class CardManager {
         const row = Math.floor(m / cols);
         const tOff = cols === 1 ? 0 : (m % 2 === 0 ? -0.19 : 0.19);
         const y = titleY - 0.26 - row * 0.22;
-        card.group.position.set(cx + tangent.x * tOff, y, cz + tangent.z * tOff);
+        this._inHeimat(card.group.position.set(cx + tangent.x * tOff, y, cz + tangent.z * tOff));
         card.group.lookAt(camPos.x, y, camPos.z);
       });
     });
   }
 
   toJSON() {
+    // Gespeichert wird relativ zur Heimat, nicht zur Welt — die Begründung
+    // steht bei `poseInHeimat` in heimat.js. Solange die Heimat die Szene ist,
+    // ist die Umrechnung ein Nichtstun und ältere Stände lesen sich unverändert.
+    const eigen = this.heimat !== this.scene;
     return {
       version: 1,
       exportedAt: new Date().toISOString(),
-      // Welt-Koordinaten, damit auch gerade gegriffene Karten (Parent =
-      // Controller) korrekt exportiert werden
       cards: this.cards.map((card) => ({
         id: card.id,
         text: card.text,
@@ -333,8 +374,10 @@ export class CardManager {
         // Nur bei Prozessknoten gesetzt – Ideenkarten bleiben im alten Format,
         // damit gespeicherte Boards von früher unverändert lesbar sind.
         ...(card.flowType ? { flowType: card.flowType } : {}),
-        position: card.group.getWorldPosition(new THREE.Vector3()).toArray(),
-        quaternion: card.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
+        // `frame` ist reine Auskunft für den Leser der Datei — gelesen wird
+        // immer relativ zur Heimat, die beim Laden gerade gilt.
+        ...(eigen ? { frame: 'planet' } : {}),
+        ...poseInHeimat(this.heimat, this.scene, card.group),
       })),
     };
   }
@@ -372,9 +415,9 @@ export class CardManager {
         if (card.text !== entry.text) card.setText(entry.text);
         if (card.colorIndex !== colorIndex) card.setColor(colorIndex);
         if (card.scale !== scale) card.setScale(scale);
-        // Gerade gegriffene Karten hängen am Controller – zurück in die Szene,
-        // sonst wären die gespeicherten Weltkoordinaten relativ zur Hand.
-        if (card.group.parent !== this.scene) this.scene.attach(card.group);
+        // Gerade gegriffene Karten hängen am Controller – zurück in die Heimat,
+        // sonst wären die gespeicherten Koordinaten relativ zur Hand.
+        if (card.group.parent !== this.heimat) this.heimat.attach(card.group);
         if (entry.position) card.group.position.fromArray(entry.position);
         if (entry.quaternion) card.group.quaternion.fromArray(entry.quaternion);
       } else {

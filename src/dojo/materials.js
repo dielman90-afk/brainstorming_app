@@ -74,7 +74,7 @@ function hash2(xi, yi, seed) {
 }
 
 // Feines Korn pro Pixel – Periode 256, teilt also jede Kachelgröße hier glatt.
-function grainAt(x, y, seed) {
+export function grainAt(x, y, seed) {
   return hash2(x & 255, y & 255, seed);
 }
 
@@ -98,7 +98,7 @@ function pvalue(u, v, period, seed) {
 }
 
 // `u`/`v` in Gitterzellen, `period` die Zellzahl über eine Kachel (ganzzahlig).
-function pfbm(u, v, period, octaves = 4, seed = 0) {
+export function pfbm(u, v, period, octaves = 4, seed = 0) {
   let sum = 0;
   let amp = 0.5;
   let freq = 1;
@@ -189,7 +189,7 @@ export function heightToMaps({
 
 // Farbkachel aus einer Zeichenfunktion. Immer sRGB und gekachelt – jede
 // Farbtextur hier ist eine Materialoberfläche, keine Benutzeroberfläche.
-function colorTexture(size, draw, repeat = [1, 1]) {
+export function colorTexture(size, draw, repeat = [1, 1]) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d');
@@ -238,7 +238,22 @@ export function hinokiMaps() {
   // die Maserung an der Kachelgrenze ab. Das Wackeln, das die Ringe unregelmäßig
   // macht, kommt aus periodischem Rauschen und kachelt mit.
   const grain = (x, y) => {
-    const wobble = pfbm((x / size) * CELLS, (y / size) * CELLS * 4, CELLS, 3, 11) - 0.5;
+    // **Das Wackeln lief längs schneller als quer — genau verkehrt.**
+    //
+    // Bis hierher stand `pfbm((x/size)*CELLS, …, CELLS, …)`: acht Rauschzellen
+    // *längs* des Bretts, sechzehn nach der dritten Oktave. Bei elf Ringen je
+    // Kachel ist die Wackelperiode damit **feiner als der Ringabstand** — die
+    // Spätholzlinie springt schneller auf und ab, als sie überhaupt breit ist.
+    // Auf einer schmalen Schwelle, in der genau eine Linie Platz hat, ergibt
+    // das ein gleichmäßiges Zickzack mit scharfen Ecken: der Prüferbefund
+    // „Zickzack-Gekritzel auf den Schwellhölzern der Shoji".
+    //
+    // Holzmaserung wackelt **langsam längs und schnell quer**. Zwei Zellen über
+    // die Kachel in x, acht in y. Beide Spannen sind Vielfache der Periode 2,
+    // die Kachel bleibt also nahtlos — `pvalue` wickelt den Zellindex, nicht
+    // die Koordinate, und eine Spanne, die nicht auf die Periode aufgeht, gäbe
+    // an der Kachelgrenze eine Naht.
+    const wobble = pfbm((x / size) * 2, (y / size) * 8, 2, 3, 11) - 0.5;
     const rings = Math.sin(((y / size) * RINGS + wobble * 0.35) * Math.PI * 2);
     // Schmale, harte Spätholzstreifen; das Frühholz dazwischen bleibt flach.
     const late = Math.pow(Math.max(0, rings), 6);
@@ -535,6 +550,11 @@ export function washiMaterial({
     roughness: 0.88,
     metalness: 0,
     side: THREE.DoubleSide,
+    // Der Verlauf ueber die Papierhoehe und der Rahmenschatten an den Kanten
+    // stecken in den Scheitelfarben (`buildOpening`). Sie wirken auf den
+    // Albedoanteil; das Eigenleuchten bleibt davon unberuehrt, weil three die
+    // Vertexfarbe nur auf `diffuseColor` legt.
+    vertexColors: true,
   });
   if (shadowedEmissive) shadowTheGlow(material);
   return material;
