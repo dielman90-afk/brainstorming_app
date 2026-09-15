@@ -55,7 +55,8 @@ step('Messung', () => {
 });
 
 // Vergleich mit dem Ausgangsstand
-const basePath = path.join(ROOT, `tools/metrics/${envId === 'island' ? 'run-00' : 'zen-00'}.json`);
+const BASE_ID = { island: 'run-00', zen: 'zen-00', night: 'night-00' };
+const basePath = path.join(ROOT, `tools/metrics/${BASE_ID[envId] ?? `${envId}-00`}.json`);
 const nowPath = path.join(ROOT, `tools/metrics/${runId}.json`);
 if (fs.existsSync(basePath) && fs.existsSync(nowPath) && basePath !== nowPath) {
   const a = JSON.parse(fs.readFileSync(basePath, 'utf8')).summary;

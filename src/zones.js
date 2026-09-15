@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
+import { wechsleHeimat, poseInHeimat, stelleAn } from './heimat.js';
 
 // Räumliche Zonen / Rahmen: beschriftete, halbtransparente Flächen, vor denen
 // man Karten thematisch gruppiert (z. B. „To Do / Doing / Done"). Greifbar zum
@@ -53,6 +54,8 @@ class Zone {
     this.colorIndex = colorIndex % ZONE_COLORS.length;
     this.scale = 1;
     this.group = new THREE.Group();
+    // Inhalt, nicht Umgebung — siehe `nichtUmgebung` in tools/measure.mjs.
+    this.group.userData.nichtUmgebung = true;
     this.group.name = 'zone';
     this.buttons = [];
 
@@ -87,6 +90,10 @@ class Zone {
     this.header.mesh.position.set(-WIDTH * 0.16, HEIGHT / 2 + 0.085, 0.006);
     this.header.mesh.userData.grabTarget = {
       group: this.group,
+      // Wohin die Zone beim Loslassen zurückgehängt wird. Ohne diese Zeile
+      // landete sie in der Szene — im Nachthimmel also beim Nutzer statt auf
+      // dem Planeten, und der Rahmen liefe von seinen Karten weg.
+      heimat: () => this.manager.heimat,
       getScale: () => this.scale,
       setScale: (v) => this.setScale(v),
     };
@@ -175,13 +182,70 @@ class Zone {
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
     dir.normalize();
     const pos = camPos.clone().addScaledVector(dir, 2.4);
-    pos.y = THREE.MathUtils.clamp(camPos.y, 1.0, 2.2);
-    this.group.position.copy(pos);
-    this.group.lookAt(camPos.x, pos.y, camPos.z);
+    // **Die Klemmung misst ab dem Boden, nicht ab y = 0.**
+    //
+    // Hier stand `clamp(camPos.y + versatz, unten, oben)` mit absoluten
+    // Welthöhen. Das setzt stillschweigend voraus, dass der Boden bei null
+    // liegt — auf den vier flachen Umgebungen stimmt das, auf einer Kugel von
+    // 25 m Halbmesser nicht: Der Nutzer steht dort bei y ≈ 26,9, die obere
+    // Grenze schlägt an, und die Tafel landet **23,4 m unter seinen Füßen**,
+    // also im Gestein. Gemessen mit `tools/panelhoehe.mjs`.
+    //
+    // Mit dem Boden als Bezug bleibt das Verhalten auf ebenem Grund Zahl für
+    // Zahl dasselbe (dort ist `boden` null), und auf der Kugel steht die Tafel
+    // dort, wo sie hingehört.
+    const boden = this.manager.floorY();
+    pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden, 1.0, 2.2);
+    // Gerechnet wird in Weltkoordinaten — die Zone stellt sich vor den Nutzer,
+    // nicht vor den Planeten. Erst danach in die Heimat umgerechnet.
+    const m = this.manager;
+    // Umrechnung in die Heimat und Drehung zum Nutzer stehen zusammen in
+    // `stelleAn` (heimat.js) — samt der Begründung, warum beides zusammengehört.
+    stelleAn(this.group, m.heimat, m.scene, pos, camPos);
+  }
+
+  // An einen gerechneten Weltort stellen statt vor den Nutzer — für das
+  // Anordnen. Dieselbe Rechnung, anderer Ort.
+  stelleAnOrt(weltOrt, camPos) {
+    const m = this.manager;
+    stelleAn(this.group, m.heimat, m.scene, weltOrt, camPos);
   }
 
   get uiTargets() {
     return [this.header.mesh, ...this.buttons];
+  }
+
+  // Die Breite im Raum, für das Anordnen nebeneinander.
+  get breite() {
+    return WIDTH * this.scale;
+  }
+
+  // Die Höhe im Raum — das Anordnen braucht sie, um die Kartenreihen
+  // **unter** die Wand zu legen statt davor.
+  get hoehe() {
+    return HEIGHT * this.scale;
+  }
+
+  // **Liegt dieser Weltpunkt vor dem Rahmen?**
+  //
+  // Eine Zone weiß nicht, welche Karten zu ihr gehören — es gibt keine
+  // Mitgliedschaft, nur Nähe. Wer die Zone verschiebt und ihre Karten
+  // stehenlässt, löst damit eine Gruppierung auf, die der Nutzer von Hand
+  // gebaut hat. Deshalb diese Frage: Sie ist die einzige Definition von
+  // „gehört dazu", die es gibt.
+  //
+  // Der Test läuft im Koordinatensystem der Zone; `worldToLocal` rechnet die
+  // Skalierung dabei heraus, verglichen wird also gegen das Sollmaß. Nach vorn
+  // ist der Streifen großzügiger als nach hinten: Karten legt man **vor** einen
+  // Rahmen, nicht dahinter.
+  umfasst(weltPunkt) {
+    const l = this.group.worldToLocal(weltPunkt.clone());
+    return (
+      Math.abs(l.x) <= WIDTH / 2 &&
+      Math.abs(l.y) <= HEIGHT / 2 &&
+      l.z >= -0.25 &&
+      l.z <= 0.6
+    );
   }
 
   dispose() {
@@ -192,20 +256,32 @@ class Zone {
   }
 
   toJSON() {
+    const m = this.manager;
     return {
       id: this.id,
       title: this.title,
       colorIndex: this.colorIndex,
       scale: this.scale,
-      position: this.group.getWorldPosition(new THREE.Vector3()).toArray(),
-      quaternion: this.group.getWorldQuaternion(new THREE.Quaternion()).toArray(),
+      // `frame` ist reine Auskunft für den Leser der Datei; gelesen wird immer
+      // relativ zu der Heimat, die beim Laden gerade gilt. Die Begründung steht
+      // bei `poseInHeimat` in heimat.js.
+      ...(m.heimat !== m.scene ? { frame: 'planet' } : {}),
+      ...poseInHeimat(m.heimat, m.scene, this.group),
     };
   }
 }
 
 export class ZoneManager {
-  constructor(scene) {
+  constructor(scene, { floorY = () => 0 } = {}) {
     this.scene = scene;
+    // Die Bodenhöhe unter dem Nutzer; `Zone.placeInFront` fragt sie über den
+    // Verwalter ab. Vorgabe null, damit ohne Angabe alles bleibt, wie es war.
+    this.floorY = floorY;
+    // **Zonen gehören zur Welt, nicht zum Nutzer.** Eine Zone ist der Rahmen,
+    // vor dem Karten stehen; wenn die Karten mit dem Planeten wandern und der
+    // Rahmen vor dem Nutzer stehen bleibt, ist die Gruppierung nach zwanzig
+    // Schritten aufgelöst. Sie bekommen deshalb dieselbe Heimat wie die Karten.
+    this.heimat = scene;
     this.zones = [];
     this.onRename = null; // (zone) => void  – von main.js gesetzt
     // (label) => void – meldet Änderungen an den Undo-Verlauf
@@ -217,9 +293,16 @@ export class ZoneManager {
     if (Array.isArray(position)) zone.group.position.fromArray(position);
     if (Array.isArray(quaternion)) zone.group.quaternion.fromArray(quaternion);
     if (typeof scale === 'number') zone.setScale(scale);
-    this.scene.add(zone.group);
+    this.heimat.add(zone.group);
     this.zones.push(zone);
     return zone;
+  }
+
+  setHeimat(ziel) {
+    const neu = ziel ?? this.scene;
+    const alt = this.heimat;
+    this.heimat = neu;
+    wechsleHeimat(alt, neu, this.zones.map((z) => z.group));
   }
 
   removeZone(zone) {

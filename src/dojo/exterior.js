@@ -3,6 +3,7 @@ import { mergeGeometries, mergeVertices } from 'three/addons/utils/BufferGeometr
 import { EXTERIOR, ROOM, SUN } from './layout.js';
 import { gravelMaterial, waterMaterial, updateWater, wetStoneOverlay } from './ground.js';
 import { graniteMaterial, boxProjectUV, mossPatina } from './stonework.js';
+import { buildBlobShadows } from './props.js';
 import {
   leafAtlas,
   cardCluster,
@@ -523,6 +524,33 @@ function gravelTexture(stones, G) {
   ctx.fillStyle = '#6f6a60';
   ctx.fillRect(0, 0, size, size);
   const r = rng(0x9a17);
+  // **Die Koernung war da, trug nichts — und mehr Kontrast half auch nicht.**
+  //
+  // 26 000 Rechtecke von ein bis drei Bildpunkten sind bei 1024 px auf rund
+  // zehn Meter genau die richtige Kieselgroesse, ein bis drei Zentimeter. Der
+  // Pruefer meldete trotzdem „kein Rauschen, kein einzelnes Steinchen" und las
+  // die Flaeche als gegossenen Beton.
+  //
+  // Der naheliegende Schluss war, dass die Streuung zu klein ist: 92 bis 132
+  // bei Deckkraft 0,5, also plus minus zehn Stufen um den Grund. **Versucht und
+  // gemessen:** Streuung auf 62 bis 168 bei Deckkraft 0,72 (rund plus minus
+  // achtunddreissig Stufen, also das Dreifache), dazu ein zweiter Durchgang mit
+  // 3 000 groberen Kieseln von drei bis sieben Bildpunkten, die nach dem
+  // Verkleinern einzeln stehen bleiben sollten.
+  //
+  // Hochpass auf einer reinen Kiesflaeche (Kasten aus `knotenkasten.mjs`,
+  // 800–950 x 445–478 in `c-engawa`):
+  //
+  //     ohne die Aenderung   |d| 6,334   p95 20,55
+  //     mit der Aenderung    |d| 6,049   p95 18,82
+  //
+  // **Nichts, sogar minimal weniger** — der Rest ist die hellere Flaeche, die
+  // die Tonwertkurve staerker staucht. Die Koernung geht bei dieser Entfernung
+  // in der Verkleinerung unter, und zwar unabhaengig von ihrem Kontrast; auch
+  // die groberen Kiesel, von denen ich es nicht erwartet haette. Der Hebel
+  // waere eine Detailschicht, deren Massstab am Bildschirm haengt und nicht an
+  // der Flaeche — ein eigener Eingriff, kein Zahlendreher hier. **Also
+  // zurueckgenommen und die Messung stehengelassen.**
   for (let i = 0; i < 26000; i++) {
     const g = 92 + r() * 40;
     ctx.fillStyle = `rgba(${g},${Math.round(g * 0.99)},${Math.round(g * 0.9)},0.5)`;
@@ -639,10 +667,42 @@ function buildGarden(group, r) {
   // nicht in der Textur, damit die Karte selbst ihren Kontrastumfang behält:
   // Die Harkrillen leben von der Spanne zwischen Kamm und Grund, und die würde
   // ein dunkleres Grundbild mit wegdrücken.
-  gravel.material.color.setHex(0xa79f90);
+  //
+  // **Wieder herauf, und diesmal mit der Begruendung, die dagegenstand.** Der
+  // Absatz oben sagt: „die Textur kam mit dem Himmelslicht darueber als
+  // hellstes Ding im ganzen Bild heraus". Das stimmte, als der Himmel auf
+  // Faktor 1,0 stand. Seit dem Tageslicht-Paket steht er auf 3,2, und der
+  // Vergleich hat sich umgedreht — gemessen lag der Kies bei L 127,8 gegen
+  // Trittsteine 138,8 und Steinwerk 137,1. **Der Kies war das Dunkelste im
+  // Garten**, und ein Karesansui-Bett ist das Hellste, was es dort gibt.
+  gravel.material.color.setHex(0xc4bca8);
   gravel.name = 'dojo-garden-kies';
   gravel.receiveShadow = true;
   group.add(gravel);
+
+  // **Kontaktflecken auf dem Kies.**
+  //
+  // Prueferbefund 3: „die Steinlaterne muesste bei 10 Grad Sonnenhoehe einen
+  // mehrere Meter langen Schatten ueber den Kies ziehen; es gibt gar keinen."
+  // Den Schatten gibt es — `solid.castShadow` steht auf true, und er ist bei
+  // 10,5 Grad rund acht Meter lang. Er faellt nur nach Westnordwesten, also von
+  // beiden Gartenkameras aus **hinter** die Laterne, wo er sich selbst
+  // verdeckt. Das steht schon in Paket A und ist dort nachgemessen worden.
+  //
+  // Was wirklich fehlt, ist etwas anderes: die Verdeckung am Fuss. Die
+  // Gartenkoerper tragen ihr gebackenes AO auf sich selbst (dunkler nach
+  // unten), der Kies darum herum aber nichts — der Gegenstand wird dunkel und
+  // der Boden bleibt hell, und genau diese Asymmetrie liest als „aufgesetzt".
+  // Ein Fleck am Fuss ist aus jeder Richtung sichtbar, ein Schlagschatten nicht.
+  //
+  // Der Kies liegt bei y0 + 0,045; der Fleck drei Millimeter darueber.
+  group.add(
+    buildBlobShadows([
+      { x: -1.85, z: G.z0 + 1.25, r: 0.62, y: y0 + 0.048, opacity: 0.9 }, // Laterne
+      { x: 1.9, z: G.z0 + 0.75, r: 0.58, y: y0 + 0.048, opacity: 0.9 }, // Becken
+      { x: 1.9, z: G.z0 + 0.15, r: 0.16, y: y0 + 0.048, opacity: 0.8 }, // Bambusrohr
+    ])
+  );
 
   // --- Feste Teile, ein Netz ------------------------------------------------
   const { solids, crowns, basin } = gardenPieces(r);
@@ -696,7 +756,61 @@ function buildGarden(group, r) {
   // unruhigen Fläche. Das Material ist je Ton eine geteilte Instanz; hier wird
   // die des Gartensteins verstellt, die Trittsteine haben ihre eigene.
   solid.material.normalScale.set(2.2, 2.2);
+  // **Der Garten wirft nicht mehr. Gemessen, nicht gespart.**
+  //
+  // Das Dojo lag mit 418 534 Dreiecken um 19,6 Prozent ueber der Vorgabe von
+  // 350 000. Die Ursache steht in der Aufstellung: 185 116 der 233 278
+  // Dreiecke stecken in Schattenwerfern, und ein Werfer wird ein zweites Mal
+  // gezeichnet. **Die Verdopplung IST die Ueberschreitung** — ohne sie waeren
+  // es 233 278 und damit reichlich Luft.
+  //
+  // Wer aus dem Schattenpass darf, ist damit keine Geschmacksfrage.
+  // `tools/wurfnutzen.mjs` misst je Werfer, wie viele Bildpunkte sich aendern,
+  // wenn er nicht mehr wirft — ueber alle sechs Kameras:
+  //
+  //     dojo-bamboo-laub        36 192 Dr.   494 878 px bei 16-39 Stufen
+  //     dojo-bamboo             30 240 Dr.    24 716 px bei  5-37 Stufen
+  //     dojo-garden-blattkarten 38 380 Dr.       689 px bei     4 Stufen
+  //     dojo-garden-polster     12 880 Dr.         0 px
+  //     dojo-garden-kronenkarten 8 280 Dr.         0 px
+  //     dojo-garden-krone        7 200 Dr.         0 px
+  //     dojo-garden-blattk.-fern 6 240 Dr.         7 px
+  //     dojo-garden-farne        3 380 Dr.         0 px
+  //     dojo-garden-stein        2 096 Dr.         0 px
+  //
+  // Und das ist kein Beleuchtungsfehler, sondern Geometrie: Die Sonne steht
+  // im Ostsuedosten, der Garten liegt im Sueden. Seine Schatten fallen nach
+  // −x und −z, also **unter das Gebaeude und vom Betrachter weg** — hinter die
+  // Pflanzen, die sie werfen. Deshalb kommt davon nichts an, in keiner der
+  // sechs Kameras, und deshalb bleibt das auch so, wenn die Beleuchtung des
+  // Gartens spaeter noch angefasst wird.
+  //
+  // Der Bambushain rings um das Haus wirft weiter. Er ist der Werfer, der
+  // traegt — sein Schattenriss auf dem Papier ist die Lichtidee dieses Raums,
+  // und er allein aendert eine halbe Million Bildpunkte.
+  //
+  // Zusammen 78 456 Dreiecke aus dem Schattenpass: 418 534 → 340 078.
+  //
+  // **Die Requisiten bleiben Werfer**, obwohl sie gemessen ebenfalls nichts
+  // beitragen (zwei Bildpunkte fuer 23 940 Dreiecke). Bei ihnen ist es sehr
+  // wohl ein Fehler — sie stehen im Raum, mitten im Licht, und dass sie keinen
+  // Schatten werfen, ist ein eigener Pruefbefund. Wer ihnen hier `castShadow`
+  // naehme, machte den Befund unbehebbar.
   solid.name = 'dojo-garden-stein';
+  // **Zurueckgenommen — die Begruendung in Paket A galt fuer Pflanzen, nicht
+  // fuer Steine.**
+  //
+  // Dort stand: Die Sonne steht im Ostsuedosten, der Garten im Sueden, seine
+  // Schatten fallen nach −x und −z, also unter das Gebaeude und vom Betrachter
+  // weg — hinter die Pflanzen, die sie werfen. Fuer ein Polster oder eine
+  // Krone stimmt das. Die **Steinlaterne und die Trittsteine** stehen aber auf
+  // offenem Kies, und ihr Schatten faellt genau dorthin, wo man ihn sieht.
+  //
+  // Dazu kam Paket B: Der Aussenraum ist seitdem doppelt so hell. Ein Schatten,
+  // der bei L 60 nicht auffiel, faellt bei L 92 auf. Die Messung von damals
+  // war richtig, ihre Verallgemeinerung war es nicht.
+  //
+  // 2 096 Dreiecke, und das Budget hat sie: 339 862 von 350 000.
   solid.castShadow = true;
   solid.receiveShadow = true;
   // **Nasser Sockel am Becken.**
@@ -757,7 +871,12 @@ function buildGarden(group, r) {
     // vollständig aus dem Material kommen. Mit dem hellen Wert kamen die
     // Trittsteine schneeweiß heraus, heller als der Kies, auf dem sie liegen.
     // Der Wert ist derselbe, den das Lambert-Material vorher hatte.
-    graniteMaterial({ tone: 0x4f4c45, vertexColors: true }),
+    // **0x3d3a34 statt 0x4f4c45.** Prueferbefund 4: „drei Materialien innerhalb
+    // von sieben Tonwertstufen". Nach dem Tageslicht-Paket waren es elf, aber
+    // in der falschen Reihenfolge — die Trittsteine standen mit 138,8 heller
+    // als der Kies mit 127,8. Ein Trittstein ist nasser, dichter Granit; er
+    // ist das Dunkelste im Kiesbett und nicht das Hellste.
+    graniteMaterial({ tone: 0x3d3a34, vertexColors: true }),
     stones.length
   );
   stoneMesh.name = 'dojo-garden-trittsteine';
@@ -1008,7 +1127,8 @@ function buildGarden(group, r) {
   });
   moundMesh.instanceMatrix.needsUpdate = true;
   if (moundMesh.instanceColor) moundMesh.instanceColor.needsUpdate = true;
-  moundMesh.castShadow = true;
+  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+  moundMesh.castShadow = false;
   moundMesh.receiveShadow = true;
   moundMesh.userData.fullCount = mounds.length;
   group.add(moundMesh);
@@ -1047,7 +1167,7 @@ function buildGarden(group, r) {
     // Transluzenz gehört ans **Einzelblatt**. Ein Azaleenpolster zeigt keines –
     // durch zwanzig Blätter hintereinander kommt kein Licht. Bei 0,85 sah der
     // Strauchwall im Gegenlicht aus wie beleuchtetes Papier.
-    translucency: 0.5,
+    translucency: 0.75,
     windStrength: 0.055,
   });
   {
@@ -1082,7 +1202,8 @@ function buildGarden(group, r) {
       });
       cards.instanceMatrix.needsUpdate = true;
       if (cards.instanceColor) cards.instanceColor.needsUpdate = true;
-      cards.castShadow = true;
+      // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+      cards.castShadow = false;
       cards.receiveShadow = true;
       cards.userData.fullCount = list.length;
       group.add(cards);
@@ -1158,7 +1279,8 @@ function buildGarden(group, r) {
   });
   crownMesh.instanceMatrix.needsUpdate = true;
   if (crownMesh.instanceColor) crownMesh.instanceColor.needsUpdate = true;
-  crownMesh.castShadow = true;
+  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+  crownMesh.castShadow = false;
   crownMesh.userData.fullCount = puffs.length;
   group.add(crownMesh);
 
@@ -1171,7 +1293,7 @@ function buildGarden(group, r) {
     atlas: leafAtlas('maple'),
     // Ahornlaub im Herbst ist der Fall, für den der Transluzenzterm gebaut ist –
     // ein rotes Blatt gegen die Sonne leuchtet, statt dunkel zu werden.
-    translucency: 0.8,
+    translucency: 0.75,
     transColor: 0xd98f45,
     windStrength: 0.075,
   });
@@ -1202,7 +1324,8 @@ function buildGarden(group, r) {
   });
   crownCards.instanceMatrix.needsUpdate = true;
   if (crownCards.instanceColor) crownCards.instanceColor.needsUpdate = true;
-  crownCards.castShadow = true;
+  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+  crownCards.castShadow = false;
   crownCards.userData.fullCount = puffs.length;
   group.add(crownCards);
 
@@ -1293,7 +1416,7 @@ function buildGarden(group, r) {
   // richtige Antwort ist.
   const fernCards = foliageMaterial({
     atlas: leafAtlas('fern'),
-    translucency: 0.65,
+    translucency: 0.75,
     // Bodennaher Bewuchs steht im Windschatten der Sträucher. Volle Auslenkung
     // sähe hier aus wie Seegras.
     windStrength: 0.035,
@@ -1316,7 +1439,8 @@ function buildGarden(group, r) {
   });
   frondMesh.instanceMatrix.needsUpdate = true;
   if (frondMesh.instanceColor) frondMesh.instanceColor.needsUpdate = true;
-  frondMesh.castShadow = true;
+  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
+  frondMesh.castShadow = false;
   frondMesh.userData.fullCount = fronds.length;
   group.add(frondMesh);
 
@@ -1485,6 +1609,10 @@ function buildForest(group, r) {
   if (nahBaeume.length) {
     const laubMaterial = foliageMaterial({
       atlas: leafAtlas('bamboo'),
+      // Siehe `PALETTE.bamboo`: Die Verdunklung des Hains gehoert an dieses
+      // Material und nicht in den gemeinsamen Atlas. 0x8f8f8f sind 0,56 in
+      // sRGB, also genau der Faktor, den die Palette vorher trug.
+      color: 0x8f8f8f,
       translucency: 0.7,
       transColor: 0xa9c664,
       windStrength: 0.06,
@@ -1666,12 +1794,24 @@ export function buildExterior() {
   // geschätzter Wert wäre genau die Sorte Zahl, die beim nächsten Verstellen
   // von `cardScale` still falsch wird – und dieser Fehler ist überhaupt erst
   // entstanden, weil die Schöpfe größer geworden sind.
+  // **Weniger und groessere Karten.**
+  //
+  // Aus fuenfzehn Metern — dem Abstand, in dem `c-engawa` in den Hain sieht —
+  // war eine Karte von 0,52 rund fuenfunddreissig Bildpunkte breit. Eine
+  // Atlaszelle von 256 px landet damit auf 35 px, ein einzelnes Blatt auf
+  // fuenf. Fuenf Bildpunkte sind ein Strich, und ein Feld aus Strichen ist
+  // eine Nadel — der zweite Teil des Prueferbefunds „Konifere", der auch nach
+  // der neuen Blattform noch stand.
+  //
+  // Zehn Karten zu 0,70 decken dieselbe Flaeche wie sechzehn zu 0,52
+  // (10 x 0,49 gegen 16 x 0,27), zeigen das einzelne Blatt aber mit sieben
+  // statt fuenf Bildpunkten und kosten dabei weniger Dreiecke.
   const leafGeo = cardCluster({
-    count: 16,
+    count: 10,
     radius: 1,
     seed: 0xba11,
     kind: 'bamboo',
-    cardScale: 0.52,
+    cardScale: 0.70,
   });
   const leafReach = leafGeo.boundingSphere ? leafGeo.boundingSphere.radius : 1.3;
 
@@ -1704,6 +1844,9 @@ export function buildExterior() {
   }
   const bambooCards = foliageMaterial({
     atlas: leafAtlas('bamboo'),
+    // Siehe `PALETTE.bamboo`: umgebungsabhaengige Helligkeit gehoert ans
+    // Material, nicht in den gemeinsamen Atlas.
+    color: 0x8f8f8f,
     // Bambusblätter sind dünn und stehen fast immer im Gegenlicht, weil der
     // Hain im Osten vor der Sonne steht. Von allen Pflanzen im Bild ist das
     // die, bei der Transluzenz am meisten trägt.

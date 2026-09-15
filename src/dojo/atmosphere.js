@@ -217,7 +217,24 @@ const BEAM_LENGTH = ((SHOJI.headY - ROOM.floorY) / -DIR.y) * 1.06;
 // der noch unter 0,5 % bleibt – gesucht war nicht der dunkelste, sondern der
 // hellste, der nicht mehr ausbrennt. Die mittlere Helligkeit sinkt dabei nur
 // von 138,8 auf 114,7; der Raum bleibt warm, er wird nur nicht mehr weiß.
-const SHAFT_DICHTE = 0.34;
+//
+// **Nachtrag zu Pruefbefund 4 (zweiter Bericht).** Die Tabelle oben sucht den
+// hellsten Wert, der nicht ausbrennt — und beantwortet damit die falsche Frage.
+// Gemessen mit knotenwerte.mjs in a-halle, also differenziell auf den eigenen
+// Bildpunkten des Knotens:
+//
+//     Schwanz   Dichte   Bildpunkte   Anteil   Beitrag   > 190
+//     0,22-1,00   0,34     431 604     47 %      18,0     10,7 %
+//     0,22-1,00   0,24     371 466     40 %      14,4      6,5 %
+//     0,22-1,00   0,16     345 735     38 %      10,0      3,2 %
+//     0,12-0,62   0,34     320 644     35 %      17,2     11,2 %
+//     0,12-0,62   0,22     297 969     32 %      11,7      4,6 %
+//
+// Nicht das Ausbrennen war der Befund, sondern die **Flaeche**: ein Ueberzug
+// ueber die halbe Bildflaeche liest als Anstrich, egal wie hell er ist. Der
+// kuerzere Schwanz nimmt ein Viertel davon weg, die kleinere Dichte den Rest
+// der Lautstaerke.
+const SHAFT_DICHTE = 0.22;
 
 function panelCenterZ(i) {
   return SHOJI.fromZ + (i + 0.5) * PANEL_PITCH;
@@ -379,8 +396,23 @@ const SHAFT_FRAGMENT = /* glsl */ `
     // Weiche Kante quer über die jeweilige Mantelfläche.
     float prof = 1.0 - pow(abs(vProf), 2.2);
     // Kein harter Anfang an der Blende, und nach hinten nimmt die Streuung ab.
+    //
+    // **Der Schwanz war viel zu lang.** Er verblasste von 22 % bis 100 % der
+    // Strahllaenge, und die betraegt bei 10,5 Grad Sonnenhoehe 16,6 m — der
+    // Raum ist zwoelf. Zehn Blenden von 2,43 m Hoehe, jede sechzehn Meter weit
+    // gezogen: Gemessen bedeckten die Schaechte in a-halle **431 604
+    // Bildpunkte, 47 Prozent des Bildes**, mit einem Beitrag von 18 Stufen.
+    // Das ist kein Lichtstrahl mehr, das ist ein Ueberzug — und auf einer Wand,
+    // die ohnehin bei L 180 steht, also im flachen Teil der ACES-Kurve, wird
+    // daraus ein kreidiger Streifen. Genau so hat der Pruefer es benannt:
+    // „diagonale Lichtstreifen ueber die Nordwand gemalt".
+    //
+    // Jetzt von 12 auf 62 Prozent, also von zwei bis zehn Metern. Der Strahl
+    // ist dort am dichtesten, wo er aus der Blende tritt, und vor der
+    // Westwand ist er weg. Das ist auch die Physik: Was streut, ist die Luft
+    // im Strahl, und der weitet sich.
     float head = smoothstep(0.0, 0.06, vLen);
-    float tail = 1.0 - smoothstep(0.22, 1.0, vLen);
+    float tail = 1.0 - smoothstep(0.12, 0.62, vLen);
     float blur = 0.10 + vLen * 0.6;
     float a = prof * head * tail * lattice(vCross, blur) * haze(vCross, vLen, uTime);
     gl_FragColor = vec4(uColor * uIntensity, a * uDichte);
@@ -465,11 +497,31 @@ function buildDust() {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
+      // **`toneMapped: false` ist hier NICHT die Ursache.** Der Verdacht lag
+      // nahe: Ohne Tone-Mapping geht die additive Farbe unveraendert in den
+      // Puffer, waehrend jede Flaeche daneben durch die ACES-Kurve laeuft.
+      // Gemessen auf der Maske des Knotens in `a-halle` ist der Unterschied
+      // aber keiner:
+      //
+      //     toneMapped: false   Mittel 174,1   ueber L 190  38,7 %   max 255
+      //     toneMapped: true    Mittel 174,5   ueber L 190  39,1 %   max 255
+      //
+      // Der Grund ist, dass die Kurve nur den **eigenen** Beitrag des Korns
+      // rollt, und der ist klein. Was anstoesst, ist die Summe: ein Korn von
+      // vierzig Stufen auf Shoji-Papier, das schon bei 185 steht. Der Regler
+      // ist also die Deckkraft, nicht das Tone-Mapping — und der Wert bleibt,
+      // wie er war, damit hier niemand ein zweites Mal danach greift.
       toneMapped: false,
       fog: false,
     })
   );
   points.name = 'dojo-dust';
+  // **Was das NICHT behebt:** Der Prueferbefund nannte auch „alle exakt gleich
+  // gross, unabhaengig von der Entfernung". Das ist die Untergrenze von einem
+  // Bildpunkt, die die Hardware fuer `gl_PointSize` setzt: Bei `size: 0.028`
+  // ist ein Korn in einem Meter vierzehn Bildpunkte breit und in sechs Metern
+  // schon unter zwei, also fuer die Abtastung gleich gross. Groesser stellen
+  // waere der falsche Weg — dann waere es kein Staub mehr. Offen.
   // Pflicht: Die Positionen werden im Puffer bewegt, die Bounding-Sphere der
   // Geometrie bleibt aber die vom Aufbau. Ohne das verschwindet der Staub, sobald
   // die Kamera den ursprünglichen Kasten nicht mehr sieht.
@@ -576,6 +628,27 @@ function buildBloom() {
 const GLOBAL_HEMI = { sky: 0xffffff, ground: 0x334455, intensity: 1.4 };
 const COMPENSATION = 1.0;
 
+// Die beiden schattenlosen Quellen des Innenraums. Position und Ziel stehen
+// als Paar, weil three die Richtung daraus bildet; die Betraege sind gemessen
+// (siehe `prompts/dojo-log.md`, Paket G).
+//
+// Warme, leicht entsaettigte Papierfarbe — Washi vor der Abendsonne ist
+// cremefarben, nicht golden. Aus dem Osten, rund 20 Grad ueber der Waagerechten.
+const PAPIERWAND = {
+  color: 0xffeed8,
+  intensity: 0.9,
+  position: [14, 5.1, 1.0],
+  target: [0, 0.6, 0.5],
+};
+// Die Aufhellung von unten. Farbe der Matten, deutlich entsaettigt: Was von
+// einer Binsenflaeche zurueckkommt, ist blass gruengelb, nicht gruen.
+const BODENLICHT = {
+  color: 0xd6d2b4,
+  intensity: 0.35,
+  position: [0, -6, 0.5],
+  target: [0, 0.5, 0.5],
+};
+
 export function buildAtmosphere(renderer) {
   // (Das Scharfschalten der Schatten ist nach main.js gewandert. Es ist eine
   // Renderer-Einstellung, und hier stand sie in einer Funktion, die erst läuft,
@@ -632,6 +705,59 @@ export function buildAtmosphere(renderer) {
   fill.name = 'dojo-fill';
   group.add(fill);
 
+  // --- Die Papierwand als Lichtquelle ---------------------------------------
+  //
+  // **Das Hellste im Bild beleuchtete bisher nichts.** Die Shoji-Front im Osten
+  // steht bei L 185 und ist damit die hellste Flaeche des Raums — aber sie ist
+  // nur eine leuchtende Oberflaeche, keine Quelle. Gemessen (Paket B, Bilanz je
+  // Quelle auf dem Innenboden):
+  //
+  //     DirectionalLight #ffe9c4 1,9 (Sonne)      0,0 Stufen
+  //     Himmelskarte                              0,0 Stufen
+  //     HemisphereLight #9fc2d8 0,85             20,9 Stufen
+  //
+  // Die Sonne traegt drinnen **nichts** bei, und das ist richtig so: Bei 11°
+  // Sonnenhoehe fangen die Dachueberstaende sie ab. Was den Raum hell macht,
+  // sind zwei richtungslose Hemisphaerenlichter — und die additive
+  // Schachtlage, die 32 Stufen ueber 51 Prozent des Bildes legt und dabei in
+  // `e-tatami` 8,57 Prozent der Bildpunkte an den Anschlag treibt.
+  //
+  // Ein Raum, dessen einziges gerichtetes Licht gemalt ist, kann gar nicht
+  // anders als flach aussehen. Deshalb hier zwei Quellen, die **keinen
+  // Schattendurchgang kosten** — das Dreiecksbudget hat nach Paket A noch
+  // 10 138 Dreiecke Luft, ein zweiter werfender Scheinwerfer braeuchte rund
+  // 106 000:
+  //
+  //   * `dojo-papierwand` steht fuer das, was durch das Washi kommt. Richtung
+  //     aus dem Osten unter rund 20° — das ist der mittlere Winkel von einem
+  //     Punkt des Bodens zur Mitte der Papierflaeche (Bruestung 0,42 m, Sturz
+  //     2,85 m, Raumtiefe 12 m). Sie macht die Ostseite jedes Koerpers hell
+  //     und die Westseite dunkel, und genau diese Spreizung fehlte.
+  //   * `dojo-bodenlicht` ist das Gegenstueck von unten: Was von der hellen
+  //     Mattenflaeche zurueckkommt, trifft die Decke und die Unterseiten der
+  //     Unterzuege. Prueferbefund 22 lautete, die Decke sei ueber der
+  //     gleissenden Ostwand exakt so braun wie ueber der dunklen Tokonoma-Seite
+  //     — ein Hemisphaerenlicht kann das nicht aendern, weil es ortsunabhaengig
+  //     ist, eine gerichtete Aufhellung von unten schon.
+  //
+  // Beide ohne Schatten. Die Werte stehen unten bei den uebrigen Konstanten
+  // dieser Datei und sind aus der Reihe in `prompts/dojo-log.md` gewaehlt.
+  const papierwand = new THREE.DirectionalLight(PAPIERWAND.color, PAPIERWAND.intensity);
+  papierwand.position.set(...PAPIERWAND.position);
+  papierwand.target.position.set(...PAPIERWAND.target);
+  papierwand.castShadow = false;
+  papierwand.name = 'dojo-papierwand';
+  group.add(papierwand.target);
+  group.add(papierwand);
+
+  const bodenlicht = new THREE.DirectionalLight(BODENLICHT.color, BODENLICHT.intensity);
+  bodenlicht.position.set(...BODENLICHT.position);
+  bodenlicht.target.position.set(...BODENLICHT.target);
+  bodenlicht.castShadow = false;
+  bodenlicht.name = 'dojo-bodenlicht';
+  group.add(bodenlicht.target);
+  group.add(bodenlicht);
+
   // --- Schächte, Pfützen, Staub, Regen, Glühen ------------------------------
   //
   // **Warum es hier zwei Regler gibt und nur einer linear wirkt.**
@@ -656,7 +782,27 @@ export function buildAtmosphere(renderer) {
     uniforms: {
       uTime: { value: 0 },
       uColor: { value: new THREE.Color(SUN.color) },
-      uIntensity: { value: 0.02 },
+      // **0,007 statt 0,02.** Der Kommentar weiter unten sagt, dieser Regler
+      // sei „fast wirkungslos", weil der additive Modus auf den sRGB-kodierten
+      // Wert mischt und Halbieren ihn nur um 2^(1/2,4) senkt. Das stimmt **je
+      // Lage** — und fuehrt trotzdem zur falschen Folgerung, denn was anstoesst,
+      // ist der **Stapel**. Nimmt jede der vier bis sechs Lagen etwas ab, faellt
+      // die Summe aus der Saettigung heraus, und zwar schnell. Gemessen in
+      // `a-halle` mit `tools/anschlag.mjs`:
+      //
+      //     Faktor   angeschlagene Bildpunkte   max   Tatami   Tokonoma
+      //       1,0                     4,12 %    255    147,0      155,1
+      //       0,6                     2,13 %    254    142,7      145,6
+      //       0,35                    0,60 %    253    139,0      137,1
+      //       0,2                     0,04 %    253    136,2      130,5
+      //
+      // Gewaehlt ist 0,35. Bei 0,2 sind die Schaechte im Bild fast fort, und
+      // sie sollen nicht verschwinden — sie sollen nur aufhoeren, die
+      // Beleuchtung zu ERSETZEN. Das tun jetzt `dojo-papierwand` und
+      // `dojo-bodenlicht`, und der Raum verliert durch die Senkung acht Stufen,
+      // die diese beiden mehr als ersetzen (Westwand +12,5, Tatami +10,2,
+      // Decke +5,3).
+      uIntensity: { value: 0.007 },
       uDichte: { value: SHAFT_DICHTE },
     },
     vertexShader: BEAM_VERTEX,
@@ -667,6 +813,34 @@ export function buildAtmosphere(renderer) {
     // Tiefentest **an**: Nur so schneidet der Fußboden den Schacht dort ab, wo
     // das Licht auftrifft, und nur so verschwindet der Teil hinter der Nordwand.
     depthTest: true,
+    // **Die Ueberbelichtung kommt von der Zahl der additiven Lagen — und
+    // weder `side` noch `uIntensity` ist der Hebel dagegen.** Beides gemessen:
+    //
+    // Gemessen in `e-tatami`: 8,57 Prozent der Bildpunkte haben mindestens
+    // einen Kanal bei 255, Rot durchgehend angeschlagen, Blau bei 219 bis 234
+    // — kein Weiss, sondern ein flaches Gelbplateau ohne Zeichnung. Ein
+    // Raycast durch diese Bildpunkte findet **vier bis sechs
+    // Schacht-Mantelflaechen** davor, bei 0,25 / 0,35 / 1,41 / 1,51 m: Die
+    // Kamera steht in 42 cm Hoehe mitten im Schachtvolumen.
+    //
+    // `side: FrontSide` sollte die Zahl der Lagen halbieren. Gemessen:
+    //
+    //     DoubleSide   e-tatami 8,57 %   a-halle 3,82 %
+    //     FrontSide    e-tatami 8,58 %   a-halle 3,77 %
+    //
+    // Nichts. Die Quads liegen so, dass sie in diesen Ansichten ohnehin alle
+    // zur Kamera zeigen; `DoubleSide` kostet hier also gar nichts und spart
+    // auch nichts. Es bleibt stehen, damit niemand ein zweites Mal danach
+    // greift — und weil es die Wicklung egal macht, so wie es beim
+    // Geometriebauer steht.
+    //
+    // `uIntensity` scheidet aus dem Grund aus, der weiter unten steht: Der
+    // additive Modus mischt auf den **sRGB-kodierten** Wert, halbieren senkt
+    // ihn nur um 2^(1/2,4). Man muesste durch fuenf teilen, und dann waere die
+    // Farbe tot.
+    //
+    // Was bleibt, ist weniger Volumen oder echtes Licht im Raum — und Letzteres
+    // ist das Paket, an dem ohnehin die Befunde 2, 3, 4 und 22 haengen.
     side: THREE.DoubleSide,
     toneMapped: false,
     fog: false,

@@ -4,6 +4,7 @@
 //
 //   node tools/pixel.mjs <bild.png> <x,y> [<x,y> …]        Einzelpunkte (5×5-Mittel)
 //   node tools/pixel.mjs <bild.png> --col <x> <y0> <y1>     Spalte abtasten
+//   node tools/pixel.mjs <bild.png> --row <y> <x0> <x1> [<schritt>]  Zeile abtasten
 //   node tools/pixel.mjs <bild.png> --stats                 Bildmittel und Perzentile
 
 import fs from 'node:fs';
@@ -48,6 +49,17 @@ if (args[0] === '--stats') {
   for (let y = +args[2]; y <= +args[3]; y += 20) {
     const [r, g, b] = at(x, y);
     process.stdout.write(`  y=${String(y).padStart(4)}  (${r},${g},${b})  L=${lum(r, g, b).toFixed(1)}\n`);
+  }
+} else if (args[0] === '--row') {
+  // Der Querschnitt. Ein Ufer, ein Bachbett, eine Kante — alles, was quer zu
+  // einer Linie liegt, beantwortet man mit einer Zeile Zahlen und nicht mit
+  // einem Blick aufs Bild. Schrittweite standardmaessig 1, weil ein Ufer nur
+  // wenige Bildpunkte breit ist.
+  const y = +args[1];
+  const schritt = args[4] ? +args[4] : 1;
+  for (let x = +args[2]; x <= +args[3]; x += schritt) {
+    const [r, g, b] = at(x, y);
+    process.stdout.write(`  x=${String(x).padStart(4)}  (${r},${g},${b})  L=${lum(r, g, b).toFixed(1)}\n`);
   }
 } else {
   for (const a of args) {

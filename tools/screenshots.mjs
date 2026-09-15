@@ -18,13 +18,23 @@ import {
   openApp,
   selectEnv,
   lockCamera,
+  ladeThree,
 } from './harness-common.mjs';
 
 const argv = process.argv.slice(2);
 const outArg = argv.includes('--out') ? argv[argv.indexOf('--out') + 1] : 'tools/shots/latest';
 const allEnvs = argv.includes('--all-envs');
 const envId = envArg(argv);
-const SHOTS = shotsFor(envId);
+// **`--nur a-halle,c-engawa` rendert nur die genannten Kameras.**
+//
+// Fuer eine Abtastung — denselben Regler in drei Stufen messen — sind sechs
+// Bilder je Stufe reine Wartezeit, wenn die Wirkung nur an einer Kamera
+// abzulesen ist. Der eingefrorene Kamerasatz bleibt davon unberuehrt: Wer
+// vergleicht, laesst ihn ganz laufen; wer einen Regler sucht, nicht.
+const nurIdx = argv.indexOf('--nur');
+const nur = nurIdx >= 0 ? argv[nurIdx + 1].split(',') : null;
+const SHOTS = shotsFor(envId).filter((s) => !nur || nur.includes(s.name));
+if (SHOTS.length === 0) throw new Error(`Keine Kamera passt zu --nur ${nur}`);
 const outDir = path.resolve(ROOT, outArg);
 
 const server = await startServer();
@@ -35,10 +45,17 @@ try {
   const { page, messages } = await openApp(browser);
 
   await selectEnv(page, envId);
+  // `setzeStation` braucht three im Seitenkontext (ein Bild darf eine Station
+  // des Rundgangs verlangen).
+  await ladeThree(page);
   for (const shot of SHOTS) {
     await lockCamera(page, shot, 6.0);
     await page.waitForTimeout(450);
-    await page.screenshot({ path: path.join(outDir, `${shot.name}.png`) });
+    // Dieselbe Geduld wie im Regressionsdurchgang unten: Das Dojo ist die
+    // teuerste der fuenf Umgebungen, und unter SwiftShader hat ein Einzelbild
+    // davon die Vorgabe von 30 s gerissen und den ganzen Durchlauf abgebrochen.
+    // Reine Harness-Geduld, kein Aussagewert ueber die Laufzeit auf der Quest.
+    await page.screenshot({ path: path.join(outDir, `${shot.name}.png`), timeout: 120000 });
     process.stdout.write(`✓ ${shot.name}  (${shot.title})\n`);
   }
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { wechsleHeimat, poseInHeimat, stelleAn } from './heimat.js';
 import { createTextPanel } from './textPanel.js';
 import { makeRoundedPanel } from './wristMenu.js';
 
@@ -179,11 +180,34 @@ const GLYPHS = {
 };
 
 export class Whiteboard {
-  constructor(scene, { onSketch } = {}) {
+  constructor(scene, { onSketch, floorY = () => 0 } = {}) {
     this.scene = scene;
     this.onSketch = onSketch;
+    // Die Bodenhöhe unter dem Nutzer. Vorgabe null, damit die Klemmung in
+    // `placeInFront` ohne diese Angabe genau das tut, was sie vorher tat.
+    this.floorY = floorY;
+    // **Die Tafel gehört an den Ort, an dem man sie aufstellt.**
+    //
+    // Hier stand einmal die Begründung, sie sei „ein Werkzeug, kein Gegenstand
+    // der Welt", und bleibe deshalb an der Szene. Auf den vier ortsfesten
+    // Umgebungen ist das folgenlos — man geht von ihr weg. Auf dem Planeten
+    // steht der Nutzer still und die Welt dreht sich unter ihm: Was an der
+    // Szene hängt, steht damit **für immer vor ihm** und lässt sich nicht
+    // verlassen. Gemessen mit `tools/werkzeuge.mjs`: nach einer Vierteldrehung
+    // der Welt — 39,3 m Bogen — hatte sich die Tafel um **0,00 m** vom Nutzer
+    // entfernt. Genau das ist die Meldung „das Whiteboard wird bei Bewegung
+    // mitgezogen".
+    //
+    // Sie bekommt deshalb dieselbe Heimat wie Karten und Zonen. Verloren geht
+    // sie dadurch nicht: Der Knopf blendet sie aus und beim nächsten Einblenden
+    // stellt `placeInFront` sie wieder vor den Nutzer.
+    this.heimat = scene;
     this.group = new THREE.Group();
     this.group.name = 'whiteboard';
+    // Siehe `nichtUmgebung` in tools/measure.mjs: Diese Gruppe hängt auf dem
+    // Planeten in der Weltgruppe, gehört aber nicht zur Umgebung und darf
+    // nicht gegen deren Budget zählen.
+    this.group.userData.nichtUmgebung = true;
     this.group.visible = false;
     this.scale = 1;
     this.tool = 'pen';
@@ -224,10 +248,20 @@ export class Whiteboard {
     this.group.add(frame);
 
     // Rückwand, damit das Board von hinten solide wirkt
-    const back = makeRoundedPanel(BOARD_W + 0.05, BOARD_H + 0.05, {
-      fill: '#17151b',
-      border: 'rgba(255,255,255,0.05)',
-    });
+    // **Die Rückwand braucht keine 1400 Bildpunkte je Meter.**
+    //
+    // Sie ist eine einfarbige Fläche mit einem kaum sichtbaren Rand, und man
+    // sieht sie nur von hinten. Gemessen belegte sie **23,76 MB** — der größte
+    // einzelne Posten der ganzen Anwendung, mehr als der gesamte Nachthimmel
+    // (8,00 MB). Bei 400 Bildpunkten je Meter sind es 2,0 MB, und weil
+    // `makeRoundedPanel` seine Formkonstanten mitskaliert, ist die Weltgestalt
+    // dieselbe.
+    const back = makeRoundedPanel(
+      BOARD_W + 0.05,
+      BOARD_H + 0.05,
+      { fill: '#17151b', border: 'rgba(255,255,255,0.05)' },
+      400
+    );
     back.material.toneMapped = false;
     back.rotation.y = Math.PI;
     back.position.z = -0.01;
@@ -257,6 +291,9 @@ export class Whiteboard {
     handleBg.position.set(0, BOARD_H / 2 + 0.06, 0.004);
     handleBg.userData.grabTarget = {
       group: this.group,
+      // Damit das Loslassen in XR sie wieder an die Heimat hängt und nicht an
+      // die Szene — sonst klebte sie nach jedem Anfassen wieder am Nutzer.
+      heimat: () => this.heimat,
       getScale: () => this.scale,
       setScale: (v) => this.setScale(v),
     };
@@ -285,7 +322,13 @@ export class Whiteboard {
 
   _makeFrame() {
     const pad = 0.16;
-    const pxPerMeter = 900;
+    // **Ein Schlagschatten ist das Gegenteil von Detail.** Sein Inhalt ist ein
+    // Weichzeichner über 70 Bildpunkte — eine reine Tieffrequenz. Bei 900
+    // Bildpunkten je Meter belegte er 14,43 MB; bei 400 sind es 3,0 MB, und
+    // alle Formkonstanten unten skalieren mit, damit die Weltgestalt gleich
+    // bleibt.
+    const pxPerMeter = 400;
+    const s = pxPerMeter / 900;
     const outerW = BOARD_W + 0.05 + pad * 2;
     const outerH = BOARD_H + 0.05 + pad * 2;
     const W = Math.round(outerW * pxPerMeter);
@@ -298,21 +341,21 @@ export class Whiteboard {
     const by = pad * pxPerMeter;
     const bw = (BOARD_W + 0.05) * pxPerMeter;
     const bh = (BOARD_H + 0.05) * pxPerMeter;
-    const r = 74;
+    const r = 74 * s;
 
     ctx.save();
     ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-    ctx.shadowBlur = 70;
-    ctx.shadowOffsetY = 26;
+    ctx.shadowBlur = 70 * s;
+    ctx.shadowOffsetY = 26 * s;
     roundRectPath(ctx, bx, by, bw, bh, r);
     ctx.fillStyle = 'rgba(32, 29, 38, 0.98)';
     ctx.fill();
     ctx.restore();
 
     // feiner heller Lichtrand oben für Tiefe
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * s;
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.13)';
-    roundRectPath(ctx, bx + 1.5, by + 1.5, bw - 3, bh - 3, r);
+    roundRectPath(ctx, bx + 1.5 * s, by + 1.5 * s, bw - 3 * s, bh - 3 * s, r);
     ctx.stroke();
 
     const texture = new THREE.CanvasTexture(canvas);
@@ -535,6 +578,13 @@ export class Whiteboard {
     return this.group.visible ? [this.surface, this.handle, ...this.buttons] : [];
   }
 
+  setHeimat(ziel) {
+    const neu = ziel ?? this.scene;
+    const alt = this.heimat;
+    this.heimat = neu;
+    wechsleHeimat(alt, neu, [this.group]);
+  }
+
   placeInFront(camera) {
     const camPos = new THREE.Vector3();
     camera.getWorldPosition(camPos);
@@ -544,9 +594,43 @@ export class Whiteboard {
     if (dir.lengthSq() < 1e-6) dir.set(0, 0, -1);
     dir.normalize();
     const pos = camPos.clone().addScaledVector(dir, 1.7);
-    pos.y = THREE.MathUtils.clamp(camPos.y - 0.1, 0.9, 2.0);
-    this.group.position.copy(pos);
-    this.group.lookAt(camPos.x, pos.y, camPos.z);
+    // **Die Klemmung misst ab dem Boden, nicht ab y = 0.**
+    //
+    // Hier stand `clamp(camPos.y + versatz, unten, oben)` mit absoluten Welthöhen.
+    // Das setzt stillschweigend voraus, dass der Boden bei null liegt — auf den vier
+    // flachen Umgebungen stimmt das, auf einer Kugel von 25 m Halbmesser nicht: Der
+    // Nutzer steht dort bei y ≈ 26,9, die obere Grenze schlägt an, und die Tafel
+    // landet **23,4 m unter seinen Füßen**, also im Gestein. Gemessen mit
+    // `tools/panelhoehe.mjs`.
+    //
+    // Mit dem Boden als Bezug bleibt das Verhalten auf ebenem Grund Zahl für Zahl
+    // dasselbe (dort ist `boden` null), und auf der Kugel steht die Tafel dort, wo
+    // sie hingehört.
+    const boden = this.floorY();
+    pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden - 0.1, 0.9, 2.0);
+    // Gerechnet wird in Weltkoordinaten — die Tafel stellt sich vor den Nutzer,
+    // nicht vor den Planeten. Die Umrechnung in die Heimat und das Drehen zum
+    // Nutzer stehen in `stelleAn` (heimat.js), zusammen mit der Begründung,
+    // warum beides zusammengehört.
+    stelleAn(this.group, this.heimat, this.scene, pos, camPos);
+  }
+
+  // Die Breite, die dieses Panel im Blickfeld einnimmt — für das Ordnen der
+  // Werkzeuge nebeneinander. Mit der Skalierung, die der Nutzer eingestellt hat.
+  get breite() {
+    return BOARD_W * this.scale;
+  }
+
+  // Die Höhe im Raum — das Anordnen braucht sie, um die Kartenreihen
+  // **unter** die Wand zu legen statt davor.
+  get hoehe() {
+    return BOARD_H * this.scale;
+  }
+
+  // An einen gerechneten Weltort stellen, statt vor den Nutzer. Die Höhe kommt
+  // dabei vom Aufrufer, alles Übrige bleibt wie in `placeInFront`.
+  stelleAnOrt(weltOrt, camPos) {
+    stelleAn(this.group, this.heimat, this.scene, weltOrt, camPos);
   }
 
   // --- Zeichnen (uv aus dem Raycast der Zeichenfläche) ---
@@ -695,8 +779,12 @@ export class Whiteboard {
   toJSON() {
     return {
       visible: this.group.visible,
-      position: this.group.position.toArray(),
-      quaternion: this.group.quaternion.toArray(),
+      // `frame` ist reine Auskunft für den Leser der Datei; gelesen wird immer
+      // relativ zu der Heimat, die beim Laden gerade gilt. Die Begründung steht
+      // bei `poseInHeimat` in heimat.js. Über die Weltpose gerechnet, damit
+      // auch eine gerade gegriffene Tafel (Elter = Controller) stimmt.
+      ...(this.heimat !== this.scene ? { frame: 'planet' } : {}),
+      ...poseInHeimat(this.heimat, this.scene, this.group),
       scale: this.scale,
       image: this.hasContent ? this.toDataURL() : null,
     };

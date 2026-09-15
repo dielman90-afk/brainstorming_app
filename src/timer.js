@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { wechsleHeimat, stelleAn } from './heimat.js';
 import { createTextPanel } from './textPanel.js';
 import { makeRoundedPanel } from './wristMenu.js';
 
@@ -26,10 +27,17 @@ function layer(mesh, order) {
 }
 
 export class Timer {
-  constructor(scene) {
+  constructor(scene, { floorY = () => 0 } = {}) {
     this.scene = scene;
+    // Siehe `placeInFront`: Die Klemmung misst ab dem Boden, nicht ab y = 0.
+    this.floorY = floorY;
+    // Dieselbe Heimat wie Karten, Zonen und Tafel — und aus demselben Grund:
+    // Auf dem Planeten steht der Nutzer still, und was an der Szene hängt,
+    // schwebt für immer vor ihm mit. Die Begründung steht in heimat.js.
+    this.heimat = scene;
     this.group = new THREE.Group();
     this.group.name = 'timer';
+    this.group.userData.nichtUmgebung = true;
     this.group.visible = false;
 
     this.durationSec = 5 * 60;
@@ -64,6 +72,7 @@ export class Timer {
     this.header.mesh.position.set(-0.03, PANEL_H / 2 - 0.06, 0.004);
     this.header.mesh.userData.grabTarget = {
       group: this.group,
+      heimat: () => this.heimat,
       getScale: () => this.group.scale.x,
       setScale: (v) => this.group.scale.setScalar(THREE.MathUtils.clamp(v, 0.6, 2.2)),
     };
@@ -274,6 +283,13 @@ export class Timer {
     return this.group.visible ? [this.header.mesh, ...this.buttons] : [];
   }
 
+  setHeimat(ziel) {
+    const neu = ziel ?? this.scene;
+    const alt = this.heimat;
+    this.heimat = neu;
+    wechsleHeimat(alt, neu, [this.group]);
+  }
+
   placeInFront(camera) {
     const camPos = new THREE.Vector3();
     camera.getWorldPosition(camPos);
@@ -285,9 +301,35 @@ export class Timer {
     // etwas seitlich versetzt, damit die Uhr nicht die Karten verdeckt
     const side = new THREE.Vector3(dir.z, 0, -dir.x);
     const pos = camPos.clone().addScaledVector(dir, 1.5).addScaledVector(side, 0.7);
-    pos.y = THREE.MathUtils.clamp(camPos.y + 0.15, 1.0, 2.2);
-    this.group.position.copy(pos);
-    this.group.lookAt(camPos.x, pos.y, camPos.z);
+    // **Die Klemmung misst ab dem Boden, nicht ab y = 0.**
+    //
+    // Hier stand `clamp(camPos.y + versatz, unten, oben)` mit absoluten Welthöhen.
+    // Das setzt stillschweigend voraus, dass der Boden bei null liegt — auf den vier
+    // flachen Umgebungen stimmt das, auf einer Kugel von 25 m Halbmesser nicht: Der
+    // Nutzer steht dort bei y ≈ 26,9, die obere Grenze schlägt an, und die Tafel
+    // landet **23,4 m unter seinen Füßen**, also im Gestein. Gemessen mit
+    // `tools/panelhoehe.mjs`.
+    //
+    // Mit dem Boden als Bezug bleibt das Verhalten auf ebenem Grund Zahl für Zahl
+    // dasselbe (dort ist `boden` null), und auf der Kugel steht die Tafel dort, wo
+    // sie hingehört.
+    const boden = this.floorY();
+    pos.y = boden + THREE.MathUtils.clamp(camPos.y - boden + 0.15, 1.0, 2.2);
+    stelleAn(this.group, this.heimat, this.scene, pos, camPos);
+  }
+
+  get breite() {
+    return PANEL_W * this.group.scale.x;
+  }
+
+  // Die Höhe im Raum — das Anordnen braucht sie, um die Kartenreihen
+  // **unter** die Wand zu legen statt davor.
+  get hoehe() {
+    return PANEL_H * this.group.scale.y;
+  }
+
+  stelleAnOrt(weltOrt, camPos) {
+    stelleAn(this.group, this.heimat, this.scene, weltOrt, camPos);
   }
 
   setVisible(visible) {

@@ -68,7 +68,110 @@ function instanced(
   return mesh;
 }
 
-// --- Eine Wandöffnung -------------------------------------------------------
+// Der Verband für dieses Haus: 9 x 12 halbe Mattenlängen, 50 ganze Matten und
+// 8 Halbmatten, **null Kreuzfugen**, 59 % Richtungswechsel, längste Fuge 6.
+//
+// Gefunden hat ihn `tools/mattenverband.mjs` — sechshundert Anläufe mit
+// gestreuter Reihenfolge, bewertet nach Richtungswechsel, Fugenlänge und Zahl
+// der Halbmatten. Die Suche steht hier nicht im Bauweg, weil die *Auswahl*
+// unter den Lösungen ein Blick ist und keine Zahl: Der erste beste Verband,
+// den die Suche findet, erfüllt die Regel und liest trotzdem als gestreifte
+// Bahn. `tatamiVerband()` unten bleibt als Rückfall für den Fall, dass jemand
+// die Raummasse ändert — dann stimmt zwar der Verband, aber niemand hat ihn
+// angesehen, und das steht dann auch in der Konsole.
+//
+// Jeder Eintrag ist [Spalte, Reihe, dx, dz]; dx+dz = 0 ist eine Halbmatte.
+const VERBAND_9x12 = [
+  [0,0,1,0],[2,0,0,1],[3,0,1,0],[5,0,1,0],[7,0,1,0],[0,1,1,0],[3,1,0,1],
+  [4,1,1,0],[6,1,1,0],[8,1,0,0],[0,2,0,1],[1,2,1,0],[4,2,0,1],[5,2,1,0],
+  [7,2,1,0],[1,3,0,1],[2,3,1,0],[5,3,0,1],[6,3,1,0],[8,3,0,0],[0,4,0,0],
+  [2,4,0,1],[3,4,1,0],[6,4,0,1],[7,4,1,0],[0,5,1,0],[3,5,0,1],[4,5,1,0],
+  [7,5,0,1],[8,5,0,0],[0,6,0,1],[1,6,1,0],[4,6,0,1],[5,6,1,0],[8,6,0,1],
+  [1,7,0,1],[2,7,1,0],[5,7,0,1],[6,7,1,0],[0,8,0,0],[2,8,0,1],[3,8,1,0],
+  [6,8,0,1],[7,8,1,0],[0,9,1,0],[3,9,0,1],[4,9,1,0],[7,9,0,1],[8,9,0,0],
+  [0,10,0,1],[1,10,1,0],[4,10,0,1],[5,10,1,0],[8,10,0,1],[1,11,0,0],
+  [2,11,1,0],[5,11,0,0],[6,11,1,0],
+];
+
+// --- Vierereckfreier Mattenverband (祝儀敷き) --------------------------------
+//
+// Gesucht wird eine Belegung eines `spalten x reihen`-Gitters aus halben
+// Mattenlängen (0,91 m) mit 1x2-Matten und höchstens `maxHalbe` Halbmatten, in
+// der sich **nirgends vier Mattenecken in einem Punkt treffen**.
+//
+// Vier Ecken treffen sich im Gitterpunkt (x,z) genau dann, wenn die vier
+// Zellen darum zu vier verschiedenen Matten gehören. Die Prüfung läuft
+// deshalb über Punkte, nicht über Matten — und nur über solche, deren vier
+// Zellen schon belegt sind, sonst würde jeder Zwischenstand verworfen.
+//
+// Die Rückwärtssuche füllt immer die **erste freie Zelle** (Zeile für Zeile).
+// Damit ist jede Zelle entweder Anfang einer Matte oder schon von der Matte
+// links bzw. darüber gedeckt, und die Suche kann keine Lücke hinterlassen.
+//
+// `maxSchritte` ist kein Feintuning, sondern eine Zusicherung: Der Aufrufer
+// baut eine Szene und darf nicht in einer Suche hängenbleiben, wenn jemand die
+// Raummasse auf eine Größe ohne Lösung ändert. 8 x 12 ist in weniger als
+// hunderttausend Schritten entschieden.
+export function tatamiVerband(spalten, reihen, maxHalbe = 2, maxSchritte = 4e6) {
+  const N = spalten * reihen;
+  const zelle = new Int32Array(N).fill(-1);
+  const matten = [];
+  let halbeUebrig = maxHalbe;
+  let schritte = 0;
+
+  const punktOk = (x, z) => {
+    if (x <= 0 || z <= 0 || x >= spalten || z >= reihen) return true;
+    const a = zelle[(z - 1) * spalten + x - 1];
+    const b = zelle[(z - 1) * spalten + x];
+    const c = zelle[z * spalten + x - 1];
+    const d = zelle[z * spalten + x];
+    if (a < 0 || b < 0 || c < 0 || d < 0) return true;
+    return a === b || a === c || a === d || b === c || b === d || c === d;
+  };
+
+  const loese = (start) => {
+    if (++schritte > maxSchritte) return false;
+    let i = start;
+    while (i < N && zelle[i] >= 0) i++;
+    if (i >= N) return true;
+    const x = i % spalten;
+    const z = (i / spalten) | 0;
+    const id = matten.length;
+    const formen = [[1, 0], [0, 1]];
+    if (halbeUebrig > 0) formen.push([0, 0]);
+    for (const [dx, dz] of formen) {
+      const x2 = x + dx;
+      const z2 = z + dz;
+      if (x2 >= spalten || z2 >= reihen) continue;
+      const halb = dx + dz === 0;
+      if (!halb && zelle[z2 * spalten + x2] >= 0) continue;
+      if (halb) halbeUebrig--;
+      zelle[i] = id;
+      zelle[z2 * spalten + x2] = id;
+      matten.push([x, z, dx, dz]);
+      let ok = true;
+      for (const [px, pz] of [
+        [x, z], [x + 1, z], [x, z + 1], [x + 1, z + 1],
+        [x2, z2], [x2 + 1, z2], [x2, z2 + 1], [x2 + 1, z2 + 1],
+      ]) {
+        if (!punktOk(px, pz)) {
+          ok = false;
+          break;
+        }
+      }
+      if (ok && loese(i + 1)) return true;
+      matten.pop();
+      zelle[i] = -1;
+      zelle[z2 * spalten + x2] = -1;
+      if (halb) halbeUebrig++;
+    }
+    return false;
+  };
+
+  return loese(0) ? matten : null;
+}
+
+  // --- Eine Wandöffnung -------------------------------------------------------
 //
 // Rahmen, Gitter und Papier für **eine** Öffnung – ob bodentiefe Shoji-Front
 // oder hohes Fensterband, ob Ost, West, Nord oder Süd.
@@ -217,7 +320,46 @@ function buildOpening(spec) {
     // Papierfeld, außen. `rotateY(inward · π/2)` dreht die Vorderseite in den
     // Raum; bei einer Nord-/Südwand zeigt die ungedrehte Ebene bereits nach
     // +Z, für die Südseite ist sie also um π zu wenden.
-    const paper = new THREE.PlaneGeometry(panelW - fw * 2, panelH - fw * 2);
+    //
+    // **Unterteilt und mit gebackenem Verlauf.**
+    //
+    // Prüferbefund 7: „Papierflächen ohne jeden Verlauf." Gemessen in
+    // `c-engawa` die linke Shoji-Fläche bei (60–200, 100–300) L 140,4 und bei
+    // (60–200, 380–500) L 140,2 — über vierhundert Bildzeilen, also gut zwei
+    // Meter Wandhöhe, **zwei Zehntel einer Stufe**. Diese Fläche belegt vierzig
+    // Prozent des Bildes.
+    //
+    // Fünfter Fall derselben Ursache in diesem Auftrag, nach Bildnische,
+    // Sesselkissen, Bambushain und Decke. Ein Papierfeld sieht von aussen oben
+    // Himmel und unten Veranda und Boden; der Rahmen verdeckt es an seinen vier
+    // Kanten. Beides weiss das Beleuchtungsmodell nicht, weil die Normale
+    // überall dieselbe ist — und das Feld war ausserdem **ein Viereck**.
+    //
+    // Der Verlauf sitzt in den Scheitelfarben und wirkt damit auf den
+    // Albedoanteil, nicht auf das Eigenleuchten. Auf den Schattenseiten trägt
+    // die Albedo rund 120 der 140 Stufen; auf der Sonnenseite steht das
+    // Eigenleuchten mit 0,38 stärker dagegen. Dort bleibt der Verlauf also
+    // schwächer, und das ist hinnehmbar: Die Ostfront hat den Schattenriss des
+    // Hains, der ihr Zeichnung gibt.
+    const paper = new THREE.PlaneGeometry(panelW - fw * 2, panelH - fw * 2, 4, 8);
+    {
+      const pw = panelW - fw * 2;
+      const ph = panelH - fw * 2;
+      const pos = paper.attributes.position;
+      const farben = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        const lx = pos.getX(i);
+        const ly = pos.getY(i);
+        // Oben Himmel, unten Boden: 0,84 an der Unterkante, 1,00 an der Oberkante.
+        const hoch = 0.84 + 0.16 * (ly / ph + 0.5);
+        // Rahmenschatten: die letzten acht Zentimeter zur Kante.
+        const rand = Math.min(pw / 2 - Math.abs(lx), ph / 2 - Math.abs(ly));
+        const saum = 0.86 + 0.14 * Math.min(1, Math.max(0, rand / 0.08));
+        const f = hoch * saum;
+        farben[i * 3] = farben[i * 3 + 1] = farben[i * 3 + 2] = f;
+      }
+      paper.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    }
     if (axis === 'x') paper.rotateY((inward * Math.PI) / 2);
     else if (inward < 0) paper.rotateY(Math.PI);
     const [px, py, pz] = at(ct, (sillY + headY) / 2, paperD);
@@ -371,51 +513,161 @@ export function buildArchitecture() {
   // Verlegt im Wechsel (quer/längs paarweise), wie es üblich ist – ein
   // durchgehendes Raster sähe aus wie Fliesen, nicht wie Matten.
   const matGeo = board(TATAMI.long, TATAMI.thickness, TATAMI.short, 0.42);
-  const borderGeo = new THREE.BoxGeometry(TATAMI.long, 0.005, 0.055);
+  // **Borte 4,0 statt 5,5 cm.** An jeder Mattenfuge stossen zwei Borten
+  // aneinander; mit 5,5 cm waren das elf Zentimeter Schwarz gegen eine
+  // Mattenbreite von einundneunzig, also zwölf Prozent des Feldes. Echte Heri
+  // sind drei bis vier Zentimeter breit, zusammen also acht statt zwölf Prozent.
+  const borderGeo = new THREE.BoxGeometry(TATAMI.long, 0.002, 0.04);
   const mats = [];
   const borders = [];
   const matY = 0.055 + TATAMI.thickness / 2;
 
-  // Feldgrenzen: die eigentliche Übungsfläche, ringsum bleibt Diele frei.
+// Feldgrenzen: die eigentliche Übungsfläche, ringsum bleibt Diele frei.
   // Stehen in layout.js und sind aus ROOM abgeleitet – als feste Zahlen hier
   // wäre das Feld beim Verlängern des Raums stehen geblieben.
   const { x0: FX0, x1: FX1, z0: FZ0, rows: FIELD_ROWS } = FIELD;
 
-  for (let r = 0; r < FIELD_ROWS; r++) {
-    const z = FZ0 + r * TATAMI.short + TATAMI.short / 2;
-    // Jede zweite Reihe um eine halbe Matte versetzt – der übliche Verband.
-    // Ohne Versatz entsteht ein durchgehendes Kreuzfugenraster, das wie
-    // Fliesen aussieht und nicht wie ausgelegte Matten.
-    const stagger = r % 2 === 1;
-    let x = FX0;
-    let first = true;
-    while (x < FX1 - 1e-3) {
-      // Randmatten werden gekürzt statt weggelassen. Der frühere Filter hat
-      // jede Matte verworfen, die nicht ganz passte – übrig blieb ein
-      // Flickenteppich mitten im Raum statt eines Feldes.
-      let len = first && stagger ? TATAMI.long / 2 : TATAMI.long;
-      len = Math.min(len, FX1 - x);
-      const cx = x + len / 2;
-      const sx = len / TATAMI.long;
-      mats.push({ x: cx, y: matY, z, scale: [sx, 1, 1] });
-      // Dunkle Leinenborte (Heri) an den Längsseiten – ohne sie zerfließt das
-      // Feld zu einer grünen Fläche und die Mattengrenzen verschwinden.
-      // Knapp **über** der Mattenoberkante. Vorher lag die Borte auf halber
-      // Mattenhöhe, also vollständig im Tatami versteckt: Das Feld las sich als
-      // eine einzige grüne Fläche, und damit fehlte dem Raum der Maßstab, an
-      // dem man seine Größe überhaupt ablesen kann.
-      const heriY = 0.055 + TATAMI.thickness + 0.0015;
-      borders.push({ x: cx, y: heriY, z: z - TATAMI.short / 2 + 0.028, scale: [sx, 1, 1] });
-      borders.push({ x: cx, y: heriY, z: z + TATAMI.short / 2 - 0.028, scale: [sx, 1, 1] });
-      x += len;
-      first = false;
+  // **Alle Matten lagen in derselben Richtung, und der Kommentar darüber
+  // behauptete das Gegenteil.**
+  //
+  // Hier stand „verlegt im Wechsel (quer/längs paarweise), wie es üblich ist" —
+  // und darunter eine Schleife, die jede einzelne Matte mit ihrer Längsachse
+  // auf x legt, ohne Ausnahme. Der halbe Mattenversatz jeder zweiten Reihe
+  // ändert daran nichts: Die Borten laufen trotzdem alle in derselben Richtung
+  // und bilden **durchgehende schwarze Balken über die ganze Hallenbreite**.
+  // Der Prüfer hat es „gestreifter Teppich" genannt, und das ist genau, was
+  // ein Läuferverband ohne Richtungswechsel ergibt.
+  //
+  // Das Feld misst 7,28 × 10,92 m. In Mattenlängen sind das **4 × 6 Quadrate
+  // von 1,82 m**, und jedes Quadrat fasst genau zwei Matten. Der Verband geht
+  // also ohne eine einzige geschnittene Matte auf — die Kürzungslogik von
+  // vorher wird nicht ersetzt, sie entfällt.
+  //
+  // Gelegt wird im **Schachbrett** (市松敷き): Quadrat (i,j) mit gerader Summe
+  // trägt zwei Matten längs x, mit ungerader Summe zwei Matten längs z. Damit
+  // wechselt die Borte an jeder Quadratgrenze die Richtung, es entstehen
+  // T-Stösse statt Kreuzfugen, und keine Linie läuft mehr durch den Raum.
+  //
+  // **Nachtrag: „T-Stösse statt Kreuzfugen" stimmte nicht.**
+  //
+  // Der Prüfer hat Vierereck-Treffen gemeldet, und er hat recht. Ein Quadrat
+  // von 1,82 m mit zwei Matten darin hat, wie es auch gedreht ist, **immer**
+  // eine Mattenecke in jeder seiner vier Quadratecken. An jedem inneren
+  // Quadratpunkt stossen vier Quadrate zusammen, also vier Mattenecken —
+  // fünfzehn Kreuzfugen im Feld, und die Drehung ändert daran nichts. Der
+  // Schachbrettverband kann das gar nicht lösen; die Behauptung war ein
+  // Denkfehler, kein Messfehler.
+  //
+  // Gelegt wird jetzt nach der Regel selbst (祝儀敷き): **gesucht**, nicht
+  // konstruiert. `tatamiVerband()` durchsucht das Feld nach einer Belegung, in
+  // der sich nirgends vier Ecken treffen. Dass es für dieses Feld überhaupt
+  // eine gibt, ist keine Selbstverständlichkeit — mit ganzen Matten allein hat
+  // 8 x 12 **keine** Lösung (8 x 10, 8 x 14, 6 x 12 und 12 x 12 dagegen
+  // schon). Mit einer Halbmatte auch nicht, mit zweien ja. Halbmatten (半畳)
+  // gehören zum Verband; ein 4,5-Matten-Raum besteht aus vier Matten um eine.
+  const QUADRAT = TATAMI.long; // 1,82 m — zwei Matten, egal in welcher Lage
+  const HALB = TATAMI.short / 2; // 0,455 m
+  // **1,6 statt 4 Millimeter ueber der Mattenflaeche.**
+  //
+  // Die Borte lag bei 0,1115 und war 5 mm hoch, stand also bis 0,114 — vier
+  // Millimeter ueber einer Mattenoberkante von 0,110. Auf einem vier
+  // Zentimeter breiten Streifen ist das ein Verhaeltnis von 1 : 10, und der
+  // Pruefer hat es als Stufe gelesen: „die dunklen Baender haben eine
+  // sichtbare Seitenwand, der Boden ist gestuft". Eine Heri ist aufgenaeht,
+  // nicht aufgelegt.
+  //
+  // Ganz buendig geht nicht — die Borte liegt innerhalb der Mattenflaeche und
+  // wuerde mit ihr um dieselbe Tiefe streiten. 1,6 mm ist der Abstand, bei dem
+  // keine Seitenwand mehr liest und trotzdem nichts flimmert.
+  const heriY = 0.055 + TATAMI.thickness + 0.0006;
+  // Abstand der Borte von der Mattenmitte, quer zur Längsachse. Die Borte
+  // sitzt knapp **über** der Mattenoberkante: Vorher lag sie auf halber
+  // Mattenhöhe, also vollständig im Tatami versteckt, und das Feld las sich als
+  // eine einzige grüne Fläche ohne Maßstab.
+  const HERI_D = HALB - 0.028;
+
+  const legeMatte = (x, z, ry) => {
+    mats.push({ x, y: matY, z, ry });
+    // Die Borte liegt an den beiden **Längsseiten**, also quer zur Längsachse.
+    // Bei gedrehter Matte dreht sie mit — sonst stünde sie quer über der Matte.
+    const dx = ry === 0 ? 0 : HERI_D;
+    const dz = ry === 0 ? HERI_D : 0;
+    borders.push({ x: x - dx, y: heriY, z: z - dz, ry });
+    borders.push({ x: x + dx, y: heriY, z: z + dz, ry });
+  };
+
+  // **Halbmatte (半畳): dieselbe Geometrie, in der Längsachse halbiert.**
+  //
+  // Keine eigene Geometrie und kein eigener Zeichenaufruf. Das Binsengeflecht
+  // verläuft **längs** der Matte, seine Streifen liegen also quer — eine
+  // Stauchung längs verkürzt die Streifen, ohne ihren Abstand zu ändern, und
+  // genau der ist das, was man sieht. Quer gestaucht wäre es falsch.
+  const HALB_D = TATAMI.short / 2 - 0.028;
+  const legeHalbmatte = (x, z) => {
+    mats.push({ x, y: matY, z, ry: 0, scale: [0.5, 1, 1] });
+    borders.push({ x, y: heriY, z: z - HALB_D, ry: 0, scale: [0.5, 1, 1] });
+    borders.push({ x, y: heriY, z: z + HALB_D, ry: 0, scale: [0.5, 1, 1] });
+  };
+
+  const spalten = Math.round((FX1 - FX0) / TATAMI.short);
+  const verband =
+    spalten === 9 && FIELD_ROWS === 12 ? VERBAND_9x12 : tatamiVerband(spalten, FIELD_ROWS);
+  if (verband) {
+    for (const [cx, cz, dx, dz] of verband) {
+      // Mittelpunkt der belegten Zellen, in Weltkoordinaten.
+      const x = FX0 + (cx + dx / 2 + 0.5) * TATAMI.short;
+      const z = FZ0 + (cz + dz / 2 + 0.5) * TATAMI.short;
+      if (dx + dz === 0) legeHalbmatte(x, z);
+      else legeMatte(x, z, dx === 1 ? 0 : Math.PI / 2);
+    }
+  } else {
+    // **Rückfall auf den Schachbrettverband.**
+    //
+    // Er hat Kreuzfugen, aber er füllt jedes Feld, dessen Seiten gerade sind.
+    // Wer die Raummasse ändert und keine Lösung mehr bekommt, soll einen Boden
+    // sehen und keine Lücke — und er soll es in der Konsole lesen.
+    console.warn(
+      `Dojo: kein vierereckfreier Mattenverband fuer ${spalten} x ${FIELD_ROWS}, Schachbrett stattdessen`
+    );
+    const quadratReihen = Math.floor(FIELD_ROWS / 2);
+    for (let j = 0; j < quadratReihen; j++) {
+      for (let i = 0; i < spalten / 2; i++) {
+        const qx = FX0 + (i + 0.5) * QUADRAT;
+        const qz = FZ0 + (j + 0.5) * QUADRAT;
+        if ((i + j) % 2 === 0) {
+          legeMatte(qx, qz - HALB, 0);
+          legeMatte(qx, qz + HALB, 0);
+        } else {
+          legeMatte(qx - HALB, qz, Math.PI / 2);
+          legeMatte(qx + HALB, qz, Math.PI / 2);
+        }
+      }
     }
   }
   group.add(instanced(matGeo, tatami, mats, { cast: false, name: 'dojo-tatami' }));
   group.add(
     instanced(
       borderGeo,
-      new THREE.MeshStandardMaterial({ color: 0x2f2b26, roughness: 0.88 }),
+      // **Nicht mehr neutralschwarz.** Gemessen lag die Borte bei L 51 gegen
+      // Matten bei L 129 bis 157 — ein Abfall von fünfundsiebzig bis
+      // hundertfünf Stufen auf einer neutralgrauen Fläche ohne jede Zeichnung.
+      // Sie las damit nicht als Leinenband, sondern als Spalt zwischen den
+      // Matten. Heri-Leinen ist dunkel, aber es ist **blaugrau und nicht
+      // grau**, und es fängt Licht: geringere Rauheit heisst hier ein Streifen
+      // Glanz entlang der Fuge, und genau der macht aus einem Loch ein Band.
+      //
+      // Ein Gewebemuster bekommt sie damit noch nicht — dafür bräuchte es eine
+      // eigene Karte, und die kostet Texturspeicher für ein Band von vier
+      // Zentimetern. Steht offen.
+      //
+      // **Und noch einmal heller.** Die Stufe war nur die halbe Miete: Gemessen
+      // stand die Borte in `e-tatami` bei L 41 gegen L 141 der Mattenflaeche —
+      // Faktor 3,4. Der Pruefer hat den Boden daraufhin als „Gitterrost"
+      // gelesen, und das ist nachvollziehbar: Bei acht Zentimetern Dunkel je
+      // einundneunzig Zentimeter Matte entscheidet der Tonwert darueber, ob man
+      // ein Band sieht oder eine Fuge. 0x4c5568 hebt sie auf rund 60 — immer
+      // noch klar das Dunkelste am Boden, aber Leinen und kein Loch.
+      new THREE.MeshStandardMaterial({ color: 0x4c5568, roughness: 0.72 }),
       borders,
       {
         cast: false,
@@ -588,9 +840,26 @@ export function buildArchitecture() {
   // --- Tokonoma (Bildnische) ------------------------------------------------
   const tok = new THREE.Group();
   tok.name = 'dojo-tokonoma';
+  // **Warmer Lehmputz statt neutralem Grau.**
+  //
+  // Prueferbefund 12: „die Nische ist neutral kaltgrau in einer Umgebung aus
+  // warmem Holz, Papier und Binse, und sie ist der farbfremdeste Bereich des
+  // ganzen Bildes." Gemessen in `a-halle` als Abstand Rot minus Blau:
+  //
+  //     Nischenrueckwand   23
+  //     Putzwand daneben   45
+  //     Tatami             48
+  //     Decke              72
+  //
+  // Ein Teil davon folgt aus der Dunkelheit — bei gleichem Farbverhaeltnis ist
+  // der absolute Abstand in einer dunklen Flaeche kleiner. Der Rest ist die
+  // Farbe selbst: 0x9c968a hat ein Rot-zu-Blau von 1,13, also fast neutral.
+  // Eine Tokonoma-Rueckwand ist traditionell **Lehmputz** — Juraku-Sand, ocker
+  // bis rotbraun, nie grau. 0xa8977a liegt bei 1,38.
+  const TOKO_PUTZ = 0xa8977a;
   const tokBack = new THREE.Mesh(
     board(TOKONOMA.width, TOKONOMA.headY, t, 1.0),
-    plasterMaterial(0x9c968a) // etwas dunkler: die Nische liegt im Schatten
+    plasterMaterial(TOKO_PUTZ) // etwas dunkler: die Nische liegt im Schatten
   );
   tokBack.position.set(TOKONOMA.centerX, TOKONOMA.headY / 2, WALL.north - TOKONOMA.depth - t / 2);
   tokBack.receiveShadow = true;
@@ -624,11 +893,117 @@ export function buildArchitecture() {
       WALL.north - TOKONOMA.depth / 2
     )
   );
-  const tokJambs = new THREE.Mesh(mergeGeometries(tokSides, false), plasterMaterial(0x9c968a));
+  const tokJambs = new THREE.Mesh(mergeGeometries(tokSides, false), plasterMaterial(TOKO_PUTZ));
   tokJambs.name = 'dojo-tokonoma-wangen';
   tokJambs.receiveShadow = true;
   tokJambs.castShadow = true;
   tok.add(tokJambs);
+
+  // **Die Nische braucht ein Inneres, kein zweites Wandstück.**
+  //
+  // Prüferbefund 5: „die Tokonoma hat keine Tiefe". Gemessen in `e-tatami` lag
+  // die Nischenrückwand bei L 171,2 gegen L 183,1 für die Nordwand daneben —
+  // **zwölf Stufen** für einen halben Meter Rücksprung. Eine Bildnische ist
+  // ein dunkler Kasten; zwölf Stufen sind ein Anstrich.
+  //
+  // Die Ursache ist bekannt und bleibt: Für die Innenräume gibt es keinen
+  // eigenen Schattendurchgang (das Dreiecksbudget trägt keinen dritten
+  // Kegelstumpf, siehe Paket A). Ohne Verschattung bekommt die Nische
+  // dieselbe Halbraumaufhellung wie die offene Wand, und der einzige
+  // Unterschied ist der Farbwert des Putzes.
+  //
+  // Also gebacken. Vier unterteilte Flächen dicht innen an der Schale —
+  // Rückwand, zwei Wangen, Deckel —, deren Vertexfarbe mit der Tiefe im
+  // Rücksprung und mit der Nähe zu Wange, Sturz und Boden abfällt. **Die
+  // Unterteilung ist der Punkt:** Eine Kastenfläche hat vier Ecken, und
+  // zwischen vier Ecken kann man eine Rampe legen, aber keine Vignette. Zwölf
+  // mal zwölf Felder tragen den Verlauf, den eine Nische wirklich hat.
+  //
+  // Ein Zeichenaufruf für alle vier, weil sie ein Material teilen.
+  const nischeAO = (x, y, z) => {
+    const spanne = (a, b, v) => Math.min(1, Math.max(0, (v - a) / (b - a)));
+    // 0 an der Öffnung, 1 an der Rückwand
+    const tiefe = spanne(0, TOKONOMA.depth, WALL.north - z);
+    // 1 dicht an Wange, Sturz oder Nischenboden
+    const wange = 1 - spanne(0, 0.55, TOKONOMA.width / 2 - Math.abs(x - TOKONOMA.centerX));
+    const sturz = 1 - spanne(0, 0.6, TOKONOMA.headY - y);
+    const sockel = 1 - spanne(0, 0.45, y - TOKONOMA.floorY);
+    const ecke = Math.max(wange, Math.max(sturz, sockel));
+    // Die Ecke zählt tief in der Nische mehr als an der Öffnung: Dort fällt
+    // Licht von der Seite herein, hinten nicht mehr.
+    return 1 - 0.40 * tiefe - 0.34 * ecke * (0.35 + 0.65 * tiefe);
+  };
+  const faerbe = (geo, hex) => {
+    const c = new THREE.Color(hex);
+    const pos = geo.attributes.position;
+    const farben = new Float32Array(pos.count * 3);
+    const v = new THREE.Vector3();
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(geo.userData.welt);
+      const f = nischeAO(v.x, v.y, v.z);
+      farben[i * 3] = c.r * f;
+      farben[i * 3 + 1] = c.g * f;
+      farben[i * 3 + 2] = c.b * f;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+    return geo;
+  };
+  const innen = [];
+  const lege = (geo, matrix) => {
+    geo.userData.welt = matrix;
+    faerbe(geo, 0xffffff);
+    geo.applyMatrix4(matrix);
+    delete geo.userData.welt;
+    innen.push(geo);
+  };
+  const NH = TOKONOMA.headY - TOKONOMA.floorY;
+  const NY = (TOKONOMA.headY + TOKONOMA.floorY) / 2;
+  const LUFT = 0.004; // knapp vor der Schale, damit nichts flimmert
+  lege(
+    new THREE.PlaneGeometry(TOKONOMA.width, NH, 12, 12),
+    new THREE.Matrix4().makeTranslation(
+      TOKONOMA.centerX,
+      NY,
+      WALL.north - TOKONOMA.depth + LUFT
+    )
+  );
+  for (const side of [-1, 1]) {
+    const m = new THREE.Matrix4().makeRotationY(-side * Math.PI / 2);
+    m.setPosition(
+      TOKONOMA.centerX + side * (TOKONOMA.width / 2 - LUFT),
+      NY,
+      WALL.north - TOKONOMA.depth / 2
+    );
+    lege(new THREE.PlaneGeometry(TOKONOMA.depth, NH, 6, 12), m);
+  }
+  // **Der Deckel bekommt mehr Luft als die drei anderen Flaechen.**
+  //
+  // Die Innenflaechen liegen 4 mm vor der Schale, und fuer Rueckwand und
+  // Wangen reicht das: Man sieht sie fast frontal, und dabei ist der
+  // Tiefenunterschied zweier Flaechen ueber die ganze Flaeche gleich.
+  //
+  // Die Nischendecke sieht man dagegen **streifend** — sie liegt bei 2,6 m,
+  // der Betrachter steht bei 1,6 m und einen bis drei Meter davor, der
+  // Einfallswinkel ist also einstellig. Bei streifendem Blick waechst der
+  // Tiefenfehler ueber die Flaeche, und zwei Flaechen mit 4 mm Abstand koennen
+  // sich dann durchdringen — die Schale hat an derselben Stelle ihre
+  // Unterseite (`tokSides`, Deckel ueber der Nische, Unterkante genau bei
+  // `headY`).
+  //
+  // Anderthalb Zentimeter kosten nichts: Der Deckel haengt in einer 2,46 m
+  // hohen Nische einen Fingerbreit tiefer, und das ist bei keiner Kamera zu
+  // sehen. Sie nehmen aber die Moeglichkeit weg, dass dort etwas flimmert.
+  const DECKEL_LUFT = 0.015;
+  const deckel = new THREE.Matrix4().makeRotationX(Math.PI / 2);
+  deckel.setPosition(TOKONOMA.centerX, TOKONOMA.headY - DECKEL_LUFT, WALL.north - TOKONOMA.depth / 2);
+  lege(new THREE.PlaneGeometry(TOKONOMA.width, TOKONOMA.depth, 12, 6), deckel);
+
+  const nischeMat = plasterMaterial(TOKO_PUTZ);
+  nischeMat.vertexColors = true;
+  const nischeInnen = new THREE.Mesh(mergeGeometries(innen, false), nischeMat);
+  nischeInnen.name = 'dojo-tokonoma-innen';
+  nischeInnen.receiveShadow = true;
+  tok.add(nischeInnen);
 
   // Erhöhter Nischenboden aus einem einzigen dicken Brett
   const tokFloor = new THREE.Mesh(
@@ -757,11 +1132,62 @@ export function buildArchitecture() {
   roof.name = 'dojo-ceiling';
 
   // Deckenschalung: eine einzige Fläche, nach unten gerichtet.
-  const ceilGeo = new THREE.PlaneGeometry(ROOM.maxX - ROOM.minX, ROOM.maxZ - ROOM.minZ);
+  //
+  // **Unterteilt, weil sie eine gebackene Verdeckung tragen muss.**
+  //
+  // Prüferbefund 5: „Die Decke ist eine flache Platte." Gemessen in `a-halle`
+  // Balkenunterseite L 64,2 gegen Deckenfeld L 67,1 — **drei Stufen**. Die
+  // Balken heben sich allein durch ihre Kantenlinien ab, nicht durch Tonwert.
+  // In `b-shoji` und `f-gegenlicht` trägt dieselbe Decke, weil dort die
+  // Balkenflanken sichtbar sind; entlang der Balken gesehen bricht sie
+  // zusammen.
+  //
+  // Es ist zum vierten Mal dieselbe Ursache — nach Bildnische, Sesselkissen und
+  // Bambushain: **der Renderer hat kein Verdeckungsglied.** Ein Balken, der
+  // 24 cm unter der Decke hängt, verdeckt der Schalung neben sich den halben
+  // Himmel; das Beleuchtungsmodell weiss davon nichts, weil die Normale der
+  // Schalung überall dieselbe ist.
+  //
+  // Also gebacken. Der Abfall folgt der Geometrie und ist nicht gesetzt: Ein
+  // Balken von 0,2 m Breite, der 0,24 m heruntersteht, verdeckt bis rund
+  // 0,45 m zu jeder Seite, der Längsunterzug (0,22 m breit, Oberkante 0,18 m
+  // unter der Decke) entsprechend weniger.
+  const BALKEN_H = 0.24;
+  const BALKEN_B = 0.2;
+  const BALKEN_REICH = BALKEN_H + BALKEN_B / 2 + 0.11;
+  const FIRST_REICH = 0.5;
+  const deckenAO = (x, z) => {
+    // Abstand zum nächsten Querunterzug. Die Balken stehen ab minZ + 0,75 alle
+    // 1,5 m; der Rest ist Modulorechnung.
+    const rel = z - (ROOM.minZ + 0.75);
+    const dz = Math.abs(rel - Math.round(rel / 1.5) * 1.5);
+    const quer = 1 - Math.min(1, Math.max(0, (dz - BALKEN_B / 2) / (BALKEN_REICH - BALKEN_B / 2)));
+    const dx = Math.abs(x);
+    const laengs = 1 - Math.min(1, Math.max(0, (dx - 0.11) / (FIRST_REICH - 0.11)));
+    // Wand- und Traufsaum: die Schalung sieht an der Wand nur noch den halben
+    // Raum.
+    const rand = Math.min(
+      1,
+      Math.max(0, 1 - Math.min(x - ROOM.minX, ROOM.maxX - x, z - ROOM.minZ, ROOM.maxZ - z) / 0.7)
+    );
+    return 1 - 0.42 * quer - 0.2 * laengs - 0.18 * rand;
+  };
+  const ceilGeo = new THREE.PlaneGeometry(ROOM.maxX - ROOM.minX, ROOM.maxZ - ROOM.minZ, 32, 96);
   ceilGeo.rotateX(Math.PI / 2); // Normale nach unten – wir sehen sie von innen
   scaleUV(ceilGeo, (ROOM.maxX - ROOM.minX) / 0.4, (ROOM.maxZ - ROOM.minZ) / 0.4);
   ceilGeo.translate(0, ROOM.ceilingY, (ROOM.minZ + ROOM.maxZ) / 2);
-  const ceiling = new THREE.Mesh(ceilGeo, hinokiMaterial({ color: 0xb69a76 }));
+  {
+    const pos = ceilGeo.attributes.position;
+    const farben = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const f = deckenAO(pos.getX(i), pos.getZ(i));
+      farben[i * 3] = farben[i * 3 + 1] = farben[i * 3 + 2] = f;
+    }
+    ceilGeo.setAttribute('color', new THREE.BufferAttribute(farben, 3));
+  }
+  const ceilMat = hinokiMaterial({ color: 0xb69a76 });
+  ceilMat.vertexColors = true;
+  const ceiling = new THREE.Mesh(ceilGeo, ceilMat);
   ceiling.name = 'dojo-deck';
   ceiling.receiveShadow = true;
   roof.add(ceiling);
@@ -778,9 +1204,50 @@ export function buildArchitecture() {
 
   // Längsunterzug auf der Mittelachse, etwas tiefer – bricht die reine
   // Querstreifung und stützt die Querbalken optisch ab.
-  const spine = new THREE.Mesh(board(0.22, 0.2, ROOM.maxZ - ROOM.minZ, 0.7), hinokiDark);
-  spine.position.set(0, ROOM.ceilingY - 0.28, (ROOM.minZ + ROOM.maxZ) / 2);
+  const spineGeos = [
+    board(0.22, 0.2, ROOM.maxZ - ROOM.minZ, 0.7).translate(
+      0,
+      ROOM.ceilingY - 0.28,
+      (ROOM.minZ + ROOM.maxZ) / 2
+    ),
+  ];
+
+  // **Munamochi-bashira: der Laengsunterzug endete im Fensterband.**
+  //
+  // Gerechnet: Der Unterzug liegt bei 3,67 und ist 0,2 hoch, seine Unterkante
+  // also bei **3,57**. Das Ranma reicht von 3,05 bis **3,72**. Die letzten
+  // fuenfzehn Zentimeter des Balkens standen damit im Papierband — er lief auf
+  // die Nordwand zu und endete dort an einem Oberlicht, mit sichtbarer
+  // Schnittflaeche und ohne irgendein Auflager. Der Pruefer hat es genau so
+  // beschrieben, und es steht in der Bildmitte von `a-halle`, ueber der
+  // Tokonoma.
+  //
+  // Ein Balken endet nicht in der Luft. Ein Firstpfosten traegt ihn: von der
+  // Unterkante des Balkens auf die Oberkante der geschlossenen Wand, quer durch
+  // das Ranma-Feld, das er dort ausfuellt. Achtzehn Zentimeter gegen die
+  // zweiundzwanzig des Balkens — ein Pfosten ist nie breiter als das, was er
+  // traegt.
+  //
+  // Beide Pfosten und der Balken sind **ein** Netz. Drei Koerper aus demselben
+  // Holz sind sonst drei Zeichenaufrufe, und das Budget stand nach diesem Paket
+  // bei 117 von 120.
+  const PFOSTEN = 0.18;
+  const pfostenH = ROOM.ceilingY - 0.38 - ROOM.wallTop;
+  for (const zz of [ROOM.minZ, ROOM.maxZ]) {
+    spineGeos.push(
+      // Halbe Pfostentiefe nach innen, damit er ganz im Raum steht und nicht
+      // zur Haelfte in der Wand.
+      board(PFOSTEN, pfostenH, PFOSTEN, 0.02).translate(
+        0,
+        ROOM.wallTop + pfostenH / 2,
+        zz + (zz < 0 ? PFOSTEN / 2 : -PFOSTEN / 2)
+      )
+    );
+  }
+  const spine = new THREE.Mesh(mergeGeometries(spineGeos, false), hinokiDark);
+  spine.name = 'dojo-first';
   spine.castShadow = true;
+  spine.receiveShadow = true;
   roof.add(spine);
 
   // --- Walmdach von außen ---------------------------------------------------
@@ -1029,8 +1496,21 @@ export function buildArchitecture() {
     // Auch das Ranma bekommt Latten nach außen. Ohne sie stand über der Front
     // ein leerer heller Streifen quer durch die ganze Fassade – aus dem Garten
     // das Auffälligste am Gebäude, gleich nach dem Dach.
-    renji: 4,
-    lattice: { cols: 4, rows: 3, barWidth: 0.018, barDepth: 0.018 },
+    // **Groeber, weil feiner nicht mehr aufloest.**
+    //
+    // Prueferbefund 20: „das Sprossengitter der Oberlichter ist so kleinteilig,
+    // dass es zu unruhigem Grieseln zerfaellt — die Zahl der Felder pro Paneel
+    // wechselt sichtbar zwischen drei und vier." Das Wechseln ist der Beweis:
+    // Ein Gitter, dessen Feldzahl je nach Bildstelle anders aussieht, wird
+    // unterabgetastet. 18 mm Sprossen auf zehn Meter Entfernung sind gut einen
+    // Bildpunkt breit, und was schmaler ist als ein Bildpunkt, flimmert in
+    // Bewegung, statt zu zeichnen.
+    //
+    // Vier mal drei Felder mit 18 mm werden drei mal zwei mit 26 mm: halb so
+    // viele Sprossen, jede anderthalbmal so breit. Die Teilung eines Ranma soll
+    // man aus dem Raum ablesen koennen — das ist ihr ganzer Zweck.
+    renji: 3,
+    lattice: { cols: 3, rows: 2, barWidth: 0.026, barDepth: 0.018 },
   });
 
   // **Die Bänder enden vor der Ecke, nicht in ihr.**

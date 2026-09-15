@@ -123,6 +123,23 @@ const SHAPES = {
 // Arbeitsraum, und genau daran ist die Blattfarbe hier schon zweimal zu hell
 // geraten. Ein Wert, den man in einem Farbwähler ablesen kann, kann das nicht.
 const PALETTE = {
+  // **Wieder der Ausgangswert — die Verdunklung gehoert ans Material.**
+  //
+  // Der Bambus im Dojo musste zweimal dunkler werden: einmal, weil der Hain als
+  // bereifte Konifere las (x 0,80), und einmal, weil der Himmel dort auf Faktor
+  // 3,2 gestiegen ist (x 0,70). Beides richtig — aber ich habe es in die
+  // **Palette** geschrieben, und die teilt sich der Dojo mit dem Zen-Garten.
+  //
+  // Im Zen-Garten steht andere Beleuchtung: warmes, tiefes Abendlicht statt
+  // Mittagshimmel. Dort war die Palette schon vorher richtig, und x 0,56 hat
+  // die Blattbueschel in harte schwarze Flecken verwandelt. Gemessen im
+  // Bambuskasten des Zen-Regressionsbildes stieg der Anteil unter L 55 von
+  // **4,75 auf 6,37 Prozent** — ein Drittel mehr fast schwarze Bildpunkte.
+  //
+  // Die Palette ist die falsche Stelle fuer eine umgebungsabhaengige
+  // Helligkeit. `foliageMaterial` hat seit jeher ein `color`, und der Dojo
+  // benutzt es jetzt: ein Atlas, zwei Toenungen, kein zusaetzlicher
+  // Texturspeicher und kein zusaetzlicher Zeichenaufruf.
   bamboo: { base: [86, 112, 52], vary: [[74, 100, 44], [102, 128, 58], [120, 140, 66], [66, 92, 42]] },
   maple: { base: [150, 66, 36], vary: [[168, 74, 38], [186, 112, 44], [126, 52, 32], [198, 140, 56]] },
   azalea: { base: [56, 92, 48], vary: [[48, 84, 44], [68, 104, 52], [40, 72, 38], [84, 116, 60]] },
@@ -333,34 +350,96 @@ function cellBlades(kind, cx, cy, R, r) {
   };
 
   if (kind === 'bamboo') {
-    // Bambus wächst in Büscheln an Zweigenden, nicht einzeln.
-    const bunches = 14;
-    for (let k = 0; k < bunches; k++) {
-      const rr = R * 0.50 * Math.sqrt(r());
+    // **Ein Bambuszweig ist eine Fieder, keine Rosette.**
+    //
+    // Bis hierher standen je Zelle 14 Büschel zu 17–25 Blättern, die alle aus
+    // *einem Punkt* in einen Fächer von 2,7 rad ausstrahlten. Das ist die Form
+    // eines Koniferenschopfs, und genau so las sich der Hain auch: als
+    // bereifte Fichte. Der Prüfer hat es so benannt, und der Blick ins
+    // Zeichenverfahren bestätigt es — hier stand nie ein Bambus.
+    //
+    // Ein Bambuszweig ist ein dünner Trieb mit **wechselständigen** Blättern
+    // rechts und links, alle schräg nach vorn, das Ganze überhängend. Der
+    // Trieb selbst ist das Erkennungsmerkmal: Ohne ihn ist jede Blattgruppe
+    // ein Stern, mit ihm ist sie eine Feder.
+    //
+    // Zweig und Blätter teilen sich über `leaf()` **eine** Tiefe. Das ist
+    // nicht Sparsamkeit, sondern nötig: Läge ein fremdes Blatt zwischen Trieb
+    // und Blattansatz, hinge das Blatt neben seinem Zweig statt daran.
+    const zweige = 26;
+    for (let k = 0; k < zweige; k++) {
+      const rr = R * 0.46 * Math.sqrt(r());
       const aa = r() * TAU;
       const bx = cx + Math.cos(aa) * rr;
       const by = cy + Math.sin(aa) * rr;
       const dir = r() * TAU;
-      const n = 17 + Math.floor(r() * 8);
+      const zLen = fitLength(bx, by, dir, R * (0.46 + r() * 0.22), cx, cy, rmax);
+      const grund = pick();
+      const blades = [
+        {
+          x: bx,
+          y: by,
+          ang: dir,
+          len: zLen,
+          curve: (r() - 0.5) * 0.30,
+          shape: 'stem',
+          vein: 'stem',
+          thick: 0.26,
+          base: 0,
+          // Der Trieb ist verholzt und damit dunkler und gelber als das Blatt.
+          tint: [grund[0] * 0.86, grund[1] * 0.74, grund[2] * 0.56],
+        },
+      ];
+      const n = 6 + Math.floor(r() * 4);
+      // Wechselständig: die Seite kippt von Blatt zu Blatt. Ein zufälliges
+      // Vorzeichen je Blatt gäbe gelegentlich drei auf derselben Seite, und
+      // damit wieder Büschel statt Fieder.
+      let seite = r() < 0.5 ? 1 : -1;
       for (let i = 0; i < n; i++) {
-        const ang = dir + (r() - 0.5) * 2.7;
-        let len = R * (0.36 + r() * 0.30) * (1 - 0.28 * (rr / R));
-        len = fitLength(bx, by, ang, len, cx, cy, rmax);
-        leaf([
-          {
-            x: bx + (r() - 0.5) * R * 0.10,
-            y: by + (r() - 0.5) * R * 0.10,
-            ang,
-            len,
-            curve: (r() - 0.5) * 0.55,
-            shape: 'bamboo',
-            vein: 'bamboo',
-            thick: 0.42 + r() * 0.16,
-            base: r() * 0.20,
-            tint: pick(),
-          },
-        ]);
+        const t = 0.16 + (0.84 * (i + 0.5)) / n;
+        const ang = dir + seite * (0.44 + r() * 0.28);
+        const px = bx - zLen * t * Math.sin(dir);
+        const py = by + zLen * t * Math.cos(dir);
+        let len = R * (0.30 + r() * 0.12) * (1 - 0.26 * t);
+        len = fitLength(px, py, ang, len, cx, cy, rmax);
+        blades.push({
+          x: px,
+          y: py,
+          ang,
+          len,
+          // Bambusblätter hängen; die Krümmung geht immer von der Zweigachse
+          // weg, nie zu ihr hin.
+          curve: seite * (0.16 + r() * 0.26),
+          shape: 'bamboo',
+          vein: 'bamboo',
+          thick: 0.42 + r() * 0.16,
+          base: 0.04 + r() * 0.08,
+          tint: pick(),
+        });
+        seite = -seite;
       }
+      // Ein Blatt am Zweigende, sonst hört der Trieb im Nichts auf.
+      blades.push({
+        x: bx - zLen * Math.sin(dir),
+        y: by + zLen * Math.cos(dir),
+        ang: dir + (r() - 0.5) * 0.24,
+        len: fitLength(
+          bx - zLen * Math.sin(dir),
+          by + zLen * Math.cos(dir),
+          dir,
+          R * (0.26 + r() * 0.10),
+          cx,
+          cy,
+          rmax
+        ),
+        curve: (r() - 0.5) * 0.3,
+        shape: 'bamboo',
+        vein: 'bamboo',
+        thick: 0.42 + r() * 0.16,
+        base: 0.06,
+        tint: pick(),
+      });
+      leaf(blades);
     }
   } else if (kind === 'maple') {
     // Handförmig gelappt: fünf Lappen aus einem Punkt, der mittlere am
@@ -897,17 +976,68 @@ function patchWind(shader, uniforms) {
 // gekostet hat. Stattdessen begrenzt der Blickterm die Reichweite: Von der
 // Sonne weg gedreht bleibt nur ein Sockel stehen.
 const TRANS_BODY = /* glsl */ `
+#define TRANS_WRAP 0.70
 #if defined( RE_Direct ) && ( NUM_DIR_LIGHTS > 0 )
   {
     IncidentLight fLight;
     getDirectionalLightInfo( directionalLights[ 0 ], fLight );
     // fLight.direction zeigt zur Lichtquelle. Gegenlicht heißt: Die Normale
     // zeigt vom Licht weg.
-    float fBack = max( 0.0, dot( -fLight.direction, geometryNormal ) );
-    float fWrap = pow( fBack, uTransPower );
+    // **Vorzeichenbehaftet, nicht geklemmt.** Geklemmt lag hier eine Luecke:
+    // Ein Blatt, das quer zur Sonne steht, bekam weder Lambert (dot(N,L) = 0)
+    // noch Durchleuchtung (fBack = 0) — und die Hemisphaere gibt einer
+    // waagerechten Normalen auch nichts. Das Ergebnis war rgb(21, 31, 3)
+    // mitten in einem Buschel, dessen Median bei L 165 liegt: die schwarzen
+    // Splitter, die der Pruefer in fuenf von sechs Bildern gleichzeitig sah.
+    //
+    // Der Blattatlas macht die Luecke breit. Gemessen ueber die Blattflaeche
+    // des Bambusatlas bei normalScale 1,15 kippt die Schattierungsnormale im
+    // Median um 47,9 Grad gegen die Karte, im 90. Hundertstel um 66,3. Die
+    // Karte kann also frontal stehen und ihre Blaetter trotzdem quer.
+    float fBack = -dot( fLight.direction, normal );
+    // Ein Blatt im Bestand steht nie im Schwarzen: Was die Sonne nicht direkt
+    // trifft, bekommt Licht vom Nachbarblatt. TRANS_WRAP verbreitert die
+    // Durchleuchtung ueber die Quere hinweg, ohne dem frontal beschienenen
+    // Blatt etwas aufzuschlagen — dort hat Lambert laengst uebernommen:
+    //
+    //     quer zur Sonne   fBack  0,0   →  0,17
+    //     53 Grad zur Sonne       -0,6  →  0,01
+    //     frontal                 -1,0  →  0,00
+    //     volles Gegenlicht       +1,0  →  1,00
+    //
+    // 0,70 ist gemessen, nicht gesetzt. Gemessen im Bambusbuschel von
+    // f-grove, Anteil der Laubbildpunkte unter L 40 gegen den Zwischenabstand
+    // als Mass fuer die verbliebene Modellierung:
+    //
+    //     ohne Umgriff   p01  24,4   IQA 47,9   unter L 40  2,69 %
+    //     0,70           p01  71,7   IQA 36,1   unter L 40  0,13 %
+    //     0,96           p01  81,1   IQA 32,1   unter L 40  0,02 %
+    //     1,53           p01  91,7   IQA 24,6   unter L 40  0,00 %
+    //
+    // Die 47,9 des Ausgangsstands sind kein Verlust: Sie bestanden zum
+    // grossen Teil aus den schwarzen Splittern selbst. Breiter als 0,70
+    // kostet Modellierung, ohne noch Schwarz zu finden.
+    float fWrap = pow( max( 0.0, ( fBack + TRANS_WRAP ) / ( 1.0 + TRANS_WRAP ) ), uTransPower );
     // Blickabhängigkeit: Ein Blatt leuchtet am stärksten, wenn man in die
-    // Sonne schaut. geometryViewDir zeigt zur Kamera.
-    float fView = max( 0.0, dot( geometryViewDir, fLight.direction ) );
+    // Sonne schaut.
+    //
+    // **Das Vorzeichen war falsch, und zwar gegen den eigenen Kommentar.**
+    // geometryViewDir zeigt VOM Fragment ZUR Kamera, fLight.direction vom
+    // Fragment zur Lichtquelle. Wer in die Sonne blickt, steht ihr gegenüber —
+    // die beiden Vektoren zeigen dann in entgegengesetzte Richtungen und ihr
+    // Skalarprodukt ist **negativ**. Mit max(0, dot(...)) lief der Effekt
+    // genau dort auf seinem Sockel von 0,40, wo er sein Maximum haben sollte,
+    // und auf Maximum, wenn die Sonne im Rücken steht.
+    //
+    // Gemessen auf der Insel in 5-backlight, wo die Kamera fast genau in die
+    // Sonne sieht (Blickachse mal Lichtrichtung = +0,913):
+    //
+    //     geometryViewDir · fLight.direction = -0,913  →  geklemmt auf 0
+    //
+    // Das ist die Erklärung für den Prüferbefund „das Gegenlichtbild ist vom
+    // Vorderlichtbild nicht zu unterscheiden": Es war nicht zu wenig Effekt,
+    // es war der Effekt am falschen Ort.
+    float fView = max( 0.0, -dot( geometryViewDir, fLight.direction ) );
     float fGlow = fWrap * mix( 0.40, 1.0, fView * fView );
     vec3 fTint = mix( diffuseColor.rgb, uTransColor, 0.5 );
     reflectedLight.directDiffuse += fTint * fLight.color * ( fGlow * uTranslucency * RECIPROCAL_PI );
@@ -928,6 +1058,18 @@ const TRANS_BODY = /* glsl */ `
 export function foliageMaterial({
   atlas,
   color = 0xffffff,
+  // **Entsaettigung gehoert ans Material, nicht in die Palette.**
+  //
+  // `color` kann nur kanalweise nach unten multiplizieren und taugt deshalb
+  // zum Abdunkeln, nicht zum Entsaettigen: Ein rotes Blatt weniger rot zu
+  // machen hiesse, Gruen und Blau anzuheben, und das kann eine Multiplikation
+  // nicht. Die Palette waere der andere Hebel — und genau der ist verboten,
+  // seit eine Verdunklung fuer den Dojo dort das Bambuslaub des Zengartens
+  // mitgenommen hat (Dojo-Log, Paket VI).
+  //
+  // Also ein Mischen zur eigenen Helligkeit hin, je Material einstellbar.
+  // Vorgabe 0: Wer nichts angibt, bekommt Bild fuer Bild dasselbe wie vorher.
+  entsaettigung = 0,
   translucency = 0.9,
   windStrength = 0.06,
   transColor = 0xd9e79c,
@@ -945,6 +1087,7 @@ export function foliageMaterial({
     uTime: { value: 0 },
     uWind: { value: windStrength },
     uTranslucency: { value: translucency },
+    uEntsaett: { value: entsaettigung },
     uTransPower: { value: transPower },
     uTransColor: { value: new THREE.Color(transColor) },
   };
@@ -968,6 +1111,7 @@ export function foliageMaterial({
     patchWind(shader, uniforms);
     shader.fragmentShader =
       `
+uniform float uEntsaett;
 uniform float uTranslucency;
 uniform float uTransPower;
 uniform vec3 uTransColor;
@@ -976,6 +1120,16 @@ uniform vec3 uTransColor;
         '#include <lights_fragment_end>',
         '#include <lights_fragment_end>\n' + TRANS_BODY
       );
+    // Auf der Albedo, nicht auf dem Ergebnis: So bleibt die Entsaettigung von
+    // Sonnenstand und Schatten unabhaengig.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `#include <map_fragment>
+       if (uEntsaett > 0.0) {
+         float fGrau = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+         diffuseColor.rgb = mix(diffuseColor.rgb, vec3(fGrau), uEntsaett);
+       }`
+    );
   };
   // Ohne eigenen Schlüssel teilt three das kompilierte Programm mit jedem
   // anderen Standardmaterial gleicher Konfiguration – das Laub bekäme dann
