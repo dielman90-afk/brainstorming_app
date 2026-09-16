@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { createDojoEnvironment } from './dojo/index.js';
+import { onFontsReady } from './fonts.js';
 import { makeIslandWalk, makeHeightFieldWalk, makePlanetWalk } from './walkable.js';
 import { heightToMaps, scaleUV } from './dojo/materials.js';
 import { mossMaterial, waterMaterial, updateWater } from './dojo/ground.js';
@@ -17434,108 +17435,144 @@ function makeRadiolaConsole() {
   const PW = plate.width;
   const PH = plate.height;
 
-  p.fillStyle = '#585640';
-  p.fillRect(0, 0, PW, PH);
-  // Patina: fleckige Aufhellungen und dunkle Schlieren
-  for (let i = 0; i < 240; i++) {
-    const x = hashNoise(i, 3, 1) * PW;
-    const y = hashNoise(i, 9, 4) * PH;
-    const r = 12 + hashNoise(i, 5, 7) * 60;
-    const g = p.createRadialGradient(x, y, 0, x, y, r);
-    const light = hashNoise(i, 2, 8) > 0.5;
-    g.addColorStop(0, light ? 'rgba(160,158,128,0.16)' : 'rgba(38,36,26,0.16)');
-    g.addColorStop(1, 'rgba(0,0,0,0)');
-    p.fillStyle = g;
-    p.fillRect(x - r, y - r, r * 2, r * 2);
-  }
+  // **Der Text auf der Schautafel braucht eine Schrift, die es noch nicht
+  // gibt.** Die Beschriftung ist in Space Grotesk gesetzt, und Canvas-Text
+  // wird genau einmal gezeichnet: Ist die Webschrift dabei noch nicht
+  // geladen, steht dort dauerhaft der Ersatzzeichensatz.
+  //
+  // Aufgefallen ist das erst, als die Umgebungen nicht mehr alle beim Start
+  // gebaut wurden. Vorher entstand das Konstrukt rund fuenfzehn Sekunden nach
+  // dem Laden — da war jede Schrift laengst da, und der Fehler war verdeckt.
+  // Jetzt entsteht es in dem Augenblick, in dem jemand es waehlt, und das
+  // kann die erste Sekunde sein. Gemessen hat sich die Beschriftung damit
+  // sichtbar geaendert (0,026 % der Bildpunkte, Hoechstabweichung 43).
+  //
+  // `textPanel.js` loest das seit Langem richtig: einmal zeichnen, sich bei
+  // `onFontsReady` anmelden, nach dem Laden genau einmal neu zeichnen. Die
+  // Schautafel macht es jetzt genauso.
+  const zeichneTafel = () => {
 
-  const ink = '#241f16';
-  const light = '#c9c6a6';
+    p.fillStyle = '#585640';
+    p.fillRect(0, 0, PW, PH);
+    // Patina: fleckige Aufhellungen und dunkle Schlieren
+    for (let i = 0; i < 240; i++) {
+      const x = hashNoise(i, 3, 1) * PW;
+      const y = hashNoise(i, 9, 4) * PH;
+      const r = 12 + hashNoise(i, 5, 7) * 60;
+      const g = p.createRadialGradient(x, y, 0, x, y, r);
+      const light = hashNoise(i, 2, 8) > 0.5;
+      g.addColorStop(0, light ? 'rgba(160,158,128,0.16)' : 'rgba(38,36,26,0.16)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      p.fillStyle = g;
+      p.fillRect(x - r, y - r, r * 2, r * 2);
+    }
 
-  // AWA-Emblem oben
-  p.strokeStyle = ink;
-  p.lineWidth = 4;
-  p.strokeRect(PW / 2 - 62, 44, 124, 46);
-  p.fillStyle = ink;
-  p.font = '700 34px "Space Grotesk", system-ui, sans-serif';
-  p.textAlign = 'center';
-  p.textBaseline = 'middle';
-  p.fillText('AWA', PW / 2, 68);
+    const ink = '#241f16';
+    const light = '#c9c6a6';
 
-  // Auf der Spitze stehendes Dreieck
-  const cx = PW / 2;
-  const top = 130;
-  const half = 178;
-  const bottom = 430;
-  p.beginPath();
-  p.moveTo(cx - half, top);
-  p.lineTo(cx + half, top);
-  p.lineTo(cx, bottom);
-  p.closePath();
-  p.lineWidth = 6;
-  p.strokeStyle = ink;
-  p.stroke();
-  p.strokeStyle = light;
-  p.lineWidth = 2;
-  p.beginPath();
-  p.moveTo(cx - half + 14, top + 12);
-  p.lineTo(cx + half - 14, top + 12);
-  p.lineTo(cx, bottom - 26);
-  p.closePath();
-  p.stroke();
+    // AWA-Emblem oben
+    p.strokeStyle = ink;
+    p.lineWidth = 4;
+    p.strokeRect(PW / 2 - 62, 44, 124, 46);
+    p.fillStyle = ink;
+    p.font = '700 34px "Space Grotesk", system-ui, sans-serif';
+    p.textAlign = 'center';
+    p.textBaseline = 'middle';
+    p.fillText('AWA', PW / 2, 68);
 
-  // „DEEP IMAGE" gesperrt in der oberen Dreieckshälfte
-  p.fillStyle = ink;
-  p.font = '600 30px "Space Grotesk", system-ui, sans-serif';
-  p.save();
-  p.translate(cx, top + 52);
-  p.letterSpacing = '14px';
-  // Etwas enger als frueher (104): Der erhabene Dreiecksrahmen verdeckt aus
-  // schraeger Sicht, was zu nah an der Kante steht: Bei 104 fehlte von schraeg
-  // vorn das „D". Der Ausgleich hat zwei Grenzen und 88 liegt dazwischen — bei
-  // 80 stossen die beiden Woerter von vorn gesehen zusammen und lesen als
-  // „DEEPIMAGE", bei 98 verschwindet das D wieder.
-  p.fillText('DEEP', -88, 0);
-  p.fillText('IMAGE', 88, 0);
-  p.restore();
+    // Auf der Spitze stehendes Dreieck
+    const cx = PW / 2;
+    const top = 130;
+    const half = 178;
+    const bottom = 430;
+    p.beginPath();
+    p.moveTo(cx - half, top);
+    p.lineTo(cx + half, top);
+    p.lineTo(cx, bottom);
+    p.closePath();
+    p.lineWidth = 6;
+    p.strokeStyle = ink;
+    p.stroke();
+    p.strokeStyle = light;
+    p.lineWidth = 2;
+    p.beginPath();
+    p.moveTo(cx - half + 14, top + 12);
+    p.lineTo(cx + half - 14, top + 12);
+    p.lineTo(cx, bottom - 26);
+    p.closePath();
+    p.stroke();
 
-  // Rundes Emblem in der Dreiecksmitte
-  const ex = cx;
-  const ey = top + 155;
-  const ring = p.createRadialGradient(ex, ey, 4, ex, ey, 46);
-  ring.addColorStop(0, '#3a362a');
-  ring.addColorStop(0.55, '#7d7a5e');
-  ring.addColorStop(1, '#2e2b20');
-  p.fillStyle = ring;
-  p.beginPath();
-  p.arc(ex, ey, 46, 0, Math.PI * 2);
-  p.fill();
-  p.strokeStyle = ink;
-  p.lineWidth = 4;
-  p.stroke();
-  p.beginPath();
-  p.arc(ex, ey, 17, 0, Math.PI * 2);
-  p.fillStyle = '#1d1a13';
-  p.fill();
+    // „DEEP IMAGE" gesperrt in der oberen Dreieckshälfte
+    p.fillStyle = ink;
+    p.font = '600 30px "Space Grotesk", system-ui, sans-serif';
+    p.save();
+    p.translate(cx, top + 52);
+    p.letterSpacing = '14px';
+    // Etwas enger als frueher (104): Der erhabene Dreiecksrahmen verdeckt aus
+    // schraeger Sicht, was zu nah an der Kante steht: Bei 104 fehlte von schraeg
+    // vorn das „D". Der Ausgleich hat zwei Grenzen und 88 liegt dazwischen — bei
+    // 80 stossen die beiden Woerter von vorn gesehen zusammen und lesen als
+    // „DEEPIMAGE", bei 98 verschwindet das D wieder.
+    p.fillText('DEEP', -88, 0);
+    p.fillText('IMAGE', 88, 0);
+    p.restore();
 
-  // „RADIOLA TELEVISION" unten
-  p.fillStyle = ink;
-  p.font = '600 27px "Space Grotesk", system-ui, sans-serif';
-  p.save();
-  p.letterSpacing = '9px';
-  p.fillText('RADIOLA TELEVISION', cx, 470);
-  p.restore();
+    // Rundes Emblem in der Dreiecksmitte
+    const ex = cx;
+    const ey = top + 155;
+    const ring = p.createRadialGradient(ex, ey, 4, ex, ey, 46);
+    ring.addColorStop(0, '#3a362a');
+    ring.addColorStop(0.55, '#7d7a5e');
+    ring.addColorStop(1, '#2e2b20');
+    p.fillStyle = ring;
+    p.beginPath();
+    p.arc(ex, ey, 46, 0, Math.PI * 2);
+    p.fill();
+    p.strokeStyle = ink;
+    p.lineWidth = 4;
+    p.stroke();
+    p.beginPath();
+    p.arc(ex, ey, 17, 0, Math.PI * 2);
+    p.fillStyle = '#1d1a13';
+    p.fill();
 
-  // Angedeutete Typenschild-Zeilen
-  p.fillStyle = 'rgba(36,31,22,0.55)';
-  for (let i = 0; i < 3; i++) {
-    const w = 250 - i * 40;
-    p.fillRect(cx - w / 2, 502 + i * 13, w, 4);
-  }
+    // „RADIOLA TELEVISION" unten
+    p.fillStyle = ink;
+    p.font = '600 27px "Space Grotesk", system-ui, sans-serif';
+    p.save();
+    p.letterSpacing = '9px';
+    p.fillText('RADIOLA TELEVISION', cx, 470);
+    p.restore();
+
+    // Angedeutete Typenschild-Zeilen
+    p.fillStyle = 'rgba(36,31,22,0.55)';
+    for (let i = 0; i < 3; i++) {
+      const w = 250 - i * 40;
+      p.fillRect(cx - w / 2, 502 + i * 13, w, 4);
+    }
+
+  };
+  zeichneTafel();
 
   const plateTex = new THREE.CanvasTexture(plate);
   plateTex.colorSpace = THREE.SRGBColorSpace;
   plateTex.anisotropy = 4;
+  // Nach dem Laden der Schrift neu zeichnen. **Zwei Wege, und beide werden
+  // gebraucht.** `onFontsReady` feuert, sobald die in `fonts.js` erzwungenen
+  // Familien da sind; das ist der Normalfall. Es bleibt aber ein Wettlauf: Wird
+  // das Konstrukt in genau dem Augenblick gebaut, in dem die Zusage schon
+  // aufgeloest, die Schriftdatei aber noch nicht in der Schriftenliste des
+  // Dokuments ist, zeichnet der Ersatzzeichensatz und niemand kaeme noch
+  // einmal vorbei. `document.fonts.ready` schliesst diese Luecke, weil es erst
+  // aufloest, wenn das Dokument mit dem Laden ganz fertig ist.
+  const neuZeichnen = () => {
+    zeichneTafel();
+    plateTex.needsUpdate = true;
+  };
+  onFontsReady(neuZeichnen);
+  if (typeof document !== 'undefined' && document.fonts?.ready) {
+    document.fonts.ready.then(neuZeichnen).catch(() => {});
+  }
   const plateMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(W - 0.07, H - 0.08),
     new THREE.MeshStandardMaterial({ map: plateTex, roughness: 0.62, metalness: 0.35 })
@@ -18655,21 +18692,111 @@ function createMatrixEnvironment() {
   };
 }
 
+/**
+ * Eine Umgebung, die erst gebaut wird, wenn jemand sie braucht.
+ *
+ * **Warum das nötig ist.** Bis hierher baute `createEnvironments()` alle fünf
+ * Umgebungen beim Start und schaltete danach nur `group.visible` um.
+ * Unsichtbare Netze werden zwar nicht gezeichnet, ihre Texturen und Puffer
+ * liegen aber weiter im Grafikspeicher — die Brille trägt also immer die
+ * Summe, nie den Einzelwert. Gemessen mit `tools/gesamtspeicher.mjs`:
+ *
+ *     Umgebung        Texturen       MB     Dreiecke
+ *       env-island          21    17,17      369 963
+ *       env-night            9     8,00      192 386
+ *       env-zen             34    21,86       96 351
+ *       env-matrix           6     1,98       50 898
+ *       env-dojo            36    42,77      226 970
+ *       ganze Szene        180   117,24      936 568
+ *
+ * Das Budget lautet 60 MB und 350 000 Dreiecke **je Umgebung**. Die Szene trug
+ * das Doppelte an Textur und das 2,7fache an Geometrie, und der Aufbau kostete
+ * beim Start **16,8 Sekunden** (`domComplete` bei warmem Übersetzer,
+ * `domInteractive` dagegen 48 ms — die Seite selbst ist sofort da).
+ *
+ * Die Vorlage für die Abhilfe stand schon im Quelltext: Die Umgebungskarte
+ * (PMREM) wird bereits so behandelt, mit genau dieser Begründung — „das wäre
+ * Startzeit für jeden, der die Umgebung nie aufruft".
+ *
+ * **Warum ein Stellvertreter und keine Liste von Feldern.** Die fünf
+ * Umgebungen liefern zusammen dreizehn verschiedene Felder (`group`, `name`,
+ * `background`, `fog`, `sceneAmbient`, `blickNeigung`, `weltHeimat`, `walk`,
+ * `update`, `ensureEnvironment`, `environment`, `setQuality`, dazu was noch
+ * kommt). Eine von Hand gepflegte Weiterleitungsliste vergisst früher oder
+ * später eines davon, und der Fehler wäre still: ein `undefined` statt eines
+ * Nebels. Der Stellvertreter leitet **alles** weiter, was er nicht selbst
+ * kennt, und baut dabei.
+ *
+ * Selbst kennt er genau drei Dinge, und die dürfen nicht bauen:
+ *
+ *   • `id` — `main.js` sucht damit die gemerkte Umgebung, und der Prüfstand
+ *     sucht damit seine Zielumgebung. Beides läuft über **alle** fünf.
+ *   • `sichtbar(ja)` — was nicht gebaut ist, ist auch nicht sichtbar; nur das
+ *     Einschalten baut.
+ *   • `setQuality(stufe)` — läuft ebenfalls über alle fünf. Die Stufe wird
+ *     gemerkt und beim Bauen nachgeholt.
+ */
+function traegeUmgebung(id, bauen, scene) {
+  let echt = null;
+  let stufe = null;
+  const holen = () => {
+    if (!echt) {
+      echt = bauen();
+      echt.group.visible = false;
+      scene.add(echt.group);
+      if (stufe !== null) echt.setQuality?.(stufe);
+    }
+    return echt;
+  };
+  const eigen = {
+    id,
+    get gebaut() {
+      return echt !== null;
+    },
+    sichtbar(ja) {
+      if (!ja && !echt) return;
+      holen().group.visible = ja;
+    },
+    setQuality(neu) {
+      stufe = neu;
+      return echt?.setQuality?.(neu);
+    },
+  };
+  return new Proxy(eigen, {
+    get(ziel, schluessel) {
+      if (schluessel in ziel) return ziel[schluessel];
+      return holen()[schluessel];
+    },
+    set(ziel, schluessel, wert) {
+      if (schluessel in ziel) {
+        ziel[schluessel] = wert;
+        return true;
+      }
+      holen()[schluessel] = wert;
+      return true;
+    },
+    has(ziel, schluessel) {
+      return schluessel in ziel || (echt !== null && schluessel in echt);
+    },
+  });
+}
+
 export function createEnvironments(scene) {
-  const environments = [
-    createIslandEnvironment(),
-    createNightEnvironment(),
-    createZenEnvironment(),
-    createMatrixEnvironment(),
-    // **Angehängt, nicht eingeschoben.** Die Reihenfolge ist der Index, den
-    // `cycleEnvironment` durchläuft und den die Testskripte hart verdrahtet
-    // haben (Konstrukt = 3). Ein Einschub in der Mitte würde jedes davon still
-    // auf die falsche Welt zeigen lassen.
-    createDojoEnvironment(),
+  // **Die Reihenfolge ist der Index, den `cycleEnvironment` durchläuft** und
+  // den die Testskripte hart verdrahtet haben (Konstrukt = 3). Ein Einschub in
+  // der Mitte würde jedes davon still auf die falsche Welt zeigen lassen.
+  // Deshalb steht das Dojo angehängt und nicht eingeschoben.
+  //
+  // Die Kennung steht hier doppelt — einmal hier, einmal im Rückgabewert der
+  // Baufunktion. Sie muss bekannt sein, **bevor** gebaut wird, denn `main.js`
+  // sucht die gemerkte Umgebung über sie. Wer eine ändert, ändert beide; der
+  // Prüfstand unten schlägt sonst Alarm.
+  const bauplaene = [
+    ['island', createIslandEnvironment],
+    ['night', createNightEnvironment],
+    ['zen', createZenEnvironment],
+    ['matrix', createMatrixEnvironment],
+    ['dojo', createDojoEnvironment],
   ];
-  for (const env of environments) {
-    env.group.visible = false;
-    scene.add(env.group);
-  }
-  return environments;
+  return bauplaene.map(([id, bauen]) => traegeUmgebung(id, bauen, scene));
 }

@@ -88,3 +88,89 @@ mehrere Bilder verteilt liefe.
 **Noch nicht gebaut.** Der Umbau berührt `main.js` an mehreren Stellen und
 damit Karten, Zonen und die Weltheimat des Planeten; er gehört abgesprochen und
 nicht nebenbei gemacht.
+
+---
+
+## Paket 1 — Umgebungen werden erst gebaut, wenn sie gewählt werden
+
+### Was gebaut wurde
+
+`createEnvironments()` gibt jetzt **Stellvertreter** zurück statt fertiger
+Umgebungen. Gebaut wird beim ersten Zugriff auf irgendein Feld; `scene.add()`
+und das Nachholen einer schon gesetzten Qualitätsstufe passieren dabei.
+
+Der Stellvertreter kennt genau drei Dinge selbst, und die dürfen nicht bauen:
+
+* **`id`** — `main.js` sucht damit die gemerkte Umgebung, der Prüfstand seine
+  Zielumgebung. Beides läuft über **alle** fünf.
+* **`sichtbar(ja)`** — was nicht gebaut ist, ist auch nicht sichtbar; nur das
+  Einschalten baut. Die Zeile in `applyEnvironment()`, die vorher
+  `env.group.visible` für alle fünf setzte, hätte sonst weiter alle gebaut.
+* **`setQuality(stufe)`** — läuft ebenfalls über alle fünf; die Stufe wird
+  gemerkt und beim Bauen nachgeholt.
+
+Alles andere leitet ein `Proxy` weiter. **Bewusst kein von Hand gepflegtes
+Feldverzeichnis:** Die fünf Umgebungen liefern zusammen dreizehn verschiedene
+Felder, und eine Liste vergisst früher oder später eines davon — der Fehler wäre
+still, ein `undefined` statt eines Nebels.
+
+### Gemessen
+
+    Ladezeit bis zum ersten Bild, Uebersetzer warm
+      vorher   domInteractive  48 ms   domComplete  16 772 ms
+      nachher  domInteractive  34 ms   domComplete   1 024 ms
+
+    Texturspeicher der ganzen Szene beim Start
+      vorher   117,24 MB   180 Texturen   936 568 Dreiecke
+      nachher   40,96 MB    89 Texturen         0 Dreiecke
+
+**Der Aufbau fällt von 16,8 auf 1,0 Sekunden**, und beim Start liegt keine
+einzige Umgebung im Speicher. Die verbleibenden 40,96 MB sind die Werkzeuge —
+Karten, Whiteboard, Tastatur, Bedienflächen. Das ist der nächste Posten, wenn
+einer gebraucht wird.
+
+### Was das nicht löst
+
+Der `🌐`-Knopf schaltet **zyklisch** weiter. Wer von Passthrough bis zum Dojo
+durchklickt, baut auf dem Weg dorthin alle vier davor — jede einmal, danach nie
+wieder. Der Start ist also schnell, der erste Durchlauf durch alle Umgebungen
+kostet dieselbe Zeit wie früher, nur verteilt. Freigegeben wird weiterhin
+nichts; wer alle fünf besucht hat, trägt danach alle.
+
+Vollständig wäre es erst mit zwei weiteren Schritten: den Aufbau über mehrere
+Bilder verteilen, und beim Wechsel wieder freigeben.
+
+### Ein alter Fehler, den erst das Umbauen sichtbar gemacht hat
+
+Nach der Umstellung wich das Konstrukt in der Regressionsaufnahme um 0,030 %
+der Bildpunkte ab, Höchstabweichung 43 — und zwar **ausschliesslich in den drei
+Schriftzügen** auf der Radio-Schautafel (AWA, DEEP IMAGE, RADIOLA TELEVISION).
+Zweimal gerendert war das Ergebnis bitgleich mit sich selbst, also kein
+Zeitrauschen.
+
+Der Grund: `createEnvironments()` lief **synchron** beim Laden des Moduls.
+JavaScript hat einen Faden — während dieses siebzehn Sekunden langen Blocks
+konnte **keine** Schriftzusage auflösen. Die Schautafel wurde also mit dem
+Ersatzzeichensatz gezeichnet und nie neu gezeichnet. Nachgemessen:
+
+    "RADIOLA TELEVISION", 600 27px, Laufweite 9 px
+      Space Grotesk   421,8 px
+      Ersatzschrift   485,1 px
+
+Der alte Stand war der breitere. **Der neue Stand ist der richtige** — das
+Konstrukt zeigt zum ersten Mal die Schrift, in der es gesetzt ist.
+
+Damit das nicht vom Zeitpunkt abhängt, meldet sich die Schautafel jetzt auf
+zwei Wegen zum Nachzeichnen an: `onFontsReady` aus `fonts.js` für den
+Normalfall und `document.fonts.ready` für den Wettlauf, in dem die Zusage schon
+aufgelöst, die Datei aber noch nicht eingetragen ist. Dazu fehlte in
+`fonts.js` die Familie **Space Grotesk** in der Liste der erzwungenen Schriften
+— angefordert wurde sie nie, `fonts.ready` löste also auf, bevor sie da war.
+
+### Regression
+
+Alle sechs Zen-Kameras **bitgleich**, Insel und Nachthimmel **bitgleich**, Dojo
+Δmax 4 auf 0,009 %. Konstrukt 0,030 % — die korrigierte Schrift, siehe oben.
+Budget des Zen-Gartens unverändert (96 Draw-Calls, 130 762 Dreiecke, 21,86 MB).
+`npm run build` grün, Konsole frei von Errors und Warnings. Bildstand
+`tools/shots/zen-82`.
