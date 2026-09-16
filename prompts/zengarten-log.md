@@ -5446,3 +5446,76 @@ Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 4 auf 0,009 %. Eine
 Shader-Konstante kann Draw-Calls, Dreiecke und Texturspeicher nicht ändern;
 die Zahlen aus `zen-80` gelten unverändert (96 / 130 762 / 21,86 MB).
 `npm run build` grün, Konsole sauber. Bildstand `tools/shots/zen-81`.
+
+## Paket BD — Leerer Horizont: die fernen Hügel sind entfallen
+
+**Auf Wunsch des Nutzers, und beim dritten Anlauf richtig verstanden.**
+
+Er hatte zweimal geschrieben: „entferne alle Büsche am äusseren Rand, diese
+sind überflüssig" und danach „die Hecken sind noch da". Beim ersten Mal habe ich
+die **Karikomi** entfernt — geschnittene Sträucher, die im Garten standen.
+Gemeint war etwas anderes, und ein Bildschirmfoto aus der Brille hat es
+geklärt: Aus Augenhöhe liest das durchgehende grüne Band der fernen Hügel
+selbst als **Hecke**. Auf die Rückfrage, ob der Horizont leer sein soll oder nur
+die Bäumchen weg: **leerer Horizont.**
+
+Die Hügel waren die Antwort auf einen früheren Prüferbefund („keine Welt hinter
+dem Garten") und sind zuletzt in Paket BB ausgebaut worden — drei Tiefenbänder,
+achtzehn Gruppen, Bäume auf den Flanken. Sie haben ihre Aufgabe erfüllt; der
+Nutzer will sie trotzdem nicht, und das ist seine Entscheidung.
+`makeFerneHuegel()` bleibt im Quelltext stehen; wer sie zurückholen will, hängt
+eine Zeile wieder ein. **Ohne Folgen für den Zufallsstrom** — die Funktion zieht
+aus einem eigenen Strom und nimmt `rand` nicht einmal entgegen.
+
+### Und dann stand eine Kante da, wo vorher die Hügel waren
+
+Die Hügel haben verdeckt, dass die Bodenebene an einem **geometrischen Rand**
+aufhört: Der Saum endet bei 52 m, dahinter ist nur noch die Himmelskuppel.
+Gemessen in `a-eyelevel` über die Horizontlinie, grösster Sprung zwischen zwei
+benachbarten Bildzeilen:
+
+    x 200: 17,4 Stufen     x 640: 18,8 Stufen     x 1100: 13,5 Stufen
+
+Das ist genau die „Mauer aus Dunst", gegen die die Hügel einmal gebaut wurden.
+
+**Der naheliegende Griff war der falsche.** Ich habe zuerst die Nebel-Endweite
+von 62 auf 46 gezogen, damit der Saum an seinem Rand vollständig im Nebel
+verschwindet. Das Ergebnis war **schlechter** (24,1 / 18,9 / 26,2), und der
+Grund ist eine Zahl, die ich vorher hätte nachsehen können:
+
+    Nebelfarbe 0xecd9bb, vollstaendig gesaettigt gerendert   206,4 / 183,5 / 144,4
+    Himmel unmittelbar ueber der Kante                       202,9 / 168,3 / 119,1
+
+**Die Nebelfarbe ist heller und kühler, als der Himmel dort ist.** Mehr Nebel
+schiebt den Boden also von der Himmelsfarbe **weg**, nicht zu ihr hin. Im Log
+stand an anderer Stelle, die Horizontfarbe der Kuppel sei dieselbe wie die
+Nebelfarbe — das war nachweislich falsch.
+
+### Die Reihe
+
+Nebelfarbe zum gemessenen Himmel hin verschoben, Endweite unverändert bei 62:
+
+    Nebelfarbe   Differenz Boden−Himmel   groesste Spruenge
+    0xecd9bb            6,8 Stufen        17,4 / 18,8 / 13,5
+    0xe8c79a            4,4 Stufen        11,8 / 10,8 /  7,1
+    0xe3ba84            2,6 Stufen         7,2 /  5,3 /  3,0
+
+Bei 0xe3ba84 liegt der grösste verbleibende Sprung in der Grössenordnung der
+Fleckung des Saums selbst. Die Horizontlinie ist damit keine Linie mehr.
+
+**Der Nebel berührt sonst nichts.** Er beginnt bei 20 m, der Kies endet bei 20 m
+— zwischen beiden liegt nach dem Entfernen der Hügel nur noch der Saum. Die
+Sonnenscheibe und die Kuppel stehen auf `fog: false`.
+
+### Budget
+
+    Draw-Calls       95 / 120     (vorher 96)
+    Dreiecke     96 920 / 350 000  (vorher 130 762, also −33 842)
+    Texturen      21,86 / 60       unveraendert
+
+Die 33 842 Dreiecke sind die achtzehn Hügelgruppen mit ihren Bäumen.
+
+### Regression
+
+Insel, Konstrukt und Nachthimmel **bitgleich**, Dojo Δmax 5 auf 0,010 %.
+`npm run build` grün, Konsole sauber. Bildstand `tools/shots/zen-83`.

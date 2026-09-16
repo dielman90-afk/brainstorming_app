@@ -14208,7 +14208,29 @@ function createZenEnvironment() {
 
   // Der Saum liegt unter allem anderen und wird zuerst gezeichnet.
   group.add(makeSandSaum());
-  group.add(makeFerneHuegel());
+  // **Die fernen Huegel sind entfallen — auf Wunsch des Nutzers.**
+  //
+  // Gebaut wurden sie als Antwort auf einen frueheren Pruefbefund („keine Welt
+  // hinter dem Garten, der Sand endet an einer Mauer aus Dunst"), und sie haben
+  // diese Aufgabe erfuellt: drei Tiefenbaender, vom Nebel gestaffelt, mit
+  // Baeumen auf den Flanken.
+  //
+  // Der Nutzer sieht sie anders, und zwar zweimal hintereinander: „entferne
+  // alle Buesche am aeusseren Rand, diese sind ueberfluessig" und danach „die
+  // Hecken sind noch da". Aus Augenhoehe ist das durchgehende gruene Band am
+  // Horizont naemlich keine Ferne, sondern eine **Hecke** — genau das, was ein
+  // Karesansui nicht haben soll, wenn er in die Weite laufen darf. Auf die
+  // Rueckfrage, ob es der leere Horizont sein soll oder nur die Baeumchen weg:
+  // **leerer Horizont.**
+  //
+  // `makeFerneHuegel()` bleibt im Quelltext stehen — gebaut, gemessen und in
+  // zwei Paketen (BB und davor) verbessert. Wer sie zurueckholen will, haengt
+  // diese eine Zeile wieder ein.
+  //
+  // **Ohne Folgen fuer den Zufallsstrom.** Die Funktion zieht aus einem eigenen
+  // Strom (`mulberry32(0x5e17a0)`) und nimmt `rand` nicht einmal entgegen; was
+  // danach im Garten gebaut wird, verschiebt sich nicht.
+  // group.add(makeFerneHuegel());
 
   // Das Kiesbett. Radius unverändert 20 m; die Harkspur entsteht jetzt
   // rechnerisch aus der Weltposition, siehe `sandMaterial()`.
@@ -15960,7 +15982,7 @@ function createZenEnvironment() {
     //     far 82   Huegel 129,1   Himmel 162,6   Differenz  −33,5
     //
     // 82 gibt den Hügeln bereits wieder Sättigung und nimmt ihnen die Ferne.
-    fog: new THREE.Fog(0xecd9bb, 20, 62),
+    fog: new THREE.Fog(0xe3ba84, 20, 62),
     group,
 
     // **Die Grundleuchte der App wird für diese Umgebung heruntergenommen.**
