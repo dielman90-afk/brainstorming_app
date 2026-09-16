@@ -80,6 +80,24 @@ export const SHOTS = [
     look: [1.0, -0.15, 1.6],
     fov: 60,
   },
+  {
+    // **Angehaengt, nicht geaendert** — die sechs darueber bleiben, wie sie
+    // sind, sonst waeren alle Vergleichsbilder wertlos.
+    //
+    // Der Nutzer hat ein Bildschirmfoto aus der Brille geschickt, auf dem die
+    // Wiese ein wirbeliges Maserungsmuster traegt. In keiner der sechs Kameras
+    // oben war davon etwas zu sehen — **weil keine davon steil nach unten
+    // schaut.** Genau das tut man in der Brille aber staendig: Man geht, und
+    // man sieht auf den Boden vor den eigenen Fuessen.
+    //
+    // Augenhoehe 1,7 m, rund 55 Grad unter der Waagerechten, Blickpunkt knapp
+    // zwei Meter vor den Fuessen.
+    name: '7-grasblick',
+    title: 'Steil hinab auf das Gras vor den Fuessen',
+    pos: [3.0, 1.7, 10.0],
+    look: [2.4, -0.08, 8.9],
+    fov: 70,
+  },
 ];
 
 // Feste Kameras des Zen-Gartens. Maßstab 1:1 (kein WORLD_SCALE), Sandkreis

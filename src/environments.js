@@ -2075,33 +2075,59 @@ function grasMaterial() {
         '#include <normal_fragment_maps>',
         `#include <normal_fragment_maps>
          {
-           // Bueschel von 18 cm als Normalenstoerung. Der Gradient kommt aus
+           // Halme von 3,6 cm als Normalenstoerung. Der Gradient kommt aus
            // drei Abtastungen; die Stoerung wird im **Weltraum** gebildet und
            // erst dann in den Blickraum gedreht, weil ohne Normalenkarte kein
            // Tangentensystem im Shader steht.
+           //
+           // **Die Lage von 18 cm ist hier ausgebaut, und zwar gemessen.**
+           //
+           // Der Nutzer hat aus der Brille gemeldet, die Wiese trage ein
+           // „komisches verwaschenes Muster". Keine der sechs eingefrorenen
+           // Pruefkameras zeigte es — keine schaut steil nach unten aufs Gras,
+           // genau der Blick, den man in der Brille staendig hat. Die siebte
+           // Kamera 7-grasblick wurde dafuer angehaengt, und dort steht das
+           // Muster deutlich im Bild: lange, weiche, parallele Striche, wie
+           // mit einer Buerste durch die Narbe gezogen.
+           //
+           // Reihum abgeschaltet und gemessen, Streifen 700-1000 x 120-300:
+           //
+           //     Term                 Feinstruktur nah->fern   Kohaerenz
+           //     alles an             5,312 4,147 2,979 3,761  0,24-0,42 @ -58 Grad
+           //     ohne spalt (Albedo)  Striche unveraendert     --
+           //     ohne Normalenstoer.  4,869 3,450 1,917 2,499  0,04-0,15
+           //     nur 18-cm-Lage       Striche vollstaendig da  0,24-0,42 @ -58 Grad
+           //     ohne 18-cm-Lage      5,113 3,810 2,506 3,138  0,17-0,33
+           //
+           // Die Zeile drei und fuenf zusammen sind der Befund: Die Lage von
+           // 18 cm traegt **ein Prozent** der Feinstruktur (5,113 gegen 5,165
+           // mit einer neu angesetzten Ersatzlage) und **das ganze Muster**.
+           //
+           // Der Grund ist nicht die Amplitude, sondern der Massstab. Was von
+           // einer Hoehenfeld-Stoerung im Bild ankommt, ist ihre
+           // Richtungsableitung entlang der Sonne — eine feste Richtung ueber
+           // die ganze Flaeche. Bei 3,6 cm ist ein solches Merkmal aus zwei
+           // Metern zwei bis vier Bildpunkte breit und liest als Koernung; bei
+           // 18 cm ist es vierzig Bildpunkte lang und liest als Pinselstrich.
+           // Eine Zwischenstufe von 9,1 cm wurde gebaut und gemessen: kuerzere
+           // Striche, aber immer noch Striche.
+           //
+           // Und die mittlere Entfernung verliert dabei nichts, was sie haben
+           // sollte: Aus zehn Metern ist ein Grasbueschel schmaler als ein
+           // Bildpunkt. Was dort Flaeche traegt, ist die Fleckigkeit der
+           // Albedo (korn, 32 cm, eingeblendet bis 14 m) — kein Relief.
            vec2 w = vGrasOrt.xz;
            float tiefe = length(vViewPosition);
-           float nahN = 1.0 - smoothstep(5.0, 14.0, tiefe);
+           float nahN = 1.0 - smoothstep(2.5, 7.0, tiefe);
+           vec3 stoerung = vec3(0.0);
            if (nahN > 0.002) {
-             // Zwei Massstaebe, wie in der Albedo: Bueschel von 18 cm fuer
-             // den mittleren Bereich, Halme von 3,6 cm fuer das Allernaechste.
-             // Der feine Anteil traegt eine eigene, kuerzere Ausblendung.
-             float ganzNahN = 1.0 - smoothstep(2.5, 7.0, tiefe);
-             float e = 0.055;
-             vec2 q = w * 5.55;
-             float h0 = grasFbm(q);
-             float hx = grasFbm(q + vec2(e, 0.0));
-             float hz = grasFbm(q + vec2(0.0, e));
-             vec3 stoerung = vec3(-(hx - h0), 0.0, -(hz - h0)) * (5.6 * nahN);
-             if (ganzNahN > 0.002) {
-               float ef = 0.22;
-               vec2 qf = w * 28.0;
-               float f0 = grasFbm(qf);
-               float fx = grasFbm(qf + vec2(ef, 0.0));
-               float fz = grasFbm(qf + vec2(0.0, ef));
-               stoerung += vec3(-(fx - f0), 0.0, -(fz - f0)) * (1.5 * ganzNahN);
-             }
-             // Dritte Lage, passend zur dritten Skala in der Albedo: 1,2 cm,
+             float ef = 0.22;
+             vec2 qf = w * 28.0;
+             float f0 = grasFbm(qf);
+             float fx = grasFbm(qf + vec2(ef, 0.0));
+             float fz = grasFbm(qf + vec2(0.0, ef));
+             stoerung = vec3(-(fx - f0), 0.0, -(fz - f0)) * (1.5 * nahN);
+             // Zweite Lage, passend zur feinsten Skala in der Albedo: 1,2 cm,
              // nur auf den letzten drei Metern. Sie traegt den Glanzwechsel
              // zwischen Halmen, den die Helligkeit allein nicht macht — und
              // sie ist der Grund, warum die Wiese aus einem Meter Entfernung
@@ -2141,7 +2167,7 @@ function grasMaterial() {
   // Ohne eigenen Schluessel teilt three das uebersetzte Programm mit jedem
   // anderen MeshStandardMaterial derselben Merkmale — und die Insel bekaeme
   // ihre Einspritzung nicht.
-  _inselGras.customProgramCacheKey = () => 'insel-gras-v9';
+  _inselGras.customProgramCacheKey = () => 'insel-gras-v10';
   return _inselGras;
 }
 
