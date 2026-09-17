@@ -174,3 +174,124 @@ Alle sechs Zen-Kameras **bitgleich**, Insel und Nachthimmel **bitgleich**, Dojo
 Budget des Zen-Gartens unverändert (96 Draw-Calls, 130 762 Dreiecke, 21,86 MB).
 `npm run build` grün, Konsole frei von Errors und Warnings. Bildstand
 `tools/shots/zen-82`.
+
+---
+
+## Paket 2 — Die Bodenkamera, in allen fünf Umgebungen
+
+### Warum das ein eigenes Paket ist
+
+Im Inselpaket 45 hat der Nutzer ein Muster auf dem Boden gemeldet, das **keine
+der sechs eingefrorenen Inselkameras zeigte**. Der Grund war kein Messfehler,
+sondern eine Lücke im Prüfstand: Keine Kamera schaute steil nach unten. Man
+geht durch die Umgebung, und dabei sieht man ständig auf den Grund vor den
+eigenen Füßen — der am häufigsten betrachtete Bildausschnitt der ganzen App war
+in keinem Prüfbild enthalten.
+
+Diese Lücke gab es in **allen fünf** Umgebungen. Sie ist jetzt geschlossen:
+
+    island    7-grasblick     54,9 Grad   Blickpunkt 1,25 m vor den Fuessen
+    zen       g-bodenblick    49,4 Grad   1,39 m
+    night     i-bodenblick    51,3 Grad   1,60 m
+    matrix    g-bodenblick    52,3 Grad   1,25 m
+    dojo      g-bodenblick    48,7 Grad   1,39 m
+
+Alle fünf sind **angehängt, nicht eingefügt**. Die bestehenden Kameras behalten
+Namen und Reihenfolge, die alten Vergleichsstände bleiben gültig. Belegt: Zen
+bitgleich auf allen sechs alten Kameras, Dojo praktisch bitgleich (Δmax 4 bis 7
+auf drei Bildern, dieselbe kleine Unbestimmtheit wie in den Läufen zuvor).
+
+Beim Nachthimmel ist der Blickpunkt gerechnet statt geschätzt: 1,6 m Bogen auf
+einer Kugel mit r = 25 m sind 0,064 rad, also (0,80 | 24,95 | −1,38). Die
+Richtung ist Azimut 150 — dieselbe, in der der Mond steht, damit der Regolith
+beleuchtet ist und nicht als schwarze Fläche liest.
+
+### Was der erste Blick durch diese Kameras gefunden hat
+
+**Zengarten — der stärkste Fund.** Die Trittsteine sind flache Prismen mit
+geradkantigem Vieleckumriss, und ihre Seitenfläche ist **unbeleuchtet**. Ein
+senkrechtes Profil bei x = 350 über die Steinkante:
+
+    Deckflaeche       71 bis 112
+    Seitenflaeche     19  19  19  19  20  20     (sechs Bildpunkte, konstant)
+    Sand in der Sonne 149 bis 170
+
+Die Seite steht bei **12 Prozent** des besonnten Sandes und ist über ihre ganze
+Höhe konstant — sie bekommt nur die flache Aufhellung, keine Himmelsrichtung.
+Ein Kontaktschatten ist vorhanden (der Sand fällt am Fuß von 160 auf 64 bis 96),
+der fehlt also nicht. Im selben Bild: Die Harkrillen laufen **gerade unter den
+Steinen durch**, und links treffen gerade Züge auf konzentrische Bögen — das
+sind die offenen Prüferbefunde 3 und der Rest von Paket BC, jetzt zum ersten Mal
+in einem Prüfbild statt nur im Bericht.
+
+**Konstrukt — der Grund vor den Füßen ist ein leeres Blatt.** Über die untere
+Bildhälfte, 433 481 Bildpunkte:
+
+    Mittel 223,7   p05 221   p50 224   p95 227   max 230
+
+Sechs Tonwertstufen zwischen dem 5. und dem 95. Perzentil. Kein Raster, keine
+Körnung, kein Maßstab, nichts, woran das Auge Entfernung ablesen könnte. Die
+bestehende Kamera `f-boden` schaut 40 Grad nach unten und zeigt die Fußpunkte
+der Möbel drei Meter weiter — sie hat das nie erfasst.
+
+**Nachthimmel — die Krater sind als Beulen beleuchtet.** Vergrößert tragen sie
+sehr wohl eine Licht-Schatten-Paarung; mein erster Eindruck „flache Aufkleber"
+war bei 1:1 zu schnell. Die Polarität stimmt aber nicht. Gemessen gegen einen
+sicher konvexen Körper im selben Bild:
+
+    Fels (konvex)   linke Flanke 44,4   rechte Flanke 81,0
+    Krater A        linke Flanke 62,7   rechte Flanke 83,1
+    Krater B        linke Flanke 65,2   rechte Flanke 70,7
+    Regolith ringsum                    74,5
+
+Krater und Fels sind **gleichsinnig** schattiert: links dunkel, rechts hell. Eine
+Mulde muss unter demselben Licht andersherum liegen — ihre der Lichtquelle
+zugewandte Innenwand ist die linke. Die Krater lesen deshalb als Blasen, nicht
+als Löcher. Dazu haben sie alle dieselbe Größe, dieselbe Eiform und dieselbe
+Achsneigung, und keiner hat einen Wall.
+
+**Dojo — hier hatte ich weitgehend unrecht, und das gehört hierher.** Drei
+Eindrücke aus dem Bild, alle drei nachgemessen:
+
+    „alle Matten gleich"       falsch: Spanne 22 Stufen ueber sechs Matten
+                               (124,5 bis 146,5)
+    „kein Kontaktschatten"     falsch: am Pfostenfuss 127,8 gegen 140,8
+                               sechzig Bildpunkte weiter, also 13 Stufen
+    „das Randband ist gemalt"  bestaetigt
+
+Das Heri, über 4090 Abtastungen auf dem ganzen Boden: Mittel 65,2, p05 62,
+p95 71 — **neun Stufen Spanne**, während die Matten daneben 115 bis 150 tragen,
+also fünfunddreißig. Das Randband ist über den ganzen Raum hinweg derselbe
+flache Ton, ohne Gewebe, ohne Glanzwechsel, ohne Reaktion auf den Blickwinkel.
+
+### Budget: die neuen Kameras setzen nirgends den Hoechstwert
+
+Das war die eine Sorge bei einem zusaetzlichen Bildausschnitt — ein Budget ist
+der Hoechstwert ueber alle Kameras, und eine neue Kamera kann ihn heben. Tut sie
+nicht. Je Umgebung der bisherige Hoechstwert gegen die neue Kamera:
+
+    Umgebung   Hoechstwert (Kamera)          neue Bodenkamera
+    zen         95 Calls / 96.920 (a,d)       68 Calls /  77.917
+    matrix      24 Calls / 50.898 (a,c,d,e,f) 21 Calls /  43.338
+    dojo       114 Calls / 323.646 (f)        98 Calls / 298.350
+    night       21 Calls / 344.186 (a,b)      18 Calls / 344.182
+
+Alle vier Bodenkameras liegen unter dem jeweiligen Hoechstwert, in Draw-Calls
+wie in Dreiecken. Kein Budgetwert aendert sich durch dieses Paket.
+
+**Zwei bestehende Engstellen, die dabei aufgefallen sind und nichts mit diesem
+Paket zu tun haben:** Das Dojo steht bei 114 von 120 Draw-Calls (95 Prozent,
+gesetzt von `f-gegenlicht` und `d-suedfront`), der Nachthimmel bei 344.186 von
+350.000 Dreiecken (**98,3 Prozent**, gesetzt von `a-augenhoehe`). Beim
+Nachthimmel bleiben damit 5.814 Dreiecke Luft — jede kuenftige Aenderung an der
+Planetengeometrie muss das mitrechnen. Das gehoert in dieses Log und ist hiermit
+notiert.
+
+### Offen
+
+Die vier Befunde oben sind **gefunden, nicht behoben**. Sie sind Arbeit für die
+nächsten Pakete, in dieser Reihenfolge nach Wirkung: Konstrukt-Grund,
+Zen-Trittsteine, Planetenkrater, Dojo-Heri.
+
+Die beiden veralteten Stände `konstrukt-37` und `planet-21`, die im Inselpaket
+45 als offener Punkt notiert waren, sind mit diesem Lauf erneuert.

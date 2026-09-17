@@ -148,6 +148,26 @@ export const ZEN_SHOTS = [
     look: [-5.0, 1.6, 0.5],
     fov: 70,
   },
+  {
+    // **Der Blick, den man in der Brille staendig hat.**
+    //
+    // Angehaengt, nicht eingefuegt: Die Kameras darueber sind eingefroren und
+    // bleiben es. Diese hier schliesst eine Luecke, die erst aufgefallen ist,
+    // als der Nutzer auf der Insel ein Bodenmuster gemeldet hat, das **keine**
+    // der sechs Inselkameras zeigte — weil keine davon steil nach unten
+    // schaut. Man geht, und dabei sieht man auf den Boden vor den eigenen
+    // Fuessen. Dieselbe Luecke gab es in allen fuenf Umgebungen.
+    //
+    // Augenhoehe 1,6 m, 50 Grad unter der Waagerechten, Blickpunkt 1,4 m vor
+    // den Fuessen. Der Standort ist mit Absicht der ueber den Trittsteinen:
+    // Das Harkmuster und die Steine im selben Bild sind der offene Befund
+    // „die Rillen laufen unter den Trittsteinen durch".
+    name: 'g-bodenblick',
+    title: 'Steil hinab auf Sand und Trittsteine vor den Fuessen',
+    pos: [1.0, 1.6, 3.6],
+    look: [0.4, -0.02, 2.35],
+    fov: 70,
+  },
 ];
 
 // Feste Kameras des Nachthimmels — **neu, seit der Boden eine Kugel ist.**
@@ -281,6 +301,27 @@ export const PLANET_SHOTS = [
     look: [44.3, 189.6, -246.9],
     fov: 45,
   },
+  {
+    // **Der Blick, den man in der Brille staendig hat.**
+    //
+    // Angehaengt, nicht eingefuegt: Die Kameras darueber sind eingefroren und
+    // bleiben es. Diese hier schliesst eine Luecke, die erst aufgefallen ist,
+    // als der Nutzer auf der Insel ein Bodenmuster gemeldet hat, das **keine**
+    // der sechs Inselkameras zeigte — weil keine davon steil nach unten
+    // schaut. Man geht, und dabei sieht man auf den Boden vor den eigenen
+    // Fuessen. Dieselbe Luecke gab es in allen fuenf Umgebungen.
+    //
+    // Auf der Kugel ist der Blickpunkt gerechnet, nicht geschaetzt: 1,6 m
+    // Bogen in Azimut 150 — also in die Richtung, in der auch der Mond steht,
+    // damit der Regolith beleuchtet ist und nicht als schwarze Flaeche liest.
+    // Bogenwinkel 1,6/25 = 0,064 rad ergibt (0,80 | 24,95 | -1,38); von der
+    // Augenhoehe (0 | 26,94 | 0) aus sind das 51 Grad unter der Waagerechten.
+    name: 'i-bodenblick',
+    title: 'Steil hinab auf den Regolith vor den Fuessen (Azimut 150)',
+    pos: [0, 26.94, 0],
+    look: [0.80, 24.95, -1.38],
+    fov: 70,
+  },
 ];
 
 // ⬜ Konstrukt. Eine weisse Leere mit genau einer Sitzgruppe darin: zwei
@@ -335,6 +376,27 @@ export const KONSTRUKT_SHOTS = [
     title: 'Boden und Fusspunkte: Kontaktschatten, Beine, horizontloser Grund',
     pos: [0, 1.55, -1.5],
     look: [0, -0.05, -3.4],
+    fov: 70,
+  },
+  {
+    // **Der Blick, den man in der Brille staendig hat.**
+    //
+    // Angehaengt, nicht eingefuegt: Die Kameras darueber sind eingefroren und
+    // bleiben es. Diese hier schliesst eine Luecke, die erst aufgefallen ist,
+    // als der Nutzer auf der Insel ein Bodenmuster gemeldet hat, das **keine**
+    // der sechs Inselkameras zeigte — weil keine davon steil nach unten
+    // schaut. Man geht, und dabei sieht man auf den Boden vor den eigenen
+    // Fuessen. Dieselbe Luecke gab es in allen fuenf Umgebungen.
+    //
+    // Hier ist die Luecke am kleinsten: `f-boden` schaut schon 40 Grad nach
+    // unten. Aber 40 Grad sind der Blick auf die Fusspunkte der Moebel drei
+    // Meter weiter, nicht der auf den Grund unmittelbar vor einem — und in
+    // einer leeren weissen Welt ist genau der die groesste Flaeche im
+    // Sichtfeld. 52 Grad, Blickpunkt 1,25 m vor den Fuessen.
+    name: 'g-bodenblick',
+    title: 'Steil hinab auf den Grund vor den Fuessen',
+    pos: [0, 1.6, 0.2],
+    look: [0, -0.02, -1.05],
     fov: 70,
   },
 ];
@@ -397,6 +459,26 @@ export const DOJO_SHOTS = [
     pos: [-4.5, 1.7, -4.5],
     look: [8.0, 2.4, 3.5],
     fov: 72,
+  },
+  {
+    // **Der Blick, den man in der Brille staendig hat.**
+    //
+    // Angehaengt, nicht eingefuegt: Die Kameras darueber sind eingefroren und
+    // bleiben es. Diese hier schliesst eine Luecke, die erst aufgefallen ist,
+    // als der Nutzer auf der Insel ein Bodenmuster gemeldet hat, das **keine**
+    // der sechs Inselkameras zeigte — weil keine davon steil nach unten
+    // schaut. Man geht, und dabei sieht man auf den Boden vor den eigenen
+    // Fuessen. Dieselbe Luecke gab es in allen fuenf Umgebungen.
+    //
+    // `e-tatami` steht auf 0,42 m und schaut nur 3 Grad nach unten — das ist
+    // eine Nahsicht aus der Hocke, nicht der Blick eines Stehenden auf die
+    // Matte unter sich. 49 Grad aus 1,6 m, Blickpunkt 1,4 m vor den Fuessen,
+    // mitten auf dem Mattenfeld, damit Bindung und Mattenfuge im Bild sind.
+    name: 'g-bodenblick',
+    title: 'Steil hinab auf die Matten vor den Fuessen',
+    pos: [0.8, 1.6, 2.8],
+    look: [0.2, 0.02, 1.55],
+    fov: 70,
   },
 ];
 
