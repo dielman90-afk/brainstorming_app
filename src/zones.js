@@ -58,6 +58,9 @@ class Zone {
     this.group.userData.nichtUmgebung = true;
     this.group.name = 'zone';
     this.buttons = [];
+    // Alle Text-Panels (Kopf + Knöpfe) für `dispose()`: Jedes hat eine eigene
+    // Canvas-Textur und einen Schrift-Listener.
+    this._panels = [];
 
     // Hintergrundfläche (neu einfärbbar)
     const px = 640;
@@ -101,6 +104,7 @@ class Zone {
       this.header.setColors({ background: h ? this._lightHeader() : ZONE_COLORS[this.colorIndex].header });
     layer(this.header.mesh, LAYER.header);
     this.group.add(this.header.mesh);
+    this._panels.push(this.header);
 
     // Aktions-Buttons oben rechts: umbenennen, Farbe, löschen
     const mkBtn = (label, onClick) => {
@@ -120,6 +124,7 @@ class Zone {
       layer(b.mesh, LAYER.button);
       this.group.add(b.mesh);
       this.buttons.push(b.mesh);
+      this._panels.push(b);
       return b.mesh;
     };
     const bx = WIDTH / 2 - 0.06;
@@ -248,11 +253,17 @@ class Zone {
     );
   }
 
+  // Auch Kopf und Knöpfe freigeben. Vorher blieben deren vier Texturen je
+  // Zone auf der GPU liegen – und weil jedes Undo/Redo die Zonen neu aufbaut,
+  // wuchs der Speicher mit jedem Schritt (gemessen: 10 × Undo/Redo mit zwei
+  // Zonen, 22 → 102 Texturen). Auf der Quest mit ihrem knappen Speicher.
   dispose() {
     this.group.removeFromParent();
     this._tex.dispose();
     this.panel.geometry.dispose();
     this.panel.material.dispose();
+    for (const p of this._panels) p.dispose();
+    this._panels = [];
   }
 
   toJSON() {
@@ -324,7 +335,12 @@ export class ZoneManager {
   }
 
   loadJSON(list) {
-    this.clear();
+    // Still leeren, nicht über `clear()`: Das meldet jede entfernte Zone als
+    // Änderung an den Verlauf. Beim Datei-Import schob das je vorhandener Zone
+    // einen halbfertigen Zwischenstand („Zone entfernt") vor „Board
+    // importiert" – Rückgängig landete dann nicht beim Stand vor dem Import.
+    for (const zone of this.zones) zone.dispose();
+    this.zones = [];
     if (!Array.isArray(list)) return;
     for (const entry of list) {
       if (!entry || typeof entry.title !== 'string') continue;

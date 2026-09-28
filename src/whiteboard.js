@@ -214,6 +214,9 @@ export class Whiteboard {
     this.colorIndex = 0;
     this.sizeIndex = 1;
     this.hasContent = false;
+    // Zuletzt kodiertes PNG der Zeichenfläche; `null` = veraltet. Siehe
+    // `toDataURL`.
+    this._dataURL = null;
     this.buttons = [];
     this._renderers = []; // { key, kind, render(state) }
     this._stroke = null;
@@ -742,19 +745,26 @@ export class Whiteboard {
 
   _markDirty() {
     this.hasContent = true;
+    this._dataURL = null;
     this.texture.needsUpdate = true;
   }
 
   clearBoard() {
     this._fillBoard();
+    this._dataURL = null;
     this.texture.needsUpdate = true;
     // hasContent bleibt true, damit der geleerte Stand auch gespeichert wird
   }
 
   // --- Persistenz ---
 
+  // **Nur neu kodieren, wenn sich die Zeichnung geändert hat.** Der Autosave
+  // fragt das Board alle drei Sekunden ab, und ein PNG von 2304 × 1392 px zu
+  // kodieren kostete dabei gemessen gut 100 ms – am Desktop, headless. In der
+  // Brille ist das ein Ruckler alle drei Sekunden, auch wenn niemand zeichnet.
   toDataURL() {
-    return this.canvas.toDataURL('image/png');
+    this._dataURL ??= this.canvas.toDataURL('image/png');
+    return this._dataURL;
   }
 
   loadDataURL(dataURL) {
@@ -767,6 +777,7 @@ export class Whiteboard {
         this.ctx.clip();
         this.ctx.drawImage(img, 0, 0, CANVAS_W, CANVAS_H);
         this.ctx.restore();
+        this._dataURL = null;
         this.texture.needsUpdate = true;
         this.hasContent = true;
         resolve(true);

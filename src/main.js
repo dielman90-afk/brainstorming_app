@@ -262,6 +262,20 @@ controls.update();
 
 // --- Bausteine ---
 
+// Wie hoch der Boden unter dem Nutzer gerade liegt; gepflegt von der
+// Bildschleife (siehe „Den Nutzer auf dem Boden … halten"). `null` heisst
+// "noch nicht gesetzt".
+//
+// **Die Deklaration muss hier oben stehen**, vor jedem Baustein, der sie per
+// `floorY: () => _floorY ?? 0` abfragt. Stand sie bei der Bildschleife, lief
+// der Erststart in die temporale Totzone: Ohne gespeichertes Board legt der
+// Start drei Demo-Karten an, `arrangeInArc` fragt die Bodenhöhe ab, und die
+// Seite brach mit „Cannot access '_floorY' before initialization" ab – am
+// Dev-Server (`npm run dev`, auch der WLAN-Weg zur Quest) bei jedem leeren
+// Speicher. Der Produktions-Build kam nur davon, weil der Minifier das `let`
+// zu einem `var` macht; darauf soll sich nichts verlassen.
+let _floorY = null;
+
 const cardManager = new CardManager(scene, { floorY: () => _floorY ?? 0 });
 
 // **Ein Aufruf, drei Stellen.** Das Flussdiagramm braucht zwei Angaben, die es
@@ -1479,7 +1493,10 @@ for (const [id, action] of Object.entries(DESKTOP_BUTTONS)) {
 
 // Formleiste: setzt die Form der ausgewählten Karte direkt.
 document.getElementById('flow-shapes')?.addEventListener('click', (e) => {
-  const id = e.target?.dataset?.flowType;
+  // Über `closest`, nicht `e.target`: Jeder Knopf trägt vorn ein SVG-Icon, und
+  // ein Klick darauf hat das Icon als Ziel – ohne `data-flow-type`. Die Form
+  // wechselte dann schlicht nicht.
+  const id = e.target?.closest?.('button')?.dataset?.flowType;
   if (id === undefined) return;
   applyFlowType(cardManager.selected, id || null);
 });
@@ -1655,7 +1672,10 @@ function closeContextMenu() {
 }
 
 contextMenu.addEventListener('click', (e) => {
-  const action = e.target.dataset?.action;
+  // `closest`, nicht `e.target`: Ein Klick aufs Icon eines Eintrags trifft das
+  // SVG, und das trägt kein `data-action` – das Menü ging zu, ohne dass die
+  // Aktion lief.
+  const action = e.target.closest?.('[data-action]')?.dataset.action;
   const card = contextCard;
   closeContextMenu();
   if (!action || !card) return;
@@ -1922,7 +1942,11 @@ updateHistoryButtons();
 let lastSavedSnapshot = '';
 setInterval(() => {
   const data = boardToJSON();
-  const snapshot = JSON.stringify([data.cards, data.connections, data.zones]);
+  // Das Whiteboard gehört in den Vergleich: Fehlte es, landeten neue Striche
+  // nur beim Verlassen der Seite im Speicher – stürzt der Brillen-Browser
+  // vorher ab, sind sie weg. Billig ist das, weil `toDataURL` nur nach einer
+  // Änderung neu kodiert.
+  const snapshot = JSON.stringify([data.cards, data.connections, data.zones, data.whiteboard]);
   if (snapshot !== lastSavedSnapshot) {
     lastSavedSnapshot = snapshot;
     saveBoardLocal(data);
@@ -1942,11 +1966,11 @@ addEventListener('resize', () => {
 const _walkHead = new THREE.Vector3();
 const _walkZiel = { x: 0, z: 0 };
 
-// Welcher begehbare Bereich zuletzt galt, und wie hoch der Boden gerade liegt.
-// `null` heisst "noch nicht gesetzt": Beim Umgebungswechsel wird die neue
-// Bodenhoehe uebernommen, statt aus der alten dorthin zu gleiten.
+// Welcher begehbare Bereich zuletzt galt. Die Bodenhoehe dazu (`_floorY`) ist
+// weiter oben deklariert; `null` heisst dort "noch nicht gesetzt": Beim
+// Umgebungswechsel wird die neue Bodenhoehe uebernommen, statt aus der alten
+// dorthin zu gleiten.
 let _walkEnv = -2;
-let _floorY = null;
 const _blickRi = new THREE.Vector3();
 const _kamVorOrbit = new THREE.Vector3();
 const _orbitVersatz = new THREE.Vector3();
@@ -2000,7 +2024,12 @@ renderer.setAnimationLoop(() => {
   if (renderer.xr.isPresenting) {
     locomotion.update(dt);
   } else {
-    updateDesktopMovement(dt);
+    // (Hier stand ein zweiter Aufruf von `updateDesktopMovement` – vor der
+    // Orbit-Korrektur. Auf dem Planeten zog die Korrektur ihn als „Umsehen"
+    // gleich wieder ab, auf den übrigen Welten lief man damit doppelt so
+    // schnell wie `speed` sagt: gemessen 7,0 statt 3,4 m/s. Bewegt wird nur
+    // noch einmal, unten nach der Korrektur.)
+    //
     // **Auf dem Planeten darf Umsehen nicht Gehen sein.**
     //
     // `OrbitControls` schwenkt die Kamera auf einer Kugel um `controls.target`
@@ -2178,7 +2207,12 @@ renderer.setAnimationLoop(() => {
   if (recenterOnNextFrame && renderer.xr.isPresenting) {
     const xrCam = renderer.xr.getCamera();
     if (xrCam.cameras?.length) {
-      cardManager.repositionAllInArc(xrCam);
+      // Die XR-Kamera sagt nur, OB die Pose schon steht. Gerechnet wird mit
+      // der Nutzer-Kamera: `xrCam` hängt in keinem Szenengraph, ihr
+      // getWorldPosition() verwirft den Rig-Versatz (siehe oben bei
+      // `wristMenu.update`). Im Nachthimmel steht der Rig 25 m hoch – mit der
+      // XR-Kamera landeten die Karten dort auf Kniehöhe statt auf Augenhöhe.
+      cardManager.repositionAllInArc(camera);
       commit('Karten vor den Nutzer geholt');
       recenterOnNextFrame = false;
     }

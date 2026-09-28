@@ -233,7 +233,9 @@ export class Timer {
   update(elapsed) {
     const dt = this._last ? Math.min(0.25, elapsed - this._last) : 0;
     this._last = elapsed;
-    if (!this.group.visible) return;
+    // Eine laufende Timebox zählt auch ausgeblendet weiter und gongt am Ende.
+    // Vorher stand die Sichtbarkeitsprüfung hier oben: Wer die Uhr wegklickte,
+    // um sich aufs Board zu konzentrieren, hielt sie damit unbemerkt an.
     if (this.running) {
       this.remainingSec -= dt;
       if (this.remainingSec <= 0) {
@@ -243,6 +245,7 @@ export class Timer {
         this._refresh();
       }
     }
+    if (!this.group.visible) return;
     this._updateDisplay();
   }
 

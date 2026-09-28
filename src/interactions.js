@@ -183,7 +183,13 @@ export class InteractionManager {
       controller.userData.drawing = null;
     }
     const target = controller.userData.grabbedTarget;
-    if (target) {
+    if (target && target.group.parent === null) {
+      // Während des Haltens entsorgt (eine Zone per ✕ oder Rückgängig): Ihr
+      // `dispose()` hat sie vom Controller genommen. Nicht zurückhängen – sonst
+      // stünde ein Geist-Rahmen in der Szene, dieselbe Falle wie bei Karten.
+      controller.userData.grabbedTarget = null;
+      controller.userData.grabTargetStart = null;
+    } else if (target) {
       // Zonen gehören zur Welt und melden dafür eine Heimat; das Whiteboard ist
       // ein Werkzeug und bleibt an der Szene.
       (target.heimat?.() ?? this.scene).attach(target.group);
@@ -199,7 +205,14 @@ export class InteractionManager {
       controller.userData.grabTargetStart = null;
     }
     const card = controller.userData.grabbed;
-    if (card) {
+    if (card && !this.cardManager.cards.includes(card)) {
+      // Während des Haltens gelöscht – etwa weil „Aus Text bauen" den Prozess
+      // ersetzt hat oder die andere Hand „Rückgängig" gedrückt hat. Nicht
+      // zurückhängen: Die Karte stünde sonst als Geist in der Szene, sichtbar,
+      // aber in keiner Liste, nicht greifbar und nicht gespeichert.
+      controller.userData.grabbed = null;
+      controller.userData.grabStart = null;
+    } else if (card) {
       // In die **Heimat** der Karten, nicht in die Szene: Im Nachthimmel ist
       // das die Weltgruppe des Planeten, und eine dort losgelassene Karte
       // bleibt liegen, wenn man weitergeht.
