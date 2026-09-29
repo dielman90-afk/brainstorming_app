@@ -41,7 +41,18 @@ export function forgetFontListener(redraw) {
 // document.fonts.load() erzwingt das Laden – ohne eine tatsächliche Verwendung
 // im DOM würde `fonts.ready` sonst auflösen, bevor die Panel-Schrift überhaupt
 // angefordert wurde.
-const familiesToLoad = ['400 16px Sora', '600 16px Sora', '700 16px Sora'];
+// **Space Grotesk fehlte hier.** Die Schautafel des Konstrukt-Radios ist darin
+// gesetzt; ohne Eintrag wurde die Familie nie angefordert, `fonts.ready` loeste
+// also auf, bevor sie da war. Aufgefallen ist es erst, als die Umgebungen nicht
+// mehr alle beim Start gebaut wurden — vorher entstand das Konstrukt so spaet,
+// dass die Schrift auf anderem Wege laengst geladen war.
+const familiesToLoad = [
+  '400 16px Sora',
+  '600 16px Sora',
+  '700 16px Sora',
+  '600 16px "Space Grotesk"',
+  '700 16px "Space Grotesk"',
+];
 
 if (typeof document !== 'undefined' && document.fonts) {
   Promise.allSettled(familiesToLoad.map((font) => document.fonts.load(font)))

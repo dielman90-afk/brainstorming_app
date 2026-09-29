@@ -3677,3 +3677,113 @@ Die vier anderen Umgebungen **bitgleich**.
 
 Bildstand `tools/shots/insel-44` (ersetzt `insel-43`), Messwerte
 `tools/metrics/insel-44.json`.
+
+---
+
+## Paket 45 — Das verwaschene Muster in der Wiese
+
+> „Der Boden in Himmelsinseln hat immernoch komische verwaschene Muster."
+> — der Nutzer, mit Bildschirmfoto aus der Brille
+
+### Zuerst: die Prüfkameras haben es nicht gezeigt
+
+Ich habe den Befund zweimal in `6-groundcover` und `3-edge-down` gesucht und
+nicht gefunden. Der Grund ist kein Messfehler, sondern eine **Lücke im
+Prüfstand**: Keine der sechs eingefrorenen Kameras schaut steil nach unten aufs
+Gras vor den Füßen — genau der Blick, den man in der Brille ständig hat.
+`6-groundcover` steht auf Augenhöhe und schaut nach vorn, `3-edge-down` über die
+Inselkante hinaus.
+
+Die Kamera `7-grasblick` ist deshalb **angehängt** worden (Position 3,0 | 1,7 |
+10,0, Blick auf 2,4 | −0,08 | 8,9, 70 Grad). Angehängt und nicht eingefügt,
+damit die sechs bestehenden Stände vergleichbar bleiben. Im ersten Bild dieser
+Kamera stand das Muster sofort da: lange, weiche, parallele Striche quer über
+die ganze Narbe, wie mit einer Bürste durchgezogen.
+
+### Dann: reihum abgeschaltet statt geraten
+
+Streifen 700–1000 × 120–300, Feinstruktur aus `hochpass-reihe.mjs` (vier Bänder
+nah → fern), Richtung aus dem Strukturtensor in `streckung.mjs`:
+
+    Stand                          Feinstruktur              Kohaerenz
+    alles an                       5,312 4,147 2,979 3,761   0,24-0,42 @ -58 Grad
+    ohne spalt (Albedo-Halmfeld)   Striche unveraendert      --
+    ohne Normalenstoerung          4,869 3,450 1,917 2,499   0,04-0,15 (keine Richtung)
+    nur die 18-cm-Lage             Striche vollstaendig da   0,24-0,42 @ -58 Grad
+    ohne die 18-cm-Lage            5,113 3,810 2,506 3,138   0,17-0,33
+
+Der erste Verdacht — das anisotrope Halmfeld in der Albedo, das schon einmal
+Fingerabdruck-Wirbel gemacht hatte — war **falsch**: Mit `spalt` auf null bleiben
+die Striche unverändert stehen. Es ist die Normalenstörung, und darin genau die
+gröbste ihrer drei Lagen.
+
+### Warum eine Höhenfeld-Störung Striche macht
+
+Was von einer Normalenstörung im Bild ankommt, ist ihr Skalarprodukt mit der
+Lichtrichtung — also die **Richtungsableitung des Höhenfeldes entlang der
+Sonne**, und die Sonne hat über die ganze Wiese dieselbe Richtung. Deshalb steht
+im Strukturtensor ein konstanter Winkel von −58 Grad über den gesamten Streifen.
+Das ist keine Fehlfunktion, das ist die Bauart.
+
+Entscheidend ist der **Maßstab**. Aus zwei Metern ist ein Merkmal von 3,6 cm
+zwei bis vier Bildpunkte breit und liest als Körnung; ein Merkmal von 18 cm ist
+vierzig Bildpunkte lang und liest als Pinselstrich. Eine Zwischenstufe von
+9,1 cm (einoktavig, mit Fußabdruck-Ausblendung) wurde gebaut und gemessen —
+kürzere Striche, aber immer noch Striche, Kohärenz 0,17–0,32.
+
+Die letzte Zeile der Tabelle ist die Entscheidung: Die 18-cm-Lage trägt
+**ein Prozent** der Feinstruktur (5,113 gegen 5,165 mit der 9,1-cm-Ersatzlage)
+und **das ganze Muster**. Sie ist ausgebaut.
+
+Die mittlere Entfernung verliert dabei nichts, was sie haben sollte: Aus zehn
+Metern ist ein Grasbüschel schmaler als ein Bildpunkt. Was das Band von 7 bis
+14 m trägt, ist die Fleckigkeit der Albedo (`korn`, 32 cm, eingeblendet bis
+14 m) und die Form des Geländes — kein Relief.
+
+### Was ich mir dabei falsch gedacht habe
+
+Zwei Irrwege, beide gemessen und beide verworfen:
+
+* **„Das Muster wird zur Ferne hin schlimmer, also fehlt eine Ausblendung nach
+  Bildpunkt-Fußabdruck."** Die Albedo-Terme haben eine solche Ausblendung, die
+  Normalenlagen nicht — die Lücke ist echt. Nur erklärt sie das Muster nicht:
+  Mit `(1 - smoothstep(0.012, 0.030, bpMax))` auf der groben Lage ändern sich
+  **2,15 Prozent** der Bildpunkte, Schwerpunkt bei y = 10, also ganz oben am
+  Rand. In dieser Kamera liegt der Boden zu nah, als dass Minifizierung eine
+  Rolle spielte.
+* **„Weniger Amplitude reicht."** Die mittlere Neigung der gestörten Normalen
+  ist 9,7 Grad (p95 18,6, max 31,9) — nicht extrem. Die Ersatzlage mit 9,1 cm
+  wurde bewusst auf dieselbe mittlere Neigung von 9,1 Grad eingestellt, damit
+  der Vergleich den Maßstab isoliert und nicht die Stärke. Sie strichelte
+  weiter. Die Amplitude war nie das Problem.
+
+### Regression und Budget
+
+    Draw-Calls        78 / 120   (unveraendert)
+    Dreiecke     320.405 / 350.000   (unveraendert)
+    Textur         17,17 / 60 MB     (unveraendert)
+    Konsole      frei von Errors und Warnings
+    npm run build   gruen
+
+Eine reine Shader-Änderung kostet nichts. Die Änderung bleibt auf dem Boden:
+`4-aerial` ist bitgleich (der Boden ist dort zu fern), die übrigen sechs Kameras
+ändern sich mit Schwerpunkt im Bodenbereich.
+
+**Zen bitgleich, Dojo praktisch bitgleich** (Δmax 7 auf zwei Bildern).
+
+Zwei Befunde nebenbei, die **nicht** von diesem Paket kommen und offen bleiben:
+
+* `tools/shots/konstrukt-37` ist veraltet. Die Schautafel weicht ab (Δmittel
+  0,656, Schwerpunkt auf der Tafel) — das ist der Schriftartfehler, der im
+  vorigen Paket behoben wurde; der Stand stammt von davor.
+* `tools/shots/planet-21` ist ebenfalls veraltet, und zwar deutlich
+  (`g-sputnik` Δmittel 16,4). Geprüft, ob dieses Paket schuld ist: Nachthimmel
+  mit dem alten und dem neuen `environments.js` gerendert — **alle acht Bilder
+  bitgleich**. Die Abweichung ist Drift gegen einen alten Stand, nicht diese
+  Änderung.
+
+Beide Stände gehören erneuert, das ist eigene Arbeit und steht hier als offener
+Punkt.
+
+Bildstand `tools/shots/insel-45` (ersetzt `insel-44`, jetzt mit sieben Kameras),
+Messwerte `tools/metrics/insel-45.json`.

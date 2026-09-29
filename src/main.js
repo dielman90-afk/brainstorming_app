@@ -185,9 +185,12 @@ function meldeWeltHeimat(empfaenger) {
 function applyEnvironment() {
   const inPassthrough = renderer.xr.isPresenting && xrMode === 'immersive-ar';
   setzeWeltHeimat((envIndex >= 0 ? environments[envIndex].weltHeimat : null) ?? scene);
-  environments.forEach((env, i) => {
-    env.group.visible = i === envIndex;
-  });
+  // **Nicht `env.group` für alle fünf anfassen.** Umgebungen werden erst
+  // gebaut, wenn sie gewählt werden (siehe `traegeUmgebung` in
+  // environments.js); ein Zugriff auf `group` baut. `sichtbar(false)` lässt
+  // eine ungebaute Umgebung in Ruhe — was nicht gebaut ist, ist auch nicht
+  // sichtbar.
+  environments.forEach((env, i) => env.sichtbar(i === envIndex));
   if (envIndex >= 0) {
     const env = environments[envIndex];
     scene.background = env.background;
