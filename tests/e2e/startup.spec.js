@@ -28,7 +28,11 @@ test('defektes gespeichertes Board: App startet trotzdem', async ({ page }) => {
   expect(await cardTexts(page)).toEqual(['Geht noch']);
 });
 
-test('Reload stellt Karten, Verbindungen, Zonen, Whiteboard und Umgebung wieder her', async ({ page }) => {
+// Zwei Reloads und drei Autosave-Takte – auf einem langsamen CI-Rechner mehr
+// als zwei Minuten. Daher `test.slow()` (dreifache Zeitgrenze) und keine teure
+// Umgebung in diesem Test; die Umgebungswahl prüft der nächste.
+test('Reload stellt Karten, Verbindungen, Zonen und Whiteboard wieder her', async ({ page }) => {
+  test.slow();
   await openApp(page);
   const before = await page.evaluate(async () => {
     const { cardManager, connectionManager, whiteboard, handleAction } = window.__app;
@@ -45,8 +49,6 @@ test('Reload stellt Karten, Verbindungen, Zonen, Whiteboard und Umgebung wieder 
       scale: a.scale,
     };
   });
-  await page.click('#btn-env'); // Himmelsinsel
-  const envId = await page.evaluate(() => window.__app.env.environments[window.__app.env.current()].id);
 
   // Autosave läuft alle 3 s – ohne Verlassen der Seite (in der Brille stürzt
   // der Browser auch mal ab, statt sauber zu schließen). Erst die Karten …
@@ -75,7 +77,7 @@ test('Reload stellt Karten, Verbindungen, Zonen, Whiteboard und Umgebung wieder 
   await page.waitForFunction(() => window.__app?.cardManager, null, { timeout: 90_000 });
   await frames(page, 2);
   const after = await page.evaluate(async () => {
-    const { cardManager, connectionManager, zoneManager, whiteboard, env } = window.__app;
+    const { cardManager, connectionManager, zoneManager, whiteboard } = window.__app;
     // Das Whiteboard-Bild lädt asynchron.
     for (let i = 0; i < 50 && !whiteboard.hasContent; i++) await new Promise((r) => setTimeout(r, 100));
     const a = cardManager.cards[0];
@@ -86,7 +88,6 @@ test('Reload stellt Karten, Verbindungen, Zonen, Whiteboard und Umgebung wieder 
       scale: a.scale,
       zones: zoneManager.zones.length,
       board: whiteboard.hasContent && whiteboard.group.visible,
-      envId: env.environments[env.current()]?.id,
     };
   });
   expect(after).toEqual({
@@ -96,6 +97,23 @@ test('Reload stellt Karten, Verbindungen, Zonen, Whiteboard und Umgebung wieder 
     scale: before.scale,
     zones: 1,
     board: true,
-    envId,
   });
+});
+
+test('Reload startet in der zuletzt gewählten Umgebung', async ({ page }) => {
+  test.slow();
+  await openApp(page);
+  // Direkt bis zum Konstrukt durchschalten, ohne die Welten dazwischen zu
+  // rendern – das Konstrukt ist eine der billigen, die Insel davor die
+  // teuerste. Gemerkt wird die stabile id, nicht die Position in der Liste.
+  const saved = await page.evaluate(() => {
+    const { env } = window.__app;
+    const k = env.environments.findIndex((e) => e.id === 'matrix');
+    while (env.current() !== k) env.cycle();
+    return localStorage.getItem('webxr-brainstorming-env');
+  });
+  expect(saved).toBe('matrix');
+  await page.reload();
+  await page.waitForFunction(() => window.__app?.cardManager, null, { timeout: 90_000 });
+  expect(await page.evaluate(() => window.__app.env.environments[window.__app.env.current()]?.id)).toBe('matrix');
 });
