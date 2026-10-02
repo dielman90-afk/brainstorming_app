@@ -429,7 +429,14 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── index.js            Express-Proxy (lokale Entwicklung)
 │   └── ai-core.js          Anthropic-Aufruf, Prompts, JSON-Schema, Mock-Modus
 ├── netlify/functions/      Serverless-Variante des Proxys (für Netlify)
-└── netlify.toml
+├── netlify.toml
+├── tests/
+│   ├── unit/               Node-Test-Runner: Server, KI-Client, Board-Speicher, Verlauf,
+│   │                       Fluss-Layout, begehbarer Bereich, HTTP-Schicht
+│   └── e2e/                Playwright: die echte App in Chromium (Desktop, KI-Mock,
+│                           simulierte Controller, Umgebungen, Produktions-Build)
+├── playwright.config.js    Browser-Tests: eigene Ports, Mock-Proxy, Dev- und Build-Projekt
+└── .github/workflows/      CI: Build + Unit- + Browser-Tests bei jedem Push
 ```
 
 ## Setup
@@ -448,6 +455,42 @@ API-Key verlässt den Server nie.
 
 **Ohne API-Key testen:** `MOCK_AI=1 npm run dev` liefert statische Beispiel-Ideen,
 damit der komplette Ablauf (Karten, Menü, Halbkreis) ohne Key funktioniert.
+
+## Tests
+
+```bash
+npm run test:unit                    # ~1 s – reine Logik in Node
+npx playwright install chromium      # einmalig, für die Browser-Tests
+npm run test:e2e                     # einige Minuten – die echte App in Chromium
+npm test                             # beides
+```
+
+Eine GitHub-Action (`.github/workflows/tests.yml`) fährt bei jedem Push Build
+(mit Shader-Lint), Unit- und Browser-Tests; schlägt etwas fehl, hängt der
+Playwright-Bericht samt Trace am Lauf. Getestet wird mit Node 22 wie in CI.
+
+- **Unit-Tests** (`tests/unit`, Node-Test-Runner, keine zusätzliche
+  Abhängigkeit): Eingabeprüfung und Mock-Modus des Servers, das Säubern der
+  Claude-Antworten (`parsePayload`), Wiederholung/Zeitgrenze/Fehlertexte im
+  KI-Client (mit Mock-Uhr – der Test wartet keine 45 s), Importprüfung,
+  Mermaid-Export und Autosave, Undo/Redo, Fluss-Layout samt Rückführungen,
+  begehbare Bereiche (Insel, Dojo-Zonenkette, Planet), Netlify-Funktion und
+  Express-Proxy über HTTP.
+- **Browser-Tests** (`tests/e2e`, Playwright): die App in Chromium mit
+  Software-Rendering. Jeder Test startet in einem frischen Profil, also als
+  echter Erststart, und schlägt bei jedem unbehandelten Fehler auf der Seite
+  fehl. Abgedeckt sind Desktop-Bedienung, alle KI-Aktionen und ihre Fehlerpfade,
+  Export/Import, Autosave über einen Reload, Zonen und Werkzeuge, die Logik von
+  Karten und Verbindungen, Greifen mit simulierten Controllern, alle fünf
+  Umgebungen und ein Smoke-Test gegen den **Produktions-Build** – Dev-Server
+  und Build können sich unterscheiden (der Startabsturz vom September trat nur
+  am Dev-Server auf).
+- **Keine echten KI-Aufrufe.** Die Browser-Tests starten einen eigenen Proxy im
+  Mock-Modus ohne Key auf eigenen Ports (3191, 5191, 5192); ein nebenher
+  laufendes `npm run dev` stört nicht, und eine lokale `.env` mit Key wird nie
+  benutzt. Vite liest das Proxy-Ziel dafür aus `API_PROXY_TARGET`.
+- **Was die Tests nicht können:** echte WebXR-Sitzungen, Hand-Tracking, Haptik
+  und die Bildrate auf der Quest. Das bleibt Abnahme auf dem Gerät.
 
 ## Desktop-Test (ohne Headset)
 

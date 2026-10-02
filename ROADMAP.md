@@ -30,8 +30,12 @@ markiert – Code wird trotzdem umgesetzt und per Build/Headless-Check geprüft.
       Motion-Sickness-Vignette bei Bewegung.
 - [ ] **Model-Update** – serverseitiges Modell von `claude-sonnet-4-6` auf
       `claude-sonnet-5` heben (in `server/ai-core.js`), inkl. README.
-- [ ] **Tests & CI** – Unit-Tests für `boardState`, `connections`, `cards` (Node-
+- [x] **Tests & CI** – Unit-Tests für `boardState`, `connections`, `cards` (Node-
       Test-Runner o. Ä.) plus eine GitHub-Action, die Build + Tests + Lint fährt.
+      *(erledigt am 2026-10-02: Unit-Tests mit dem Node-Test-Runner, Browser-Tests
+      mit Playwright – `cards`/`connections` laufen dort, weil sie Canvas brauchen –
+      und `.github/workflows/tests.yml`. „Lint" ist bisher nur der Shader-Lint im
+      Build; ESLint ist nicht eingerichtet.)*
 - [ ] **Fonts/Three lokal bündeln** – Google Fonts und ggf. Three-Addons lokal
       einbinden, damit die App offline/auf der Quest ohne Internet vollständig lädt.
 - [ ] **Haptik** *(Hardware)* – kurzes Controller-Rumble beim Greifen, Menü-Klick,

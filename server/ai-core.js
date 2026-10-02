@@ -244,7 +244,8 @@ function extractJson(text) {
   return data;
 }
 
-function parsePayload(action, text) {
+// Exportiert für die Unit-Tests (tests/unit/ai-core.test.js).
+export function parsePayload(action, text) {
   const data = extractJson(text);
   if (action === 'cluster') {
     if (!Array.isArray(data.clusters)) {

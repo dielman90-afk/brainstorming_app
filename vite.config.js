@@ -23,6 +23,12 @@ function buildStamp() {
   }
 }
 
+// Ziel des /api-Proxys. Die Browser-Tests (playwright.config.js) starten einen
+// eigenen Proxy im Mock-Modus auf einem eigenen Port und zeigen hierher – so
+// kann ein Testlauf nie an einem nebenher laufenden Entwicklungs-Proxy mit
+// echtem API-Key landen.
+const apiTarget = process.env.API_PROXY_TARGET || 'http://localhost:3001';
+
 export default defineConfig({
   define: {
     __BUILD_COMMIT__: JSON.stringify(buildStamp()),
@@ -32,13 +38,13 @@ export default defineConfig({
   server: {
     host: true,
     proxy: {
-      '/api': 'http://localhost:3001',
+      '/api': apiTarget,
     },
   },
   preview: {
     host: true,
     proxy: {
-      '/api': 'http://localhost:3001',
+      '/api': apiTarget,
     },
   },
 });

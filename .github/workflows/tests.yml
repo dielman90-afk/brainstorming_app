@@ -1,0 +1,52 @@
+# Build + Unit-Tests + Browser-Tests bei jedem Push.
+#
+# Kein Schritt hier ruft die echte Claude-API auf: Die Browser-Tests starten
+# ihren eigenen Proxy im Mock-Modus ohne Key (siehe playwright.config.js), und
+# dieser Workflow kennt kein ANTHROPIC_API_KEY-Secret.
+name: Tests
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Abhängigkeiten
+        run: npm ci
+
+      # `npm run build` fährt vorher den Shader-Lint (prebuild).
+      - name: Build (mit Shader-Lint)
+        run: npm run build
+
+      - name: Unit-Tests
+        run: npm run test:unit
+
+      - name: Chromium für die Browser-Tests
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser-Tests
+        run: npm run test:e2e
+
+      - name: Testbericht sichern
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 14

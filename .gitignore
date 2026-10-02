@@ -14,3 +14,10 @@ tools/shots/wiederholung/
 # Durchlauf legt schnell fuenf davon an.
 tools/shots/pal-*/
 tools/shots/trans-*/
+
+# Browser-Tests (playwright.config.js): Ergebnisse, Bericht und der eigene
+# Produktions-Build für das Smoke-Projekt.
+test-results/
+playwright-report/
+blob-report/
+dist-e2e/
