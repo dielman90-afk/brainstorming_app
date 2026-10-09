@@ -100,6 +100,18 @@ export const SHOTS = [
     look: [2.4, -0.08, 8.9],
     fov: 70,
   },
+  {
+    // **Ebenfalls angehaengt.** Der Nutzer meldet aus der Brille, die Buesche
+    // haetten „im Innern einen komischen gruenen Kern". Die anderen Kameras
+    // zeigen Buesche nur aus zehn Metern; aus der Brille steht man oft knapp
+    // zwei Meter davor und schaut von oben hinein. Ziel ist der Busch bei
+    // (1,9 | 0,3 | 4,5) in Weltkoordinaten.
+    name: '8-busch',
+    title: 'Busch aus zwei Metern, schraeg von oben',
+    pos: [0.5, 1.6, 6.1],
+    look: [1.9, 0.3, 4.5],
+    fov: 60,
+  },
 ];
 
 // Feste Kameras des Zen-Gartens. Maßstab 1:1 (kein WORLD_SCALE), Sandkreis

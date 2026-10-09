@@ -2031,8 +2031,13 @@ function grasMaterial() {
            // betraegt 0,7 Punkte. Die Totale bleibt dabei unberuehrt
            // (Wiesenmittel 150,0 auf 150,6, Anteil ueber L 190 unveraendert
            // 18,1 %) — die Grenze, an der ein frueherer Anlauf gescheitert ist.
+           // **Gruener und schwaecher, seit die Wiese satter ist.** Der alte
+           // Ton (0,40 | 0,55 | 0,44) ist ein Graugruen; mit 45 Prozent
+           // gemischt nahm er der Wiese ab zwoelf Metern fast die Haelfte
+           // ihrer Saettigung, und genau dort schaut man in der Brille hin.
+           // Die Staffelung bleibt – sie kommt jetzt mehr aus der Helligkeit.
            float weite = smoothstep(2.0, 24.0, tiefe) * (1.0 - smoothstep(30.0, 55.0, tiefe));
-           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.55, 0.44), weite * 0.45);
+           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.34, 0.54, 0.30), weite * 0.32);
            // --- Das Ufer -------------------------------------------------
            //
            // Der Pruefer: „Der Bach ist ein gestrichener Farbstreifen ohne
@@ -2812,15 +2817,23 @@ function bodyColor(out, zone, shape, p, t, a) {
     // **anders** grün, es ist **dunkler** grün. Der Farbton bewegt sich
     // deshalb nur noch um ein Viertel des alten Betrags, die Sättigung um ein
     // Fünftel; die Helligkeit trägt den Rest.
+    // **Satter und eine Spur dunkler – der Nutzer: „Der Boden sollte viel
+    // gruener erscheinen."** Gemessen auf der Wiese (8-busch, 7-grasblick,
+    // 1-eyelevel unten) stand sie bei RGB 162|190|135, L 180, Saettigung 29,5,
+    // Farbton 90 Grad: ein blasses Gelbgruen. Zwei Gruende, beide hier zu
+    // beheben: zu wenig Saettigung in der Albedo, und eine Helligkeit, die
+    // nach der Belichtung in der Schulter der ACES-Kurve landet, wo jede Farbe
+    // Richtung Weiss gedrueckt wird. Mehr Saettigung allein haette die Schulter
+    // wieder abgeflacht; deshalb geht die Helligkeit gleichzeitig herunter.
+    //
+    // Der Farbton steht in der Albedo bei 112 Grad, im Bild landet er gut zehn
+    // Grad gelber: Die Sonne ist warm (0xfff1d4) und ACES zieht helle Gruentoene
+    // Richtung Gelb. Ein erster Anlauf mit 101 Grad in der Albedo blieb im Bild
+    // bei 91 – mehr Saettigung (29,4 auf 38,1), aber dasselbe Limettengruen.
     out.setHSL(
-      0.268 + 0.018 * feucht - 0.024 * trocken + 0.007 * variation,
-      // 0,44 statt 0,40: Beim Beruhigen der Ausschlaege ist der Wiese auch
-      // Saettigung verloren gegangen — der Pruefer misst in `2-waterfall`
-      // y = 440 einen Abstand max minus min von 76 auf 56. Gleichmaessig gruen
-      // heisst nicht blass; der Grundwert holt das zurueck, ohne die Streuung
-      // wieder aufzumachen.
-      0.44 + 0.05 * feucht - 0.045 * trocken + 0.022 * variation,
-      0.34 - 0.10 * feucht + 0.095 * trocken + 0.075 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
+      0.31 + 0.018 * feucht - 0.024 * trocken + 0.007 * variation,
+      0.7 + 0.05 * feucht - 0.045 * trocken + 0.022 * variation,
+      0.28 - 0.09 * feucht + 0.085 * trocken + 0.065 * variation - 0.06 * smoothstep(0.82, 1.0, rr)
     );
     // Zur Kante hin reißt die Narbe auf: Erde und Fels kommen durch. Ohne das
     // liegt das Gras als geschlossene, gleichmäßig dicke Zuckergussschicht auf
@@ -2880,7 +2893,7 @@ function bodyColor(out, zone, shape, p, t, a) {
     const drape = shape.drapeAt(a);
     const g2e = smoothstep(drape * 0.30, drape * 1.15, t);
     if (g2e < 1) {
-      const grass = _tmpColor.setHSL(0.272, 0.42, 0.30 + 0.05 * (mott - 0.5));
+      const grass = _tmpColor.setHSL(0.31, 0.66, 0.26 + 0.05 * (mott - 0.5));
       out.lerp(grass, 1 - g2e);
     }
     return out;
@@ -5311,16 +5324,29 @@ function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
     }
     addContactShadow(shadowBucket, shape, x, z, s * 1.5, true);
   }
+  // **Der „komische gruene Kern".** So hat der Nutzer die Buesche aus der
+  // Brille beschrieben, und in der Nahansicht `8-busch` steht er genau so da:
+  // Die Kartenschale war lueckig, und durch die Luecken sah man den Huellkoerper
+  // als glatte, facettierte Kugel in einem Blaugruen (0x3a5f42 unter dem
+  // kuehlen Himmelslicht), das in keinem Blatt vorkommt. In der Brille kam der
+  // Passthrough-Fehler dazu – die Karten waren halb durchsichtig (siehe
+  // `deckendesAlpha`).
+  //
+  // Drei Hebel zusammen: Der Kern wird kleiner und sitzt tiefer in der Schale
+  // (0,40 statt 0,52), er bekommt den Ton beschatteter Blaetter statt eines
+  // eigenen (gelbgruen, kein Blauanteil), und die Schale wird dichter (105
+  // statt 82 Karten je Schopf, etwas groesser, etwas naeher am Kern). Wo man
+  // jetzt noch hineinsieht, sieht man Schatten im Laub, keinen Ball.
   const busch = baueKrone({
     ansaetze: buschAnsaetze,
     seed: 0x6b21,
     kartenMaterial: inselBaumMaterialien().karten,
     kind: 'azalea',
-    cardScale: 0.78,
-    dichte: 82,
-    kern: 0.52,
-    schale: 1.35,
-    farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
+    cardScale: 0.84,
+    dichte: 105,
+    kern: 0.4,
+    schale: 1.28,
+    farben: [0x45652b, 0x4d7031, 0x3e5c27, 0x416029, 0x486a2e, 0x395523],
     kartenFarben: [0xd2eaa8, 0xc3dd99, 0xdcf2b4, 0xcae4a0, 0xd8eeae, 0xbfd894],
     himmelssaum: false,
   });
@@ -5456,13 +5482,20 @@ function createIslandEnvironment() {
   const SUN_DIR = new THREE.Vector3(18, 24, -24).normalize();
   const sunPos = SUN_DIR.clone().multiplyScalar(38);
 
+  // **Klarere Ferne.** Der Nutzer aus der Brille: „Die Atmosphaere, wenn man
+  // in die Weite guckt, ist etwas getruebt und nicht so schoen." In
+  // `1-eyelevel` stand ueber dem Horizont ein fast weisses Band (L 188,6) und
+  // die Felsen der rechten Mini-Insel lagen grau im Schleier (Saettigung 13).
+  // Der Horizontton geht deshalb ein Stueck ins Blau (0xdaeef8 → 0xc6e4f7),
+  // und der warme Dunst um die Sonne von 0,55 auf 0,35 – er legte sich als
+  // Milchglas ueber die halbe Himmelsseite. Der Nebel unten zieht mit.
   group.add(
-    makeDome(0x3d80c6, 0xdaeef8, 0xc8e4f6, 44, {
+    makeDome(0x3d80c6, 0xc6e4f7, 0xc8e4f6, 44, {
       dir: SUN_DIR,
       color: 0x4a3a1c,
       tight: 250,
       broad: 2.2,
-      streuung: { tiefe: 0.26, dunst: 0.55, farbe: 0xf6e8d2 },
+      streuung: { tiefe: 0.26, dunst: 0.35, farbe: 0xf6e8d2 },
     })
   );
 
@@ -5819,25 +5852,12 @@ function createIslandEnvironment() {
   // bei 82 m Abstand nur 57 m Tiefe und verliert damit ein Drittel des Dunstes.
   // Die Reichweite ist ein Kompromiss: Stärker gesetzt löste sich die
   // Hauptinsel in der Totale (Kamera 57 m entfernt) selbst in Milch auf.
-  const fog = new THREE.Fog(0xb2d6ea, 6 * WORLD_SCALE, 32 * WORLD_SCALE);
-
-  // Was in der Brille dünner wird. Das Laub zuerst – Alpha-Test und
-  // Überzeichnung –, dann die Streudekoration: Blumen, Grasbüschel, Pilze und
-  // Büsche sind zu Hunderten da und einzeln nicht zu vermissen. Die Wolken, der
-  // Wasserfall und die Insel selbst bleiben; sie sind die Silhouette.
-  const ISLAND_QUALITAET = {
-    ausduennen: new Map([
-      // Die beiden großen Posten. Gemessen (inselkosten.mjs, volle Stufe):
-      // Kronenlaub 46.060 Dreiecke, Rankenlaub 28.764, Hüllkörper 17.360 –
-      // zusammen zwei Drittel der Insel.
-      ['island-laub', 0.5],
-      ['island-ranken-laub', 0.45],
-      ['island-krone', 0.6],
-      ['flowers', 0.45],
-      ['bushes', 0.7],
-      ['mushrooms', 0.6],
-    ]),
-  };
+  // **Und weiter hinaus geschoben: 8 bis 50 statt 6 bis 32 Einheiten.** Eine
+  // Mini-Insel in 48 m lag bisher zu 23 Prozent im Nebel, eine in 100 m zu
+  // 73 – aus der Brille ein Schleier ueber allem, was nicht die eigene Insel
+  // ist. Jetzt sind es 9 und 42 Prozent: Die Ferne staffelt noch, aber sie
+  // behaelt Farbe. Der Ton folgt dem blaueren Horizont der Kuppel.
+  const fog = new THREE.Fog(0xa8d0ec, 8 * WORLD_SCALE, 50 * WORLD_SCALE);
 
   return {
     id: 'island',
