@@ -24,6 +24,7 @@ import {
 } from './dojo/foliage.js';
 import { buildSkyEnvironment } from './dojo/skylight.js';
 import { applyQuality } from './dojo/quality.js';
+import { deckendesAlpha } from './passthrough.js';
 
 // Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
@@ -1066,6 +1067,15 @@ function inselBaumMaterialien() {
     // nicht Gegenstand dieses Auftrags und braucht eine eigene Messung.
     _inselNadeln.alphaToCoverage = true;
     _inselKarten.alphaToCoverage = true;
+    // **Abdeckung ja, Alpha schreiben nein.** Mit `alphaToCoverage` setzt three
+    // kein `OPAQUE`, und das Alpha der Blattkarte landete ungemischt im
+    // Framebuffer. In der Brille laeuft die App als AR-Sitzung; der Compositor
+    // mischt dort ueber genau diesen Wert das Kamerabild ein. Der Nutzer hat
+    // es gesehen: durch Kronen und Buesche die Umrisse seines Zimmers.
+    // `tools/alphaprobe.mjs` zaehlte 2,1 bis 4,0 Prozent der Bildpunkte unter
+    // Alpha 1 – genau die Karten in den Kronen und Bueschen.
+    deckendesAlpha(_inselNadeln);
+    deckendesAlpha(_inselKarten);
 
     // --- Fernstufe: In der Ferne traegt der Huellkoerper, nicht die Karte ----
     //
@@ -5855,7 +5865,10 @@ function createIslandEnvironment() {
     walk: makeIslandWalk(shape, WORLD_SCALE, 0.99),
 
     setQuality(stufe) {
-      applyQuality(group, null, stufe, ISLAND_QUALITAET);
+      // Kein Ausduennen mehr: Laub, Blumen und Buesche bleiben in beiden
+      // Stufen vollstaendig (siehe quality.js). Die Stufe regelt hier nur die
+      // Schattenkarte der Sonne.
+      applyQuality(group, null, stufe);
       return null;
     },
     update(time) {
@@ -10868,33 +10881,11 @@ function createNightEnvironment() {
       },
     }),
 
-    // **Hier gibt es bewusst nichts auszudünnen.** Der Nachthimmel hat keine
-    // Blattkarten, keine additiven Lagen über Bildschirmgröße und keine
-    // Instanzenwolke, deren Hälfte man nicht vermisst: Er besteht aus einer
-    // Bodenfläche, dreißig Brocken und zwei Punktwolken. Die Sterne zu halbieren
-    // spart ein paar tausend Punkte und nimmt der Szene ihr einziges Motiv.
-    //
-    // Der Aufruf steht trotzdem hier, und zwar mit leerer Konfiguration: Damit
-    // greift der materialseitige Teil von applyQuality() – doppelseitige
-    // Materialien werden in der Brille einseitig – und es ist an dieser Stelle
-    // aktenkundig, dass die Prüfung stattgefunden hat und negativ ausfiel.
+    // Die Stufe regelt hier nur die Schattenkarte des Mondes (quality.js).
+    // Sterne, Staub und Meteor bleiben in beiden Stufen – die Bewegung ist
+    // das, was die Szene lebendig macht.
     setQuality(stufe) {
-      // **`additivBehalten` ist hier kein Beiwerk, sondern Pflicht.**
-      // `applyQuality()` blendet in der Brille jedes additiv gemischte Mesh
-      // und jedes Points-Objekt aus. Die Vorgabe `/$^/` passt auf nichts —
-      // außer auf den **leeren** Namen, denn bei Länge 0 fallen Anfang und
-      // Ende zusammen. Genau davon haben die Sternschalen bisher gelebt: Sie
-      // hatten keinen Namen.
-      //
-      // Seit sie `nacht-sterne` heißen, greift dieser Zufallsschutz nicht
-      // mehr. Ohne die Ausnahme hier hätte die Quest 3 einen Nachthimmel
-      // **ohne Sterne** — und im Headless-Lauf, der auf „voll" steht, wäre es
-      // nie aufgefallen.
-      // Seit Paket 8 sind es vier additive Gegenstände: Sternfeld, Feinstaub,
-      // Staubteufel und Meteor. Alle heißen `nacht-…`, alle sollen in der
-      // Brille bleiben — die Bewegung ist das, was die Szene lebendig macht,
-      // und sie ist billig: drei Punktwolken und zwei Dreiecke.
-      applyQuality(group, null, stufe, { additivBehalten: /^nacht-/ });
+      applyQuality(group, null, stufe);
       return null;
     },
 
@@ -15916,17 +15907,6 @@ function createZenEnvironment() {
     return karte;
   }
 
-  // Die Kronen bleiben dichter als das Bodenlaub: Sie stehen auf Augenhöhe und
-  // sind das, was man zuerst sieht. Der Bambusschopf verträgt am meisten – er
-  // steht am weitesten weg und ist ohnehin ein Büschel.
-  const ZEN_QUALITAET = {
-    ausduennen: new Map([
-      ['zen-sakura-karten', 0.65],
-      ['zen-ahorn-karten', 0.65],
-      ['zen-bambus-laub', 0.45],
-    ]),
-  };
-
   // --- Wer wirft, wer empfängt ----------------------------------------------
   //
   // Einmal über den fertigen Baum statt an dreißig Stellen von Hand: Alles, was
@@ -16053,17 +16033,17 @@ function createZenEnvironment() {
         // einer Szene hängt, gibt es nichts aufzunehmen.
         pondMat.envMap = zenSpiegel ?? zenSky;
         pondMat.needsUpdate = true;
+        // Die Karte kommt genau einmal – `applyQuality()` darf sie beim
+        // nächsten Stufenwechsel nicht wieder abräumen (siehe quality.js).
+        pondMat.userData.eigeneUmgebungskarte = true;
       }
       return this.environment;
     },
 
-    // Qualitätsstufen. Die Blattkarten sind hier das teuerste Neue: zwei
-    // Dreiecke **und** ein Alpha-Test je Blatt, und der Alpha-Test verbietet
-    // das frühe Verwerfen von Fragmenten. Ausgedünnt wird deshalb nur das Laub;
-    // Sand, Steine und Wasser bleiben in jeder Stufe vollständig, weil sie den
-    // Garten ausmachen und keine Überzeichnung erzeugen.
+    // Die Stufe regelt nur die Schattenkarte (quality.js); das Laub bleibt in
+    // beiden Stufen vollständig.
     setQuality(stufe) {
-      applyQuality(group, null, stufe, ZEN_QUALITAET);
+      applyQuality(group, null, stufe);
       return null;
     },
 

@@ -34,6 +34,8 @@ import { Locomotion } from './locomotion.js';
 import { History } from './history.js';
 import { Hud } from './hud.js';
 import { FLAT_WALK } from './walkable.js';
+import { dichtePassthroughAb } from './passthrough.js';
+import { STUFEN as QUALITAETSSTUFEN } from './dojo/quality.js';
 
 // --- Szene & Renderer ---
 
@@ -158,6 +160,10 @@ const environments = createEnvironments(scene);
 const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
 let envIndex = -1; // -1 = Passthrough (AR) bzw. weißer Hintergrund
 
+// Ist in einer AR-Sitzung eine Umgebung gewählt, darf das Zimmer nirgends
+// durchscheinen – siehe passthrough.js.
+const passthrough = dichtePassthroughAb(renderer, { umgebungAktiv: () => envIndex >= 0 });
+
 // **Wo Inhalte hängen, entscheidet die Umgebung.** Vier der fünf sind ortsfest
 // und lassen Karten und Zonen an der Szene; der 🌌 Nachthimmel gibt seine
 // Weltgruppe an, weil sich unter dem Nutzer der Planet dreht und alles, was an
@@ -218,6 +224,9 @@ function applyEnvironment() {
     ambientLight.intensity = AMBIENT_STANDARD;
     desktopFloor.visible = true;
   }
+  // Neue Welt, neue Schattenkarte – auch dann, wenn „Flüssig" gerade ein Bild
+  // ohne Schattenpass vorgesehen hätte.
+  renderer.shadowMap.needsUpdate = true;
 }
 
 // Gemerkt wird die stabile `id` der Umgebung, nicht ihre Position in der Liste:
@@ -685,35 +694,61 @@ window.addEventListener('keyup', (e) => {
 
 // --- Bildqualität ------------------------------------------------------------
 //
-// Drei Stufen (siehe src/dojo/quality.js). Die Vorgabe hängt am Gerät: am
-// Desktop die volle Fassung, in der Brille die mittlere. Der Nutzer kann sie
-// überstimmen – im Handgelenk-Menü, weil die Frage nur auf dem Gerät zu
-// beantworten ist, und über `?q=` für den Test am Rechner.
+// Zwei Stufen mit **derselben Optik** (siehe src/dojo/quality.js): „Voll" und
+// „Flüssig". Bis hierher waren es drei, und die Brille startete auf „mittel"
+// – einer Fassung mit einseitigem Laub, ohne Umgebungslicht und mit
+// ausgedünnten Büschen. Der Nutzer hat es auf der Quest beurteilt: Nur die
+// volle Fassung ist brauchbar. Sie ist deshalb jetzt überall die Vorgabe, und
+// „Flüssig" spart nur, was man nicht sieht.
 //
-// `null` heißt „automatisch"; sobald einmal umgeschaltet wurde, gilt die Wahl
-// für beide Betriebsarten.
-const QUALITAETSSTUFEN = ['sparsam', 'mittel', 'voll'];
-const QUALITAET_NAMEN = { sparsam: 'sparsam', mittel: 'mittel', voll: 'voll' };
+// Die Wahl wird gemerkt. `?q=voll|fluessig` überstimmt sie für den Test am
+// Rechner.
+const QUALITY_STORAGE_KEY = 'webxr-brainstorming-quality';
+const QUALITAET_NAMEN = {
+  voll: 'Voll – beste Optik',
+  fluessig: 'Flüssig – gleiche Optik, spart Rechenzeit',
+};
 let qualitaetsWahl = (() => {
   const q = new URLSearchParams(location.search).get('q');
-  return QUALITAETSSTUFEN.includes(q) ? q : null;
+  if (QUALITAETSSTUFEN.includes(q)) return q;
+  try {
+    const gemerkt = localStorage.getItem(QUALITY_STORAGE_KEY);
+    return QUALITAETSSTUFEN.includes(gemerkt) ? gemerkt : 'voll';
+  } catch {
+    return 'voll';
+  }
 })();
 
 function aktuelleQualitaet() {
-  if (qualitaetsWahl) return qualitaetsWahl;
-  return renderer.xr.isPresenting ? 'mittel' : 'voll';
+  return qualitaetsWahl;
 }
+
+// Zähler für den Schattenpass in „Flüssig" (Animationsschleife).
+let schattenTakt = 0;
 
 function applyQualityTier() {
   const stufe = aktuelleQualitaet();
   for (const env of environments) env.setQuality?.(stufe);
+  // **„Flüssig" zeichnet die Schattenkarte nur jedes zweite Bild.** Die Sonne
+  // steht in allen Umgebungen still; bewegt wird nur das Laub im Wind, und
+  // dessen Schatten springt dann im halben Takt – auf Papier und Kies nicht zu
+  // unterscheiden. Gespart wird der ganze Schattendurchgang in jedem zweiten
+  // Bild (gemessen 9,5 % der Bildzeit im Dojo, siehe quality.js).
+  renderer.shadowMap.autoUpdate = stufe !== 'fluessig';
+  // Sofort einmal zeichnen: `applyQuality()` hat die Karten gerade neu
+  // angelegt, und eine leere Karte wäre ein Bild ohne Schatten.
+  renderer.shadowMap.needsUpdate = true;
   return stufe;
 }
 
 function cycleQuality() {
-  const jetzt = aktuelleQualitaet();
-  const i = QUALITAETSSTUFEN.indexOf(jetzt);
+  const i = QUALITAETSSTUFEN.indexOf(aktuelleQualitaet());
   qualitaetsWahl = QUALITAETSSTUFEN[(i + 1) % QUALITAETSSTUFEN.length];
+  try {
+    localStorage.setItem(QUALITY_STORAGE_KEY, qualitaetsWahl);
+  } catch {
+    // Merken ist optional
+  }
   const stufe = applyQualityTier();
   // Die Umgebung muss die Änderung sehen: `setQuality` liefert die neue
   // Environment-Map zurück, und die hängt an der Szene, nicht an der Gruppe.
@@ -1864,10 +1899,10 @@ renderer.xr.addEventListener('sessionstart', () => {
   // Läuft ein Erkenner noch aus dem Desktop-Betrieb, wird er hier beendet.
   setXRPresenting(true);
   controls.enabled = false;
-  // Sparsame Fassung in der Brille. Gemessen kostet allein die IBL-Abtastung
-  // ein Viertel der Frame-Zeit; welche Umgebung das betrifft, entscheidet sie
-  // selbst (siehe src/dojo/quality.js).
-  applyQualityTier();
+  // Keine eigene Brillenstufe mehr: Die Brille bekommt dieselbe Fassung wie
+  // der Desktop (siehe „Bildqualität" oben). Bis hierher wurde hier auf
+  // „mittel" umgeschaltet, und genau diese Fassung war es, die der Nutzer als
+  // unbrauchbar gemeldet hat.
   locomotion.reset(); // Fortbewegungs-Rig zentriert starten
   if (xrMode === 'immersive-ar') {
     // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
@@ -1886,7 +1921,6 @@ renderer.xr.addEventListener('sessionstart', () => {
 renderer.xr.addEventListener('sessionend', () => {
   setXRPresenting(false);
   controls.enabled = true;
-  applyQualityTier();
   // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
   locomotion.reset();
   camera.position.set(0, 1.6, 1.2);
@@ -1900,6 +1934,9 @@ renderer.xr.addEventListener('sessionend', () => {
 
 // --- Start: gespeicherte Umgebung + Board wiederherstellen ---
 
+// Die Stufe gilt ab dem ersten Bild für alle Umgebungen. Ungebaute merken sie
+// sich und holen sie beim Bauen nach (`traegeUmgebung` in environments.js).
+applyQualityTier();
 envIndex = savedEnvIndex() ?? -1;
 applyEnvironment();
 
@@ -2174,6 +2211,12 @@ renderer.setAnimationLoop(() => {
     }
   }
 
+  // „Flüssig": die Schattenkarte nur jedes zweite Bild (siehe applyQualityTier).
+  // Nur setzen, nie löschen – three nimmt das Flag nach dem Zeichnen selbst
+  // zurück, und ein Umgebungswechsel dazwischen darf nicht verloren gehen.
+  if (!renderer.shadowMap.autoUpdate && (schattenTakt++ & 1) === 0) {
+    renderer.shadowMap.needsUpdate = true;
+  }
   renderer.render(scene, camera);
 
   // Nach dem ersten gerenderten XR-Frame hat die XR-Kamera eine gültige Pose –
@@ -2221,6 +2264,10 @@ window.__app = {
   interactions,
   controls,
   handleAction,
+  // Für tools/stufenwechsel.mjs: welche Stufen es gibt und welche gilt.
+  quality: { stufen: QUALITAETSSTUFEN, aktuell: aktuelleQualitaet },
+  // Für tools/alphaprobe.mjs: Die Probe stellt darüber eine AR-Sitzung nach.
+  passthrough,
   // Für tools/werkzeuge.mjs: die Anordnung ohne den Umweg über die Statuszeile.
   ordneAlles,
   setStatus,

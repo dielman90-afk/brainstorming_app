@@ -109,8 +109,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     Ohne sie rendern Klingen und Lack **schwarz** – ein Metall ohne etwas zu
     spiegeln hat keine diffuse Komponente. Gebaut erst beim ersten Aktivieren,
     nicht beim Laden.
-  - **Ein** gerichtetes Licht mit **einer** Schattenkarte (2048 am Desktop,
-    1024 in der Brille); alle Maße und die Sonnenrichtung stehen in
+  - **Ein** gerichtetes Licht mit **einer** Schattenkarte (2048 in der Stufe
+    „Voll", 1024 in „Flüssig"); alle Maße und die Sonnenrichtung stehen in
     `src/dojo/layout.js`, damit Schatten, Lichtschächte und Glanzlichter
     zwangsläufig zusammenpassen. Position **und** Ziel der Sonne wurden beim
     Verlängern des Raums um denselben Vektor verschoben – die Richtung ist
@@ -123,7 +123,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     vorzeichenlosen Konstanten; das stimmte auf der Ostwand zufällig und
     stellte auf West und Nord das Papier vor das Gitter, auf West und Süd mit
     der Rückseite nach innen. Am Desktop unsichtbar (Washi ist beidseitig), in
-    der Brille drei Löcher, weil `quality.js` dort auf `FrontSide` schaltet.
+    der Brille drei Löcher, solange `quality.js` dort auf `FrontSide`
+    schaltete (das tut es seit dem Umbau der Bildqualität nicht mehr).
     Die Sprossen sind skalierte Einheitswürfel **ohne jede Drehung** – die
     Bauform, in der „welche Kante liegt auf welcher Achse" nicht mehr falsch
     sein kann.
@@ -153,6 +154,30 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     *Rangfolge* der Posten überträgt sich. **Auf der Quest 3 ist das ungeprüft.**
     Zu beachten: Die p95-Referenz schwankt zwischen identischen Läufen um rund
     10 %; p50 ist das stabilere Signal (XR 504 ms gegen Zen 134 ms).
+    *Nachtrag:* Die eigene XR-Stufe gibt es nicht mehr – die Brille rendert
+    dieselbe Fassung wie der Desktop (siehe **Bildqualität**).
+
+- **Bildqualität** (`src/dojo/quality.js`, Hand-Menü → *Board* →
+  *Bildqualität*): zwei Stufen mit **derselben Optik**. Vorher gab es drei
+  (sparsam, mittel, voll), die Brille startete auf „mittel", und die unteren
+  Stufen sparten, indem sie das Bild veränderten – einseitiges Laub, kein
+  Umgebungslicht, ausgedünnte Büsche. Auf der Quest war nur „voll" brauchbar.
+  Jetzt ist **„Voll" überall die Vorgabe**, und **„Flüssig"** spart nur, was man
+  nicht sieht: Schattenkarte 1024 statt 2048 und der Schattenpass nur jedes
+  zweite Bild. Die Wahl wird gemerkt; `?q=voll|fluessig` überstimmt sie.
+  Beim Umbau fielen zwei Zustandsfehler des alten Wechsels auf, beide mit
+  `tools/stufenwechsel.mjs` belegt: Nach einem Durchgang durch „sparsam" blieb
+  das Bambuslaub im Dojo **für immer unsichtbar** (samt seinem Schattenriss
+  auf dem Papier), und der Zen-Teich verlor bei jedem Wechsel seine
+  Spiegelkarte.
+- **Kein Zimmer im Bild** (`src/passthrough.js`): Die Quest startet die App als
+  `immersive-ar`. Ist dort eine Umgebung gewählt, mischt der Compositor jeden
+  Bildpunkt mit Alpha unter 1 mit dem Kamerabild – durch das Inselblattwerk
+  (`alphaToCoverage`) sah man die Umrisse des eigenen Zimmers, und wo keine
+  Geometrie steht, löscht three in AR mit Alpha 0. Die App meldet three
+  deshalb `opaque`, solange eine Umgebung aktiv ist, und Blattkarten mit
+  Alpha-Abdeckung schreiben kein Alpha mehr. `tools/alphaprobe.mjs` stellt eine
+  AR-Sitzung nach und zählt die durchscheinenden Bildpunkte.
 
 - **Weltmaßstab:** Die Himmelsinsel ist 1:1 zum Nutzer bemaßt – Bäume rund 6 m,
   die Hauptinsel gut 40 m breit, Büsche auf Schulterhöhe. Sie war ursprünglich

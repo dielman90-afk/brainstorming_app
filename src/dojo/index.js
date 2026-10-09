@@ -107,18 +107,6 @@ import { makeZonesWalk } from '../walkable.js';
 // herunter. **Beide Regler zusammen, wie es hier stand.**
 const SKY_INTENSITY = 14.4;
 
-// Außenbauteile, die die Himmelskarte in der Brille wieder abgeben. Alles, was
-// hier **nicht** steht, behält sie – das sind die Polster, die Kartenbüschel,
-// die Kronen und die Fernkronen, also genau das Laub, dessen Tiefen der Himmel
-// aufhellen soll.
-const SKY_ONLY_ON_DESKTOP = [
-  'dojo-exterior-ground',
-  'dojo-garden-kies',
-  'dojo-garden-stein',
-  'dojo-garden-trittsteine',
-  'dojo-bamboo',
-];
-
 // ⛩ Konstrukt-Dojo – der Trainingsraum aus dem Film.
 //
 // Fügt die drei getrennt gebauten Teile zusammen und reicht sie als ganz
@@ -150,8 +138,6 @@ export function createDojoEnvironment() {
   let atmosphere = null;
   let envMap = null;
   let sky = null;
-  // Startwert Desktop. Die XR-Sitzung meldet sich, wenn sie beginnt.
-  let inXR = false;
   let quality = 'voll';
 
   return {
@@ -254,58 +240,22 @@ export function createDojoEnvironment() {
       return this.environment;
     },
 
-    // Desktop bekommt alles, die Brille die sparsame Fassung. Aufgerufen aus
-    // `applyEnvironment` und an den XR-Hooks in main.js – gemessene Grundlage
-    // steht in quality.js.
-    // Nimmt eine Stufe ('sparsam' | 'mittel' | 'voll') oder – wie früher – einen
-    // Boolean. `inXR` heißt hier weiterhin „nicht die volle Fassung"; die
-    // Feinheit steckt in quality.js.
+    // 'voll' | 'fluessig' – beide mit derselben Optik (siehe quality.js).
+    // Aufgerufen aus `applyQualityTier` in main.js und beim Einschalten.
+    //
+    // **Die Brille bekommt dasselbe Bild wie der Desktop.** Bis hierher nahm
+    // die Brillenfassung Kies, Boden, Steinen und Halmen die Himmelskarte weg
+    // und gab den Innenmaterialien statt der Szenenkarte nur einzeln eine. In
+    // der Brille sah das Dojo dadurch nach jedem Stufenwechsel wie ein anderer
+    // Raum aus – genau so hat der Nutzer es gemeldet.
     setQuality(stufe) {
       quality = stufe;
-      inXR = stufe === true || (typeof stufe === 'string' && stufe !== 'voll');
       if (!envMap) return null;
       this.environment = applyQuality(group, envMap, quality);
-      // **Reihenfolge ist Pflicht, nicht Geschmack.** `applyQuality()` setzt
-      // `envMap` bei *jedem* Standardmaterial der Dojo-Gruppe neu – am Desktop
-      // auf `null`, in XR auf die Innenraumkarte. Wer den Himmel davor
-      // zuweist, verliert ihn wieder, und zwar lautlos.
-      // **In der Brille bekommt nur das Laub die Himmelskarte.**
-      //
-      // Gemessen, Blick durch die Südtür, sparsame Fassung, alles in einer
-      // Sitzung (also unter gleicher Fremdlast, was hier entscheidend ist):
-      //
-      //   alles an                          1911,0 ms
-      //   ohne Himmelskarte                 1274,6 ms   (−33,3 %)
-      //   ohne Himmelskarte und Blattkarten  587,5 ms   (−69,3 %)
-      //   Wiederholung desselben Falls       591,8 ms   (0,7 % Streuung)
-      //
-      // **Was diese 33 % nicht heißen.** Auf SwiftShader gibt es keine
-      // Textur-Abtasteinheiten; ein Shader, der eine PMREM-Karte anfasst, wird
-      // dort überproportional bestraft. Die Rangfolge überträgt sich auf die
-      // Quest, der Faktor nicht – genau diese Verwechslung hat in Runde 5 die
-      // Lichtschächte gekostet. Der Himmel wird deshalb **nicht** wegen der
-      // Prozentzahl abgeschaltet.
-      //
-      // Abgezogen wird er dort, wo er unabhängig davon nichts leistet: Sein
-      // Zweck ist, die Tiefen **zwischen den Blättern** aufzuhellen (das war
-      // der Unterschied von 6,2 % auf 1,2 % fast schwarzer Bildpunkte). Kies,
-      // Trittsteine, Laterne, Becken und Halme haben solche Tiefen nicht, und
-      // die 110-m-Bodenfläche schon gar nicht – die kann durch die Südfront
-      // den halben Bildausschnitt füllen. Am Desktop ist Luft, dort bleibt
-      // alles wie es ist.
-      //
-      // `skipSky` ist der dafür vorgesehene Ausstieg (skylight.js). Die Karte
-      // muss zusätzlich aktiv abgeräumt werden: `applySkyTo()` überspringt ein
-      // abgemeldetes Material, es nimmt ihm nichts weg.
-      for (const name of SKY_ONLY_ON_DESKTOP) {
-        const material = exterior.group.getObjectByName(name)?.material;
-        if (!material) continue;
-        material.userData.skipSky = inXR;
-        if (inXR && material.envMap) {
-          material.envMap = null;
-          material.needsUpdate = true;
-        }
-      }
+      // **Reihenfolge ist Pflicht, nicht Geschmack.** `applyQuality()` nimmt
+      // jedem Standardmaterial der Dojo-Gruppe seine eigene Karte (die
+      // Innenraumkarte kommt über die Szene). Wer den Himmel davor zuweist,
+      // verliert ihn wieder, und zwar lautlos.
       if (sky) applySkyTo(exterior.group, sky, SKY_INTENSITY);
       return this.environment;
     },
