@@ -292,12 +292,9 @@ const cardManager = new CardManager(scene, { floorY: () => _floorY ?? 0 });
 // deshalb eine Wand, die Karten stehen in Reihen davor. Das ist auch die
 // Ordnung, in der beides ohnehin benutzt wird.
 //
-// **Zonen nehmen ihre Karten mit.** Eine Zone weiß nicht, welche Karten zu ihr
-// gehören — es gibt keine Mitgliedschaft, nur Nähe (`Zone.umfasst`). Würde man
-// die Rahmen einsammeln und die Karten getrennt neu verteilen, löste ein Klick
-// jede Gruppierung auf, die der Nutzer von Hand gebaut hat. Die Karten vor
-// einem Rahmen werden deshalb **starr mitgeführt**: ihre Lage relativ zur Zone
-// bleibt auf den Millimeter erhalten.
+// **Zonen nehmen ihre Karten mit.** Zonen sind Behälter (zones.js): Ihre
+// Mitglieder fallen aus den freien Kartenreihen heraus und werden nach dem
+// Stellen der Wand wieder ins Raster ihrer Zone gelegt.
 const WERKZEUG_LUECKE = 0.12; // Meter zwischen zwei Panels
 // **Wie breit die Wand werden darf, bevor sie nach hinten weicht.**
 //
@@ -324,10 +321,6 @@ const KARTEN_SICHT = THREE.MathUtils.degToRad(90);
 const KARTEN_LUECKE = 0.07;
 const KARTEN_REIHE = 6;
 const _oW = new THREE.Vector3();
-const _oM = new THREE.Matrix4();
-const _oM2 = new THREE.Matrix4();
-const _oS = new THREE.Vector3();
-const _oZ = new THREE.Vector3();
 
 // Eine Reihe von Blöcken auf einem Bogen um den Nutzer, das breiteste in der
 // Mitte, die übrigen wechselweise rechts und links daneben.
@@ -398,55 +391,20 @@ function ordneAlles() {
   const boden = _floorY ?? 0;
   const heimat = cardManager.heimat;
 
-  // --- Wer gehört zu wem? --------------------------------------------------
-  //
-  // Erst zuordnen, dann bewegen: Nach dem ersten verschobenen Rahmen stimmt die
-  // Nachbarschaft nicht mehr, und die Zuordnung wäre eine andere.
-  scene.updateMatrixWorld(true);
-  const zonen = zoneManager.zones;
-  const gebunden = new Map(); // Zone -> [{ karte, rel }]
-  const frei = [];
-  for (const karte of cardManager.cards) {
-    karte.group.getWorldPosition(_oW);
-    // **Die nächste Zone, nicht die erste.** Zwei Rahmen können sich
-    // überlappen — dann bekäme sonst der zuerst angelegte alle Karten, auch
-    // die, die sichtbar vor dem anderen liegen.
-    let zone = null;
-    let naechste = Infinity;
-    for (const z of zonen) {
-      if (!z.umfasst(_oW)) continue;
-      const d = z.group.getWorldPosition(_oZ).distanceToSquared(_oW);
-      if (d < naechste) {
-        naechste = d;
-        zone = z;
-      }
-    }
-    if (!zone) {
-      frei.push(karte);
-      continue;
-    }
-    // Die Lage der Karte **relativ zur Zone**, als Matrix. Damit überlebt auch
-    // eine gedrehte oder skalierte Zone das Verschieben unverändert.
-    const rel = new THREE.Matrix4()
-      .copy(zone.group.matrixWorld)
-      .invert()
-      .multiply(karte.group.matrixWorld);
-    if (!gebunden.has(zone)) gebunden.set(zone, []);
-    gebunden.get(zone).push({ karte, rel });
-  }
+  // Wer in einer Zone liegt, wandert mit ihr; frei sind nur die übrigen.
+  const frei = cardManager.cards.filter((karte) => !zoneManager.zoneVon(karte));
 
   // --- Ebene 1: die großen Flächen ----------------------------------------
   const flaechen = [];
   if (whiteboard.group.visible) flaechen.push(whiteboard);
   if (timer.group.visible) flaechen.push(timer);
-  for (const z of zonen) flaechen.push(z);
+  for (const z of zoneManager.zones) flaechen.push(z);
   // **Die Wand steht höher, wenn Karten darunter müssen.** Der erste Anlauf
   // hat die Panels auf Augenhöhe gesetzt und die freien Karten bei 1,3 m davor
   // — im Bild lagen „Freie Idee 1, 2, 3, 5" quer über der Tafel und beiden
   // Zonen. Zwei Ebenen in der Tiefe reichen nicht; sie müssen sich auch in der
   // Höhe trennen.
-  const freieVor = cardManager.cards.length - [...gebunden.values()].reduce((n, l) => n + l.length, 0);
-  const reihenNoetig = Math.ceil(freieVor / KARTEN_REIHE);
+  const reihenNoetig = Math.ceil(frei.length / KARTEN_REIHE);
   const hoeheFlaeche =
     boden +
     THREE.MathUtils.clamp(
@@ -465,21 +423,10 @@ function ordneAlles() {
     luecke: WERKZEUG_LUECKE,
   });
 
-  // --- Die Karten der Zonen ziehen starr mit ------------------------------
-  scene.updateMatrixWorld(true);
-  const heimatInv = heimat === scene ? null : _oM2.copy(heimat.matrixWorld).invert();
-  for (const [zone, liste] of gebunden) {
-    for (const { karte, rel } of liste) {
-      _oM.multiplyMatrices(zone.group.matrixWorld, rel);
-      if (heimatInv) _oM.premultiply(heimatInv);
-      _oS.copy(karte.group.scale);
-      _oM.decompose(karte.group.position, karte.group.quaternion, karte.group.scale);
-      // Die Skalierung der Karte gehört ihr, nicht der Rechnung: Sie kürzt sich
-      // zwar heraus, aber ein Rundungsfehler in `decompose` bliebe sonst
-      // stehen und summierte sich über wiederholtes Ordnen auf.
-      karte.group.scale.copy(_oS);
-    }
-  }
+  // --- Die Mitglieder ziehen mit ihrer Zone ------------------------------
+  // Sofort, nicht erst im nächsten Bild: Der Verlaufseintrag danach soll den
+  // gelegten Zustand festhalten.
+  zoneManager.legeAlle();
 
   // --- Ebene 2: die freien Karten, in Reihen davor ------------------------
   //
@@ -490,10 +437,11 @@ function ordneAlles() {
   const reihenHoehe = 0.24;
   // Unter der Unterkante der höchsten Fläche beginnen, nicht auf Augenhöhe.
   // Ohne Flächen gibt es nichts zu unterlaufen — dann stehen die Karten selbst
-  // auf Augenhöhe, wie sie es von `arrangeInArc` gewohnt sind.
-  const hoechste = flaechen.reduce((m, f) => Math.max(m, f.hoehe), 0);
+  // auf Augenhöhe, wie sie es von `arrangeInArc` gewohnt sind. Eine Zone
+  // wächst nur nach unten und nennt ihre Unterkante deshalb selbst.
+  const tiefste = flaechen.reduce((m, f) => Math.max(m, f.unterkante ?? f.hoehe / 2), 0);
   const oberkante = flaechen.length
-    ? hoeheFlaeche - hoechste / 2 - 0.14
+    ? hoeheFlaeche - tiefste - 0.14
     : boden + THREE.MathUtils.clamp(camPos.y - boden - 0.05, 0.6, 2.1) + ((reihen.length - 1) / 2) * reihenHoehe;
   reihen.forEach((reihe, r) => {
     const hoehe = Math.max(boden + 0.35, oberkante - r * reihenHoehe);
@@ -537,6 +485,7 @@ cardManager.onCardRemoved = (card) => {
   // Eine gelöschte Karte darf nicht weiter animiert werden – sonst schreibt
   // der Tweener noch Positionen in ein entsorgtes Objekt.
   tweener.cancel(card.group);
+  zoneManager.karteEntfernt(card);
 };
 
 // Kartenschrift (Barrierefreiheit): gewählte Stufe überdauert einen Reload und
@@ -554,9 +503,12 @@ const whiteboard = new Whiteboard(scene, {
   floorY: () => _floorY ?? 0,
 });
 
-const zoneManager = new ZoneManager(scene, { floorY: () => _floorY ?? 0 });
-// Zonen sind Rahmen, vor denen Karten stehen — sie müssen dieselbe Heimat haben
-// wie die Karten, sonst löst sich die Gruppierung beim Weitergehen auf.
+const zoneManager = new ZoneManager(scene, {
+  floorY: () => _floorY ?? 0,
+  karten: () => cardManager.cards,
+});
+// Zonen enthalten Karten — sie müssen dieselbe Heimat haben wie die Karten,
+// sonst legt jeder Schritt auf dem Planeten die ganze Zone neu.
 meldeWeltHeimat((ziel) => zoneManager.setHeimat(ziel));
 // Und die Tafel: Sie soll da stehen bleiben, wo man sie aufgestellt hat, statt
 // auf dem Planeten für immer vor dem Nutzer zu schweben.
@@ -781,11 +733,16 @@ function showError(message, error) {
 // Gesichert werden Karten und Verbindungen. Die Whiteboard-Zeichnung bleibt
 // bewusst außen vor: Sie ist ein PNG pro Schritt und würde den Verlauf sprengen.
 const history = new History({
-  capture: () => ({
-    cards: cardManager.toJSON().cards,
-    connections: connectionManager.toJSON(),
-    zones: zoneManager.toJSON(),
-  }),
+  capture: () => {
+    // Erst die Zonen nachlegen: Ein Zonenzug oder ein Löschen kann seit dem
+    // letzten Bild noch offen sein, und gesichert wird der gelegte Zustand.
+    zoneManager.update();
+    return {
+      cards: cardManager.toJSON().cards,
+      connections: connectionManager.toJSON(),
+      zones: zoneManager.toJSON(),
+    };
+  },
   restore: (state) => {
     cardManager.applyState(state.cards);
     connectionManager.loadJSON(state.connections);
@@ -826,7 +783,19 @@ function updateHistoryButtons() {
 }
 
 interactions.onCardGrabStart = (card) => tweener.cancel(card.group);
-interactions.onCardMoved = () => commit('Karte verschoben');
+// Abgelegt wird über die Zonen: Eine Karte vor einer Zone wird ihr Mitglied,
+// eine Karte daneben verlässt ihre bisherige.
+interactions.onCardMoved = (card) => {
+  const wechsel = zoneManager.karteAbgelegt(card);
+  const label = wechsel?.zone
+    ? `Karte in Zone „${wechsel.zone.title}“ gelegt`
+    : wechsel
+      ? 'Karte aus Zone genommen'
+      : 'Karte verschoben';
+  commit(label);
+  if (wechsel) setStatus(`${label}.`);
+};
+zoneManager.wirdGezogen = (card) => interactions.drag?.card === card;
 interactions.onCardScaled = () => commitSoon('Kartengröße');
 // Zonen hängen ebenfalls im Verlauf; die Whiteboard-Griffleiste löst hier zwar
 // auch aus, ändert aber nichts am gesicherten Zustand und erzeugt keinen Schritt.
@@ -880,6 +849,18 @@ function aiProgress(label) {
     },
   };
 }
+
+// **Cluster färben Karte und Zone gleich.** Die Zonenpalette ist die
+// Kartenpalette ohne Rot (Kritik) und Neutral (Zusammenfassung); Amber gehört
+// der Standardkarte. Bleiben vier Paare, die sich wiederholen — seit jedes
+// Thema beschriftet in einer eigenen Zone steht, muss die Farbe es nicht mehr
+// allein unterscheiden.
+const CLUSTER_FARBEN = [
+  { karte: 1, zone: 1 }, // Blau
+  { karte: 2, zone: 2 }, // Grün
+  { karte: 3, zone: 3 }, // Violett
+  { karte: 5, zone: 4 }, // Pink
+];
 
 async function handleAction(action) {
   if (busy) {
@@ -1015,7 +996,10 @@ async function handleAction(action) {
       });
       zone.placeInFront(camera);
       commit('Zone erstellt');
-      setStatus('🗂️ Zone erstellt – Karten davor gruppieren. ✎ zum Umbenennen.');
+      setStatus(
+        '🗂️ Zone erstellt – Karten hineinziehen: Sie rasten ein und wandern mit der Zone. ✎ benennt um.',
+        6000
+      );
       return;
     }
     if (action === 'tools-order') {
@@ -1153,20 +1137,41 @@ async function handleAction(action) {
         { ideas: snapshot.map((c) => c.text) },
         aiProgress('Claude gruppiert die Karten…')
       );
+      // Prozessknoten gehören dem Flussdiagramm und kommen in keine Zone; eine
+      // Karte, die Claude zwei Themen zuordnet, bleibt beim ersten.
+      const vergeben = new Set();
       const clusterDefs = (data.clusters ?? [])
-        .map((cl, i) => ({
-          name: cl.name,
-          colorIndex: 1 + (i % (CARD_COLORS.length - 1)),
+        .map((cl) => ({
+          name: String(cl.name ?? '').trim() || 'Thema',
           cards: (cl.ideaIndexes ?? [])
             .filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < snapshot.length)
-            .map((idx) => snapshot[idx]),
+            .map((idx) => snapshot[idx])
+            .filter((card) => {
+              if (card.flowType || vergeben.has(card)) return false;
+              vergeben.add(card);
+              return true;
+            }),
         }))
-        .filter((def) => def.cards.length);
+        .filter((def) => def.cards.length)
+        .map((def, i) => ({ ...def, ...CLUSTER_FARBEN[i % CLUSTER_FARBEN.length] }));
       if (!clusterDefs.length) throw new Error('Keine verwertbaren Cluster erhalten.');
-      cardManager.applyClusters(clusterDefs, camera);
+      // Je Thema eine beschriftete Zone, als flache Wand vor dem Nutzer. Karten
+      // aus anderen Zonen wechseln; leere Zonen eines früheren Laufs räumen
+      // sich danach ab, von Hand angelegte bleiben.
+      const zonen = clusterDefs.map((def) =>
+        zoneManager.addZone({ title: def.name, colorIndex: def.zone, auto: true })
+      );
+      zoneManager.stelleInReihe(zonen, camera);
+      clusterDefs.forEach((def, i) => {
+        zoneManager.nimmAuf(zonen[i], def.cards);
+        for (const card of def.cards) card.setColor(def.karte);
+      });
+      zoneManager.update();
+      zoneManager.entferneLeereAuto();
       commit('Cluster angewendet');
       setStatus(
-        `${clusterDefs.length} Cluster angewendet – Karten wurden gruppiert und eingefärbt.`
+        `🗂️ ${clusterDefs.length} Cluster als Zonen angelegt – die Karten sind eingeordnet und eingefärbt.`,
+        6000
       );
     } else if (action === 'summary') {
       setStatus('Claude fasst das Board zusammen…', 0);
@@ -1997,6 +2002,7 @@ renderer.setAnimationLoop(() => {
   // Vor connectionManager.update: Die Linien sollen den fahrenden Karten in
   // demselben Frame folgen, nicht einen hinterher.
   tweener.update(dt);
+  zoneManager.update();
   connectionManager.update(camera);
   if (envIndex >= 0) environments[envIndex].update?.(elapsed);
   timer.update(elapsed);
@@ -2182,6 +2188,8 @@ renderer.setAnimationLoop(() => {
     const xrCam = renderer.xr.getCamera();
     if (xrCam.cameras?.length) {
       cardManager.repositionAllInArc(xrCam);
+      // Das Holen nimmt auch Zonenmitglieder mit — zurück in ihre Zonen.
+      zoneManager.legeAlle();
       commit('Karten vor den Nutzer geholt');
       recenterOnNextFrame = false;
     }
