@@ -19,7 +19,9 @@ import { chromium } from 'playwright';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CHROMIUM = '/opt/pw-browsers/chromium';
-export const PORT = 5199;
+// `HARNESS_PORT` erlaubt zwei Pruefstaende nebeneinander (etwa in getrennten
+// Arbeitskopien); ohne Angabe bleibt es bei 5199.
+export const PORT = Number(process.env.HARNESS_PORT) || 5199;
 export const VIEWPORT = { width: 1280, height: 720 };
 
 // **Geduld beim Einzelbild.** Playwright gibt einem Screenshot ohne Angabe
