@@ -11697,7 +11697,16 @@ function blattTextur() {
 // Kirschbaum im Wind, sondern ein Schneesturm — im Bild lagen ständig Blätter
 // über der halben Fläche. Ein Sakura verliert einzelne Blüten; was zählt, ist,
 // dass ab und zu eines vorbeitrudelt.
-function makeBluetenblaetter(rand, quellen, anzahl = 90) {
+//
+// **Und 30 statt 90, und dreimal so langsam.** Der Nutzer aus der Brille: „Die
+// Blätter fallen viel zu schnell, beziehungsweise es sind zu viele." Bei 0,22
+// bis 0,52 m/s war ein Blatt aus 3,3 m Kronenhöhe in sechs bis fünfzehn
+// Sekunden unten, und unter den beiden Bäumen lag ein Dauerregen von
+// fünfundvierzig Blättern je Krone. Ein Zen-Garten lebt von der Ruhe: Ein
+// Blütenblatt segelt, es fällt nicht. Mit 0,07 bis 0,15 m/s braucht eines
+// zwanzig bis fünfzig Sekunden, und mit fünfzehn je Baum ist selten mehr als
+// eine Handvoll gleichzeitig in der Luft.
+function makeBluetenblaetter(rand, quellen, anzahl = 30) {
   const geo = new THREE.PlaneGeometry(0.062, 0.078);
   const mat = new THREE.MeshLambertMaterial({
     map: blattTextur(),
@@ -11745,11 +11754,13 @@ function makeBluetenblaetter(rand, quellen, anzahl = 90) {
       r: Math.sqrt(rand()),
       y0: rand(),
       // Jedes Blatt fällt anders schnell und taumelt anders — nichts im
-      // Gleichtakt.
-      fall: 0.22 + rand() * 0.3,
-      dreh: (rand() - 0.5) * 3.4,
+      // Gleichtakt. Drehen und Kippen laufen mit dem langsameren Fall auf
+      // etwa die Hälfte herunter; ein Blatt, das schnell rotiert, aber kaum
+      // sinkt, läse sich als Insekt.
+      fall: 0.07 + rand() * 0.08,
+      dreh: (rand() - 0.5) * 1.6,
       kipp: rand() * Math.PI * 2,
-      kippTempo: 0.8 + rand() * 1.9,
+      kippTempo: 0.4 + rand() * 0.9,
       schwing: rand() * Math.PI * 2,
       schwingWeite: 0.18 + rand() * 0.45,
       groesse: 0.75 + rand() * 0.6,
@@ -11770,10 +11781,13 @@ function makeBluetenblaetter(rand, quellen, anzahl = 90) {
         const y = t * d.hoehe;
         // Je tiefer, desto weiter vom Stamm weg
         const weite = d.streu * (0.35 + (1 - t) * 0.9);
+        // Das Pendeln läuft mit dem Fall langsamer: Bei 0,7 rad/s wanderte ein
+        // Blatt bis zu 0,44 m/s zur Seite – dreimal so schnell, wie es jetzt
+        // sinkt, und damit flatternd statt segelnd.
         pos.set(
-          d.qx + Math.cos(d.a) * d.r * weite + Math.sin(time * 0.7 + d.schwing) * d.schwingWeite,
+          d.qx + Math.cos(d.a) * d.r * weite + Math.sin(time * 0.32 + d.schwing) * d.schwingWeite,
           y + 0.02,
-          d.qz + Math.sin(d.a) * d.r * weite + Math.cos(time * 0.55 + d.schwing) * d.schwingWeite
+          d.qz + Math.sin(d.a) * d.r * weite + Math.cos(time * 0.26 + d.schwing) * d.schwingWeite
         );
         e.set(
           Math.sin(time * d.kippTempo + d.kipp) * 1.5,
