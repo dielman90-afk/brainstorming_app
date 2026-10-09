@@ -370,7 +370,8 @@ function eachMaterial(root, fn) {
  * Bewusst pro Material und nicht über `scene.environment` – siehe Kopf dieser
  * Datei. Ein Material kann sich mit `userData.skipSky = true` abmelden; das ist
  * für Dinge gedacht, die zwar im Außenbereich stehen, aber innen gespiegelt
- * gehören (z. B. ein Beschlag, der zur Hälfte unter dem Vordach sitzt).
+ * gehören (z. B. ein Beschlag, der zur Hälfte unter dem Vordach sitzt). Mit
+ * `userData.himmelStaerke` bringt es statt `intensity` eine eigene Stärke mit.
  *
  * `envMap = null` stellt den gesicherten Ausgangszustand exakt wieder her –
  * damit ist der Rückweg dieselbe Funktion und kann nicht auseinanderlaufen.
@@ -390,7 +391,11 @@ export function applySkyTo(root, envMap, intensity = 1) {
 
     const base = remember(material);
     const next = envMap ?? null;
-    const wantIntensity = next ? intensity : base.envMapIntensity;
+    // Ein Material darf eine eigene Staerke mitbringen (`himmelStaerke`). Das
+    // Laub im Dojo-Garten braucht das: Bei der Staerke, die Kies und Boden
+    // tragen, glaenzte es weiss (siehe exterior.js, `LAUB_HIMMEL`).
+    const eigene = material.userData.himmelStaerke;
+    const wantIntensity = next ? (typeof eigene === 'number' ? eigene : intensity) : base.envMapIntensity;
 
     // `needsUpdate` nur bei echter Änderung: Der Wechsel von „keine Karte" zu
     // „Karte" ändert die Shader-Defines und erzwingt eine Neuübersetzung. Jeden
