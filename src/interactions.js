@@ -183,7 +183,13 @@ export class InteractionManager {
       controller.userData.drawing = null;
     }
     const target = controller.userData.grabbedTarget;
-    if (target) {
+    // Hängt das Ziel nicht mehr an der Hand, wurde es inzwischen entfernt –
+    // etwa eine Zone per Rückgängig oder mit der anderen Hand gelöscht.
+    // Zurückhängen erzeugte sonst eine Geisterzone ohne Eintrag in der Liste.
+    if (target && target.group.parent !== controller) {
+      controller.userData.grabbedTarget = null;
+      controller.userData.grabTargetStart = null;
+    } else if (target) {
       // Zonen gehören zur Welt und melden dafür eine Heimat; das Whiteboard ist
       // ein Werkzeug und bleibt an der Szene.
       (target.heimat?.() ?? this.scene).attach(target.group);

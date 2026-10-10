@@ -44,6 +44,9 @@ export const ZONE_COLORS = [
 
 const _p = new THREE.Vector3();
 const _l = new THREE.Vector3();
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
+const _auge = new THREE.Vector3();
 const _mitte = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _lp = new THREE.Vector3();
@@ -410,6 +413,10 @@ export class ZoneManager {
     // hängt die Karte nicht um, das sieht man ihr also nicht an. Von main.js
     // gesetzt, sobald es die Interaktion gibt.
     this.wirdGezogen = () => false;
+    // (out) => Vector3|null – wo das Auge des Nutzers steht. Von main.js
+    // gesetzt (nur am Desktop); ohne Angabe zählt beim Ablegen nur die Nähe
+    // zur Fläche.
+    this.auge = () => null;
   }
 
   addZone({ title, colorIndex, position, quaternion, scale, auto } = {}) {
@@ -465,7 +472,29 @@ export class ZoneManager {
   // Karten, auch die, die sichtbar vor der anderen liegen. Gemessen wird zur
   // Mitte der Fläche, nicht zum Ursprung, denn eine gewachsene Zone reicht weit
   // unter ihren Ursprung.
-  _zoneAm(weltPunkt) {
+  _zoneAm(weltPunkt, auge = null) {
+    return this._trefferAm(weltPunkt, auge)?.zone ?? null;
+  }
+
+  // **Wo trifft eine Karte eine Zone – auch aus Sicht des Nutzers?**
+  //
+  // Zuerst die Nähe: Liegt der Punkt vor einer Zone (`umfasst`), gilt die
+  // nächste davon. Das allein reichte nicht. Der Mauszug hält eine Karte auf
+  // einer Ebene durch ihren Startpunkt, ihre Tiefe ändert er nie – neue Karten
+  // stehen 1,15 m vor dem Nutzer, eine neue Zone 2,4 m. Gemessen lag die Karte
+  // nach einem Zug auf die Zonenmitte 1,24 m vor der Fläche; `umfasst` erlaubt
+  // 0,6, und die Karte blieb draußen. Der Grundablauf „Karte in die Zone
+  // ziehen" ging am Desktop also nicht.
+  //
+  // Deshalb die zweite Frage, wenn ein Augenpunkt bekannt ist: Trifft der
+  // Strahl vom Auge durch die Karte die Zonenfläche? Was der Nutzer über einer
+  // Zone loslässt, gehört hinein. Die Stelle im Raster folgt dem Treffpunkt
+  // auf der Fläche, nicht der Kartenmitte. Bei mehreren Zonen gewinnt die,
+  // die der Strahl zuerst trifft.
+  //
+  // Rückgabe `{ zone, lokal }` (lokal: Punkt in den Koordinaten der Zone)
+  // oder null.
+  _trefferAm(weltPunkt, auge = null) {
     let beste = null;
     let naechste = Infinity;
     for (const z of this.zones) {
@@ -477,7 +506,26 @@ export class ZoneManager {
         beste = z;
       }
     }
-    return beste;
+    if (beste) return { zone: beste, lokal: beste.group.worldToLocal(weltPunkt.clone()) };
+    if (!auge) return null;
+    let treffer = null;
+    let tMin = Infinity;
+    for (const z of this.zones) {
+      const a = z.group.worldToLocal(_a.copy(auge));
+      const b = z.group.worldToLocal(_b.copy(weltPunkt));
+      // Das Auge muss vor der Fläche stehen und der Strahl auf sie zulaufen;
+      // von hinten durch eine Zone hindurch wird nichts abgelegt.
+      if (a.z <= 0 || b.z >= a.z) continue;
+      const t = a.z / (a.z - b.z);
+      const x = a.x + (b.x - a.x) * t;
+      const y = a.y + (b.y - a.y) * t;
+      if (Math.abs(x) > WIDTH / 2 || y > HEIGHT / 2 || y < HEIGHT / 2 - z.hoeheLokal) continue;
+      if (t < tMin) {
+        tMin = t;
+        treffer = { zone: z, lokal: new THREE.Vector3(x, y, 0) };
+      }
+    }
+    return treffer;
   }
 
   // **Eine Karte wurde losgelassen.** Liegt sie vor einer Zone, wird sie deren
@@ -494,10 +542,11 @@ export class ZoneManager {
   karteAbgelegt(karte) {
     const vorher = this.zoneVon(karte);
     karte.group.getWorldPosition(_p);
-    const ziel = karte.flowType ? null : this._zoneAm(_p);
+    const treffer = karte.flowType ? null : this._trefferAm(_p, this.auge(_auge));
+    const ziel = treffer?.zone ?? null;
     if (vorher) vorher.karten = vorher.karten.filter((id) => id !== karte.id);
     if (ziel) {
-      const lokal = ziel.group.worldToLocal(_p.clone());
+      const lokal = treffer.lokal;
       const mitglieder = [...this._mitgliederVon(ziel), karte];
       const raster = this._raster(ziel, mitglieder);
       let stelle = mitglieder.length - 1;
@@ -711,7 +760,7 @@ export class ZoneManager {
     if (this.zones.length) {
       for (const k of this.alleKarten()) {
         if (k.flowType || !this._gegriffen(k)) continue;
-        ziel = this._zoneAm(k.group.getWorldPosition(_p));
+        ziel = this._zoneAm(k.group.getWorldPosition(_p), this.auge(_auge));
         break;
       }
     }

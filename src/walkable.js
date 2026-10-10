@@ -115,6 +115,9 @@ export function makePlanetWalk({ radius, heightAt, welt, nachDrehung, freiraum =
       }
       out.x = (x * freiraum) / r;
       out.z = (z * freiraum) / r;
+      // Rückgabe `true`: Die Welt hat sich gedreht. Der Aufrufer braucht das für
+      // „Flüssig", das die Schattenkarte sonst nur jedes zweite Bild zeichnet –
+      // auf dem Planeten liefen die Schatten dem Boden dann hinterher.
 
       // ACHSE: Der Boden unter dem Nutzer soll dorthin wandern, wo der Nutzer
       // herkommt — er selbst kommt ja nicht vom Fleck. Mit der Abdrift
@@ -125,6 +128,7 @@ export function makePlanetWalk({ radius, heightAt, welt, nachDrehung, freiraum =
       _achse.set(-z, 0, x).multiplyScalar(1 / r);
       welt.rotateOnWorldAxis(_achse, (r - freiraum) / radius);
       nachDrehung?.(welt);
+      return true;
     },
 
     // Wird immer NACH `limit` mit dem geklemmten Punkt gerufen — x und z liegen

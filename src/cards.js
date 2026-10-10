@@ -316,13 +316,16 @@ export class CardManager {
 
   // Alle vorhandenen Karten neu vor dem Nutzer anordnen (z. B. beim VR-Start,
   // wenn sich die Kamera-Pose gegenüber der Desktop-Ansicht ändert).
-  repositionAllInArc(camera) {
+  //
+  // `cards`: welche Karten. Vorgabe alle; beim VR-Start nur die freien – die
+  // Mitglieder einer Zone gehören in deren Raster, nicht in den Bogen.
+  repositionAllInArc(camera, cards = this.cards) {
     const perRow = 6;
-    for (let i = 0; i < this.cards.length; i += perRow) {
-      const row = this.cards.slice(i, i + perRow);
+    for (let i = 0; i < cards.length; i += perRow) {
+      const row = cards.slice(i, i + perRow);
       this.arrangeInArc(row, camera, Math.floor(i / perRow));
     }
-    this.spawnBatch = Math.ceil(this.cards.length / perRow);
+    this.spawnBatch = Math.ceil(cards.length / perRow);
   }
 
   // (Hier stand `applyClusters`, das Cluster als Kartenspalten mit einer

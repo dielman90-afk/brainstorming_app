@@ -566,6 +566,38 @@ try {
   pruefe(mausB.label === 'Zone verschoben', `Zone an der Kopfzeile gezogen („${mausB.label}“)`);
   pruefe(abweichung(mausA.relativ, mausB.relativ) < 1e-9, 'die Karte ist mitgewandert');
 
+  // **Der Grundablauf, ohne die Karte vorher vor die Zone zu setzen.** Oben
+  // steht die Mauskarte schon 30 cm vor der Fläche. Im echten Ablauf liegt
+  // eine neue Karte 1,15 m vor dem Nutzer (`spawnIdeas`), eine neue Zone 2,4 m
+  // (`placeInFront`), und der Mauszug ändert die Tiefe nie. Das Gegenreview
+  // hat genau diesen Fall gefunden: Die Karte blieb draußen. Abgelegt wird
+  // jetzt auch über den Blickstrahl (zones.js, `_trefferAm`).
+  const wo2 = await page.evaluate(() => {
+    const T = window.__THREE;
+    const app = window.__app;
+    window.__zp.leer();
+    const zone = app.zoneManager.addZone({ title: 'Grundablauf' });
+    zone.placeInFront(app.camera);
+    const [k] = app.cardManager.spawnIdeas(['Neue Idee'], app.camera);
+    app.scene.updateMatrixWorld(true);
+    const rect = app.renderer.domElement.getBoundingClientRect();
+    const auf = (obj) => {
+      const p = obj.getWorldPosition(new T.Vector3()).project(app.camera);
+      return { x: rect.left + ((p.x + 1) / 2) * rect.width, y: rect.top + ((1 - p.y) / 2) * rect.height };
+    };
+    const tiefe = zone.group.worldToLocal(k.group.getWorldPosition(new T.Vector3())).z;
+    return { karte: auf(k.group), ziel: auf(zone.panel), id: k.id, tiefe };
+  });
+  console.log(`  neue Karte liegt ${wo2.tiefe.toFixed(2)} m vor der neuen Zone`);
+  await zug(wo2.karte, wo2.ziel);
+  const mausC = await page.evaluate((id) => {
+    const zone = window.__app.zoneManager.zones[0];
+    return { mitglied: zone.karten.includes(id), befund: window.__zp.befund(zone) };
+  }, wo2.id);
+  pruefe(wo2.tiefe > 0.6, 'die Karte liegt vor dem Zug ausserhalb des Naehe-Fensters (Ausgangslage stimmt)');
+  pruefe(mausC.mitglied, 'Grundablauf: neue Karte per Maus auf die neue Zone gezogen → Mitglied');
+  rasterPruefen(mausC.befund, 1, 'Grundablauf · 1');
+
   // --- 8 -------------------------------------------------------------------
   if (ohneNacht) {
     console.log('\n=== 8. Nachthimmel — übersprungen (--ohne-nacht) ===');

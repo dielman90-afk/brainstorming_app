@@ -142,6 +142,10 @@ export class Locomotion {
     const step = this._v.length();
     if (step > HAND_STEP_MAX) this._v.multiplyScalar(HAND_STEP_MAX / step);
     this._v.multiplyScalar(HAND_GAIN);
+    // Und nach der Übersetzung wie Stick und Tasten auf `SCHRITT_MAX`: 8 cm mal
+    // Faktor 8 wären 64 cm in einem Bild – genug, um in der Zonenkette des
+    // Dojo durch eine Wand zu springen (walkable.js).
+    if (this._v.length() > SCHRITT_MAX) this._v.setLength(SCHRITT_MAX);
     this._v.applyQuaternion(this.player.quaternion);
     this.player.position.sub(this._v);
 

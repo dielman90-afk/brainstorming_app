@@ -207,6 +207,11 @@ function applyEnvironment() {
     // der die Umgebung nie aufruft. Ohne die Karte rendern Metall und Lack
     // schwarz, weil ein Metall ohne etwas zu spiegeln keine diffuse Komponente
     // hat.
+    //
+    // Die Schattenkarte vorher frisch anfordern: Der Teich im Zen-Garten nimmt
+    // hier seine Spiegelkarte auf, und in „Flüssig" stünde sonst womöglich die
+    // Schattenkarte der vorigen Umgebung darin.
+    renderer.shadowMap.needsUpdate = true;
     env.ensureEnvironment?.(renderer);
     scene.environment = env.environment ?? null;
     ambientLight.intensity = env.sceneAmbient ?? AMBIENT_STANDARD;
@@ -852,6 +857,12 @@ interactions.onCardMoved = (card) => {
   if (wechsel) setStatus(`${label}.`);
 };
 zoneManager.wirdGezogen = (card) => interactions.drag?.card === card;
+// Am Desktop wird auch abgelegt, was aus Sicht des Nutzers auf einer Zone liegt
+// (zones.js, `_trefferAm`): Der Mauszug ändert die Tiefe einer Karte nie. In
+// der Brille trägt die Hand die Karte selbst an die Zone; dort zählt nur die
+// Nähe, damit eine frei in den Raum gestellte Karte nicht in eine ferne Zone
+// hinter ihr springt.
+zoneManager.auge = (out) => (renderer.xr.isPresenting ? null : camera.getWorldPosition(out));
 interactions.onCardScaled = () => commitSoon('Kartengröße');
 // Zonen hängen ebenfalls im Verlauf; die Whiteboard-Griffleiste löst hier zwar
 // auch aus, ändert aber nichts am gesicherten Zustand und erzeugt keinen Schritt.
@@ -1952,6 +1963,11 @@ renderer.xr.addEventListener('sessionend', () => {
   camera.position.set(0, 1.6, 1.2);
   controls.target.set(0, 1.4, -0.6);
   controls.update();
+  // Den Boden neu einmessen, auch wenn die Umgebung dieselbe bleibt. Sonst
+  // gilt die Bodenhöhe aus der Brille weiter, und das Anheben der Desktop-Pose
+  // (siehe Animationsschleife) fällt aus – im 🌌 Nachthimmel, dessen Boden bei
+  // 25 m liegt, sah die Kamera danach senkrecht in den Planeten.
+  _walkEnv = -2;
   envIndex = savedEnvIndex() ?? -1;
   applyEnvironment();
   wristMenu.setVisible(false);
@@ -2133,7 +2149,9 @@ renderer.setAnimationLoop(() => {
     }
 
     const head = camera.getWorldPosition(_walkHead);
-    walk.limit(head.x, head.z, _walkZiel);
+    // Hat sich die Welt gedreht (Planet), stimmt die Schattenkarte nicht mehr –
+    // in „Flüssig" sofort neu zeichnen statt erst im nächsten Takt.
+    if (walk.limit(head.x, head.z, _walkZiel) === true) renderer.shadowMap.needsUpdate = true;
     const dx = _walkZiel.x - head.x;
     const dz = _walkZiel.z - head.z;
 
@@ -2249,8 +2267,20 @@ renderer.setAnimationLoop(() => {
   if (recenterOnNextFrame && renderer.xr.isPresenting) {
     const xrCam = renderer.xr.getCamera();
     if (xrCam.cameras?.length) {
-      cardManager.repositionAllInArc(xrCam);
-      // Das Holen nimmt auch Zonenmitglieder mit — zurück in ihre Zonen.
+      // **Nur die freien Karten in die Bögen.** Mit allen Karten entstanden
+      // Lücken: Die Bögen wurden für die volle Liste gerechnet, danach zogen
+      // die Mitglieder zurück in ihre Zonen.
+      const frei = cardManager.cards.filter((k) => !zoneManager.zoneVon(k));
+      cardManager.repositionAllInArc(xrCam, frei);
+      // Zonen, die weit weg stehen, kommen mit ihren Karten vor den Nutzer –
+      // etwa nach einem Desktop-Abend im 🌌 Nachthimmel: Dort lagen sie auf
+      // dem Planeten, 25 m über dem Boden der neuen Sitzung, und ihr Inhalt
+      // wäre bis zum nächsten „Alles ordnen" unerreichbar gewesen.
+      const kopf = camera.getWorldPosition(new THREE.Vector3());
+      const verirrt = zoneManager.zones.filter(
+        (z) => z.group.getWorldPosition(new THREE.Vector3()).distanceTo(kopf) > 8
+      );
+      if (verirrt.length) zoneManager.stelleInReihe(verirrt, camera);
       zoneManager.legeAlle();
       commit('Karten vor den Nutzer geholt');
       recenterOnNextFrame = false;

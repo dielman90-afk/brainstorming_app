@@ -192,7 +192,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   WASD/Pfeile bewegen mit 7,5 m/s – die gewohnte Orbit-Ansicht und
   Karten-Bedienung bleiben erhalten. **VR:** linker Stick = sanftes Gleiten in
   Blickrichtung (analog dosierbar, bis 3,6 m/s), rechter Stick = Snap-Turn
-  (komfortables ruckartiges Drehen). Stick und Tasten tragen höchstens 30 cm je
+  (komfortables ruckartiges Drehen). Stick, Tasten und Handzug tragen höchstens 30 cm je
   Bild (`SCHRITT_MAX` in `src/walkable.js`): Bei 72 Hz sind es ohnehin nur 5 cm,
   der Deckel fängt ausgefallene Bilder ab, die sonst bis zu 75 cm auf einmal
   trügen – zu weit für die Zonenkette des Dojos. **Ohne Controller:** ins Leere pinchen und die Hand
@@ -407,7 +407,10 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 - **🗂️ Zonen:** Beschriftete, halbtransparente Flächen, die Karten **enthalten**
   (z. B. „To Do / Doing / Done“). Eine Karte, die man vor einer Zone ablegt,
   wird ihr Mitglied und rastet im Raster ein (flach in der Zonenebene, vier
-  Ideenkarten je Reihe); wer sie auf einen anderen Platz der Zone zieht,
+  Ideenkarten je Reihe). Am Desktop genügt es, die Karte mit der Maus **auf**
+  die Zone zu ziehen: Es zählt, was aus Sicht der Kamera über der Fläche liegt,
+  denn der Mauszug ändert die Tiefe nicht. In der Brille zählt die Nähe zur
+  Fläche, die Zone leuchtet vorher auf. Wer sie auf einen anderen Platz der Zone zieht,
   sortiert um, wer sie hinauszieht, nimmt sie heraus. Verschiebt, dreht oder
   skaliert man die Zone (Kopfzeile greifen, Mausrad/Stick), wandern die Karten
   mit – auch im Nachthimmel. Reicht die Höhe nicht, wächst die Zone nach unten

@@ -267,14 +267,28 @@ try {
   console.log('\n=== Tasten ===');
   {
     const start = await setzeUndLies(page, 0, 0, 3);
+    // **Nach Bildern halten, nicht nach Zeit.** Ein Schritt ist auf
+    // `SCHRITT_MAX` je Bild gedeckelt, und SwiftShader schafft nach dem
+    // Nachthimmel im Konstrukt kaum ein Bild pro Sekunde. 900 ms Halten
+    // reichten dann für null oder ein Bild – der Test meldete „W bewegt nicht",
+    // obwohl die Taste wirkte. Gehalten wird jetzt, bis mindestens vier Bilder
+    // gelaufen sind; erwartet wird dann mehr als ein voller Schritt.
     await page.keyboard.down('w');
-    await page.waitForTimeout(900);
+    const bilder = await page.evaluate(async () => {
+      const t0 = performance.now();
+      let n = 0;
+      while (n < 4 || performance.now() - t0 < 900) {
+        await new Promise((r) => requestAnimationFrame(r));
+        n++;
+      }
+      return n;
+    });
     await page.keyboard.up('w');
     await page.waitForTimeout(150);
     const nachW = await page.evaluate(() => ({ ...window.__app.camera.position }));
     const weg = Math.hypot(nachW.x - start.x, nachW.z - start.z);
-    console.log(`  W:    ${weg.toFixed(2)} m zurückgelegt`);
-    pruefe(weg > 0.3, 'W bewegt noch');
+    console.log(`  W:    ${weg.toFixed(2)} m zurückgelegt in ${bilder} Bildern`);
+    pruefe(weg > SCHRITT, 'W bewegt noch');
 
     const yVor = nachW.y;
     for (const taste of ['e', 'q']) {
