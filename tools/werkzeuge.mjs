@@ -443,10 +443,12 @@ try {
 
   // --- 6: Zonen nehmen ihre Karten mit ------------------------------------
   //
-  // Eine Zone weiß nicht, welche Karten zu ihr gehören — es gibt nur Nähe.
-  // Würde `ordneAlles` die Rahmen einsammeln und die Karten getrennt neu
-  // verteilen, löste ein Klick jede Gruppierung auf, die von Hand gebaut wurde.
-  // Geprüft wird deshalb die Lage **relativ zur Zone**, vor und nach dem Ordnen.
+  // Zonen sind seit dem Umbau Behälter: Eine Karte, die man vor einer Zone
+  // **ablegt**, wird ihr Mitglied und rastet ein. Würde `ordneAlles` die Zonen
+  // einsammeln und die Mitglieder getrennt neu verteilen, löste ein Klick jede
+  // Gruppierung auf. Geprüft wird deshalb die Lage **relativ zur Zone**, vor
+  // und nach dem Ordnen — und dass Nähe allein nicht mehr zählt: Eine Karte,
+  // die nur davor steht, ohne je abgelegt worden zu sein, bleibt frei.
   const mitziehen = await page.evaluate(() => {
     const T = window.__THREE;
     const app = window.__app;
@@ -458,32 +460,39 @@ try {
     zone.placeInFront(app.camera);
     app.scene.updateMatrixWorld(true);
 
-    // Drei Karten vor den Rahmen legen, in seinem eigenen Koordinatensystem.
+    // Drei Karten vor der Zone ablegen, in ihrem eigenen Koordinatensystem —
+    // ablegen heißt: hinstellen und den Zug melden, wie es die Maus tut.
+    const setze = (k, welt) => {
+      const h = app.cardManager.heimat;
+      k.group.position.copy(h === app.scene ? welt : h.worldToLocal(welt.clone()));
+      k.group.updateMatrixWorld(true);
+    };
     const drin = [];
     for (const [dx, dy] of [[-0.4, 0.2], [0.0, -0.1], [0.45, -0.3]]) {
       const k = app.cardManager.addCard('in der Zone');
-      const welt = zone.group.localToWorld(new T.Vector3(dx, dy, 0.05));
-      const h = app.cardManager.heimat;
-      k.group.position.copy(h === app.scene ? welt : h.worldToLocal(welt.clone()));
+      setze(k, zone.group.localToWorld(new T.Vector3(dx, dy, 0.05)));
+      app.interactions.onCardMoved(k);
       drin.push(k);
     }
-    // Und zwei weit weg, die frei bleiben müssen.
+    // Zwei weit weg, ebenfalls abgelegt, und eine, die nur davor steht.
     const draussen = [];
     for (let i = 0; i < 2; i++) {
       const k = app.cardManager.addCard('frei');
       const auge = app.camera.getWorldPosition(new T.Vector3());
-      const welt = auge.clone().add(new T.Vector3(3 + i, -0.3, -1));
-      const h = app.cardManager.heimat;
-      k.group.position.copy(h === app.scene ? welt : h.worldToLocal(welt.clone()));
+      setze(k, auge.clone().add(new T.Vector3(3 + i, -0.3, -1)));
+      app.interactions.onCardMoved(k);
       draussen.push(k);
     }
+    const davor = app.cardManager.addCard('nur davorgestellt');
+    setze(davor, zone.group.localToWorld(new T.Vector3(0.3, 0.3, 0.1)));
+    draussen.push(davor);
     app.scene.updateMatrixWorld(true);
 
     const relativ = (k) =>
       zone.group.worldToLocal(k.group.getWorldPosition(new T.Vector3())).toArray();
     const vorher = drin.map(relativ);
-    const erkannt = drin.filter((k) => zone.umfasst(k.group.getWorldPosition(new T.Vector3()))).length;
-    const falschErkannt = draussen.filter((k) => zone.umfasst(k.group.getWorldPosition(new T.Vector3()))).length;
+    const erkannt = drin.filter((k) => zone.karten.includes(k.id)).length;
+    const falschErkannt = draussen.filter((k) => zone.karten.includes(k.id)).length;
 
     app.ordneAlles();
     app.scene.updateMatrixWorld(true);
@@ -502,14 +511,14 @@ try {
   });
 
   console.log('\n=== 6. Zonen nehmen ihre Karten mit ===');
-  console.log(`  Von 3 Karten vor dem Rahmen erkannt: ${mitziehen.erkannt}`);
-  console.log(`  Von 2 Karten weit weg fälschlich zugeordnet: ${mitziehen.falschErkannt}`);
+  console.log(`  Von 3 vor der Zone abgelegten Karten Mitglied: ${mitziehen.erkannt}`);
+  console.log(`  Von 3 übrigen (2 weit weg, 1 nur davorgestellt) fälschlich Mitglied: ${mitziehen.falschErkannt}`);
   console.log(
     `  Größte Abweichung ihrer Lage relativ zur Zone: ${(mitziehen.groessteAbweichung * 1000).toFixed(3)} mm`
   );
   console.log(`  Freie Karten stehen danach ${mitziehen.freiWeg.map((v) => v.toFixed(2)).join(' und ')} m entfernt`);
-  pruefe(mitziehen.erkannt === 3, 'alle drei Karten vor dem Rahmen werden erkannt');
-  pruefe(mitziehen.falschErkannt === 0, 'die weit entfernten werden nicht zugeordnet');
+  pruefe(mitziehen.erkannt === 3, 'alle drei vor der Zone abgelegten Karten sind Mitglied');
+  pruefe(mitziehen.falschErkannt === 0, 'die übrigen bleiben frei — Nähe allein zählt nicht');
   pruefe(mitziehen.groessteAbweichung < 0.001, 'die Zonenkarten behalten ihre Lage zur Zone auf den Millimeter');
   pruefe(
     mitziehen.freiWeg.every((v) => v > 0.8 && v < 2.4),

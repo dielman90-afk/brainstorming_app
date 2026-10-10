@@ -305,8 +305,12 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   - **Verwandte Ideen:** 4–6 neue Ideen zur ausgewählten Karte, als Karten im
     Halbkreis vor dem Nutzer (Batches vertikal gestaffelt).
   - **Cluster anwenden:** Claude gruppiert die vorhandenen Karten thematisch –
-    die Karten werden räumlich in Cluster-Spalten sortiert, pro Cluster
-    eingefärbt und mit einer 📌-Titelkarte versehen.
+    je Thema entsteht eine **beschriftete Zone**, die Karten werden ihre
+    Mitglieder und passend zur Zone eingefärbt. Die Zonen stehen als flache
+    Wand nebeneinander vor dem Nutzer (parallel ausgerichtet, 0,15 m Luft,
+    rund 2,4 m entfernt). Karten aus anderen Zonen wechseln; Zonen eines
+    früheren Cluster-Laufs, die dabei leer werden, verschwinden – von Hand
+    angelegte Zonen bleiben stehen. Prozessknoten bleiben außen vor.
   - **Zusammenfassen:** Das ganze Board als eine Karte – bewusst **größer**
     (1,7×) und neutral eingefärbt, damit sie sich vom Ideenfeld absetzt. Eine
     Zusammenfassung ist deutlich länger als eine Idee; auf Ideengröße war sie
@@ -332,7 +336,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   `fetch`.
 - **Kartenfarben:** 7 Farben pro Karte (mit leuchtendem Akzentstreifen am linken
   Rand) – am Desktop über die Farbpunkte im Rechtsklick-Menü, in VR über
-  „Farbe“ (wechselt zyklisch). Cluster färben automatisch.
+  „Farbe“ (wechselt zyklisch). Cluster färben automatisch (Karte und Zone in
+  derselben Farbe).
 - **Kartengröße:** Jede Karte ist von 0,45× bis 2,2× skalierbar – am Desktop per
   **Mausrad über der Karte** oder **+/−** (bei ausgewählter Karte), in VR per
   **Daumenstick hoch/runter, während die Karte gegriffen ist**. Die Größe wird
@@ -391,10 +396,21 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   gehaltenem Trigger. Verschieben über die Griffleiste oben (greifen wie eine
   Karte), Größe 0,6×–2,5× per ➕/➖, Mausrad über der Griffleiste oder Stick beim
   Halten. Zeichnung, Position und Größe werden mitgespeichert und exportiert.
-- **🗂️ Zonen / Rahmen:** Beschriftete, halbtransparente Flächen zum räumlichen
-  Gruppieren von Karten (z. B. „To Do / Doing / Done“). Greifbar zum Verschieben,
-  skalierbar, per ✎ umbenennbar, 🎨 einfärbbar und ✕ löschbar. Werden im Board
-  gespeichert und exportiert.
+- **🗂️ Zonen:** Beschriftete, halbtransparente Flächen, die Karten **enthalten**
+  (z. B. „To Do / Doing / Done“). Eine Karte, die man vor einer Zone ablegt,
+  wird ihr Mitglied und rastet im Raster ein (flach in der Zonenebene, vier
+  Ideenkarten je Reihe); wer sie auf einen anderen Platz der Zone zieht,
+  sortiert um, wer sie hinauszieht, nimmt sie heraus. Verschiebt, dreht oder
+  skaliert man die Zone (Kopfzeile greifen, Mausrad/Stick), wandern die Karten
+  mit – auch im Nachthimmel. Reicht die Höhe nicht, wächst die Zone nach unten
+  (die Kopfzeile bleibt stehen) und schrumpft wieder bis zur Grundhöhe. Die
+  Kopfzeile zeigt die Kartenzahl („Ideen · 5“). Per ✎ umbenennbar, 🎨
+  einfärbbar; ✕ löscht nur die Zone, die Karten bleiben stehen. Prozessknoten
+  werden nicht Mitglied. Zonen samt Mitgliedschaft (`karten`, Karten-IDs in
+  Rasterreihenfolge) werden gespeichert, exportiert und laufen durch
+  Rückgängig/Wiederholen; ältere Boards ohne dieses Feld leiten die Mitglieder
+  beim Laden einmalig aus der Lage vor der Zone ab. Prüfstand:
+  `tools/zonenprobe.mjs`.
 - **⏱️ Timer / Timebox:** Schwebende Uhr für moderierte Runden mit Presets
   (1/3/5/10 min), Start/Pause, Reset, Fortschrittsbalken und Gong bei Ablauf.
   Über das Menü ein-/ausblendbar, greifbar zum Positionieren.
@@ -447,7 +463,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt
 │   │                       inkl. Matrix-Sitzgruppe: Ohrensessel + Radiola-Konsole)
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
-│   ├── zones.js            Räumliche Zonen/Rahmen zum Gruppieren von Karten
+│   ├── zones.js            Zonen als Behälter: Mitgliedschaft, Raster, Mitwandern
 │   ├── timer.js            Schwebende Timebox-Uhr mit Gong
 │   └── textPanel.js        Canvas-Textur-Panels für Text
 ├── server/
