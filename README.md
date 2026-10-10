@@ -164,10 +164,13 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   bleiben handgroß und in Reichweite.
 - **Fortbewegung durch die Landschaft** (`src/locomotion.js`): Ein Player-Rig
   (Gruppe mit Kamera + Controllern) bewegt den Nutzer durch die Welt. **Desktop:**
-  WASD/Pfeile bewegen – die gewohnte Orbit-Ansicht und
+  WASD/Pfeile bewegen mit 7,5 m/s – die gewohnte Orbit-Ansicht und
   Karten-Bedienung bleiben erhalten. **VR:** linker Stick = sanftes Gleiten in
-  Blickrichtung (analog dosierbar), rechter Stick = Snap-Turn (komfortables
-  ruckartiges Drehen). **Ohne Controller:** ins Leere pinchen und die Hand
+  Blickrichtung (analog dosierbar, bis 3,6 m/s), rechter Stick = Snap-Turn
+  (komfortables ruckartiges Drehen). Stick und Tasten tragen höchstens 30 cm je
+  Bild (`SCHRITT_MAX` in `src/walkable.js`): Bei 72 Hz sind es ohnehin nur 5 cm,
+  der Deckel fängt ausgefallene Bilder ab, die sonst bis zu 75 cm auf einmal
+  trügen – zu weit für die Zonenkette des Dojos. **Ohne Controller:** ins Leere pinchen und die Hand
   bewegen – man greift die Welt und zieht sich daran entlang; mit beiden Händen
   kommt Drehen dazu. Ein Pinch auf eine Karte oder einen Button greift bzw.
   klickt weiterhin und bewegt nicht. Der Zug ist um Faktor 8 übersetzt
@@ -186,7 +189,7 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   | Umgebung | Grenze | Boden |
   | --- | --- | --- |
   | 🏝 Himmelsinsel | die Hauptinsel bis an die Abbruchkante (99 % des Umrisses) | das echte Gelände – über die ebene Mitte, den Randwall hinauf, über den Höhenrücken |
-  | ⛩ Konstrukt-Dojo | Zonenkette Raum → Türdurchgang → Engawa → Stufe → Kiesbeet | je Zone, mit weicher Stufe |
+  | ⛩ Konstrukt-Dojo | Zonenkette Raum → Türdurchgang → Engawa → Stufe → Kiesbeet; in die nächste Zone wechselt nur, wer schon in ihrer Überlappung steht | je Zone, mit weicher Stufe |
   | 🌌 Nachthimmel | keine | das Dünen- und Kraterrelief |
   | 🪷 Zen-Garten, ⬜ Konstrukt, Passthrough | keine | eben |
 
@@ -223,6 +226,11 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     hat. Also bekommt die Kette die Waagerechte und die Geschwister die
     Senkrechte; die Tafel rückt bei langen Prozessen weiter weg, damit die
     äußeren Knoten im Blickfeld bleiben.
+    **Flach** heißt: Alle Knoten stehen in einer senkrechten Ebene und tragen
+    dieselbe Ausrichtung, die Vorderseite zum Standpunkt beim Anordnen – wie
+    Zettel an einer Wand, kein Fächer aus einzeln zum Nutzer gedrehten Karten.
+    Die Zweigschilder („ja"/„nein") liegen mit auf der Tafel: Sie übernehmen die
+    Ausrichtung ihrer Quellkarte und sitzen wenige Millimeter vor dem Pfeil.
     **Rückführungen** – „Unterlagen nachfordern" zurück zur Prüfung –
     werden vorher per Tiefensuche erkannt und beim Rangieren übersprungen;
     gezeichnet werden sie trotzdem und zeigen dann nach oben. Ohne das würde der
@@ -456,7 +464,7 @@ Einfach `https://localhost:5173` öffnen:
 | Aktion | Bedienung |
 |---|---|
 | Umschauen | Linke Maustaste ziehen (Orbit), Scrollen = Zoom |
-| **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft (Orbit-Ansicht bleibt erhalten). Kein Hoch/Runter – die Höhe kommt aus dem Boden, siehe `src/walkable.js` |
+| **Bewegen** | **W A S D / Pfeiltasten** durch die Landschaft, 7,5 m/s (Orbit-Ansicht bleibt erhalten). Kein Hoch/Runter – die Höhe kommt aus dem Boden, siehe `src/walkable.js` |
 | Karte auswählen | Karte anklicken (Cyan-Rahmen = ausgewählt) |
 | Karte verschieben | Karte anklicken und ziehen |
 | **Prozessdiagramm** | Eigene **umrandete Gruppenbox „Prozessdiagramm"** im Overlay: Formleiste (*Start · Schritt · Entscheidung · Ende · Karte*, jede mit ihrer Miniaturform als Icon) setzt die Form der **ausgewählten** Karte direkt, dazu *Pfeil ziehen*, *Zweig*, *Anordnen*, *Aus Text*, *Mermaid*. Per **Rechtsklick auf eine Karte** gibt es dieselbe Formleiste und „Pfeil ziehen zu…" |
@@ -523,7 +531,7 @@ Deployment.
 
 | Aktion | Bedienung |
 |---|---|
-| **Bewegen (Gleiten)** | **Linker Daumenstick** – gleitet in Blickrichtung durch die Welt (analog dosierbar) |
+| **Bewegen (Gleiten)** | **Linker Daumenstick** – gleitet in Blickrichtung durch die Welt (analog dosierbar, bis 3,6 m/s) |
 | **Drehen (Snap-Turn)** | **Rechter Daumenstick links/rechts** – dreht ruckartig (komfortabel) |
 | Karte greifen/verschieben | Mit dem Controller-Ray anvisieren, **Trigger halten**, loslassen zum Ablegen |
 | Kartengröße | Karte greifen, dann **Daumenstick hoch/runter** |

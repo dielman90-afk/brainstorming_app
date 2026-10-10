@@ -5,24 +5,26 @@
 //
 // **Warum nicht einfach W drücken.** Der Container hat keine GPU, Chromium
 // rendert per SwiftShader; die Insel schafft dort wenige Bilder je Sekunde.
-// Weil `dt` in der Schleife auf 0,1 s gedeckelt ist, kommt man je Bild höchstens
-// 34 cm weit – ein 20-Sekunden-Lauf trägt dann drei Meter statt siebzig, und die
-// Messung sagt mehr über die Bildrate als über die Sperre. Geprüft wird deshalb:
+// Weil `dt` in der Schleife auf 0,1 s und der Schritt je Bild auf `SCHRITT_MAX`
+// (30 cm) gedeckelt ist, trägt ein 20-Sekunden-Lauf dann drei Meter statt
+// hundert, und die Messung sagt mehr über die Bildrate als über die Sperre.
+// Geprüft wird deshalb:
 //
 //   1. **Grenze:** Die Kamera wird weit hinausgesetzt; die Sperre muss sie im
 //      nächsten Bild zurückholen. Das ist derselbe Codepfad, nur ohne die
 //      Bildrate im Nenner.
-//   2. **Kette (Dojo):** in Schritten von 34 cm – dem echten Maximum je Bild –
-//      vom Raum nach Süden, einmal durch die Tür und einmal daneben.
+//   2. **Kette (Dojo):** in Schritten von 30 cm – dem echten Maximum je Bild –
+//      vom Raum nach Süden, einmal durch die Tür und zweimal daneben.
 //   3. **Boden:** Standhöhe an mehreren Stellen, direkt aus `walk.floorAt`.
 //   4. **Tasten:** W bewegt, Q und E nicht mehr.
 //
 // Aufruf: node tools/gehbereich.mjs
 import { startServer, launchBrowser, openApp, selectEnv } from './harness-common.mjs';
+import { SCHRITT_MAX } from '../src/walkable.js';
 
 const AUGE_MIN = 0.4;
 const AUGE_MAX = 2.6;
-const SCHRITT = 0.34;
+const SCHRITT = SCHRITT_MAX;
 // Der Freiraum um die Polachse aus `makePlanetWalk`. Ein Totband in der Position
 // muss bei jeder Richtungsumkehr einmal ganz durchlaufen werden; 25 cm sind der
 // gemessene Kompromiss zwischen „Vorbeugen dreht die Welt" und „der Stick tut
@@ -160,6 +162,14 @@ try {
     console.log(`  neben der Tür:  Endpunkt z=${zielDaneben[1]} m, Boden ${zielDaneben[2]} m`);
     pruefe(zielDaneben[1] <= 7.06, 'die Südwand hält (z bleibt bei 7,05 m)');
 
+    // Daneben, aber innerhalb der Engawa-Breite (x = 2): Deren Zone beginnt
+    // schon 15 cm hinter der Raumkante, in der Wand. Solange die Kette den
+    // neuen Punkt statt des Standorts fragte, trat man hier hindurch.
+    const engawa = await schreite(page, 2, 0, 0, SCHRITT, 40);
+    const zielEngawa = engawa[engawa.length - 1];
+    console.log(`  vor der Engawa: Endpunkt z=${zielEngawa[1]} m, Boden ${zielEngawa[2]} m`);
+    pruefe(zielEngawa[1] <= 7.06, 'die Südwand hält auch dort, wo die Engawa-Zone dahinter liegt');
+
     // Decke: hoch orbiten darf nicht durchs Dach führen.
     const oben = await page.evaluate(async () => {
       const { camera, controls } = window.__app;
@@ -186,9 +196,9 @@ try {
   await selectEnv(page, 'night');
   console.log('\n=== 🌌 Nachthimmel (Planet) ===');
   {
-    // FREIRAUM muss uebergeben werden: `page.evaluate` laeuft im Browser, die
-    // Konstante steht in Node.
-    const planet = await page.evaluate((FREIRAUM) => {
+    // FREIRAUM und SCHRITT muessen uebergeben werden: `page.evaluate` laeuft
+    // im Browser, die Konstanten stehen in Node.
+    const planet = await page.evaluate(({ FREIRAUM, SCHRITT }) => {
       // Gegenprobe: Diese Datei traegt den Wert doppelt. Weicht er von dem der
       // App ab, misst das Werkzeug eine Uebersetzung, die es nicht gibt —
       // `tools/rundgang.mjs` ist genau daran einmal aufgelaufen.
@@ -206,9 +216,9 @@ try {
       const weit = { x: out.x, z: out.z, r: Math.hypot(out.x, out.z) };
       welt.quaternion.copy(start);
 
-      // Ein Schritt von 34 cm über den Freiraum hinaus — das echte Maximum je
-      // Bild — muss die Welt um genau 34 cm Bogen drehen, also um 0,34/25 rad.
-      w.limit(0, FREIRAUM + 0.34, out);
+      // Ein Schritt von 30 cm über den Freiraum hinaus — das echte Maximum je
+      // Bild — muss die Welt um genau 30 cm Bogen drehen, also um 0,3/25 rad.
+      w.limit(0, FREIRAUM + SCHRITT, out);
       const winkel = 2 * Math.acos(Math.min(1, Math.abs(welt.quaternion.clone().multiply(start.clone().invert()).w)));
       welt.quaternion.copy(start);
 
@@ -218,7 +228,7 @@ try {
         polBoden: w.floorAt(0, 0),
         istPlanet: Boolean(w.istPlanet),
       };
-    }, FREIRAUM);
+    }, { FREIRAUM, SCHRITT });
     console.log(
       `  von (300, −220) aus: geklemmt auf (${planet.weit.x.toFixed(2)}, ${planet.weit.z.toFixed(
         2
@@ -229,8 +239,10 @@ try {
       Math.abs(planet.weit.r - FREIRAUM) < 0.01,
       `die Sperre hält den Spieler im Freiraum von ${(FREIRAUM * 100).toFixed(0)} cm`
     );
-    console.log(`  ein Schritt von 34 cm dreht die Welt um ${(planet.bogen * 100).toFixed(2)} cm Bogen`);
-    pruefe(Math.abs(planet.bogen - 0.34) < 0.005, 'die Übersetzung ist 1:1 in Bogenmetern');
+    console.log(
+      `  ein Schritt von ${(SCHRITT * 100).toFixed(0)} cm dreht die Welt um ${(planet.bogen * 100).toFixed(2)} cm Bogen`
+    );
+    pruefe(Math.abs(planet.bogen - SCHRITT) < 0.005, 'die Übersetzung ist 1:1 in Bogenmetern');
     console.log(`  Standhöhe am Nordpol ${planet.polBoden.toFixed(3)} m (Sollradius 25 m)`);
     pruefe(
       planet.polBoden > 25 && planet.polBoden < 26,

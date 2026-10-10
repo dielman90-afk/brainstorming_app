@@ -17,6 +17,12 @@ import { inHeimat } from './heimat.js';
 //
 // Der Gewinn in VR liegt genau darin: Man geht an einer wandfüllenden Kette
 // entlang, statt zu scrollen.
+//
+// **Flach heißt: eine Ebene, eine Drehung.** Alle Knoten stehen in derselben
+// senkrechten Ebene und schauen entlang ihrer Normalen zum Nutzer zurück –
+// wie Zettel an einer Wand. Früher drehte sich jeder Knoten einzeln zur Kamera;
+// bei einer langen Kette ergab das einen Fächer, die äußeren Karten standen
+// schräg zueinander. Der Nutzer wollte ausdrücklich die flache Darstellung.
 
 const RANK_GAP = 0.62; // Abstand zwischen zwei Rängen (waagerecht, entlang des Flusses)
 const SIBLING_GAP = 0.42; // Wunschabstand zwischen Geschwistern desselben Rangs
@@ -165,7 +171,8 @@ export function computeLayout(nodes, edges, { origin, right, forward, boden = 0 
   return placed;
 }
 
-// Prozessknoten des Boards auf die Tafel legen und zum Nutzer drehen.
+// Prozessknoten des Boards auf die Tafel legen, alle gleich ausgerichtet: die
+// Vorderseite gegen `forward`, also zum Standpunkt beim Anordnen zurück.
 //
 // `scene` wird gebraucht, um gegriffene Knoten zurückzuhängen – siehe unten.
 export function layoutFlow(cards, connections, camera, scene = null, { heimat = null, boden = 0 } = {}) {
@@ -212,11 +219,13 @@ export function layoutFlow(cards, connections, camera, scene = null, { heimat = 
     // und sie warf das ganze Flussdiagramm quer über den Planeten, sobald man
     // ein paar Schritte gegangen war.
     //
-    // Die Höhe wird vorher gesichert, weil `inHeimat` den Vektor an Ort und
-    // Stelle umrechnet und `lookAt` ein **Weltziel** braucht.
-    const weltY = target.y;
-    node.group.position.copy(inHeimat(ziel ?? scene, scene, target));
-    node.group.lookAt(camPos.x, weltY, camPos.z);
+    // `inHeimat` rechnet an Ort und Stelle um, deshalb die Kopie: `lookAt`
+    // braucht `target` danach noch als **Weltziel**. Gezielt wird auf einen
+    // Punkt eine Einheit vor dem Knoten gegen `forward` – derselbe waagerechte
+    // Blick für alle Knoten. `lookAt` rechnet die Drehung des Elters heraus,
+    // auf dem Planeten also die der Weltgruppe.
+    node.group.position.copy(inHeimat(ziel ?? scene, scene, target.clone()));
+    node.group.lookAt(target.x - forward.x, target.y, target.z - forward.z);
   }
   return nodes.length;
 }

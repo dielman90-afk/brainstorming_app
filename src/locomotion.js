@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SCHRITT_MAX } from './walkable.js';
 
 // VR-Fortbewegung über einen „Player-Rig" (Gruppe, die Kamera + Controller
 // enthält). Da three.js die Parent-Matrix auf die XR-Kamera anwendet, bewegt
@@ -18,7 +19,9 @@ import * as THREE from 'three';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SNAP_ANGLE = THREE.MathUtils.degToRad(30);
-const MOVE_SPEED = 2.4; // m/s bei vollem Stickausschlag
+// m/s bei vollem Stickausschlag. Auf Wunsch des Nutzers um die Hälfte über den
+// früheren 2,4; der Stick dosiert analog, langsamer geht es mit halbem Ausschlag.
+const MOVE_SPEED = 3.6;
 const DEADZONE = 0.18;
 const TURN_ON = 0.7;
 const TURN_OFF = 0.35;
@@ -167,7 +170,9 @@ export class Locomotion {
     const len = this._v.length();
     if (len < 1e-4) return;
     if (len > 1) this._v.multiplyScalar(1 / len); // Diagonale nicht schneller
-    this.player.position.addScaledVector(this._v, MOVE_SPEED * dt);
+    // Gedeckelt, weil ein ausgefallenes Bild (dt bis 0,1 s) sonst 36 cm auf
+    // einmal trüge – zu weit für die Zonenkette im Dojo (walkable.js).
+    this.player.position.addScaledVector(this._v, Math.min(MOVE_SPEED * dt, SCHRITT_MAX));
   }
 
   _snap(x) {
