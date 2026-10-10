@@ -274,6 +274,20 @@ controls.update();
 
 // --- Bausteine ---
 
+// Welcher begehbare Bereich zuletzt galt, und wie hoch der Boden gerade liegt.
+// `null` heisst "noch nicht gesetzt": Beim Umgebungswechsel wird die neue
+// Bodenhoehe uebernommen, statt aus der alten dorthin zu gleiten.
+//
+// **Die Deklaration muss vor dem ersten Lesen stehen, und das ist hier.**
+// Sie stand unten bei der Animationsschleife. Karten, Zonen, Tafel und Uhr
+// lesen `_floorY` aber ueber ihre `floorY`-Rueckrufe – und beim allerersten
+// Start ohne gespeichertes Board legt der Startblock die Demokarten an, bevor
+// die Schleife ueberhaupt deklariert ist. Das war ein Fehler in der temporalen
+// Totzone: Das Modul brach ab, es gab keine Schleife und keine App, nur eine
+// leere Seite – genau auf einem frischen Geraet, also beim ersten Eindruck.
+let _walkEnv = -2;
+let _floorY = null;
+
 const cardManager = new CardManager(scene, { floorY: () => _floorY ?? 0 });
 
 // **Ein Aufruf, drei Stellen.** Das Flussdiagramm braucht zwei Angaben, die es
@@ -1982,11 +1996,7 @@ addEventListener('resize', () => {
 const _walkHead = new THREE.Vector3();
 const _walkZiel = { x: 0, z: 0 };
 
-// Welcher begehbare Bereich zuletzt galt, und wie hoch der Boden gerade liegt.
-// `null` heisst "noch nicht gesetzt": Beim Umgebungswechsel wird die neue
-// Bodenhoehe uebernommen, statt aus der alten dorthin zu gleiten.
-let _walkEnv = -2;
-let _floorY = null;
+// `_walkEnv` und `_floorY` stehen weiter oben, vor `cardManager` – siehe dort.
 const _blickRi = new THREE.Vector3();
 const _kamVorOrbit = new THREE.Vector3();
 const _orbitVersatz = new THREE.Vector3();
