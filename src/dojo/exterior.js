@@ -80,6 +80,25 @@ function rng(seed) {
 // der Wand sitzt, steht trotzdem im Raum.
 const ROOM_KEEPOUT = 0.25;
 
+// **Das Laub draußen war weiß, nicht grün.** Der Nutzer aus der Brille: „Die
+// Blätter draußen sind viel zu weiß. Müssten die nicht grüner sein?" Gemessen
+// in `c-engawa` auf den eigenen Bildpunkten (`tools/laubgruen.mjs`):
+//
+//                         Himmel  Rauheit   L     Sättigung  Ton  weißlich
+//   Bambuslaub (Stand)     14,4    0,78   134,7     22,2      67°   50,6 %
+//   Azaleenkarten (Stand)  14,4    0,78   141,0     20,2     119°   31,9 %
+//   Azaleenkarten           6      0,92   100,0     25,1     102°    0,3 %
+//
+// Die Himmelskarte stand für alles draußen auf 14,4 (`SKY_INTENSITY` in
+// index.js) – gewählt für Kies und Boden, die ohne sie neben dem hellen
+// Innenraum versanken. Auf einem Blatt wirkt dieselbe Stärke aber zweimal: als
+// diffuses Licht, das es in die flache Schulter der ACES-Kurve schiebt, und
+// als Glanz, der bei streifendem Blick ins Weiße geht. Das Laub bekommt
+// deshalb seine eigene, gut halb so große Stärke und einen stumpferen Glanz;
+// Kies, Boden und Steine bleiben bei 14,4.
+const LAUB_HIMMEL = 6;
+const LAUB_RAUHEIT = 0.92;
+
 function intrudesRoom(x, z, halfX, halfZ = halfX) {
   return (
     x + halfX > ROOM.minX - ROOM_KEEPOUT &&
@@ -1610,11 +1629,12 @@ function buildForest(group, r) {
     const laubMaterial = foliageMaterial({
       atlas: leafAtlas('bamboo'),
       // Siehe `PALETTE.bamboo`: Die Verdunklung des Hains gehoert an dieses
-      // Material und nicht in den gemeinsamen Atlas. 0x8f8f8f sind 0,56 in
-      // sRGB, also genau der Faktor, den die Palette vorher trug.
-      color: 0x8f8f8f,
+      // Material und nicht in den gemeinsamen Atlas. Derselbe grüne Ton wie
+      // beim Bambuslaub im Hain (siehe dort); vorher 0x8f8f8f, die reine
+      // Abdunklung der Palette.
+      color: 0x7f9a6a,
       translucency: 0.7,
-      transColor: 0xa9c664,
+      transColor: 0x8fc25a,
       windStrength: 0.06,
     });
     const laubGeo = cardCluster({
@@ -1846,12 +1866,19 @@ export function buildExterior() {
     atlas: leafAtlas('bamboo'),
     // Siehe `PALETTE.bamboo`: umgebungsabhaengige Helligkeit gehoert ans
     // Material, nicht in den gemeinsamen Atlas.
-    color: 0x8f8f8f,
+    //
+    // **Grün getönt statt grau abgedunkelt.** Mit 0x8f8f8f und dem
+    // gelbgrünen Gegenlicht 0xa9c664 lag das Bambuslaub auch bei schwächerem
+    // Himmel noch bei 65 Grad Farbton – Oliv, das unter dem Glanz silbrig
+    // wurde. Dieselbe Abdunklung mit einem Grünstich und ein grüneres
+    // Gegenlicht ziehen es auf 76 Grad und von 22 auf 29 Prozent Sättigung
+    // (gemessen mit LAUB_HIMMEL und LAUB_RAUHEIT, `c-engawa`).
+    color: 0x7f9a6a,
     // Bambusblätter sind dünn und stehen fast immer im Gegenlicht, weil der
     // Hain im Osten vor der Sonne steht. Von allen Pflanzen im Bild ist das
     // die, bei der Transluzenz am meisten trägt.
     translucency: 0.75,
-    transColor: 0xa9c664,
+    transColor: 0x8fc25a,
     // Bambus bewegt sich am stärksten – das ist das Erkennungszeichen der
     // Pflanze. Die Halme selbst stehen still (sie tragen die Schattenkarte),
     // also muss das Laub die ganze Bewegung liefern.
@@ -1903,6 +1930,21 @@ export function buildExterior() {
   // gezeichnet, und die Kulisse fällt hinter ihnen im Tiefentest heraus, bevor
   // ihr Fragment-Shader läuft.
   group.add(backdrop);
+
+  // --- Laub unter dem Himmel ---------------------------------------------
+  //
+  // Alles Laub hier draußen bekommt die Himmelskarte schwächer als Kies und
+  // Boden (siehe `LAUB_HIMMEL`) und einen stumpferen Glanz. Einmal über die
+  // fertige Gruppe statt an fünf Stellen: Wer später ein Laubmaterial ergänzt,
+  // kann es nicht vergessen.
+  const gesehen = new Set();
+  group.traverse((o) => {
+    const m = o.material;
+    if (!m || Array.isArray(m) || !m.userData?.foliage || gesehen.has(m)) return;
+    gesehen.add(m);
+    m.userData.himmelStaerke = LAUB_HIMMEL;
+    m.roughness = LAUB_RAUHEIT;
+  });
 
   return {
     group,
