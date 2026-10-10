@@ -1,6 +1,8 @@
 // **Ist das Laub gruen — oder weisslich?**
 //
-//   node tools/laubgruen.mjs --env dojo <shot> <knoten> [<knoten> ...] [--himmel 6] [--rauheit 0.9]
+//   node tools/laubgruen.mjs --env dojo <shot> <knoten> [<knoten> ...]
+//        [--himmel 6] [--rauheit 0.9] [--farbe 8f9f7a] [--trans 9cc65a]
+//        [--transStaerke 0.5] [--bild /pfad/voll.png]
 //
 // Befund des Nutzers aus der Brille: „Die Blaetter draussen in der
 // Dojo-Umgebung sind irgendwie viel zu weiss. Muessten die nicht gruener
@@ -15,9 +17,18 @@
 //   * Anteil „weisslich": Saettigung unter 20 bei L ueber 140,
 //   * Helligkeit im Mittel.
 //
-// `--himmel x` setzt zur Laufzeit die Staerke der Himmelskarte auf allen
-// Laubmaterialien (`userData.foliage`), `--rauheit x` ihre Rauheit. Damit
-// laesst sich ein Regler abtasten, ohne die Quelle anzufassen.
+// Die Regler greifen zur Laufzeit auf den Werkstoff der **gemessenen** Knoten
+// (sofern er ein Laubwerkstoff ist, `userData.foliage`), damit sich die
+// Bambusfarbe abtasten laesst, ohne die Azaleen mitzuziehen:
+//
+//   --himmel x        Staerke der Himmelskarte (`userData.himmelStaerke`)
+//   --rauheit x       Rauheit
+//   --farbe hex       Grundfarbe (`color`, multipliziert den Atlas)
+//   --trans hex       Farbe des Gegenlichts (`uTransColor`)
+//   --transStaerke x  Staerke des Gegenlichts (`uTranslucency`)
+//
+// `--bild pfad` legt das Gesamtbild ab, damit eine Zahl nicht ohne Ansicht
+// entschieden wird.
 import { PNG } from 'pngjs';
 import { shotsFor, envArg, startServer, launchBrowser, openApp, selectEnv, lockCamera, SCHUSS } from './harness-common.mjs';
 
@@ -26,6 +37,11 @@ const ENV = envArg(argv, 'dojo');
 const wert = (name) => (argv.includes(name) ? Number(argv[argv.indexOf(name) + 1]) : undefined);
 const HIMMEL = wert('--himmel');
 const RAUHEIT = wert('--rauheit');
+const TRANS_STAERKE = wert('--transStaerke');
+const hex = (name) => (argv.includes(name) ? parseInt(argv[argv.indexOf(name) + 1].replace(/^(#|0x)/, ''), 16) : undefined);
+const FARBE = hex('--farbe');
+const TRANS = hex('--trans');
+const BILD = argv.includes('--bild') ? argv[argv.indexOf('--bild') + 1] : null;
 const rest = argv.filter((a, i) => !a.startsWith('--') && !argv[i - 1]?.startsWith('--'));
 const shotName = rest[0];
 const KNOTEN = rest.slice(1);
@@ -63,29 +79,43 @@ try {
   await selectEnv(page, ENV);
   const shot = shotsFor(ENV).find((s) => s.name === shotName);
   if (!shot) throw new Error(`Kein Shot "${shotName}" in "${ENV}"`);
-  if (HIMMEL !== undefined || RAUHEIT !== undefined) {
+  const regler = { himmel: HIMMEL, rauheit: RAUHEIT, farbe: FARBE, trans: TRANS, transStaerke: TRANS_STAERKE };
+  if (Object.values(regler).some((v) => v !== undefined)) {
     const n = await page.evaluate(
-      ({ himmel, rauheit, gruppe }) => {
+      ({ r, knoten, gruppe }) => {
         const g = window.__app.scene.children.find((c) => c.name === gruppe);
         const gesehen = new Set();
         g.traverse((o) => {
           const m = o.material;
-          if (!m || !m.userData?.foliage || gesehen.has(m)) return;
+          if (!knoten.includes(o.name) || !m || !m.userData?.foliage || gesehen.has(m)) return;
           gesehen.add(m);
-          if (himmel !== null) {
-            m.userData.himmelStaerke = himmel;
-            m.envMapIntensity = himmel;
+          if (r.himmel !== null) {
+            m.userData.himmelStaerke = r.himmel;
+            m.envMapIntensity = r.himmel;
           }
-          if (rauheit !== null) m.roughness = rauheit;
+          if (r.rauheit !== null) m.roughness = r.rauheit;
+          if (r.farbe !== null) m.color.setHex(r.farbe);
+          const u = m.userData.uniforms;
+          if (u && r.trans !== null) u.uTransColor.value.setHex(r.trans);
+          if (u && r.transStaerke !== null) u.uTranslucency.value = r.transStaerke;
         });
         return gesehen.size;
       },
-      { himmel: HIMMEL ?? null, rauheit: RAUHEIT ?? null, gruppe: `env-${ENV}` }
+      {
+        r: Object.fromEntries(Object.entries(regler).map(([k, v]) => [k, v ?? null])),
+        knoten: KNOTEN,
+        gruppe: `env-${ENV}`,
+      }
     );
-    process.stdout.write(`(${n} Laubmaterialien: himmel ${HIMMEL ?? '-'}, rauheit ${RAUHEIT ?? '-'})\n`);
+    const zeige = Object.entries(regler)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => `${k} ${k === 'farbe' || k === 'trans' ? v.toString(16) : v}`)
+      .join(', ');
+    process.stdout.write(`(${n} Laubwerkstoffe: ${zeige})\n`);
   }
   await lockCamera(page, shot, 6.0);
   const voll = await bild(page);
+  if (BILD) (await import('node:fs')).writeFileSync(BILD, PNG.sync.write(voll));
   process.stdout.write(
     `${shotName}\n${'Knoten'.padEnd(26)}${'Punkte'.padStart(8)}${'L'.padStart(7)}${'Sat'.padStart(7)}${'SatMed'.padStart(8)}${'Ton'.padStart(7)}${'weisslich'.padStart(11)}\n`
   );
