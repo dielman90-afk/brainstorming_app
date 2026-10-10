@@ -170,8 +170,12 @@ export function createDojoEnvironment() {
     //
     // **Die Überlappungen sind Pflicht, nicht Toleranz.** Ohne sie käme man nie
     // von einer Zone in die nächste; bei zu knapper Überlappung springt man bei
-    // hoher Geschwindigkeit darüber hinweg (3,4 m/s mal 0,1 s Bildabstand sind
-    // 34 cm je Bild). Alle Nachbarzonen überlappen deshalb um mindestens 0,5 m.
+    // hoher Geschwindigkeit darüber hinweg. Seit dem schnelleren Gehen (7,5 m/s
+    // am Desktop, mal 0,1 s Bildabstand wären 75 cm) begrenzen main.js und
+    // locomotion.js den Schritt deshalb auf 30 cm je Bild (`SCHRITT_MAX` in
+    // walkable.js); die knappsten Überlappungen hier (Engawa → Stufe →
+    // Kiesbeet) messen 0,4 m. Gewechselt wird nur vom Standpunkt aus – sonst
+    // trat man neben der Tür durch die Südwand (siehe makeZonesWalk).
     //
     // `floorY` ist die Standfläche. Ohne sie schwebte man im Garten 42 cm über
     // dem Kies; main.js führt sie über wenige Bilder weich nach, damit die

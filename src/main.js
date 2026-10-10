@@ -33,7 +33,7 @@ import { inHeimat } from './heimat.js';
 import { Locomotion } from './locomotion.js';
 import { History } from './history.js';
 import { Hud } from './hud.js';
-import { FLAT_WALK } from './walkable.js';
+import { FLAT_WALK, SCHRITT_MAX } from './walkable.js';
 import { dichtePassthroughAb } from './passthrough.js';
 import { STUFEN as QUALITAETSSTUFEN } from './dojo/quality.js';
 
@@ -738,8 +738,15 @@ function updateDesktopMovement(dt) {
   _moveRight.crossVectors(_moveFwd, UP).normalize();
   _moveDelta.set(0, 0, 0).addScaledVector(_moveFwd, f).addScaledVector(_moveRight, s);
   if (_moveDelta.lengthSq() > 0) _moveDelta.normalize();
-  const speed = 3.4;
-  _moveDelta.multiplyScalar(speed * dt);
+  // **7,5 m/s, und das ist schneller, nicht langsamer als bisher.** Hier stand
+  // 3,4 – gelaufen ist man abseits des Planeten aber mit 6,8, weil die
+  // Animationsschleife diese Funktion zweimal je Bild aufrief (siehe dort).
+  // Mit behobenem Doppelaufruf und 5,1 (die +50 % der Brille) wäre der Desktop
+  // gefühlt langsamer geworden; der Nutzer hat 7,5 gewählt. Gedeckelt wie der
+  // Stick: Ein Bild mit dt = 0,1 s trüge sonst 75 cm – zu weit für die
+  // Zonenkette (walkable.js, SCHRITT_MAX).
+  const speed = 7.5;
+  _moveDelta.multiplyScalar(Math.min(speed * dt, SCHRITT_MAX));
   camera.position.add(_moveDelta);
   controls.target.add(_moveDelta);
 }
@@ -2050,13 +2057,12 @@ renderer.setAnimationLoop(() => {
   // demselben Frame folgen, nicht einen hinterher.
   tweener.update(dt);
   zoneManager.update();
-  connectionManager.update(camera);
+  connectionManager.update();
   if (envIndex >= 0) environments[envIndex].update?.(elapsed);
   timer.update(elapsed);
   if (renderer.xr.isPresenting) {
     locomotion.update(dt);
   } else {
-    updateDesktopMovement(dt);
     // **Auf dem Planeten darf Umsehen nicht Gehen sein.**
     //
     // `OrbitControls` schwenkt die Kamera auf einer Kugel um `controls.target`
@@ -2083,6 +2089,9 @@ renderer.setAnimationLoop(() => {
       camera.position.sub(_orbitVersatz);
       controls.target.sub(_orbitVersatz);
     }
+    // Einmal je Bild, und erst nach der Korrektur, die den Schritt sonst als
+    // Umsehen zurücknähme. Ein zweiter Aufruf am Anfang dieses Zweigs ließ
+    // WASD abseits des Planeten doppelt so weit tragen wie eingestellt.
     updateDesktopMovement(dt);
     if (walkJetzt.istPlanet && walkEnabled) {
       _kamVorOrbit.copy(camera.position);

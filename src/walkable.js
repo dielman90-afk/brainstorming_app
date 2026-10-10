@@ -80,8 +80,8 @@ export function makeHeightFieldWalk(floorAt) {
 // 25 cm kosten bei einer Umkehr eine halbe Sekunde bei Schrittgeschwindigkeit
 // und fangen das Vorbeugen weiterhin ab. Die Kugel weicht auf 25 cm um 1,3 mm
 // von der Tangentialebene ab; die Flaechennormale steht 0,6 Grad schief. Beim
-// Gehen mit dem Stick ist der Freiraum nach 0,1 s durchlaufen, danach ist die
-// Uebersetzung 1:1: 2,4 m/s Stickgeschwindigkeit sind 2,4 m/s ueber Grund.
+// Gehen mit dem Stick ist der Freiraum nach 0,07 s durchlaufen, danach ist die
+// Uebersetzung 1:1: 3,6 m/s Stickgeschwindigkeit sind 3,6 m/s ueber Grund.
 //
 //   radius       Planetenhalbmesser
 //   heightAt(d)  Gelaendehoehe ueber der Kugel in Richtung d — in
@@ -161,20 +161,49 @@ export function makePlanetWalk({ radius, heightAt, welt, nachDrehung, freiraum =
 // **Kette statt Naehe.** Man wechselt nur in eine Zone, in der man bereits
 // **steht**. Sonst wird auf die aktuelle Zone geklemmt. Benachbarte Zonen
 // ueberlappen sich deshalb grosszuegig — ohne Ueberlappung kaeme man nie
-// hinueber, und bei zu knapper Ueberlappung springt man bei hoher
-// Geschwindigkeit darueber hinweg (3,4 m/s mal 0,1 s Bildabstand sind 34 cm
-// pro Bild).
+// hinueber.
+//
+// **„Steht" ist der zuletzt geklemmte Punkt, nicht der neue.** Gefragt wurde
+// hier einmal nur der neue Punkt, und das hielt nur, solange ein Bild kuerzer
+// war als die schmalste Luecke zwischen zwei Zonen, die sich nicht beruehren
+// duerfen: Im Dojo endet der Raum bei z = 7,05, die Engawa beginnt neben der
+// Tuer schon bei 7,2 — innerhalb der Suedwand. Ab 15 cm je Bild trat man von
+// der Raumkante direkt in die Engawa, durch die Wand; mit dem Handzug (bis
+// 64 cm je Bild) schon bei voller Bildrate. `tools/zonenkette.mjs` faehrt das
+// fuer jede Stelle der Wand ab.
+//
+// Wer weiter als `VERSETZT` springt, ist nicht gegangen, sondern wurde gesetzt
+// (Sitzungsbeginn mit zurueckgesetztem Rig, ein Pruefstand stellt die Kamera
+// um). Dann gilt wie nach `reset()` jede Zone, die den neuen Punkt enthaelt —
+// sonst holte die alte Zone einen an ihren Rand zurueck.
 //
 // Damit entsteht ein Korridor ohne Wegfindung: Aus dem Raum erreicht man die
 // Veranda nur durch den Tuerdurchgang, weil nur dessen Zone den Streifen
 // dazwischen abdeckt.
+//
+// **Hoechstens `SCHRITT_MAX` je Bild** — Stick (locomotion.js) und WASD
+// (main.js) deckeln ihren Schritt darauf. Wer an der Kante seiner Zone in der
+// Ueberlappung steht, muss mit dem naechsten Schritt **in** der Nachbarzone
+// landen, sonst klemmt ihn die alte zurueck und er tritt auf der Stelle. Im
+// Dojo liegen die Aussenkanten zweier Nachbarzonen teils nur 0,5 m
+// auseinander, die Ueberlappungen teils nur 0,4 m; die auf 0,1 s geklemmte
+// Bildzeit truege am Desktop (7,5 m/s) 75 cm weit. Im normalen Takt greift
+// der Deckel nicht (Brille 72 Hz: 5 cm, Desktop 60 Hz: 12,5 cm je Bild), er
+// faengt nur ausgefallene Bilder ab.
+export const SCHRITT_MAX = 0.3;
+const VERSETZT = 1.0; // mehr als jeder Bildschritt, auch der Handzug
+
 export function makeZonesWalk(zones, { maxY } = {}) {
   let current = 0;
+  let steht = false; // erst nach dem ersten `limit` seit `reset()`
+  let standX = 0;
+  let standZ = 0;
   const inside = (z, px, pz) => px >= z.minX && px <= z.maxX && pz >= z.minZ && pz <= z.maxZ;
 
   const zoneAt = (px, pz) => {
     if (!inside(zones[current], px, pz)) {
-      const k = zones.findIndex((z) => inside(z, px, pz));
+      const gesetzt = !steht || Math.hypot(px - standX, pz - standZ) > VERSETZT;
+      const k = zones.findIndex((z) => inside(z, px, pz) && (gesetzt || inside(z, standX, standZ)));
       if (k >= 0) current = k;
     }
     return zones[current];
@@ -184,11 +213,15 @@ export function makeZonesWalk(zones, { maxY } = {}) {
     maxY,
     reset() {
       current = 0;
+      steht = false;
     },
     limit(x, z, out) {
       const zone = zoneAt(x, z);
       out.x = Math.min(Math.max(x, zone.minX), zone.maxX);
       out.z = Math.min(Math.max(z, zone.minZ), zone.maxZ);
+      standX = out.x;
+      standZ = out.z;
+      steht = true;
     },
     // Wird immer NACH `limit` mit dem geklemmten Punkt gerufen, die Zone steht
     // dann also schon fest.
