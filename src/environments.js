@@ -1161,7 +1161,7 @@ function buildCollectedTrees(ctx, seed) {
 
 // Ein Baum – Form unverändert aus PR #9, aber er baut keine eigenen Meshes
 // mehr, sondern schreibt in den Sammelbehälter der Insel.
-function addTree(rand, ctx, { x, y, z, scale = 1 }) {
+function addTree(rand, ctx, { x, y, z, scale = 1, nadel = null }) {
   const yaw = rand() * TAU;
   const cy = Math.cos(yaw);
   const sy = Math.sin(yaw);
@@ -1189,7 +1189,8 @@ function addTree(rand, ctx, { x, y, z, scale = 1 }) {
   // einen glatten Ball von 0,36 m Radius mit ein paar Karten davor – aus zwei
   // Metern ein grüner Luftballon mit Aufklebern.
   const hell = rand() > 0.5;
-  const nadelbaum = rand() > 0.45;
+  // Die Art kommt aus der Platzwahl: Ein Hain wird von einer Art getragen.
+  const nadelbaum = nadel ?? rand() > 0.45;
 
   if (nadelbaum) {
     // **Die gestapelten Kegel sind entfallen.**
@@ -4969,6 +4970,236 @@ function findlingsKorn(material) {
   return material;
 }
 
+// --- Baumplätze: Haine und Solitäre ------------------------------------------
+//
+// **Der Nutzer: „Bei Inseln sind zu viele Bäume aneinander gereiht."**
+//
+// Die alte Regel stellte zwei Drittel der Bäume auf einen Bogen um den
+// Höhenrücken (±0,75 rad, 0,70–0,90 des Radius) – ohne Mindestabstand. Neun
+// Bäume auf einem schmalen Kreisring sind aus jeder Richtung eine Reihe, und in
+// der Totale `4-aerial` stand sie genau so da: eine Perlenkette am Inselrand.
+//
+// In der Natur stehen Bäume in **Gruppen** (ein Hain, in dem einer den Ton
+// angibt) und **einzeln** (der Solitär im offenen Feld). Dazwischen ist Luft.
+// Genau das baut diese Funktion:
+//
+//   * 2–3 Haine (Minis: einer) auf dem äußeren Ring 0,62–0,85 des Radius,
+//     gegeneinander um mindestens 100 Grad versetzt; der erste am Höhenrücken,
+//     wo die Bäume vorher schon standen
+//   * je Hain 2–4 Bäume in lockerer Traube um den Mittelpunkt
+//   * 1–3 Solitäre im offenen Feld 0,55–0,80
+//   * Mindestabstand nach Kronengröße, und **keine drei Bäume auf einer
+//     Linie**: Ein Kandidat, der mit zwei nahen Bäumen einen Winkel über 160
+//     Grad bildet, wird verworfen. Das ist die Reihe, als Regel verboten.
+//
+// Die Grenzen von vorher gelten weiter: nicht in den Bach (`shape.frei`), nicht
+// in die Quelle, die Mitte bleibt frei für die Karten. Neu ist ein Ausschluss
+// um die festen Prüfkameras (harness-common.mjs): Ein Baum, der mit dem
+// Stamm in einer Kamera steht, macht ihr Bild wertlos.
+//
+// Alles aus einem **eigenen Zufallsstrom**. Vorher zog jeder Baum je nach Art
+// unterschiedlich oft aus dem Inselstrom, und jede Änderung an einem Baum
+// verschob Steine, Blumen und Vögel (siehe `alteBaumZuege`).
+const INSEL_PRUEFKAMERAS = [
+  // Weltkoordinaten / WORLD_SCALE, nur die Standorte auf der Hauptinsel.
+  [0.375, 2.25], // 1-eyelevel
+  [-0.5, 1.5], // 2-waterfall
+  [-2.25, 3.0], // 5-backlight
+  [1.15, 1.85], // 6-groundcover
+  [0.75, 2.5], // 7-grasblick
+  [0.125, 1.525], // 8-busch
+];
+
+function inselBaumPlaetze(rand, shape, { anzahl, radius, kameras = [] }) {
+  const plaetze = [];
+  const quelle = shape.riverCurve ? [0.1, 0.2] : null;
+  const passt = (x, z, s, imHain) => {
+    const r = Math.hypot(x, z);
+    if (r < radius * 0.5) return false;
+    if (!shape.frei(x, z, 0.3 * s)) return false;
+    // Stamm deutlich innerhalb des Umrisses; die Krone darf über die Kante.
+    if (r > radius * shape.outline(Math.atan2(x, z)) * 0.88) return false;
+    if (quelle && Math.hypot(x - quelle[0], z - quelle[1]) < 0.7) return false;
+    for (const [kx, kz] of kameras) {
+      // Mit der Baumgröße: Eine Krone reicht rund 0,75 Einheiten je
+      // Maßstabseinheit vom Stamm, und `5-backlight` blickt steil nach oben –
+      // mit festen 1,3 Einheiten hing ein großer Laubbaum noch ins Bild.
+      if (Math.hypot(x - kx, z - kz) < 0.9 + 0.8 * s) return false;
+    }
+    for (const p of plaetze) {
+      // Kronenhalbmesser rund 0,5 je Maßstabseinheit. Im Hain dürfen sich die
+      // Kronen berühren, zwischen Hainen und Solitären bleibt Luft.
+      const mindest = 0.5 * (s + p.scale) * (imHain && p.hain === imHain ? 0.95 : 1.45);
+      if (Math.hypot(x - p.x, z - p.z) < mindest) return false;
+    }
+    // Keine drei auf einer Linie: Winkel am mittleren Baum unter 160 Grad.
+    const nah = plaetze.filter((p) => Math.hypot(x - p.x, z - p.z) < radius * 0.75);
+    for (let i = 0; i < nah.length; i++) {
+      for (let j = i + 1; j < nah.length; j++) {
+        if (fastGerade([x, z], [nah[i].x, nah[i].z], [nah[j].x, nah[j].z])) return false;
+      }
+    }
+    return true;
+  };
+
+  const versuche = (n, ziehe) => {
+    for (let k = 0; k < n; k++) {
+      const p = ziehe();
+      if (p) return p;
+    }
+    return null;
+  };
+
+  const haine = anzahl >= 6 ? 2 + (rand() < 0.5 ? 1 : 0) : 1;
+  const solitaere = anzahl >= 6 ? 1 + Math.floor(rand() * 3) : anzahl >= 3 ? 1 : 0;
+  const imHain = Math.max(haine * 2, anzahl - solitaere);
+  // Bäume auf die Haine verteilen, jeder mindestens zwei, höchstens vier.
+  const jeHain = new Array(haine).fill(2);
+  for (let rest = imHain - haine * 2; rest > 0; rest--) {
+    const kandidaten = jeHain.map((n, i) => (n < 4 ? i : -1)).filter((i) => i >= 0);
+    if (!kandidaten.length) break;
+    jeHain[kandidaten[Math.floor(rand() * kandidaten.length)]]++;
+  }
+
+  // Hainmittelpunkte: der erste am Höhenrücken, die übrigen mit Abstand.
+  // Die Art wechselt von Hain zu Hain; mit freier Wahl standen in einem
+  // Viertel der Fälle nur Laub- oder nur Nadelbäume auf der Insel.
+  let nadelHain = rand() < 0.5;
+  const mitten = [];
+  const start = shape.ridgeAngle;
+  const schritt = TAU / haine;
+  for (let h = 0; h < haine; h++) {
+    // Der Mittelpunkt muss selbst ein Baumplatz sein, sonst fällt der ganze
+    // Hain aus, sobald er im Bach oder an der Quelle landet. Gesucht wird in
+    // einem Fächer um den Sollwinkel, der den Mindestversatz der Haine hält.
+    const soll = start + h * schritt;
+    const facher = h > 0 ? Math.min(0.6, schritt - 1.75) : 0.8;
+    const mitte = versuche(25, () => {
+      const winkel = soll + (rand() - 0.5) * facher;
+      const rMitte = radius * (0.62 + rand() * 0.23);
+      const mx = Math.sin(winkel) * rMitte;
+      const mz = Math.cos(winkel) * rMitte;
+      return passt(mx, mz, 1.2, h + 1) ? [mx, mz] : null;
+    });
+    if (!mitte) continue;
+    const [mx, mz] = mitte;
+    mitten.push([mx, mz, h + 1]);
+    // Ein Hain wird von einer Art getragen: Nadel- oder Laubhain, mit einem
+    // Viertel Beimischung der anderen.
+    if (h > 0) nadelHain = !nadelHain;
+    for (let b = 0; b < jeHain[h]; b++) {
+      const p = versuche(40, () => {
+        const a = rand() * TAU;
+        const d = radius * (b === 0 ? rand() * 0.06 : 0.1 + rand() * 0.16);
+        const x = mx + Math.sin(a) * d;
+        const z = mz + Math.cos(a) * d;
+        // Der Mittelbaum ist der größte; zum Rand hin werden sie kleiner.
+        const scale = b === 0 ? 1.15 + rand() * 0.35 : 0.75 + rand() * 0.45;
+        return passt(x, z, scale, h + 1) ? { x, z, scale } : null;
+      });
+      if (!p) continue;
+      plaetze.push({ ...p, hain: h + 1, nadel: rand() < 0.75 ? nadelHain : !nadelHain });
+    }
+  }
+
+  // Solitäre im offenen Feld: eher Laubbäume, eher groß.
+  for (let s = 0; s < solitaere; s++) {
+    const p = versuche(60, () => {
+      const a = rand() * TAU;
+      const rr = radius * (0.55 + rand() * 0.25);
+      const x = Math.sin(a) * rr;
+      const z = Math.cos(a) * rr;
+      const scale = 1.0 + rand() * 0.5;
+      // Ein Solitär braucht Raum: doppelter Abstand zu allem.
+      if (plaetze.some((q) => Math.hypot(x - q.x, z - q.z) < 0.5 * (scale + q.scale) * 1.9)) return null;
+      return passt(x, z, scale, 0) ? { x, z, scale } : null;
+    });
+    if (p) plaetze.push({ ...p, hain: 0, nadel: rand() < 0.3 });
+  }
+
+  // Was nicht unterkam (Bach, Quelle, Kameras, Abstände), wächst bevorzugt
+  // am Rand eines bestehenden Hains nach – dort ist am ehesten noch Platz,
+  // ohne dass die Verteilung verwischt. Jeder dritte Versuch sucht frei im
+  // Ring, falls um die Haine nichts mehr geht.
+  for (let k = 0; k < anzahl * 12 && plaetze.length < anzahl; k++) {
+    const amHain = mitten.length && k % 3 !== 2;
+    const [mx, mz, hain] = amHain ? mitten[Math.floor(rand() * mitten.length)] : [0, 0, 0];
+    const a = rand() * TAU;
+    const d = amHain ? radius * (0.14 + rand() * 0.24) : radius * (0.55 + rand() * 0.3);
+    const x = mx + Math.sin(a) * d;
+    const z = mz + Math.cos(a) * d;
+    const scale = 0.75 + rand() * 0.4;
+    if (!passt(x, z, scale, hain)) continue;
+    const art = plaetze.find((q) => hain && q.hain === hain)?.nadel ?? rand() < 0.5;
+    plaetze.push({ x, z, scale, hain, nadel: art });
+  }
+  return plaetze;
+}
+
+// **Die Zufallszüge des alten Baumbaus, ohne den Baum.**
+//
+// Die Insel würfelt alles aus einem Strom: Bäume, dann Knöchel, Findlinge,
+// Blumen, Büsche, Vögel, Wolken. Die alten Bäume zogen je nach Art und
+// Astzahl unterschiedlich oft daraus. Zogen die neuen Bäume einfach anders,
+// stand danach die ganze Insel woanders – im ersten Anlauf gesehen: ein
+// Findling mitten in der Prüfkamera `5-backlight`, und der Busch, für den
+// `8-busch` eingerichtet ist, war verschwunden.
+//
+// Deshalb werden hier genau die Züge des alten Baumbaus gemacht und
+// verworfen, in derselben Reihenfolge. Das ist keine Logik, sondern eine
+// Zählung; wer sie entfernt, verschiebt jeden Gegenstand der Insel und muss
+// alle Prüfbilder neu ansehen.
+const _altAchse = new THREE.Vector3(0, 1, 0);
+const _altUrsprung = new THREE.Vector3();
+function alteBaumZuege(rand, shape, trees, radius) {
+  const aeste = [];
+  for (let i = 0; i < trees; i++) {
+    const gehaeuft = i > 0 && rand() > 0.35;
+    const winkel = gehaeuft ? shape.ridgeAngle + (rand() - 0.5) * 1.5 : rand() * TAU;
+    const r = radius * (gehaeuft ? 0.7 + rand() * 0.2 : 0.6 + rand() * 0.28);
+    const tx = Math.sin(winkel) * r;
+    const tz = Math.cos(winkel) * r;
+    if (shape.riverCurve && Math.hypot(tx - 0.1, tz - 0.2) < 0.7) continue;
+    rand(); // Maßstab
+    rand(); // Drehung
+    rand(); // Stammhöhe
+    rand(); // hell oder dunkel
+    if (rand() > 0.45) {
+      // Nadelbaum: sieben Etagen zu je zwei Zügen.
+      for (let k = 0; k < 14; k++) rand();
+      continue;
+    }
+    // Laubbaum: Astzahl, je Ast Azimut und Länge, dann die Verzweigung (ihre
+    // Zugzahl hängt nicht von der Richtung ab), dann ein Zug je Zweigende.
+    const nb = 3 + Math.floor(rand() * 2);
+    aeste.length = 0;
+    for (let k = 0; k < nb; k++) {
+      rand();
+      branchInto(aeste, _altUrsprung, _altAchse, 0.46 + rand() * 0.18, 0.035, 2, rand);
+    }
+    for (const t of aeste) {
+      t.geo.dispose();
+      if (t.depth === 0) rand();
+    }
+  }
+}
+
+// Liegen drei Punkte fast auf einer Geraden? Gemessen als größter Innenwinkel
+// des Dreiecks: über 160 Grad ist es eine Reihe.
+function fastGerade(a, b, c) {
+  const winkel = (p, q, r) => {
+    const ux = q[0] - p[0];
+    const uz = q[1] - p[1];
+    const vx = r[0] - p[0];
+    const vz = r[1] - p[1];
+    const l = Math.hypot(ux, uz) * Math.hypot(vx, vz);
+    if (l < 1e-9) return Math.PI;
+    return Math.acos(Math.max(-1, Math.min(1, (ux * vx + uz * vz) / l)));
+  };
+  const grenze = (160 / 180) * Math.PI;
+  return winkel(a, b, c) > grenze || winkel(b, a, c) > grenze || winkel(c, a, b) > grenze;
+}
+
 function buildIsland(
   rand,
   {
@@ -5035,34 +5266,11 @@ function buildIsland(
   const stoneBucket = new GeoBucket();
   const shadowBucket = new GeoBucket();
 
-  // Bäume: gehäuft am Höhenrücken, einzeln im offenen Feld – das staffelt den
-  // Blick in Vorder-, Mittel- und Hintergrund, statt gleichmäßig zu streuen.
-  for (let i = 0; i < trees; i++) {
-    const clustered = i > 0 && rand() > 0.35;
-    const angle = clustered ? shape.ridgeAngle + (rand() - 0.5) * 1.5 : rand() * TAU;
-    // Die Inselmitte bleibt frei. Dort steht der Nutzer, und dort landen die
-    // Karten im Halbkreis – ein Baum an dieser Stelle verstellt nicht nur die
-    // Sicht, er steht mitten im Arbeitsbereich.
-    //
-    // **Hier fehlt `outline(angle)`, anders als bei Findlingen und Knöcheln.**
-    // Das ist bewusst so belassen: Mit dem Faktor wandert JEDER Baum, und die
-    // sechs festen Prüfkameras (harness-common.mjs) zeigen dann eine andere
-    // Insel – eine davon stand danach im Geäst. Mit dem festen Seed steht kein
-    // Stamm außerhalb des Umrisses; nur Kronen kragen über die Kante, was ein
-    // Baum am Abbruch auch tut. Wer den Seed ändert, muss den Faktor
-    // nachziehen und die Vergleichsbilder neu einfrieren.
-    const r = radius * (clustered ? 0.70 + rand() * 0.20 : 0.60 + rand() * 0.28);
-    const tx = Math.sin(angle) * r;
-    const tz = Math.cos(angle) * r;
-    if (shape.riverCurve && Math.hypot(tx - 0.1, tz - 0.2) < 0.7) continue; // nicht in die Quelle
-    const y = shape.heightAt(tx, tz);
-    const scale = 0.85 + rand() * 0.5;
-    addTree(rand, trees_, { x: tx, y, z: tz, scale });
-    addContactShadow(shadowBucket, shape, tx, tz, 0.46 * scale, shadows);
-  }
-  for (const m of buildCollectedTrees(trees_, 0x1de4 ^ Math.floor(rand() * 4096))) {
-    island.add(m);
-  }
+  // Bäume, erster Teil: nur die Zufallszüge des alten Baumbaus (siehe
+  // `alteBaumZuege`), damit alles Folgende an seinem Platz bleibt. Gepflanzt
+  // wird erst nach den Findlingen, damit kein Stamm in einem Block steht.
+  alteBaumZuege(rand, shape, trees, radius);
+  const kronenSaat = 0x1de4 ^ Math.floor(rand() * 4096);
 
   // Felsknöchel am Kantensaum: teils versenkte Blöcke, die durch die Grasnarbe
   // stoßen. Sie lösen den durchgehenden grünen Wulst auf und verzahnen
@@ -5153,6 +5361,29 @@ function buildIsland(
     });
     addContactShadow(shadowBucket, shape, sx, sz, s * 1.7, shadows);
   }
+
+  // Bäume, zweiter Teil: Haine und Solitäre (siehe `inselBaumPlaetze`), aus
+  // einem eigenen Strom, der aus dem Kronensamen abgeleitet ist. Die
+  // Inselmitte bleibt frei – dort steht der Nutzer, und dort landen die Karten
+  // im Halbkreis.
+  //
+  // Die Stämme kommen **nicht** in `shape.blocked`: Blumen und Büsche weiter
+  // unten prüfen dagegen, und jede zusätzliche Absage kostet sie einen neuen
+  // Wurf aus dem Inselstrom – genau die Verschiebung, die `alteBaumZuege`
+  // verhindert. Ein Busch unter einem Baum ist ohnehin Unterholz.
+  const baumRand = mulberry32(Math.imul(kronenSaat, 2654435761) >>> 0);
+  const plaetze = inselBaumPlaetze(baumRand, shape, {
+    anzahl: trees,
+    radius,
+    kameras: river != null ? INSEL_PRUEFKAMERAS : [],
+  });
+  island.userData.baumPlaetze = plaetze.map(({ x, z, scale, nadel }) => ({ x, z, scale, nadel }));
+  for (const p of plaetze) {
+    const y = shape.heightAt(p.x, p.z);
+    addTree(baumRand, trees_, { x: p.x, y, z: p.z, scale: p.scale, nadel: p.nadel });
+    addContactShadow(shadowBucket, shape, p.x, p.z, 0.46 * p.scale, shadows);
+  }
+  for (const m of buildCollectedTrees(trees_, kronenSaat)) island.add(m);
 
   // Dieselbe Karte wie die Flanke. Vorher trug der Findling die Granitkarte mit
   // ihren Einschlüssen, die Wand aber nicht – zwei Gesteinsarten in einem Bild,
