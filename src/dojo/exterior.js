@@ -10,6 +10,7 @@ import {
   foliageMaterial,
   applyFoliageMaterial,
   blobGeometry,
+  laubKoerperMaterial,
   branchInto,
   updateFoliage,
 } from './foliage.js';
@@ -79,6 +80,25 @@ function rng(seed) {
 // Mittelpunkt. Ein Schopf von zwei Metern Radius, dessen Mitte einen Meter vor
 // der Wand sitzt, steht trotzdem im Raum.
 const ROOM_KEEPOUT = 0.25;
+
+// **Das Laub draußen war weiß, nicht grün.** Der Nutzer aus der Brille: „Die
+// Blätter draußen sind viel zu weiß. Müssten die nicht grüner sein?" Gemessen
+// in `c-engawa` auf den eigenen Bildpunkten (`tools/laubgruen.mjs`):
+//
+//                         Himmel  Rauheit   L     Sättigung  Ton  weißlich
+//   Bambuslaub (Stand)     14,4    0,78   134,7     22,2      67°   50,6 %
+//   Azaleenkarten (Stand)  14,4    0,78   141,0     20,2     119°   31,9 %
+//   Azaleenkarten           6      0,92   100,0     25,1     102°    0,3 %
+//
+// Die Himmelskarte stand für alles draußen auf 14,4 (`SKY_INTENSITY` in
+// index.js) – gewählt für Kies und Boden, die ohne sie neben dem hellen
+// Innenraum versanken. Auf einem Blatt wirkt dieselbe Stärke aber zweimal: als
+// diffuses Licht, das es in die flache Schulter der ACES-Kurve schiebt, und
+// als Glanz, der bei streifendem Blick ins Weiße geht. Das Laub bekommt
+// deshalb seine eigene, gut halb so große Stärke und einen stumpferen Glanz;
+// Kies, Boden und Steine bleiben bei 14,4.
+const LAUB_HIMMEL = 6;
+const LAUB_RAUHEIT = 0.92;
 
 function intrudesRoom(x, z, halfX, halfZ = halfX) {
   return (
@@ -1111,7 +1131,10 @@ function buildGarden(group, r) {
     // ist eine Kuppel auch mit 80 Dreiecken rund. Das spart bei rund 170
     // Polstern über 40 000 Dreiecke, ohne dass man einen Unterschied sieht.
     moundGeo,
-    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    // Blattzeichnung statt glatter Fläche (siehe `laubKoerperMaterial`). Die
+    // Kachel von 0,9 m gibt Büschel von 22–34 cm – dieselbe Größe wie die
+    // Karten darüber, damit Körper und Schale als eine Pflanze lesen.
+    laubKoerperMaterial({ kind: 'azalea', kachel: 0.9 }),
     mounds.length
   );
   moundMesh.name = 'dojo-garden-polster';
@@ -1212,7 +1235,11 @@ function buildGarden(group, r) {
 
   const canopyMesh = new THREE.InstancedMesh(
     blobGeometry(1, 0x5d2, 0.7),
-    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    // Die Kronenwand trägt keine Karten; ohne Zeichnung war sie aus der Tür
+    // die glatteste und hellste Fläche im Grün. Gröbere Kachel als an den
+    // Polstern: Aus zehn bis zwanzig Metern ist ein Laubbüschel ein halber
+    // Meter.
+    laubKoerperMaterial({ kind: 'azalea', kachel: 2.4 }),
     canopy.length
   );
   canopyMesh.name = 'dojo-garden-fernkronen';
@@ -1238,13 +1265,9 @@ function buildGarden(group, r) {
 
   // --- Ahornlaub ------------------------------------------------------------
   //
-  // Ein Schopf je Zweigende statt einer Kugel über dem Baum. Dieselbe
-  // Blob-Geometrie, aber klein und vielfach – die Krone bekommt dadurch eine
-  // aufgelöste Silhouette und Löcher, durch die man Zweige sieht.
-  const MAPLE = [
-    [0x6e2a1a, 0x7d3520, 0x8c4526],
-    [0x8a5a24, 0x9a6b2c, 0x7a4a20],
-  ];
+  // Ein Schopf je Zweigende statt einer Kugel über dem Baum: klein und
+  // vielfach – die Krone bekommt dadurch eine aufgelöste Silhouette und
+  // Löcher, durch die man Zweige sieht.
   // **Drei kleine Schöpfe je Zweigende statt eines großen.**
   //
   // Mit 0,34–0,60 m Radius war jeder Schopf eine glatte Blase; zusammen ergaben
@@ -1263,28 +1286,22 @@ function buildGarden(group, r) {
       });
     }
   }
-  const crownMesh = new THREE.InstancedMesh(
-    blobGeometry(1, 0x2f7, 0.72),
-    new THREE.MeshLambertMaterial({ color: 0xffffff }),
-    puffs.length
-  );
-  crownMesh.name = 'dojo-garden-krone';
-  puffs.forEach((c, i) => {
-    const s = c.s;
-    q.setFromEuler(new THREE.Euler(r() * 0.6, r() * Math.PI, r() * 0.6));
-    m.compose(c.p, q, new THREE.Vector3(s * 1.25, s, s * 1.15));
-    crownMesh.setMatrixAt(i, m);
-    const pal = MAPLE[c.hue];
-    crownMesh.setColorAt(i, new THREE.Color(pal[Math.floor(r() * pal.length)]));
-  });
-  crownMesh.instanceMatrix.needsUpdate = true;
-  if (crownMesh.instanceColor) crownMesh.instanceColor.needsUpdate = true;
-  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
-  crownMesh.castShadow = false;
-  crownMesh.userData.fullCount = puffs.length;
-  group.add(crownMesh);
+  // **Kein Hüllkörper mehr unter dem Ahornlaub.** Hier stand eine glatte
+  // Lambert-Blase je Schopf, und durch die Lücken der Karten sah man sie als
+  // braunrote Klumpen. Das Innere füllen jetzt abgedunkelte Karten
+  // (`innen` an der Kartengeometrie unten).
+  //
+  // Die Zufallszüge des Körpers (Drehung und Farbe, vier je Schopf) bleiben
+  // stehen: Karten, Farne und Gräser weiter unten ziehen aus demselben Strom,
+  // und ohne diese Züge stünde der ganze übrige Garten an anderen Stellen.
+  for (let i = 0; i < puffs.length; i++) {
+    r();
+    r();
+    r();
+    r();
+  }
 
-  // Und dieselben Schöpfe noch einmal als Karten. Die beiden Ahorne stehen
+  // Die Schöpfe als Karten. Die beiden Ahorne stehen
   // **in der Türachse** – sie sind das, was man beim Blick nach draußen zuerst
   // und am größten sieht. Wenn irgendwo im Garten ein einzelnes Blatt
   // auflösbar ist, dann hier, und wenn irgendwo Gegenlicht durch ein Blatt
@@ -1304,6 +1321,7 @@ function buildGarden(group, r) {
       seed: 0x2f71,
       kind: 'maple',
       cardScale: 0.62,
+      innen: { anzahl: 16, von: 0.12, bis: 0.62 },
     }),
     mapleCards,
     puffs.length
@@ -1552,7 +1570,10 @@ function buildForest(group, r) {
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
 
-  const kronenMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  // Nadelzeichnung statt glatter Kronen, Kachel 2,2 m: Aus fünfzehn Metern
+  // trägt ein Zweig dann noch ein paar Bildpunkte Struktur, und in der Ferne
+  // mittelt die Mipmap sie zur bisherigen Farbe.
+  const kronenMaterial = laubKoerperMaterial({ kind: 'nadel', kachel: 2.2 });
   for (const [name, geo, list] of [
     // **Die Grenze liegt bei 34 m, nicht bei 26.** Sie bezieht sich auf den
     // Abstand vom *Raum*, weil der Spieler dort immer steht – aus der Luft
@@ -1610,11 +1631,12 @@ function buildForest(group, r) {
     const laubMaterial = foliageMaterial({
       atlas: leafAtlas('bamboo'),
       // Siehe `PALETTE.bamboo`: Die Verdunklung des Hains gehoert an dieses
-      // Material und nicht in den gemeinsamen Atlas. 0x8f8f8f sind 0,56 in
-      // sRGB, also genau der Faktor, den die Palette vorher trug.
-      color: 0x8f8f8f,
+      // Material und nicht in den gemeinsamen Atlas. Derselbe grüne Ton wie
+      // beim Bambuslaub im Hain (siehe dort); vorher 0x8f8f8f, die reine
+      // Abdunklung der Palette.
+      color: 0x7f9a6a,
       translucency: 0.7,
-      transColor: 0xa9c664,
+      transColor: 0x8fc25a,
       windStrength: 0.06,
     });
     const laubGeo = cardCluster({
@@ -1846,12 +1868,19 @@ export function buildExterior() {
     atlas: leafAtlas('bamboo'),
     // Siehe `PALETTE.bamboo`: umgebungsabhaengige Helligkeit gehoert ans
     // Material, nicht in den gemeinsamen Atlas.
-    color: 0x8f8f8f,
+    //
+    // **Grün getönt statt grau abgedunkelt.** Mit 0x8f8f8f und dem
+    // gelbgrünen Gegenlicht 0xa9c664 lag das Bambuslaub auch bei schwächerem
+    // Himmel noch bei 65 Grad Farbton – Oliv, das unter dem Glanz silbrig
+    // wurde. Dieselbe Abdunklung mit einem Grünstich und ein grüneres
+    // Gegenlicht ziehen es auf 76 Grad und von 22 auf 29 Prozent Sättigung
+    // (gemessen mit LAUB_HIMMEL und LAUB_RAUHEIT, `c-engawa`).
+    color: 0x7f9a6a,
     // Bambusblätter sind dünn und stehen fast immer im Gegenlicht, weil der
     // Hain im Osten vor der Sonne steht. Von allen Pflanzen im Bild ist das
     // die, bei der Transluzenz am meisten trägt.
     translucency: 0.75,
-    transColor: 0xa9c664,
+    transColor: 0x8fc25a,
     // Bambus bewegt sich am stärksten – das ist das Erkennungszeichen der
     // Pflanze. Die Halme selbst stehen still (sie tragen die Schattenkarte),
     // also muss das Laub die ganze Bewegung liefern.
@@ -1903,6 +1932,21 @@ export function buildExterior() {
   // gezeichnet, und die Kulisse fällt hinter ihnen im Tiefentest heraus, bevor
   // ihr Fragment-Shader läuft.
   group.add(backdrop);
+
+  // --- Laub unter dem Himmel ---------------------------------------------
+  //
+  // Alles Laub hier draußen bekommt die Himmelskarte schwächer als Kies und
+  // Boden (siehe `LAUB_HIMMEL`) und einen stumpferen Glanz. Einmal über die
+  // fertige Gruppe statt an fünf Stellen: Wer später ein Laubmaterial ergänzt,
+  // kann es nicht vergessen.
+  const gesehen = new Set();
+  group.traverse((o) => {
+    const m = o.material;
+    if (!m || Array.isArray(m) || !m.userData?.foliage || gesehen.has(m)) return;
+    gesehen.add(m);
+    m.userData.himmelStaerke = LAUB_HIMMEL;
+    m.roughness = LAUB_RAUHEIT;
+  });
 
   return {
     group,

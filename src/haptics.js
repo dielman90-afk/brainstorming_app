@@ -10,6 +10,9 @@
 // Muster: [Stärke 0–1, Dauer in ms]. Bewusst kurz: Alles über ~60 ms wirkt in
 // der Hand wie ein Fehler-Buzz statt wie eine Bestätigung.
 export const PATTERNS = {
+  // Ein Tick beim Wechsel auf die nächste Taste oder Schaltfläche: so leise und
+  // kurz, dass er beim Überstreichen einer Tastenreihe nicht zum Brummen wird.
+  hover: [0.12, 10],
   grab: [0.35, 22],
   release: [0.2, 14],
   click: [0.28, 18],
@@ -79,6 +82,16 @@ export class Haptics {
       if (actuators && fire(actuators[0], intensity, duration)) return true;
     }
     return this.pulseAll(pattern);
+  }
+
+  // Nur auf genau diesem Controller, ohne Rückfall auf andere – für Ticks, die
+  // zur zielenden Hand gehören. Ein Tick der Rechten in der Linken wäre
+  // irreführend, und Hände ohne Aktuator bleiben schlicht still.
+  pulseOnly(pattern, controller) {
+    if (!this.enabled || !this.isPresenting() || !controller) return false;
+    const [intensity, duration] = PATTERNS[pattern] ?? PATTERNS.click;
+    const actuators = actuatorsOf(controller);
+    return Boolean(actuators && fire(actuators[0], intensity, duration));
   }
 
   pulseAll(pattern) {

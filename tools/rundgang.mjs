@@ -126,11 +126,16 @@ try {
       const heightAt = boden.userData.heightAt;
       const start = welt.quaternion.clone();
 
-      // 3,3 cm je Schritt: 2,4 m/s bei 72 Bildern je Sekunde, also genau das,
-      // was in der Brille passiert.
+      // 5 cm je Schritt: 3,6 m/s Stickgeschwindigkeit (locomotion.js) bei 72
+      // Bildern je Sekunde, also genau das, was in der Brille passiert.
+      //
+      // **Auf ganze Schritte je Umfang gerundet.** Sonst bleibt nach n
+      // Schritten ein Rest von bis zu einem halben Schritt stehen, und die
+      // Pruefung auf 2 cm misst die Rundung statt des Planeten: Mit 5,0 cm
+      // waren es 2,04 cm (vorher, mit 3,3 cm, zufaellig 1,3).
       const dt = 1 / 72;
-      const schritt = 2.4 * dt;
-      const n = Math.round(UMFANG / schritt);
+      const n = Math.round(UMFANG / (3.6 * dt));
+      const schritt = UMFANG / n;
       const ziel = { x: 0, z: 0 };
       const oben = new T.Vector3();
       const inv = new T.Quaternion();
@@ -203,6 +208,7 @@ try {
         maxSteigung,
         schritte: n,
         strecke: n * schritt,
+        tempo: schritt / dt,
         maxAbweichung,
         maxAbweichungBei,
         spanne: maxY - minY,
@@ -217,7 +223,10 @@ try {
   );
 
   console.log('\n=== Rundgang: schließt er? ===');
-  console.log(`  ${gang.schritte} Schritte zu 3,3 cm = ${gang.strecke.toFixed(2)} m Bogen`);
+  console.log(
+    `  ${gang.schritte} Schritte zu ${((gang.strecke / gang.schritte) * 100).toFixed(2)} cm` +
+      ` = ${gang.strecke.toFixed(2)} m Bogen`
+  );
   console.log(
     `  Restwinkel nach der Runde ${gang.restwinkelGrad.toFixed(4)}° = ${(gang.restbogen * 100).toFixed(2)} cm`
   );
@@ -244,8 +253,8 @@ try {
   );
   console.log(
     `     Erwartung für einen Tiefpass erster Ordnung mit k = 7/s:` +
-      ` Nachlauf = Geländerate / k = ${gang.maxSteigung.toFixed(2)} · 2,4 / 7 =` +
-      ` ${((gang.maxSteigung * 2.4) / 7 * 100).toFixed(1)} cm`
+      ` Nachlauf = Geländerate / k = ${gang.maxSteigung.toFixed(2)} · ${gang.tempo.toFixed(1)} / 7 =` +
+      ` ${((gang.maxSteigung * gang.tempo) / 7 * 100).toFixed(1)} cm`
   );
 
   // --- 3: zwölf Bilder, alle 30 Grad ----------------------------------------

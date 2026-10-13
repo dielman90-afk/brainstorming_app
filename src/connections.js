@@ -16,6 +16,9 @@ const SHAFT_R = 0.004; // Radius der Linie
 const HEAD_LEN = 0.05; // Länge der Pfeilspitze
 const HEAD_R = 0.016; // Radius der Pfeilspitze
 const GAP = 0.012; // Luft zwischen Knotenrand und Pfeilspitze
+// So weit liegt ein Zweigschild vor der Tafel: doppelter Schaftradius, damit
+// der Schaft, der mittig hinter dem Schild durchläuft, es nicht durchsticht.
+const LABEL_LIFT = SHAFT_R * 2;
 
 const LINE_COLOR = 0x8fa6bd;
 const FLOW_COLOR = 0xffb454; // Amber wie der Rest der Oberfläche
@@ -39,10 +42,10 @@ export class ConnectionManager {
     this._neg = new THREE.Vector3();
     this._local = new THREE.Vector3();
     this._quat = new THREE.Quaternion();
-    // Eigener Zwischenspeicher für die Kamera – _quat ist beim Zeichnen der
+    // Eigener Zwischenspeicher für die Quellkarte – _quat ist beim Zeichnen der
     // Beschriftung schon von der Randberechnung belegt.
-    this._camQuat = new THREE.Quaternion();
-    this._camPos = new THREE.Vector3();
+    this._srcQuat = new THREE.Quaternion();
+    this._normal = new THREE.Vector3();
     this._up = new THREE.Vector3(0, 1, 0);
   }
 
@@ -175,7 +178,7 @@ export class ConnectionManager {
     // Kein `depthTest = false`: Damit hätte das Schild einer weit entfernten
     // Kante über einer nahen Karte gelegen. Verdeckt werden soll es normal –
     // nur nicht vom eigenen Pfeilschaft, durch den es hindurchgeht. Dafür
-    // rückt es in update() ein paar Millimeter zum Betrachter.
+    // rückt es in update() ein paar Millimeter vor die Tafel.
     conn.labelPanel.mesh.renderOrder = 12;
     conn.labelPanel.mesh.name = 'edge-label';
     this.scene.add(conn.labelPanel.mesh);
@@ -217,7 +220,7 @@ export class ConnectionManager {
     return Number.isFinite(t) ? t : half.w;
   }
 
-  update(camera = null) {
+  update() {
     for (const conn of this.connections) {
       const a = this._cardById(conn.a);
       const b = this._cardById(conn.b);
@@ -252,26 +255,25 @@ export class ConnectionManager {
       conn.head.position.copy(this._va).addScaledVector(this._dir, endAt - HEAD_LEN / 2);
 
       if (conn.labelPanel) {
-        this._mid.copy(this._va).addScaledVector(this._dir, startAt + (endAt - startAt) / 2);
-        if (camera) {
-          // Ein paar Millimeter zum Betrachter, damit das Schild vor dem
-          // Pfeilschaft liegt, durch den es sonst mittig hindurchginge.
-          camera.getWorldPosition(this._camPos);
-          this._neg.copy(this._camPos).sub(this._mid);
-          if (this._neg.lengthSq() > 1e-8) this._mid.addScaledVector(this._neg.normalize(), 0.012);
-        }
-        conn.labelPanel.mesh.position.copy(this._mid);
-        // Beschriftung immer zum Betrachter drehen – ein Pfeil kann in jede
-        // Richtung laufen, ein mitgedrehtes Schild wäre oft von der Seite zu
-        // sehen.
+        // Das Schild liegt flach auf der Tafel wie die Knoten: Es übernimmt die
+        // Drehung der Quellkarte und rückt entlang ihrer Vorderseite (lokal +Z,
+        // dorthin zeigt die Textebene in cards.js) vor den Pfeilschaft. Früher
+        // drehte es sich jedes Bild zur Kamera; auf der flachen Tafel stand es
+        // damit als einziges schräg.
         //
-        // Weltdrehung, nicht die lokale: Die Kamera hängt am Player-Rig, und der
-        // Snap-Turn dreht dieses Rig. Mit `camera.quaternion` standen die
-        // Schilder nach der ersten Drehung in VR schief – bei 180° mit dem
-        // Rücken zum Nutzer und damit (einseitiges Panel) unsichtbar.
-        if (camera) {
-          conn.labelPanel.mesh.quaternion.copy(camera.getWorldQuaternion(this._camQuat));
-        }
+        // **Weltdrehung der Karte, nicht `a.group.quaternion`.** Im
+        // Nachthimmel hängt die Karte an der gedrehten Weltgruppe, das Schild
+        // dagegen wie Schaft und Spitze an der Szene, deren Drehung null ist –
+        // für das Schild ist die Weltdrehung also schon die lokale. Die lokale
+        // der Karte wiche um die Drehung des Planeten davon ab.
+        a.group.getWorldQuaternion(this._srcQuat);
+        this._normal.set(0, 0, 1).applyQuaternion(this._srcQuat);
+        this._mid
+          .copy(this._va)
+          .addScaledVector(this._dir, startAt + (endAt - startAt) / 2)
+          .addScaledVector(this._normal, LABEL_LIFT);
+        conn.labelPanel.mesh.position.copy(this._mid);
+        conn.labelPanel.mesh.quaternion.copy(this._srcQuat);
       }
     }
   }

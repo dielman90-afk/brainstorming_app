@@ -764,6 +764,161 @@ export function blobGeometry(detail, seed, squash) {
   return merged;
 }
 
+// --- Laubkörper: geschlossene Masse mit Blattzeichnung -----------------------
+//
+// Wo eine Pflanze bewusst als geschlossener Körper steht – die Formschnitt-
+// polster und die Kronenwand im Dojo-Garten, der Wald dahinter –, war der Körper
+// bisher **glatt und einfarbig**. Durch die Lücken der Kartenschale und überall
+// dort, wo keine Karten liegen, sah man ihn als grüne Kunststoffmasse: genau
+// die „komischen Strukturen, die vielleicht auffüllen sollen", die der Nutzer
+// gemeldet hat.
+//
+// Der Körper bleibt (er schließt den Türausschnitt, das ist gemessen, siehe
+// exterior.js), bekommt aber Laub als Oberfläche: eine deckende Kachel aus
+// denselben Blattzellen wie die Karten, in drei Lagen gestempelt, jede tiefere
+// Lage dunkler. Projiziert wird sie **dreiachsig in Weltkoordinaten**, nicht
+// über UVs: Die Ikosaeder-UVs haben Naht und Pole, und eine Weltprojektion
+// hält die Blattgröße in Metern fest, egal wie groß eine Instanz skaliert ist.
+//
+// **Mittel unverändert.** Die Kachel wird beim Bau gemittelt (linear, je
+// Kanal) und durch dieses Mittel geteilt. Die Instanzfarben, die über viele
+// Runden gegen Messungen eingestellt sind, bleiben damit der mittlere Ton der
+// Fläche; neu ist nur die Zeichnung darin. Aus der Ferne mittelt die Mipmap
+// die Zeichnung weg, und es bleibt exakt die Farbe von vorher.
+const _koerperKacheln = new Map();
+
+function laubKoerperKachel(kind) {
+  const vorhanden = _koerperKacheln.get(kind);
+  if (vorhanden) return vorhanden;
+  const atlas = leafAtlas(kind);
+  const quelle = atlas.map.image;
+  const N = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = N;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const pal = PALETTE[kind] ?? PALETTE.azalea;
+  const [br, bg, bb] = pal.base;
+  // Grund: beschattetes Laub, nicht Schwarz. Was zwischen den Stempeln
+  // stehen bleibt, ist die Tiefe des Strauchs.
+  ctx.fillStyle = `rgb(${Math.round(br * 0.32)},${Math.round(bg * 0.32)},${Math.round(bb * 0.32)})`;
+  ctx.fillRect(0, 0, N, N);
+  const r = rng(0x60d1 ^ (kind.charCodeAt(0) * 7121));
+  const zelle = ATLAS / CELLS;
+  const LAGEN = 3;
+  const JE_LAGE = 30;
+  for (let lage = 0; lage < LAGEN; lage++) {
+    for (let i = 0; i < JE_LAGE; i++) {
+      const cx = r() * N;
+      const cy = r() * N;
+      const dreh = r() * Math.PI * 2;
+      const gr = N * (0.24 + r() * 0.14);
+      const zx = Math.floor(r() * CELLS);
+      const zy = Math.floor(r() * CELLS);
+      const reich = gr * 0.71;
+      // Kachelbar: Ein Stempel über dem Rand erscheint auf der Gegenseite.
+      for (const ox of [-N, 0, N]) {
+        for (const oy of [-N, 0, N]) {
+          const x = cx + ox;
+          const y = cy + oy;
+          if (x + reich < 0 || x - reich > N || y + reich < 0 || y - reich > N) continue;
+          ctx.save();
+          ctx.translate(x, y);
+          ctx.rotate(dreh);
+          ctx.drawImage(quelle, zx * zelle, zy * zelle, zelle, zelle, -gr / 2, -gr / 2, gr, gr);
+          ctx.restore();
+        }
+      }
+    }
+    // Jede Lage verschattet die vorige: Die oberste liegt im Licht, die
+    // unterste im Inneren des Strauchs.
+    if (lage < LAGEN - 1) {
+      ctx.fillStyle = 'rgba(0,0,0,0.38)';
+      ctx.fillRect(0, 0, N, N);
+    }
+  }
+  // Lineares Mittel je Kanal, für die Normierung im Shader.
+  const linear = new Float32Array(256);
+  for (let v = 0; v < 256; v++) {
+    const c = v / 255;
+    linear[v] = c < 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  }
+  const daten = ctx.getImageData(0, 0, N, N).data;
+  const summe = [0, 0, 0];
+  for (let i = 0; i < daten.length; i += 4) {
+    for (let k = 0; k < 3; k++) summe[k] += linear[daten[i + k]];
+  }
+  const n = daten.length / 4;
+  const gain = new THREE.Vector3(n / summe[0], n / summe[1], n / summe[2]);
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.wrapS = map.wrapT = THREE.RepeatWrapping;
+  map.anisotropy = 4;
+  const kachel = { map, gain };
+  _koerperKacheln.set(kind, kachel);
+  return kachel;
+}
+
+/**
+ * Lambert-Material für geschlossene Laubkörper: Blattzeichnung per
+ * Weltprojektion, mittlerer Ton = Instanz- bzw. Materialfarbe.
+ *
+ * @param {object} o
+ * @param {string} o.kind    Atlas, aus dem die Blätter stammen
+ * @param {number} o.kachel  Kantenlänge einer Kachel in Metern
+ */
+export function laubKoerperMaterial({ kind = 'azalea', kachel = 0.9, kontrast = 0.7 } = {}) {
+  const { map, gain } = laubKoerperKachel(kind);
+  const material = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const uniforms = {
+    uLkMap: { value: map },
+    uLkKachel: { value: kachel },
+    uLkGain: { value: gain },
+    // Zeichnung gegen das Mittel gedämpft. Mit voller Spanne standen die
+    // hellsten Blätter nach der Normierung als grelle, übersättigte Punkte in
+    // der Masse – heller als jede Karte davor.
+    uLkKontrast: { value: kontrast },
+  };
+  material.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, uniforms);
+    shader.vertexShader =
+      'varying vec3 vLkPos;\nvarying vec3 vLkN;\n' +
+      shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+{
+  vec4 lkW = vec4( transformed, 1.0 );
+  vec3 lkN = objectNormal;
+  #ifdef USE_INSTANCING
+    lkW = instanceMatrix * lkW;
+    lkN = mat3( instanceMatrix ) * lkN;
+  #endif
+  vLkPos = ( modelMatrix * lkW ).xyz;
+  vLkN = mat3( modelMatrix ) * lkN;
+}`
+      );
+    shader.fragmentShader =
+      'uniform sampler2D uLkMap;\nuniform float uLkKachel;\nuniform vec3 uLkGain;\nuniform float uLkKontrast;\nvarying vec3 vLkPos;\nvarying vec3 vLkN;\n' +
+      shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `#include <map_fragment>
+{
+  // Dreiachsige Projektion; die vierte Potenz hält die Überblendzonen schmal,
+  // sonst liegen an jeder Schräge zwei Blattmuster übereinander.
+  vec3 lkG = pow( abs( normalize( vLkN ) ), vec3( 4.0 ) );
+  lkG /= lkG.x + lkG.y + lkG.z + 1e-5;
+  vec3 lkP = vLkPos / uLkKachel;
+  vec3 lkC = texture2D( uLkMap, lkP.zy ).rgb * lkG.x
+           + texture2D( uLkMap, lkP.xz ).rgb * lkG.y
+           + texture2D( uLkMap, lkP.xy ).rgb * lkG.z;
+  diffuseColor.rgb *= mix( vec3( 1.0 ), lkC * uLkGain, uLkKontrast );
+}`
+      );
+  };
+  material.customProgramCacheKey = () => 'laub-koerper-v1';
+  material.userData.laubKoerper = true;
+  return material;
+}
+
 // Ast mit Verzweigung. Rekursiv, drei Ebenen – das ist der Unterschied
 // zwischen einem Baum und einem Lutscher: Man sieht die Krone nicht als Masse,
 // sondern durch sie hindurch, und die Silhouette wird von Zweigen aufgelöst
@@ -1040,6 +1195,10 @@ const TRANS_BODY = /* glsl */ `
     float fView = max( 0.0, -dot( geometryViewDir, fLight.direction ) );
     float fGlow = fWrap * mix( 0.40, 1.0, fView * fView );
     vec3 fTint = mix( diffuseColor.rgb, uTransColor, 0.5 );
+    // Innenlaub leuchtet kaum: Bis Licht dort ankommt, hat es schon mehrere
+    // Blätter durchquert. Ohne diesen Abschlag glühte das Kroneninnere im
+    // Gegenlicht heller als die Außenhaut.
+    fGlow *= 1.0 - vTiefe * 0.8;
     reflectedLight.directDiffuse += fTint * fLight.color * ( fGlow * uTranslucency * RECIPROCAL_PI );
   }
 #endif
@@ -1078,6 +1237,20 @@ export function foliageMaterial({
   roughness = 0.78,
   side = THREE.DoubleSide,
   normalScale = 1.15,
+  // Abdunklung des Innenlaubs (`aTiefe` aus `cardCluster({ innen })`): Albedo
+  // mal `1 - tiefenDunkel · aTiefe`. Geometrie ohne `aTiefe` liefert 0 und
+  // sieht unverändert aus.
+  tiefenDunkel = 0.55,
+  // **Deckung über die Entfernung halten.** Je kleiner eine Karte im Bild,
+  // desto gröber die Mipmap-Stufe – und dort ist das Alpha über Blatt und
+  // Lücke gemittelt. Ein Atlas, dessen Zellen ein Drittel Blatt zeigen, fällt
+  // so ab der dritten Stufe unter die Alphaschwelle, und die Krone löst sich
+  // mit dem Abstand in Luft auf. Solange ein Hüllkörper darunter lag, fiel das
+  // nicht auf; seit das Innenlaub ihn ersetzt, war jeder ferne Laubbaum kahl.
+  //
+  // Abhilfe nach dem bekannten Rezept: Alpha je Mipmap-Stufe hochskalieren,
+  // `alpha · (1 + Stufe · mipAlpha)`. In der Nähe (Stufe 0) unverändert.
+  mipAlpha = 0.3,
 } = {}) {
   const sheet = atlas ?? leafAtlas('maple');
 
@@ -1090,6 +1263,8 @@ export function foliageMaterial({
     uEntsaett: { value: entsaettigung },
     uTransPower: { value: transPower },
     uTransColor: { value: new THREE.Color(transColor) },
+    uTiefe: { value: tiefenDunkel },
+    uMipAlpha: { value: mipAlpha },
   };
 
   const material = new THREE.MeshStandardMaterial({
@@ -1109,12 +1284,22 @@ export function foliageMaterial({
 
   material.onBeforeCompile = (shader) => {
     patchWind(shader, uniforms);
+    // Tiefe im Laub: nur im Bildmaterial. Der Schatten braucht sie nicht.
+    shader.vertexShader =
+      'attribute float aTiefe;\nvarying float vTiefe;\n' +
+      shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        '#include <begin_vertex>\nvTiefe = aTiefe;'
+      );
     shader.fragmentShader =
       `
 uniform float uEntsaett;
 uniform float uTranslucency;
 uniform float uTransPower;
 uniform vec3 uTransColor;
+uniform float uTiefe;
+uniform float uMipAlpha;
+varying float vTiefe;
 ` +
       shader.fragmentShader.replace(
         '#include <lights_fragment_end>',
@@ -1128,13 +1313,26 @@ uniform vec3 uTransColor;
        if (uEntsaett > 0.0) {
          float fGrau = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(fGrau), uEntsaett);
-       }`
+       }
+       // Laub im Kroneninneren steht im Schatten der Außenblätter. Als
+       // Albedo-Abschlag statt als Schattenterm: wirkt auch ohne Sonne (Nacht,
+       // Dojo-Innenraum) und kostet keinen zusätzlichen Pass.
+       diffuseColor.rgb *= 1.0 - uTiefe * vTiefe;
+       #ifdef USE_MAP
+       {
+         vec2 fTexel = vMapUv * ${(sheet.size ?? ATLAS).toFixed(1)};
+         vec2 fdx = dFdx( fTexel );
+         vec2 fdy = dFdy( fTexel );
+         float fMip = max( 0.0, 0.5 * log2( max( dot( fdx, fdx ), dot( fdy, fdy ) ) ) );
+         diffuseColor.a *= 1.0 + fMip * uMipAlpha;
+       }
+       #endif`
     );
   };
   // Ohne eigenen Schlüssel teilt three das kompilierte Programm mit jedem
   // anderen Standardmaterial gleicher Konfiguration – das Laub bekäme dann
   // dessen Shader oder umgekehrt. Derselbe Fall wie beim Washi.
-  material.customProgramCacheKey = () => 'dojo-foliage-v1';
+  material.customProgramCacheKey = () => 'dojo-foliage-v3';
 
   // --- Der Wind muss in den Schattenpass ------------------------------------
   //
@@ -1201,17 +1399,18 @@ const _up = new THREE.Vector3(0, 1, 0);
 /**
  * Geometrie aus vielen kleinen Blattkarten auf einer Kugelschale.
  *
- * Gedacht als **Hülle über einem dunklen Körper**: Der Blob (exterior.js:
- * `blobGeometry`) bleibt Masse und Verdecker, die Karten machen Kontur und
- * Lichtspiel. Nur Karten wären löchrig und würden von hinten durchscheinen,
- * nur ein Blob bleibt eine Kugel.
+ * Die Außenkarten machen Kontur und Lichtspiel. Was früher ein dunkler
+ * Hüllkörper unter der Schale übernahm (Masse, Verdeckung), leistet heute das
+ * Innenlaub (Option `innen`): dunkle Karten im Volumen, die man durch die
+ * Lücken als Laub statt als glatte Masse sieht.
  *
  * @param {object} o
  * @param {number} o.count   Zahl der Karten
  * @param {number} o.radius  Radius der Schale (Objekteinheiten)
  * @param {number} o.seed    Startwert
  * @param {string} o.kind    Art – bestimmt Kartengröße und Neigungsstreuung
- * @returns {THREE.BufferGeometry} position, normal, uv, aStiff
+ * @param {object} [o.innen] Innenlaub `{ anzahl, von, bis, groesse }`
+ * @returns {THREE.BufferGeometry} position, normal, uv, aStiff, aTiefe
  */
 export function cardCluster({
   count = 96,
@@ -1223,6 +1422,25 @@ export function cardCluster({
   cardScale = 1,
   cross = false,
   cells = CELLS,
+  // **Innenlaub statt Hüllkörper.** Zusätzliche Karten im Volumen der Krone,
+  // abgedunkelt über das Attribut `aTiefe` (siehe `foliageMaterial`).
+  //
+  // Bisher saß unter jeder Kartenschale ein glatter, dunkler Hüllkörper
+  // (`blobGeometry`), der den Durchblick verdecken sollte. Durch die Lücken
+  // sah man aber genau ihn: eine glatte, facettierte Masse ohne Blattzeichnung
+  // – im Dojo-Garten als dunkle Klumpen, in der Kirschkrone als Flecken, im
+  // Inselbusch als „komischer grüner Kern". Mehrere Runden haben nur Farbe und
+  // Größe des Körpers verschoben; der Nutzer hat ihn trotzdem als „komische
+  // Strukturen, die vielleicht auffüllen sollen" in allen Umgebungen gemeldet.
+  //
+  // Eine Krone ist innen nicht hohl und nicht massiv, sie ist **voll Laub im
+  // Schatten**. Genau das bauen diese Karten: kleiner, wild geneigt, tief in
+  // der Schale, je tiefer desto dunkler. Wer durch eine Lücke sieht, sieht
+  // dunkles Laub statt eines Balls.
+  //
+  // `{ anzahl, von, bis, groesse }`: Zahl der Innenkarten, Schalenbereich
+  // (Anteil des Radius) und Kartengröße relativ zur Außenkarte. `null` = aus.
+  innen = null,
 } = {}) {
   const r = rng(seed);
 
@@ -1242,11 +1460,13 @@ export function cardCluster({
     { bamboo: 1.05, maple: 0.85, azalea: 0.55, fern: 1.0, sakura: 0.95, nadel: 1.15 }[kind] ??
     0.8;
 
-  const quads = count * (cross ? 2 : 1);
+  const innenAnzahl = innen ? innen.anzahl ?? 0 : 0;
+  const quads = (count + innenAnzahl) * (cross ? 2 : 1);
   const pos = new Float32Array(quads * 4 * 3);
   const nrm = new Float32Array(quads * 4 * 3);
   const uvs = new Float32Array(quads * 4 * 2);
   const stf = new Float32Array(quads * 4);
+  const tief = new Float32Array(quads * 4);
   const idx = quads * 4 > 65535 ? new Uint32Array(quads * 6) : new Uint16Array(quads * 6);
 
   const step = 1 / cells;
@@ -1266,25 +1486,10 @@ export function cardCluster({
   let vi = 0; // Vertexzähler
   let ii = 0; // Indexzähler
 
-  for (let c = 0; c < count; c++) {
-    // Fibonacci-Verteilung mit Streuung: gleichmäßiger als reiner Zufall
-    // (keine Klumpen, keine kahlen Stellen), ohne dass ein Muster sichtbar
-    // wird.
-    const k = c + 0.5;
-    let cosT = 1 - (2 * k) / count;
-    if (hemisphere) cosT = 1 - k / count; // obere Halbkugel
-    cosT = Math.max(-1, Math.min(1, cosT + (r() - 0.5) * 0.18));
-    const sinT = Math.sqrt(Math.max(0, 1 - cosT * cosT));
-    const phi = k * 2.39996323 + (r() - 0.5) * 0.6;
-
-    // Schale, nicht Vollkugel: Blätter sitzen außen. `cbrt` sorgt dafür, dass
-    // die wenigen inneren Karten gleichmäßig im Volumen liegen statt sich in
-    // der Mitte zu häufen.
-    const shell = 0.68 + 0.32 * Math.cbrt(r());
-    const rr = radius * shell;
-    p.set(Math.cos(phi) * sinT, cosT, Math.sin(phi) * sinT).multiplyScalar(rr);
-    p.y *= squash;
-
+  // Eine Karte an Punkt `p` (auf der Schale `shell`) anlegen. Für Außen- und
+  // Innenkarten dieselbe Rechnung; die Außenkarten ziehen dabei exakt dieselbe
+  // Zufallsfolge wie vor dem Innenlaub – ihre Lage hat sich nicht verschoben.
+  const legeKarte = (shell, tilt, groesse, tiefe) => {
     shellN.copy(p).normalize();
     if (shellN.lengthSq() < 0.5) shellN.set(0, 1, 0);
 
@@ -1293,7 +1498,7 @@ export function cardCluster({
     tmp.set(r() - 0.5, r() - 0.5, r() - 0.5);
     if (tmp.lengthSq() < 1e-6) tmp.set(1, 0, 0);
     tmp.cross(face).normalize();
-    face.applyAxisAngle(tmp, (r() - 0.2) * TILT).normalize();
+    face.applyAxisAngle(tmp, (r() - 0.2) * tilt).normalize();
 
     // Wuchsrichtung in der Kartenebene: nach außen und nach unten – Laub
     // hängt. Der Anteil nach außen hält die Karten an der Schale, der nach
@@ -1317,7 +1522,7 @@ export function cardCluster({
     // aktuellen Spielen erkennt.
     nOut.copy(face).lerp(shellN, 0.65).normalize();
 
-    const s = radius * SIZE * cardScale * (0.78 + r() * 0.44);
+    const s = radius * SIZE * cardScale * groesse * (0.78 + r() * 0.44);
     // Ansatz leicht nach innen, damit die Karte die Schale nicht verlässt.
     const bx = p.x - grow.x * s * 0.16;
     const by = p.y - grow.y * s * 0.16;
@@ -1359,6 +1564,7 @@ export function cardCluster({
           // **Steifigkeit.** 0 am Ansatz, 1 an der Spitze, mal der Reichweite
           // der Karte. Quadriert wird erst im Shader.
           stf[vi] = vy * reach;
+          tief[vi] = tiefe;
           vi++;
         }
       }
@@ -1370,6 +1576,49 @@ export function cardCluster({
       idx[ii++] = b + 3;
       idx[ii++] = b + 2;
     }
+  };
+
+  for (let c = 0; c < count; c++) {
+    // Fibonacci-Verteilung mit Streuung: gleichmäßiger als reiner Zufall
+    // (keine Klumpen, keine kahlen Stellen), ohne dass ein Muster sichtbar
+    // wird.
+    const k = c + 0.5;
+    let cosT = 1 - (2 * k) / count;
+    if (hemisphere) cosT = 1 - k / count; // obere Halbkugel
+    cosT = Math.max(-1, Math.min(1, cosT + (r() - 0.5) * 0.18));
+    const sinT = Math.sqrt(Math.max(0, 1 - cosT * cosT));
+    const phi = k * 2.39996323 + (r() - 0.5) * 0.6;
+
+    // Schale, nicht Vollkugel: Blätter sitzen außen. `cbrt` sorgt dafür, dass
+    // die wenigen inneren Karten gleichmäßig im Volumen liegen statt sich in
+    // der Mitte zu häufen.
+    const shell = 0.68 + 0.32 * Math.cbrt(r());
+    const rr = radius * shell;
+    p.set(Math.cos(phi) * sinT, cosT, Math.sin(phi) * sinT).multiplyScalar(rr);
+    p.y *= squash;
+
+    legeKarte(shell, TILT, 1, 0);
+  }
+
+  // Innenlaub: gleichmäßig im Volumen zwischen `von` und `bis`, kleiner und
+  // stärker gekippt als die Außenkarten (im Schatten wächst Laub ungeordneter
+  // und wird von außen nur in Ausschnitten gesehen). `aTiefe` 0,45 an der
+  // Außengrenze bis 1 ganz innen.
+  if (innenAnzahl > 0) {
+    const von = innen.von ?? 0.18;
+    const bis = innen.bis ?? 0.66;
+    const groesse = innen.groesse ?? 0.75;
+    for (let c = 0; c < innenAnzahl; c++) {
+      const cosT = r() * 2 - 1;
+      const sinT = Math.sqrt(Math.max(0, 1 - cosT * cosT));
+      const phi = r() * Math.PI * 2;
+      const shell = von + (bis - von) * Math.cbrt(r());
+      const rr = radius * shell;
+      p.set(Math.cos(phi) * sinT, cosT, Math.sin(phi) * sinT).multiplyScalar(rr);
+      p.y *= squash;
+      const tiefe = 1 - 0.55 * ((shell - von) / Math.max(1e-6, bis - von));
+      legeKarte(shell, TILT * 1.6, groesse, tiefe);
+    }
   }
 
   const geo = new THREE.BufferGeometry();
@@ -1377,6 +1626,7 @@ export function cardCluster({
   geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
   geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geo.setAttribute('aStiff', new THREE.BufferAttribute(stf, 1));
+  geo.setAttribute('aTiefe', new THREE.BufferAttribute(tief, 1));
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
 
   // Die Hülle muss den Wind mit einschließen. Ohne Aufschlag klappt die Krone
@@ -1387,6 +1637,7 @@ export function cardCluster({
   geo.computeBoundingBox();
   geo.userData.kind = kind;
   geo.userData.cards = count;
+  geo.userData.innenKarten = innenAnzahl;
   return geo;
 }
 

@@ -19,7 +19,9 @@ import { chromium } from 'playwright';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const CHROMIUM = '/opt/pw-browsers/chromium';
-export const PORT = 5199;
+// `HARNESS_PORT` erlaubt zwei Pruefstaende nebeneinander (etwa in getrennten
+// Arbeitskopien); ohne Angabe bleibt es bei 5199.
+export const PORT = Number(process.env.HARNESS_PORT) || 5199;
 export const VIEWPORT = { width: 1280, height: 720 };
 
 // **Geduld beim Einzelbild.** Playwright gibt einem Screenshot ohne Angabe
@@ -97,6 +99,18 @@ export const SHOTS = [
     pos: [3.0, 1.7, 10.0],
     look: [2.4, -0.08, 8.9],
     fov: 70,
+  },
+  {
+    // **Ebenfalls angehaengt.** Der Nutzer meldet aus der Brille, die Buesche
+    // haetten „im Innern einen komischen gruenen Kern". Die anderen Kameras
+    // zeigen Buesche nur aus zehn Metern; aus der Brille steht man oft knapp
+    // zwei Meter davor und schaut von oben hinein. Ziel ist der Busch bei
+    // (1,9 | 0,3 | 4,5) in Weltkoordinaten.
+    name: '8-busch',
+    title: 'Busch aus zwei Metern, schraeg von oben',
+    pos: [0.5, 1.6, 6.1],
+    look: [1.9, 0.3, 4.5],
+    fov: 60,
   },
 ];
 
@@ -651,6 +665,9 @@ export async function selectEnv(page, id) {
     ({ wanted, frozen }) => {
       const api = window.__app.env;
       const target = api.environments.findIndex((e) => e.id === wanted);
+      // Direkt wählen wie der Reiter „Welt" – Durchschalten baute jede Welt
+      // auf dem Weg mit. `cycle` bleibt der Rückfall für ältere Stände.
+      if (api.waehle) api.waehle(wanted);
       let guard = 0;
       while (api.current() !== target && guard++ < 12) api.cycle();
       const env = api.environments[target];

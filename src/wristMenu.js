@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { createTextPanel } from './textPanel.js';
+import { UMGEBUNGEN } from './umgebungsliste.js';
 
-// Das Menü ist auf zwei Reiter aufgeteilt: 21 Aktionen untereinander wären ein
-// über 80 cm hohes Panel an der Hand. Zwei Seiten à sechs Reihen bleiben
-// kompakt und sind auch verkleinert auf der Handfläche noch lesbar.
+// Das Menü ist auf vier Reiter aufgeteilt: gut 30 Aktionen untereinander wären
+// ein über einen Meter hohes Panel an der Hand. Seiten mit höchstens fünf
+// Reihen bleiben kompakt und sind auch verkleinert auf der Handfläche noch
+// lesbar.
 // Exportiert, damit Tests die Seiten prüfen können, ohne die Knopf-Meshes
 // auseinanderzunehmen.
 // Die Icon-Namen zeigen in icons.js – dieselben Pfade, die das
@@ -37,13 +39,7 @@ export const PAGES = [
       { id: 'timer', label: 'Timer', icon: 'timer' },
       { id: 'whiteboard', label: 'Whiteboard', icon: 'whiteboard' },
       { id: 'tools-order', label: 'Alles ordnen', icon: 'layout' },
-      { id: 'environment', label: 'Umgebung', icon: 'environment' },
-      // Der Regler für die Bildqualität gehört in die Brille und nicht nur ins
-      // Desktop-Overlay: Ob die Quest die volle Fassung trägt, entscheidet sich
-      // dort und nirgends sonst. Headless lässt sich die Füllrate einer Adreno
-      // nicht messen (SwiftShader hat keine Textur-Abtasteinheiten), also
-      // bekommt der Nutzer den Schalter statt einer geratenen Zahl.
-      { id: 'quality', label: 'Bildqualität', icon: 'quality' },
+      // Umgebung und Bildqualität stehen im Reiter „Welt".
       // Kein Eintrag für Spracheingabe: In der Brille gibt es keine
       // Spracherkennung (siehe speech.js) – der Knopf konnte dort nur
       // scheitern. Am Desktop steht er weiterhin im Overlay.
@@ -62,6 +58,31 @@ export const PAGES = [
       { id: 'flow-label', label: 'Zweig benennen', icon: 'label' },
       { id: 'flow-layout', label: 'Anordnen', icon: 'layout' },
       { id: 'flow-export', label: 'Als Mermaid', icon: 'branch' },
+    ],
+  },
+  // **Welt: jede Umgebung mit eigenem Knopf.** Bisher gab es einen Knopf
+  // „Umgebung", der reihum weiterschaltete. Man sah nicht, wo man stand und
+  // was als Nächstes kam – und jede Welt auf dem Weg wurde gebaut, von der
+  // Insel zum Dojo also drei, die niemand sehen wollte. Das war ein guter Teil
+  // des Hängens beim Wechsel. Jetzt wird nur gebaut, was gewählt wird, und die
+  // aktive Welt leuchtet (main.js, `zeigeUmgebungswahl`).
+  //
+  // Der erste Knopf heißt in der Brille mit Passthrough „Raum", sonst
+  // „Neutral" – main.js setzt das Etikett je nach Sitzung.
+  //
+  // Die Bildqualität steht daneben, als zwei Knöpfe statt eines Umschalters:
+  // Man sieht, welche Stufe gilt. Sie gehört in die Brille und nicht nur ins
+  // Desktop-Overlay – ob die Quest die volle Fassung trägt, entscheidet sich
+  // dort (SwiftShader im Prüfstand hat keine Textur-Abtasteinheiten, die
+  // Füllrate einer Adreno lässt sich headless nicht messen).
+  {
+    id: 'world',
+    label: 'Welt',
+    actions: [
+      { id: 'env:neutral', label: 'Neutral', icon: 'environment' },
+      ...UMGEBUNGEN.map(({ id, kurz }) => ({ id: `env:${id}`, label: kurz, icon: 'environment' })),
+      { id: 'quality:voll', label: 'Voll', icon: 'quality' },
+      { id: 'quality:fluessig', label: 'Flüssig', icon: 'quality' },
     ],
   },
 ];
@@ -287,9 +308,9 @@ export class WristMenu {
     const colX = (BTN_W + GAP_X) / 2;
 
     this.pageButtons = PAGES.map((page) => {
-      // Die Seiten sind unterschiedlich lang (10 bzw. 11 Aktionen). Das Panel
-      // ist auf die längere ausgelegt; die kürzere wird im freien Raum
-      // zentriert, sonst klafft unten eine ganze leere Reihe.
+      // Die Seiten sind unterschiedlich lang (7 bis 10 Aktionen). Das Panel
+      // ist auf die längste ausgelegt; kürzere werden im freien Raum
+      // zentriert, sonst klafft unten eine leere Reihe.
       const pageRows = Math.ceil(page.actions.length / 2);
       const centerOffset = ((rows - pageRows) * (BTN_H + GAP_Y)) / 2;
       return page.actions.map((action, i) => {
@@ -318,7 +339,7 @@ export class WristMenu {
         button.mesh.userData.onClick = () => this.onAction(action.id);
         // Umschaltbare Aktionen färben sich, solange sie
         // aktiv sind – setActionActive() hinterlegt dafür die Farben.
-        const entry = { panel: button, base, hover };
+        const entry = { panel: button, base, hover, active: false, label: action.label };
         button.mesh.userData.setHover = (hovered) =>
           button.setColors({ background: hovered ? entry.hover : entry.base });
         this.buttonsById.set(action.id, entry);
@@ -331,15 +352,26 @@ export class WristMenu {
   }
 
   // Dauerzustand einer Aktion anzeigen (an = Amber-Fläche mit dunkler Schrift).
+  // Unverändert heißt: nicht neu zeichnen – main.js ruft das bei jedem
+  // Umgebungs- und Qualitätswechsel für alle Welt-Knöpfe auf.
   setActionActive(id, active) {
     const entry = this.buttonsById.get(id);
-    if (!entry) return;
+    if (!entry || entry.active === active) return;
+    entry.active = active;
     entry.base = active ? COLORS.tabActive : COLORS.base;
     entry.hover = active ? COLORS.tabActive : COLORS.hover;
     entry.panel.setColors({
       background: entry.base,
       color: active ? COLORS.accent : COLORS.text,
     });
+  }
+
+  // Beschriftung einer Aktion zur Laufzeit ändern (z. B. „Raum" / „Neutral").
+  setActionLabel(id, text) {
+    const entry = this.buttonsById.get(id);
+    if (!entry || entry.label === text) return;
+    entry.label = text;
+    entry.panel.setText(text);
   }
 
   // Anklickbare Elemente: Reiter plus die Buttons der sichtbaren Seite.

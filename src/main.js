@@ -33,7 +33,9 @@ import { inHeimat } from './heimat.js';
 import { Locomotion } from './locomotion.js';
 import { History } from './history.js';
 import { Hud } from './hud.js';
-import { FLAT_WALK } from './walkable.js';
+import { FLAT_WALK, SCHRITT_MAX } from './walkable.js';
+import { dichtePassthroughAb } from './passthrough.js';
+import { STUFEN as QUALITAETSSTUFEN } from './dojo/quality.js';
 
 // --- Szene & Renderer ---
 
@@ -129,8 +131,9 @@ const AMBIENT_STANDARD = 1.4;
 const ambientLight = new THREE.HemisphereLight(0xffffff, 0x334455, AMBIENT_STANDARD);
 scene.add(ambientLight);
 
-// Umgebungen: Passthrough/Weiß (-1) sowie die virtuellen Welten aus
-// environments.js, per 🌐-Button zyklisch durchschaltbar.
+// Umgebungen: Raum/Neutral (-1) sowie die virtuellen Welten aus
+// environments.js, direkt wählbar im Reiter „Welt" des Hand-Menüs bzw. in der
+// Leiste „Umgebung" am Desktop.
 // Dezenter, weicher Boden statt Raster für die schlichte Desktop-/Weiß-Ansicht.
 function makeDesktopFloor() {
   const canvas = document.createElement('canvas');
@@ -156,7 +159,11 @@ scene.add(desktopFloor);
 
 const environments = createEnvironments(scene);
 const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
-let envIndex = -1; // -1 = Passthrough (AR) bzw. weißer Hintergrund
+let envIndex = -1; // -1 = Passthrough (AR) bzw. neutraler dunkler Hintergrund
+
+// Ist in einer AR-Sitzung eine Umgebung gewählt, darf das Zimmer nirgends
+// durchscheinen – siehe passthrough.js.
+const passthrough = dichtePassthroughAb(renderer, { umgebungAktiv: () => envIndex >= 0 });
 
 // **Wo Inhalte hängen, entscheidet die Umgebung.** Vier der fünf sind ortsfest
 // und lassen Karten und Zonen an der Szene; der 🌌 Nachthimmel gibt seine
@@ -201,9 +208,20 @@ function applyEnvironment() {
     // der die Umgebung nie aufruft. Ohne die Karte rendern Metall und Lack
     // schwarz, weil ein Metall ohne etwas zu spiegeln keine diffuse Komponente
     // hat.
+    //
+    // Die Schattenkarte vorher frisch anfordern: Der Teich im Zen-Garten nimmt
+    // hier seine Spiegelkarte auf, und in „Flüssig" stünde sonst womöglich die
+    // Schattenkarte der vorigen Umgebung darin.
+    renderer.shadowMap.needsUpdate = true;
+    // **Grundlicht vor dem Haken setzen, nicht danach.** Der Zen-Garten nimmt
+    // in `ensureEnvironment` seinen Teich auf, und die Hemisphärenleuchte hängt
+    // an der Szene. Mit dem Wert der vorigen Welt hing die Helligkeit der
+    // Spiegelung davon ab, woher man kam – beim Durchschalten zufällig richtig
+    // (Nachthimmel und Garten haben beide 0), bei Direktwahl aus dem Konstrukt
+    // oder von der Insel (1,4) nicht mehr.
+    ambientLight.intensity = env.sceneAmbient ?? AMBIENT_STANDARD;
     env.ensureEnvironment?.(renderer);
     scene.environment = env.environment ?? null;
-    ambientLight.intensity = env.sceneAmbient ?? AMBIENT_STANDARD;
     desktopFloor.visible = false;
   } else if (inPassthrough) {
     ambientLight.intensity = AMBIENT_STANDARD;
@@ -218,6 +236,12 @@ function applyEnvironment() {
     ambientLight.intensity = AMBIENT_STANDARD;
     desktopFloor.visible = true;
   }
+  // Neue Welt, neue Schattenkarte – auch dann, wenn „Flüssig" gerade ein Bild
+  // ohne Schattenpass vorgesehen hätte.
+  renderer.shadowMap.needsUpdate = true;
+  // Menü und Desktop-Leiste zeigen, was jetzt gilt. Hier und nicht beim Klick:
+  // Auch Sitzungsbeginn, -ende, Start und Qualitätswechsel laufen hier durch.
+  zeigeUmgebungswahl();
 }
 
 // Gemerkt wird die stabile `id` der Umgebung, nicht ihre Position in der Liste:
@@ -237,13 +261,17 @@ function savedEnvIndex() {
   }
 }
 
-function cycleEnvironment() {
-  envIndex = envIndex >= environments.length - 1 ? -1 : envIndex + 1;
+function indexVon(id) {
+  if (id === 'neutral' || id === 'passthrough') return -1;
+  return environments.findIndex((env) => env.id === id);
+}
+
+// Sofort und synchron umschalten. Der Weg der Werkzeuge (`__app.env.waehle`,
+// `cycle`) und das Ziel von `waehleUmgebung`.
+function setzeUmgebung(index) {
+  envIndex = index;
   try {
-    localStorage.setItem(
-      ENV_STORAGE_KEY,
-      envIndex >= 0 ? environments[envIndex].id : 'passthrough'
-    );
+    localStorage.setItem(ENV_STORAGE_KEY, envIndex >= 0 ? environments[envIndex].id : 'passthrough');
   } catch {
     // Autosave der Umgebungswahl ist optional
   }
@@ -254,8 +282,86 @@ function cycleEnvironment() {
       ? `${environments[envIndex].name} aktiv.`
       : inAR
         ? '🪟 Passthrough aktiv – du siehst wieder deinen Raum.'
-        : 'Weißer Hintergrund aktiv.'
+        : 'Neutraler Hintergrund aktiv.'
   );
+}
+
+// Eine Welt weiter – für die Werkzeuge, die so ihre Zielwelt ansteuern, und
+// für die Aktion `environment`. Im Menü gibt es dafür keinen Knopf mehr.
+function cycleEnvironment() {
+  setzeUmgebung(envIndex >= environments.length - 1 ? -1 : envIndex + 1);
+}
+
+// **Ein Wechsel aus dem Menü baut nie im selben Takt, in dem geklickt wurde.**
+//
+// Eine ungebaute Welt kostet Sekunden (siehe `traegeUmgebung` in
+// environments.js): das prozedurale Bauen, die Spiegel- und Himmelskarten,
+// danach das Übersetzen der Shader. Solange das läuft, reicht die Brille kein
+// Bild ein, und die Quest zeigt das letzte weiter – bisher war das die alte
+// Welt ohne jedes Zeichen, also ein Hänger. Jetzt wird erst „… wird
+// aufgebaut" gezeichnet und eingereicht, gebaut wird zwei Bilder später. Die
+// Zeit ist dieselbe, aber man sieht, dass etwas passiert, und die alte Welt
+// bleibt bis dahin stehen.
+//
+// Der zweite Hebel ist die Direktwahl selbst: Durchschalten baute jede Welt
+// auf dem Weg mit – von der Insel zum Dojo drei Welten, die niemand sehen
+// wollte.
+let umschaltAuftrag = null; // { index, warteBilder, anzeige }
+const umschaltProtokoll = [];
+
+function waehleUmgebung(index) {
+  const env = index >= 0 ? environments[index] : null;
+  brichUmschaltungAb();
+  if (!env || env.gebaut) {
+    setzeUmgebung(index);
+    return;
+  }
+  // Während Claude arbeitet, gehört der Spinner Claude – dann nur die Zeile.
+  const text = `${env.kurzname} wird aufgebaut…`;
+  const anzeige = busy ? 'zeile' : 'spinner';
+  if (anzeige === 'spinner') setBusyLabel(text);
+  setStatus(text, 0);
+  umschaltAuftrag = { index, warteBilder: 2, anzeige, angefordert: performance.now() };
+  zeigeUmgebungswahl(index);
+}
+
+function brichUmschaltungAb() {
+  if (umschaltAuftrag?.anzeige === 'spinner') setBusyLabel(null);
+  umschaltAuftrag = null;
+}
+
+// Am Anfang der Bildschleife, nicht nach `renderer.render`: Erst wenn der
+// Rückruf zurückkehrt, reicht WebXR das Bild ein. Würde danach im selben
+// Rückruf gebaut, hielte das genau das Bild mit dem Hinweis zurück.
+function fuehreUmschaltungAus() {
+  if (!umschaltAuftrag || umschaltAuftrag.warteBilder-- > 0) return;
+  const { index, anzeige, angefordert } = umschaltAuftrag;
+  umschaltAuftrag = null;
+  const start = performance.now();
+  setzeUmgebung(index);
+  umschaltProtokoll.push({
+    id: environments[index].id,
+    wartezeit: start - angefordert,
+    bauzeit: performance.now() - start,
+  });
+  if (anzeige === 'spinner') setBusyLabel(null);
+}
+
+// Menü und Desktop-Leiste auf den Stand bringen. `ziel`: die Welt, die gerade
+// gewählt wurde und noch gebaut wird – sie leuchtet schon.
+function zeigeUmgebungswahl(ziel = umschaltAuftrag?.index ?? envIndex) {
+  const inAR = renderer.xr.isPresenting && xrMode === 'immersive-ar';
+  wristMenu.setActionLabel('env:neutral', inAR ? 'Raum' : 'Neutral');
+  wristMenu.setActionActive('env:neutral', ziel < 0);
+  environments.forEach((env, i) => wristMenu.setActionActive(`env:${env.id}`, i === ziel));
+  const stufe = aktuelleQualitaet();
+  for (const s of QUALITAETSSTUFEN) wristMenu.setActionActive(`quality:${s}`, s === stufe);
+  for (const knopf of document.querySelectorAll('#env-row button')) {
+    knopf.classList.toggle('active', indexVon(knopf.dataset.env) === ziel);
+  }
+  for (const knopf of document.querySelectorAll('#quality-row button')) {
+    knopf.classList.toggle('active', knopf.dataset.stufe === stufe);
+  }
 }
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -264,6 +370,20 @@ controls.target.set(0, 1.4, -0.6);
 controls.update();
 
 // --- Bausteine ---
+
+// Welcher begehbare Bereich zuletzt galt, und wie hoch der Boden gerade liegt.
+// `null` heisst "noch nicht gesetzt": Beim Umgebungswechsel wird die neue
+// Bodenhoehe uebernommen, statt aus der alten dorthin zu gleiten.
+//
+// **Die Deklaration muss vor dem ersten Lesen stehen, und das ist hier.**
+// Sie stand unten bei der Animationsschleife. Karten, Zonen, Tafel und Uhr
+// lesen `_floorY` aber ueber ihre `floorY`-Rueckrufe – und beim allerersten
+// Start ohne gespeichertes Board legt der Startblock die Demokarten an, bevor
+// die Schleife ueberhaupt deklariert ist. Das war ein Fehler in der temporalen
+// Totzone: Das Modul brach ab, es gab keine Schleife und keine App, nur eine
+// leere Seite – genau auf einem frischen Geraet, also beim ersten Eindruck.
+let _walkEnv = -2;
+let _floorY = null;
 
 const cardManager = new CardManager(scene, { floorY: () => _floorY ?? 0 });
 
@@ -292,12 +412,9 @@ const cardManager = new CardManager(scene, { floorY: () => _floorY ?? 0 });
 // deshalb eine Wand, die Karten stehen in Reihen davor. Das ist auch die
 // Ordnung, in der beides ohnehin benutzt wird.
 //
-// **Zonen nehmen ihre Karten mit.** Eine Zone weiß nicht, welche Karten zu ihr
-// gehören — es gibt keine Mitgliedschaft, nur Nähe (`Zone.umfasst`). Würde man
-// die Rahmen einsammeln und die Karten getrennt neu verteilen, löste ein Klick
-// jede Gruppierung auf, die der Nutzer von Hand gebaut hat. Die Karten vor
-// einem Rahmen werden deshalb **starr mitgeführt**: ihre Lage relativ zur Zone
-// bleibt auf den Millimeter erhalten.
+// **Zonen nehmen ihre Karten mit.** Zonen sind Behälter (zones.js): Ihre
+// Mitglieder fallen aus den freien Kartenreihen heraus und werden nach dem
+// Stellen der Wand wieder ins Raster ihrer Zone gelegt.
 const WERKZEUG_LUECKE = 0.12; // Meter zwischen zwei Panels
 // **Wie breit die Wand werden darf, bevor sie nach hinten weicht.**
 //
@@ -324,10 +441,6 @@ const KARTEN_SICHT = THREE.MathUtils.degToRad(90);
 const KARTEN_LUECKE = 0.07;
 const KARTEN_REIHE = 6;
 const _oW = new THREE.Vector3();
-const _oM = new THREE.Matrix4();
-const _oM2 = new THREE.Matrix4();
-const _oS = new THREE.Vector3();
-const _oZ = new THREE.Vector3();
 
 // Eine Reihe von Blöcken auf einem Bogen um den Nutzer, das breiteste in der
 // Mitte, die übrigen wechselweise rechts und links daneben.
@@ -398,55 +511,20 @@ function ordneAlles() {
   const boden = _floorY ?? 0;
   const heimat = cardManager.heimat;
 
-  // --- Wer gehört zu wem? --------------------------------------------------
-  //
-  // Erst zuordnen, dann bewegen: Nach dem ersten verschobenen Rahmen stimmt die
-  // Nachbarschaft nicht mehr, und die Zuordnung wäre eine andere.
-  scene.updateMatrixWorld(true);
-  const zonen = zoneManager.zones;
-  const gebunden = new Map(); // Zone -> [{ karte, rel }]
-  const frei = [];
-  for (const karte of cardManager.cards) {
-    karte.group.getWorldPosition(_oW);
-    // **Die nächste Zone, nicht die erste.** Zwei Rahmen können sich
-    // überlappen — dann bekäme sonst der zuerst angelegte alle Karten, auch
-    // die, die sichtbar vor dem anderen liegen.
-    let zone = null;
-    let naechste = Infinity;
-    for (const z of zonen) {
-      if (!z.umfasst(_oW)) continue;
-      const d = z.group.getWorldPosition(_oZ).distanceToSquared(_oW);
-      if (d < naechste) {
-        naechste = d;
-        zone = z;
-      }
-    }
-    if (!zone) {
-      frei.push(karte);
-      continue;
-    }
-    // Die Lage der Karte **relativ zur Zone**, als Matrix. Damit überlebt auch
-    // eine gedrehte oder skalierte Zone das Verschieben unverändert.
-    const rel = new THREE.Matrix4()
-      .copy(zone.group.matrixWorld)
-      .invert()
-      .multiply(karte.group.matrixWorld);
-    if (!gebunden.has(zone)) gebunden.set(zone, []);
-    gebunden.get(zone).push({ karte, rel });
-  }
+  // Wer in einer Zone liegt, wandert mit ihr; frei sind nur die übrigen.
+  const frei = cardManager.cards.filter((karte) => !zoneManager.zoneVon(karte));
 
   // --- Ebene 1: die großen Flächen ----------------------------------------
   const flaechen = [];
   if (whiteboard.group.visible) flaechen.push(whiteboard);
   if (timer.group.visible) flaechen.push(timer);
-  for (const z of zonen) flaechen.push(z);
+  for (const z of zoneManager.zones) flaechen.push(z);
   // **Die Wand steht höher, wenn Karten darunter müssen.** Der erste Anlauf
   // hat die Panels auf Augenhöhe gesetzt und die freien Karten bei 1,3 m davor
   // — im Bild lagen „Freie Idee 1, 2, 3, 5" quer über der Tafel und beiden
   // Zonen. Zwei Ebenen in der Tiefe reichen nicht; sie müssen sich auch in der
   // Höhe trennen.
-  const freieVor = cardManager.cards.length - [...gebunden.values()].reduce((n, l) => n + l.length, 0);
-  const reihenNoetig = Math.ceil(freieVor / KARTEN_REIHE);
+  const reihenNoetig = Math.ceil(frei.length / KARTEN_REIHE);
   const hoeheFlaeche =
     boden +
     THREE.MathUtils.clamp(
@@ -465,21 +543,10 @@ function ordneAlles() {
     luecke: WERKZEUG_LUECKE,
   });
 
-  // --- Die Karten der Zonen ziehen starr mit ------------------------------
-  scene.updateMatrixWorld(true);
-  const heimatInv = heimat === scene ? null : _oM2.copy(heimat.matrixWorld).invert();
-  for (const [zone, liste] of gebunden) {
-    for (const { karte, rel } of liste) {
-      _oM.multiplyMatrices(zone.group.matrixWorld, rel);
-      if (heimatInv) _oM.premultiply(heimatInv);
-      _oS.copy(karte.group.scale);
-      _oM.decompose(karte.group.position, karte.group.quaternion, karte.group.scale);
-      // Die Skalierung der Karte gehört ihr, nicht der Rechnung: Sie kürzt sich
-      // zwar heraus, aber ein Rundungsfehler in `decompose` bliebe sonst
-      // stehen und summierte sich über wiederholtes Ordnen auf.
-      karte.group.scale.copy(_oS);
-    }
-  }
+  // --- Die Mitglieder ziehen mit ihrer Zone ------------------------------
+  // Sofort, nicht erst im nächsten Bild: Der Verlaufseintrag danach soll den
+  // gelegten Zustand festhalten.
+  zoneManager.legeAlle();
 
   // --- Ebene 2: die freien Karten, in Reihen davor ------------------------
   //
@@ -490,10 +557,11 @@ function ordneAlles() {
   const reihenHoehe = 0.24;
   // Unter der Unterkante der höchsten Fläche beginnen, nicht auf Augenhöhe.
   // Ohne Flächen gibt es nichts zu unterlaufen — dann stehen die Karten selbst
-  // auf Augenhöhe, wie sie es von `arrangeInArc` gewohnt sind.
-  const hoechste = flaechen.reduce((m, f) => Math.max(m, f.hoehe), 0);
+  // auf Augenhöhe, wie sie es von `arrangeInArc` gewohnt sind. Eine Zone
+  // wächst nur nach unten und nennt ihre Unterkante deshalb selbst.
+  const tiefste = flaechen.reduce((m, f) => Math.max(m, f.unterkante ?? f.hoehe / 2), 0);
   const oberkante = flaechen.length
-    ? hoeheFlaeche - hoechste / 2 - 0.14
+    ? hoeheFlaeche - tiefste - 0.14
     : boden + THREE.MathUtils.clamp(camPos.y - boden - 0.05, 0.6, 2.1) + ((reihen.length - 1) / 2) * reihenHoehe;
   reihen.forEach((reihe, r) => {
     const hoehe = Math.max(boden + 0.35, oberkante - r * reihenHoehe);
@@ -537,6 +605,7 @@ cardManager.onCardRemoved = (card) => {
   // Eine gelöschte Karte darf nicht weiter animiert werden – sonst schreibt
   // der Tweener noch Positionen in ein entsorgtes Objekt.
   tweener.cancel(card.group);
+  zoneManager.karteEntfernt(card);
 };
 
 // Kartenschrift (Barrierefreiheit): gewählte Stufe überdauert einen Reload und
@@ -554,9 +623,12 @@ const whiteboard = new Whiteboard(scene, {
   floorY: () => _floorY ?? 0,
 });
 
-const zoneManager = new ZoneManager(scene, { floorY: () => _floorY ?? 0 });
-// Zonen sind Rahmen, vor denen Karten stehen — sie müssen dieselbe Heimat haben
-// wie die Karten, sonst löst sich die Gruppierung beim Weitergehen auf.
+const zoneManager = new ZoneManager(scene, {
+  floorY: () => _floorY ?? 0,
+  karten: () => cardManager.cards,
+});
+// Zonen enthalten Karten — sie müssen dieselbe Heimat haben wie die Karten,
+// sonst legt jeder Schritt auf dem Planeten die ganze Zone neu.
 meldeWeltHeimat((ziel) => zoneManager.setHeimat(ziel));
 // Und die Tafel: Sie soll da stehen bleiben, wo man sie aufgestellt hat, statt
 // auf dem Planeten für immer vor dem Nutzer zu schweben.
@@ -648,6 +720,8 @@ const locomotion = new Locomotion({
   camera,
   controllers: interactions.controllers,
 });
+// Beim Tippen stillstehen: Die Tastatur steht fest in der Welt.
+locomotion.pausiert = () => keyboard.offen;
 
 const UP = new THREE.Vector3(0, 1, 0);
 // **Es gibt keine Hoch/Runter-Tasten mehr.** Q und E waren ein Freiflug ohne
@@ -685,35 +759,66 @@ window.addEventListener('keyup', (e) => {
 
 // --- Bildqualität ------------------------------------------------------------
 //
-// Drei Stufen (siehe src/dojo/quality.js). Die Vorgabe hängt am Gerät: am
-// Desktop die volle Fassung, in der Brille die mittlere. Der Nutzer kann sie
-// überstimmen – im Handgelenk-Menü, weil die Frage nur auf dem Gerät zu
-// beantworten ist, und über `?q=` für den Test am Rechner.
+// Zwei Stufen mit **derselben Optik** (siehe src/dojo/quality.js): „Voll" und
+// „Flüssig". Bis hierher waren es drei, und die Brille startete auf „mittel"
+// – einer Fassung mit einseitigem Laub, ohne Umgebungslicht und mit
+// ausgedünnten Büschen. Der Nutzer hat es auf der Quest beurteilt: Nur die
+// volle Fassung ist brauchbar. Sie ist deshalb jetzt überall die Vorgabe, und
+// „Flüssig" spart nur, was man nicht sieht.
 //
-// `null` heißt „automatisch"; sobald einmal umgeschaltet wurde, gilt die Wahl
-// für beide Betriebsarten.
-const QUALITAETSSTUFEN = ['sparsam', 'mittel', 'voll'];
-const QUALITAET_NAMEN = { sparsam: 'sparsam', mittel: 'mittel', voll: 'voll' };
+// Die Wahl wird gemerkt. `?q=voll|fluessig` überstimmt sie für den Test am
+// Rechner.
+const QUALITY_STORAGE_KEY = 'webxr-brainstorming-quality';
+const QUALITAET_NAMEN = {
+  voll: 'Voll – beste Optik',
+  fluessig: 'Flüssig – gleiche Optik, spart Rechenzeit',
+};
 let qualitaetsWahl = (() => {
   const q = new URLSearchParams(location.search).get('q');
-  return QUALITAETSSTUFEN.includes(q) ? q : null;
+  if (QUALITAETSSTUFEN.includes(q)) return q;
+  try {
+    const gemerkt = localStorage.getItem(QUALITY_STORAGE_KEY);
+    return QUALITAETSSTUFEN.includes(gemerkt) ? gemerkt : 'voll';
+  } catch {
+    return 'voll';
+  }
 })();
 
 function aktuelleQualitaet() {
-  if (qualitaetsWahl) return qualitaetsWahl;
-  return renderer.xr.isPresenting ? 'mittel' : 'voll';
+  return qualitaetsWahl;
 }
+
+// Zähler für den Schattenpass in „Flüssig" (Animationsschleife).
+let schattenTakt = 0;
 
 function applyQualityTier() {
   const stufe = aktuelleQualitaet();
   for (const env of environments) env.setQuality?.(stufe);
+  // **„Flüssig" zeichnet die Schattenkarte nur jedes zweite Bild.** Die Sonne
+  // steht in allen Umgebungen still; bewegt wird nur das Laub im Wind, und
+  // dessen Schatten springt dann im halben Takt – auf Papier und Kies nicht zu
+  // unterscheiden. Gespart wird der ganze Schattendurchgang in jedem zweiten
+  // Bild (gemessen 9,5 % der Bildzeit im Dojo, siehe quality.js).
+  renderer.shadowMap.autoUpdate = stufe !== 'fluessig';
+  // Sofort einmal zeichnen: `applyQuality()` hat die Karten gerade neu
+  // angelegt, und eine leere Karte wäre ein Bild ohne Schatten.
+  renderer.shadowMap.needsUpdate = true;
   return stufe;
 }
 
 function cycleQuality() {
-  const jetzt = aktuelleQualitaet();
-  const i = QUALITAETSSTUFEN.indexOf(jetzt);
-  qualitaetsWahl = QUALITAETSSTUFEN[(i + 1) % QUALITAETSSTUFEN.length];
+  const i = QUALITAETSSTUFEN.indexOf(aktuelleQualitaet());
+  setzeQualitaet(QUALITAETSSTUFEN[(i + 1) % QUALITAETSSTUFEN.length]);
+}
+
+function setzeQualitaet(neu) {
+  if (!QUALITAETSSTUFEN.includes(neu)) return;
+  qualitaetsWahl = neu;
+  try {
+    localStorage.setItem(QUALITY_STORAGE_KEY, qualitaetsWahl);
+  } catch {
+    // Merken ist optional
+  }
   const stufe = applyQualityTier();
   // Die Umgebung muss die Änderung sehen: `setQuality` liefert die neue
   // Environment-Map zurück, und die hängt an der Szene, nicht an der Gruppe.
@@ -737,8 +842,15 @@ function updateDesktopMovement(dt) {
   _moveRight.crossVectors(_moveFwd, UP).normalize();
   _moveDelta.set(0, 0, 0).addScaledVector(_moveFwd, f).addScaledVector(_moveRight, s);
   if (_moveDelta.lengthSq() > 0) _moveDelta.normalize();
-  const speed = 3.4;
-  _moveDelta.multiplyScalar(speed * dt);
+  // **7,5 m/s, und das ist schneller, nicht langsamer als bisher.** Hier stand
+  // 3,4 – gelaufen ist man abseits des Planeten aber mit 6,8, weil die
+  // Animationsschleife diese Funktion zweimal je Bild aufrief (siehe dort).
+  // Mit behobenem Doppelaufruf und 5,1 (die +50 % der Brille) wäre der Desktop
+  // gefühlt langsamer geworden; der Nutzer hat 7,5 gewählt. Gedeckelt wie der
+  // Stick: Ein Bild mit dt = 0,1 s trüge sonst 75 cm – zu weit für die
+  // Zonenkette (walkable.js, SCHRITT_MAX).
+  const speed = 7.5;
+  _moveDelta.multiplyScalar(Math.min(speed * dt, SCHRITT_MAX));
   camera.position.add(_moveDelta);
   controls.target.add(_moveDelta);
 }
@@ -781,11 +893,16 @@ function showError(message, error) {
 // Gesichert werden Karten und Verbindungen. Die Whiteboard-Zeichnung bleibt
 // bewusst außen vor: Sie ist ein PNG pro Schritt und würde den Verlauf sprengen.
 const history = new History({
-  capture: () => ({
-    cards: cardManager.toJSON().cards,
-    connections: connectionManager.toJSON(),
-    zones: zoneManager.toJSON(),
-  }),
+  capture: () => {
+    // Erst die Zonen nachlegen: Ein Zonenzug oder ein Löschen kann seit dem
+    // letzten Bild noch offen sein, und gesichert wird der gelegte Zustand.
+    zoneManager.update();
+    return {
+      cards: cardManager.toJSON().cards,
+      connections: connectionManager.toJSON(),
+      zones: zoneManager.toJSON(),
+    };
+  },
   restore: (state) => {
     cardManager.applyState(state.cards);
     connectionManager.loadJSON(state.connections);
@@ -826,7 +943,25 @@ function updateHistoryButtons() {
 }
 
 interactions.onCardGrabStart = (card) => tweener.cancel(card.group);
-interactions.onCardMoved = () => commit('Karte verschoben');
+// Abgelegt wird über die Zonen: Eine Karte vor einer Zone wird ihr Mitglied,
+// eine Karte daneben verlässt ihre bisherige.
+interactions.onCardMoved = (card) => {
+  const wechsel = zoneManager.karteAbgelegt(card);
+  const label = wechsel?.zone
+    ? `Karte in Zone „${wechsel.zone.title}“ gelegt`
+    : wechsel
+      ? 'Karte aus Zone genommen'
+      : 'Karte verschoben';
+  commit(label);
+  if (wechsel) setStatus(`${label}.`);
+};
+zoneManager.wirdGezogen = (card) => interactions.drag?.card === card;
+// Am Desktop wird auch abgelegt, was aus Sicht des Nutzers auf einer Zone liegt
+// (zones.js, `_trefferAm`): Der Mauszug ändert die Tiefe einer Karte nie. In
+// der Brille trägt die Hand die Karte selbst an die Zone; dort zählt nur die
+// Nähe, damit eine frei in den Raum gestellte Karte nicht in eine ferne Zone
+// hinter ihr springt.
+zoneManager.auge = (out) => (renderer.xr.isPresenting ? null : camera.getWorldPosition(out));
 interactions.onCardScaled = () => commitSoon('Kartengröße');
 // Zonen hängen ebenfalls im Verlauf; die Whiteboard-Griffleiste löst hier zwar
 // auch aus, ändert aber nichts am gesicherten Zustand und erzeugt keinen Schritt.
@@ -881,7 +1016,38 @@ function aiProgress(label) {
   };
 }
 
+// **Cluster färben Karte und Zone gleich.** Die Zonenpalette ist die
+// Kartenpalette ohne Rot (Kritik) und Neutral (Zusammenfassung); Amber gehört
+// der Standardkarte. Bleiben vier Paare, die sich wiederholen — seit jedes
+// Thema beschriftet in einer eigenen Zone steht, muss die Farbe es nicht mehr
+// allein unterscheiden.
+const CLUSTER_FARBEN = [
+  { karte: 1, zone: 1 }, // Blau
+  { karte: 2, zone: 2 }, // Grün
+  { karte: 3, zone: 3 }, // Violett
+  { karte: 5, zone: 4 }, // Pink
+];
+
 async function handleAction(action) {
+  // Welt und Bildqualität haben mit Claude nichts zu tun – sie gehen auch,
+  // während eine Anfrage läuft. Bisher schluckte die Sperre unten diese Klicks.
+  if (action === 'environment') {
+    waehleUmgebung(envIndex >= environments.length - 1 ? -1 : envIndex + 1);
+    return;
+  }
+  if (action.startsWith('env:')) {
+    const index = indexVon(action.slice(4));
+    if (index >= -1) waehleUmgebung(index);
+    return;
+  }
+  if (action === 'quality') {
+    cycleQuality();
+    return;
+  }
+  if (action.startsWith('quality:')) {
+    setzeQualitaet(action.slice(8));
+    return;
+  }
   if (busy) {
     setStatus('Claude arbeitet noch – einen Moment.');
     return;
@@ -889,14 +1055,6 @@ async function handleAction(action) {
   try {
     if (action === 'new') {
       await newCardFlow();
-      return;
-    }
-    if (action === 'environment') {
-      cycleEnvironment();
-      return;
-    }
-    if (action === 'quality') {
-      cycleQuality();
       return;
     }
     if (action === 'fontsize') {
@@ -1015,7 +1173,10 @@ async function handleAction(action) {
       });
       zone.placeInFront(camera);
       commit('Zone erstellt');
-      setStatus('🗂️ Zone erstellt – Karten davor gruppieren. ✎ zum Umbenennen.');
+      setStatus(
+        '🗂️ Zone erstellt – Karten hineinziehen: Sie rasten ein und wandern mit der Zone. ✎ benennt um.',
+        6000
+      );
       return;
     }
     if (action === 'tools-order') {
@@ -1153,20 +1314,41 @@ async function handleAction(action) {
         { ideas: snapshot.map((c) => c.text) },
         aiProgress('Claude gruppiert die Karten…')
       );
+      // Prozessknoten gehören dem Flussdiagramm und kommen in keine Zone; eine
+      // Karte, die Claude zwei Themen zuordnet, bleibt beim ersten.
+      const vergeben = new Set();
       const clusterDefs = (data.clusters ?? [])
-        .map((cl, i) => ({
-          name: cl.name,
-          colorIndex: 1 + (i % (CARD_COLORS.length - 1)),
+        .map((cl) => ({
+          name: String(cl.name ?? '').trim() || 'Thema',
           cards: (cl.ideaIndexes ?? [])
             .filter((idx) => Number.isInteger(idx) && idx >= 0 && idx < snapshot.length)
-            .map((idx) => snapshot[idx]),
+            .map((idx) => snapshot[idx])
+            .filter((card) => {
+              if (card.flowType || vergeben.has(card)) return false;
+              vergeben.add(card);
+              return true;
+            }),
         }))
-        .filter((def) => def.cards.length);
+        .filter((def) => def.cards.length)
+        .map((def, i) => ({ ...def, ...CLUSTER_FARBEN[i % CLUSTER_FARBEN.length] }));
       if (!clusterDefs.length) throw new Error('Keine verwertbaren Cluster erhalten.');
-      cardManager.applyClusters(clusterDefs, camera);
+      // Je Thema eine beschriftete Zone, als flache Wand vor dem Nutzer. Karten
+      // aus anderen Zonen wechseln; leere Zonen eines früheren Laufs räumen
+      // sich danach ab, von Hand angelegte bleiben.
+      const zonen = clusterDefs.map((def) =>
+        zoneManager.addZone({ title: def.name, colorIndex: def.zone, auto: true })
+      );
+      zoneManager.stelleInReihe(zonen, camera);
+      clusterDefs.forEach((def, i) => {
+        zoneManager.nimmAuf(zonen[i], def.cards);
+        for (const card of def.cards) card.setColor(def.karte);
+      });
+      zoneManager.update();
+      zoneManager.entferneLeereAuto();
       commit('Cluster angewendet');
       setStatus(
-        `${clusterDefs.length} Cluster angewendet – Karten wurden gruppiert und eingefärbt.`
+        `🗂️ ${clusterDefs.length} Cluster als Zonen angelegt – die Karten sind eingeordnet und eingefärbt.`,
+        6000
       );
     } else if (action === 'summary') {
       setStatus('Claude fasst das Board zusammen…', 0);
@@ -1407,16 +1589,18 @@ async function startTopic(topic) {
   }
 }
 
-// Texteingabe: XR = Tastatur mit Diktat-Knopf, Desktop = Eingabefeld.
+// Texteingabe: XR = virtuelle Tastatur, Desktop = Eingabefeld.
 //
-// Der Diktat-Versuch läuft nicht mehr automatisch vor der Tastatur: Auf der
-// Quest scheitert er zuverlässig, und die Wartezeit bis zum Fehlschlag verzögert
-// jede Eingabe. Stattdessen öffnet sich direkt die Tastatur – mit „🎤 Sprechen"
-// als gleichwertigem Weg für alle, die nicht tippen wollen.
+// In der Brille gibt es keine Spracheingabe (siehe keyboard.js, „Kein Diktat
+// in XR"); die Tastatur öffnet sich direkt.
 async function getUserText() {
   if (renderer.xr.isPresenting) {
     // In XR wird getippt. Spracheingabe ist dort abgeschaltet (siehe speech.js),
     // es gibt also auch keinen Erkenner, der ums Mikrofon streiten könnte.
+    // Eine offene Fehlerkarte im Blickfeld läge über der Tastatur, und deren
+    // Panel fängt jeden Strahl ab – wegtippen ginge nicht mehr. Die Meldung
+    // steht weiter in der Statuszeile.
+    hud.hideError();
     return await new Promise((resolve) => {
       keyboard.open(camera, {
         onSubmit: (text) => resolve(text),
@@ -1472,7 +1656,6 @@ const DESKTOP_BUTTONS = {
   'btn-flow-label': 'flow-label',
   'btn-flow-layout': 'flow-layout',
   'btn-clear': 'clear',
-  'btn-env': 'environment',
   'btn-undo': 'undo',
   'btn-redo': 'redo',
 };
@@ -1683,6 +1866,37 @@ contextMenu.addEventListener('click', (e) => {
   }
 });
 
+// Umgebung und Bildqualität am Desktop: je Welt ein Chip, dieselben Aktionen
+// wie im Reiter „Welt" (handleAction `env:<id>` bzw. `quality:<stufe>`). Die
+// Namen kommen ohne Bauen aus dem Stellvertreter (`kurzname`).
+const envRow = document.getElementById('env-row');
+if (envRow) {
+  const eintraege = [
+    { id: 'neutral', label: 'Neutral' },
+    ...environments.map((env) => ({ id: env.id, label: env.kurzname })),
+  ];
+  for (const { id, label } of eintraege) {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.dataset.env = id;
+    button.addEventListener('click', () => handleAction(`env:${id}`));
+    envRow.appendChild(button);
+  }
+}
+const qualityRow = document.getElementById('quality-row');
+if (qualityRow) {
+  for (const stufe of QUALITAETSSTUFEN) {
+    const button = document.createElement('button');
+    button.textContent = stufe === 'voll' ? 'Voll' : 'Flüssig';
+    button.dataset.stufe = stufe;
+    button.title = QUALITAET_NAMEN[stufe];
+    button.addEventListener('click', () => handleAction(`quality:${stufe}`));
+    qualityRow.appendChild(button);
+  }
+}
+// Markiert wird beim ersten `applyEnvironment()` unten im Start – nicht hier:
+// `zeigeUmgebungswahl` liest `xrMode`, und das ist hier noch nicht deklariert.
+
 // Formauswahl im Kontextmenü – nach demselben Muster wie die Farbpunkte.
 // Beschriftet wie die Formleiste im Overlay: Fünf namenlose Symbole
 // untereinander waren nicht zu deuten, und breiter wird das Menü davon nicht –
@@ -1864,18 +2078,21 @@ renderer.xr.addEventListener('sessionstart', () => {
   // Läuft ein Erkenner noch aus dem Desktop-Betrieb, wird er hier beendet.
   setXRPresenting(true);
   controls.enabled = false;
-  // Sparsame Fassung in der Brille. Gemessen kostet allein die IBL-Abtastung
-  // ein Viertel der Frame-Zeit; welche Umgebung das betrifft, entscheidet sie
-  // selbst (siehe src/dojo/quality.js).
-  applyQualityTier();
+  // Keine eigene Brillenstufe mehr: Die Brille bekommt dieselbe Fassung wie
+  // der Desktop (siehe „Bildqualität" oben). Bis hierher wurde hier auf
+  // „mittel" umgeschaltet, und genau diese Fassung war es, die der Nutzer als
+  // unbrauchbar gemeldet hat.
   locomotion.reset(); // Fortbewegungs-Rig zentriert starten
+  brichUmschaltungAb();
   if (xrMode === 'immersive-ar') {
     // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
     envIndex = -1;
   } else {
-    // Reine VR-Session: direkt immersiv – zuletzt genutzte Umgebung, sonst Insel
+    // Reine VR-Session: direkt immersiv – zuletzt genutzte Umgebung, sonst
+    // Insel. Über die id, nicht über „Platz 0": Vorn steht seit dem Umstellen
+    // das Konstrukt, und die Startwelt soll sich nicht still mitverschieben.
     const saved = savedEnvIndex();
-    envIndex = saved !== null && saved >= 0 ? saved : 0;
+    envIndex = saved !== null && saved >= 0 ? saved : indexVon('island');
   }
   applyEnvironment();
   wristMenu.setVisible(true);
@@ -1886,12 +2103,17 @@ renderer.xr.addEventListener('sessionstart', () => {
 renderer.xr.addEventListener('sessionend', () => {
   setXRPresenting(false);
   controls.enabled = true;
-  applyQualityTier();
   // Rig zurücksetzen und Desktop-Ansicht wieder auf eine saubere Pose stellen
   locomotion.reset();
   camera.position.set(0, 1.6, 1.2);
   controls.target.set(0, 1.4, -0.6);
   controls.update();
+  // Den Boden neu einmessen, auch wenn die Umgebung dieselbe bleibt. Sonst
+  // gilt die Bodenhöhe aus der Brille weiter, und das Anheben der Desktop-Pose
+  // (siehe Animationsschleife) fällt aus – im 🌌 Nachthimmel, dessen Boden bei
+  // 25 m liegt, sah die Kamera danach senkrecht in den Planeten.
+  _walkEnv = -2;
+  brichUmschaltungAb();
   envIndex = savedEnvIndex() ?? -1;
   applyEnvironment();
   wristMenu.setVisible(false);
@@ -1900,6 +2122,9 @@ renderer.xr.addEventListener('sessionend', () => {
 
 // --- Start: gespeicherte Umgebung + Board wiederherstellen ---
 
+// Die Stufe gilt ab dem ersten Bild für alle Umgebungen. Ungebaute merken sie
+// sich und holen sie beim Bauen nach (`traegeUmgebung` in environments.js).
+applyQualityTier();
 envIndex = savedEnvIndex() ?? -1;
 applyEnvironment();
 
@@ -1945,11 +2170,7 @@ addEventListener('resize', () => {
 const _walkHead = new THREE.Vector3();
 const _walkZiel = { x: 0, z: 0 };
 
-// Welcher begehbare Bereich zuletzt galt, und wie hoch der Boden gerade liegt.
-// `null` heisst "noch nicht gesetzt": Beim Umgebungswechsel wird die neue
-// Bodenhoehe uebernommen, statt aus der alten dorthin zu gleiten.
-let _walkEnv = -2;
-let _floorY = null;
+// `_walkEnv` und `_floorY` stehen weiter oben, vor `cardManager` – siehe dort.
 const _blickRi = new THREE.Vector3();
 const _kamVorOrbit = new THREE.Vector3();
 const _orbitVersatz = new THREE.Vector3();
@@ -1982,6 +2203,9 @@ clock.connect(document);
 let elapsed = 0;
 
 renderer.setAnimationLoop(() => {
+  // Ein angefragter Weltwechsel baut hier, zu Beginn eines Bildes – siehe
+  // `fuehreUmschaltungAus`.
+  fuehreUmschaltungAus();
   // update() ist die einzige Zeitquelle; elapsed wird selbst akkumuliert.
   clock.update();
   const dt = Math.min(0.1, clock.getDelta());
@@ -1997,13 +2221,13 @@ renderer.setAnimationLoop(() => {
   // Vor connectionManager.update: Die Linien sollen den fahrenden Karten in
   // demselben Frame folgen, nicht einen hinterher.
   tweener.update(dt);
-  connectionManager.update(camera);
+  zoneManager.update();
+  connectionManager.update();
   if (envIndex >= 0) environments[envIndex].update?.(elapsed);
   timer.update(elapsed);
   if (renderer.xr.isPresenting) {
     locomotion.update(dt);
   } else {
-    updateDesktopMovement(dt);
     // **Auf dem Planeten darf Umsehen nicht Gehen sein.**
     //
     // `OrbitControls` schwenkt die Kamera auf einer Kugel um `controls.target`
@@ -2030,6 +2254,9 @@ renderer.setAnimationLoop(() => {
       camera.position.sub(_orbitVersatz);
       controls.target.sub(_orbitVersatz);
     }
+    // Einmal je Bild, und erst nach der Korrektur, die den Schritt sonst als
+    // Umsehen zurücknähme. Ein zweiter Aufruf am Anfang dieses Zweigs ließ
+    // WASD abseits des Planeten doppelt so weit tragen wie eingestellt.
     updateDesktopMovement(dt);
     if (walkJetzt.istPlanet && walkEnabled) {
       _kamVorOrbit.copy(camera.position);
@@ -2071,7 +2298,9 @@ renderer.setAnimationLoop(() => {
     }
 
     const head = camera.getWorldPosition(_walkHead);
-    walk.limit(head.x, head.z, _walkZiel);
+    // Hat sich die Welt gedreht (Planet), stimmt die Schattenkarte nicht mehr –
+    // in „Flüssig" sofort neu zeichnen statt erst im nächsten Takt.
+    if (walk.limit(head.x, head.z, _walkZiel) === true) renderer.shadowMap.needsUpdate = true;
     const dx = _walkZiel.x - head.x;
     const dz = _walkZiel.z - head.z;
 
@@ -2174,6 +2403,12 @@ renderer.setAnimationLoop(() => {
     }
   }
 
+  // „Flüssig": die Schattenkarte nur jedes zweite Bild (siehe applyQualityTier).
+  // Nur setzen, nie löschen – three nimmt das Flag nach dem Zeichnen selbst
+  // zurück, und ein Umgebungswechsel dazwischen darf nicht verloren gehen.
+  if (!renderer.shadowMap.autoUpdate && (schattenTakt++ & 1) === 0) {
+    renderer.shadowMap.needsUpdate = true;
+  }
   renderer.render(scene, camera);
 
   // Nach dem ersten gerenderten XR-Frame hat die XR-Kamera eine gültige Pose –
@@ -2181,7 +2416,21 @@ renderer.setAnimationLoop(() => {
   if (recenterOnNextFrame && renderer.xr.isPresenting) {
     const xrCam = renderer.xr.getCamera();
     if (xrCam.cameras?.length) {
-      cardManager.repositionAllInArc(xrCam);
+      // **Nur die freien Karten in die Bögen.** Mit allen Karten entstanden
+      // Lücken: Die Bögen wurden für die volle Liste gerechnet, danach zogen
+      // die Mitglieder zurück in ihre Zonen.
+      const frei = cardManager.cards.filter((k) => !zoneManager.zoneVon(k));
+      cardManager.repositionAllInArc(xrCam, frei);
+      // Zonen, die weit weg stehen, kommen mit ihren Karten vor den Nutzer –
+      // etwa nach einem Desktop-Abend im 🌌 Nachthimmel: Dort lagen sie auf
+      // dem Planeten, 25 m über dem Boden der neuen Sitzung, und ihr Inhalt
+      // wäre bis zum nächsten „Alles ordnen" unerreichbar gewesen.
+      const kopf = camera.getWorldPosition(new THREE.Vector3());
+      const verirrt = zoneManager.zones.filter(
+        (z) => z.group.getWorldPosition(new THREE.Vector3()).distanceTo(kopf) > 8
+      );
+      if (verirrt.length) zoneManager.stelleInReihe(verirrt, camera);
+      zoneManager.legeAlle();
       commit('Karten vor den Nutzer geholt');
       recenterOnNextFrame = false;
     }
@@ -2221,6 +2470,10 @@ window.__app = {
   interactions,
   controls,
   handleAction,
+  // Für tools/stufenwechsel.mjs: welche Stufen es gibt und welche gilt.
+  quality: { stufen: QUALITAETSSTUFEN, aktuell: aktuelleQualitaet },
+  // Für tools/alphaprobe.mjs: Die Probe stellt darüber eine AR-Sitzung nach.
+  passthrough,
   // Für tools/werkzeuge.mjs: die Anordnung ohne den Umweg über die Statuszeile.
   ordneAlles,
   setStatus,
@@ -2233,6 +2486,14 @@ window.__app = {
     desktopFloor,
     current: () => envIndex,
     cycle: cycleEnvironment,
+    // Direkt und synchron auf eine Welt (id oder 'neutral') – für Werkzeuge.
+    // Das Menü nimmt den Weg über `waehleUmgebung`, mit Hinweis vor dem Bauen.
+    waehle: (id) => {
+      brichUmschaltungAb();
+      setzeUmgebung(indexVon(id));
+    },
+    ausstehend: () => umschaltAuftrag?.index ?? null,
+    protokoll: umschaltProtokoll,
     // Der begehbare Bereich der aktiven Umgebung – damit ein Testskript ihn
     // ohne Umweg über die Bildschleife befragen kann.
     walk: () => (envIndex >= 0 ? environments[envIndex].walk : null) ?? FLAT_WALK,

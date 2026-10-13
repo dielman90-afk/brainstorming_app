@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SCHRITT_MAX } from './walkable.js';
 
 // VR-Fortbewegung über einen „Player-Rig" (Gruppe, die Kamera + Controller
 // enthält). Da three.js die Parent-Matrix auf die XR-Kamera anwendet, bewegt
@@ -18,7 +19,9 @@ import * as THREE from 'three';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const SNAP_ANGLE = THREE.MathUtils.degToRad(30);
-const MOVE_SPEED = 2.4; // m/s bei vollem Stickausschlag
+// m/s bei vollem Stickausschlag. Auf Wunsch des Nutzers um die Hälfte über den
+// früheren 2,4; der Stick dosiert analog, langsamer geht es mit halbem Ausschlag.
+const MOVE_SPEED = 3.6;
 const DEADZONE = 0.18;
 const TURN_ON = 0.7;
 const TURN_OFF = 0.35;
@@ -55,6 +58,10 @@ export class Locomotion {
     this._mid = new THREE.Vector3();
     this._q = new THREE.Quaternion();
     this._drag = null; // { mid, angle, count } – Bezug des laufenden Hand-Zugs
+    // () => boolean, von main.js gesetzt: Solange es true liefert, steht man
+    // still – während die Tastatur offen ist. Sie steht fest in der Welt; jeder
+    // Stickausschlag trug einen von ihr weg oder drehte sie aus dem Blick.
+    this.pausiert = () => false;
   }
 
   _isHand(c) {
@@ -79,6 +86,14 @@ export class Locomotion {
 
   update(dt) {
     if (!this.renderer.xr.isPresenting) return;
+    if (this.pausiert()) {
+      // Kein Gleiten, kein Drehen, kein Ziehen an der Welt. Die Drehung bleibt
+      // gespannt, bis der Stick einmal in der Mitte war: Wer ihn beim
+      // Schließen der Tastatur noch zur Seite hält, dreht sich nicht sofort.
+      this._drag = null;
+      this._snapArmed = true;
+      return;
+    }
 
     for (const c of this.controllers) {
       const gp = c.userData.inputSource?.gamepad;
@@ -139,6 +154,10 @@ export class Locomotion {
     const step = this._v.length();
     if (step > HAND_STEP_MAX) this._v.multiplyScalar(HAND_STEP_MAX / step);
     this._v.multiplyScalar(HAND_GAIN);
+    // Und nach der Übersetzung wie Stick und Tasten auf `SCHRITT_MAX`: 8 cm mal
+    // Faktor 8 wären 64 cm in einem Bild – genug, um in der Zonenkette des
+    // Dojo durch eine Wand zu springen (walkable.js).
+    if (this._v.length() > SCHRITT_MAX) this._v.setLength(SCHRITT_MAX);
     this._v.applyQuaternion(this.player.quaternion);
     this.player.position.sub(this._v);
 
@@ -167,7 +186,9 @@ export class Locomotion {
     const len = this._v.length();
     if (len < 1e-4) return;
     if (len > 1) this._v.multiplyScalar(1 / len); // Diagonale nicht schneller
-    this.player.position.addScaledVector(this._v, MOVE_SPEED * dt);
+    // Gedeckelt, weil ein ausgefallenes Bild (dt bis 0,1 s) sonst 36 cm auf
+    // einmal trüge – zu weit für die Zonenkette im Dojo (walkable.js).
+    this.player.position.addScaledVector(this._v, Math.min(MOVE_SPEED * dt, SCHRITT_MAX));
   }
 
   _snap(x) {

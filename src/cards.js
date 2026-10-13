@@ -316,47 +316,21 @@ export class CardManager {
 
   // Alle vorhandenen Karten neu vor dem Nutzer anordnen (z. B. beim VR-Start,
   // wenn sich die Kamera-Pose gegenüber der Desktop-Ansicht ändert).
-  repositionAllInArc(camera) {
+  //
+  // `cards`: welche Karten. Vorgabe alle; beim VR-Start nur die freien – die
+  // Mitglieder einer Zone gehören in deren Raster, nicht in den Bogen.
+  repositionAllInArc(camera, cards = this.cards) {
     const perRow = 6;
-    for (let i = 0; i < this.cards.length; i += perRow) {
-      const row = this.cards.slice(i, i + perRow);
+    for (let i = 0; i < cards.length; i += perRow) {
+      const row = cards.slice(i, i + perRow);
       this.arrangeInArc(row, camera, Math.floor(i / perRow));
     }
-    this.spawnBatch = Math.ceil(this.cards.length / perRow);
+    this.spawnBatch = Math.ceil(cards.length / perRow);
   }
 
-  // Karten räumlich in Cluster-Spalten vor dem Nutzer gruppieren.
-  // clusterDefs: [{ name, colorIndex, cards: IdeaCard[] }]
-  applyClusters(clusterDefs, camera) {
-    const { camPos, baseAngle } = this._viewBasis(camera);
-    const n = clusterDefs.length;
-    const step = THREE.MathUtils.degToRad(n <= 2 ? 50 : n === 3 ? 40 : 32);
-    const radius = 1.5;
-    // Ebenso wie in `arrangeInArc`: Bezug ist der Boden, nicht y = 0.
-    const bodenC = this.floorY();
-    const titleY = bodenC + THREE.MathUtils.clamp(camPos.y - bodenC + 0.3, 1.0, 2.2);
-
-    clusterDefs.forEach((def, i) => {
-      const angle = baseAngle + (i - (n - 1) / 2) * step;
-      const cx = camPos.x + Math.sin(angle) * radius;
-      const cz = camPos.z + Math.cos(angle) * radius;
-      const tangent = new THREE.Vector3(Math.cos(angle), 0, -Math.sin(angle));
-
-      const title = this.addCard(`📌 ${def.name}`, { colorIndex: def.colorIndex });
-      this._inHeimat(title.group.position.set(cx, titleY, cz));
-      title.group.lookAt(camPos.x, titleY, camPos.z);
-
-      const cols = def.cards.length > 4 ? 2 : 1;
-      def.cards.forEach((card, m) => {
-        card.setColor(def.colorIndex);
-        const row = Math.floor(m / cols);
-        const tOff = cols === 1 ? 0 : (m % 2 === 0 ? -0.19 : 0.19);
-        const y = titleY - 0.26 - row * 0.22;
-        this._inHeimat(card.group.position.set(cx + tangent.x * tOff, y, cz + tangent.z * tOff));
-        card.group.lookAt(camPos.x, y, camPos.z);
-      });
-    });
-  }
+  // (Hier stand `applyClusters`, das Cluster als Kartenspalten mit einer
+  // 📌-Titelkarte legte. Cluster werden seit dem Umbau der Zonen zu Behältern
+  // als beschriftete Zonen angelegt — siehe „cluster" in main.js.)
 
   toJSON() {
     // Gespeichert wird relativ zur Heimat, nicht zur Welt — die Begründung

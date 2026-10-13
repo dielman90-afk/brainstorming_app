@@ -19,17 +19,20 @@ import {
   cardCluster,
   applyFoliageMaterial,
   updateFoliage,
-  blobGeometry,
   branchInto,
 } from './dojo/foliage.js';
 import { buildSkyEnvironment } from './dojo/skylight.js';
 import { applyQuality } from './dojo/quality.js';
+import { deckendesAlpha } from './passthrough.js';
+import { UMGEBUNGEN } from './umgebungsliste.js';
+import { gemeinsamerPmrem } from './pmrem.js';
 
-// Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
+// Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets),
+// in der Reihenfolge von `src/umgebungsliste.js`:
+//   ⬜ Konstrukt    – nahtloser, komplett weißer Void („Matrix"-Ladeprogramm)
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
 //   🌌 Nachthimmel  – Sternenfeld, Mond und rötlicher Mars-Untergrund
 //   🪷 Zen-Garten   – ruhige Kies-/Steinlandschaft
-//   ⬜ Konstrukt    – nahtloser, komplett weißer Void („Matrix"-Ladeprogramm)
 //   ⛩ Konstrukt-Dojo – der Trainingsraum aus demselben Film (src/dojo/)
 //
 // **Die Module unter `src/dojo/` sind nicht nur fürs Dojo.** `materials.js`,
@@ -686,42 +689,48 @@ function verschmelzeSchatten(schatten, name = 'kontaktschatten') {
 // Das Rezept, das im Dojo-Garten funktioniert und hier übernommen wird:
 //
 //   * Schopfradius 0,15–0,32 m, **drei bis vier** je Ansatzpunkt statt einem
-//   * der Hüllkörper ist Masse und Verdecker, nicht die Krone: dunkel, klein
-//   * die Karten sitzen bei 1,12× darüber und machen Kontur und Silhouette
-//   * `blobGeometry` statt `IcosahedronGeometry`: verrauscht und zusammengeführt,
-//     also weich schattiert statt facettiert
+//   * die Außenkarten machen Kontur und Silhouette
+//   * **Innenlaub statt Hüllkörper.** Bis zu dieser Runde saß unter jeder
+//     Kartenschale ein glatter Lambert-Körper (`blobGeometry`, 20 Dreiecke) als
+//     Verdecker. Durch die Lücken sah man ihn als glatte Masse ohne
+//     Blattzeichnung, und der Nutzer hat ihn in allen Umgebungen als „komische
+//     Strukturen, die vielleicht auffüllen sollen" gemeldet. Jetzt füllen
+//     dunkle Karten das Innere (`cardCluster({ innen })`): Wer durch eine Lücke
+//     sieht, sieht Laub im Schatten. Der Körper bleibt nur noch auf Wunsch
+//     (`kern > 0`) – im Dojo für die Formschnittpolster, die als geschlossene
+//     Körper gemeint sind; die laufen aber nicht über diese Funktion.
 //
 // @param ansaetze  [[x, y, z, radius], …] – die groben Kronenpositionen
-// @returns {{ blobs: THREE.InstancedMesh, karten: THREE.InstancedMesh }}
+// @returns {{ karten: THREE.InstancedMesh }}
 function baueKrone({
   ansaetze,
   seed,
   kartenMaterial,
   kind,
-  farben,
   kartenFarben,
   cardScale,
-  // Wie weit die Kartenschale über dem Hüllkörper liegt. Zu wenig, und der
-  // Hüllkörper bildet die Silhouette; zu viel, und die Karten schweben.
+  // Kartenschale als Vielfaches des Schopfradius. Der Wert stammt aus der Zeit
+  // des Hüllkörpers (Schale 1,2 über einem Kern von 0,88 · 0,72) und bleibt,
+  // damit Kronengröße und Silhouette sich nicht verschieben.
   schale = 1.2,
-  // Wie weit der Hüllkörper **innerhalb** der Kartenschale sitzt. Er ist
-  // Verdecker, nicht Silhouette: Wer ihn auf 1,0 lässt, sieht ihn.
-  kern = 0.88,
   dichte = 70,
-  // Himmelssaum auf dem Hüllkörper. Auf der Insel gemessen abgeschaltet, siehe
-  // die Begründung am Werkstoff unten. Die anderen Umgebungen behalten ihn,
-  // solange niemand dieselbe Messung für sie gemacht hat — die Mechanik ist
-  // dort dieselbe, der Befund ist es nicht automatisch.
-  himmelssaum = true,
+  // Innenlaub als Anteil der Außenkarten. 0,30 ersetzt die 20 Dreiecke des
+  // alten Kerns durch rund 40 Kartendreiecke je Schopf (bei Dichte 64–74);
+  // die Insel wächst dabei um wenige Prozent, gemessen im Protokoll.
+  innenlaub = 0.3,
   // Staerke der Kronenverdeckung (0 = aus). Die anderen Umgebungen laufen durch
   // dieselbe Funktion und bekommen sie NICHT: Der Befund ist auf der Insel
   // gemessen, und ein Auftrag ueber die Insel ist kein Freibrief, den
   // Dojo-Garten nebenbei zu veraendern. Dieselbe Regel wie beim Himmelssaum.
   verdeckung = 0,
+  // Zahl der Töne, aus denen ein Schopf zieht (`ton % 3` plus `slice`). Stand
+  // früher als Länge der Hüllkörperpalette da; die Zahl bleibt, damit jeder
+  // Schopf denselben Ton zieht wie vorher.
+  toene = 3,
 }) {
   const r = mulberry32(seed);
   const schoepfe = [];
-  for (const [ax, ay, az, ar, slice] of ansaetze) {
+  for (const [ax, ay, az, ar, slice, hellig] of ansaetze) {
     // Anzahl aus dem Radius: Ein großer Ansatz bekommt mehr Schöpfe, nicht
     // größere. Genau das ist der Unterschied zwischen Krone und Blumenkohl.
     //
@@ -745,7 +754,8 @@ function baueKrone({
         z: az + (r() - 0.5) * ar * 1.1,
         s: ar * (0.42 + r() * 0.2),
         slice: slice ?? 0,
-        ton: Math.floor(r() * farben.length),
+        hellig: hellig ?? 1,
+        ton: Math.floor(r() * toene),
         dreh: [r() * 0.6, r() * Math.PI * 2, r() * 0.6],
       });
     }
@@ -815,6 +825,8 @@ function baueKrone({
       // verloren. Mit dem Versatz zieht jeder Baum aus seinem eigenen Drittel.
       const idx = (c.slice ?? 0) + (c.ton % 3);
       _ton.set(palette[idx % palette.length]);
+      // Eigene Helligkeit des Baums (Inselbäume, siehe `addTree`).
+      if (c.hellig !== 1) _ton.multiplyScalar(c.hellig);
       if (verdeckung > 0) {
         _ton.multiplyScalar(Math.max(0.25, 1 - dunkel[i] * verdeckung));
       }
@@ -825,68 +837,25 @@ function baueKrone({
     mesh.userData.fullCount = schoepfe.length;
   };
 
-  const blobs = new THREE.InstancedMesh(
-    // **Detailstufe 0, nicht 1.** Ein Hüllkörper ist Verdecker hinter dichten
-    // Karten; seine Facetten sieht niemand, seine Dreiecke zahlt man trotzdem.
-    // Stufe 1 sind 80 Dreiecke je Schopf, Stufe 0 sind 20 – bei rund 220
-    // Schöpfen auf der Insel ein Unterschied von 13.000 Dreiecken für nichts.
-    // Gemessen mit inselkosten.mjs.
-    blobGeometry(0, seed ^ 0x51, 0.72),
-    // Lambert statt Standard: Der Hüllkörper soll dunkle Masse sein, kein
-    // Material mit Glanzlicht. Er spart damit auch den PBR-Pfad im Shader.
-    //
-    // **Auf der Insel kein Himmelssaum** (`himmelssaum: false`). Er steht hier
-    // auf `strength 0.5, power 2.0` — der stärkste der Insel — mit der
-    // Begründung, dieser Körper bilde vielerorts die äußere Kontur gegen den
-    // Himmel. Das ist der Denkfehler: Der Körper
-    // ist eine Detailstufe-0-Blase, **zwanzig Dreiecke**, nicht indiziert.
-    // Seine Normalen sind Facettennormalen, der Fresnel-Term ist damit je
-    // Facette konstant — er malt keinen Saum an der Kontur, sondern hellt
-    // ganze Facetten mitten im Busch himmelblau auf. Genau das hat der Prüfer
-    // in `5-backlight` gefunden, und im vergrößerten Ausschnitt sieht man es
-    // sofort: helle blaugraue Flecken im Buschinnern, die als Löcher zum
-    // Himmel lesen.
-    //
-    // `tools/saumprobe.mjs` schaltet die Saumgruppen zur Laufzeit einzeln ab
-    // und misst dreierlei: den Anteil der Laubpixel, die Himmelsfarbe tragen
-    // **ohne einen Nachbarn ausserhalb des Laubs** (der Befund), und den
-    // Helligkeitssprung über die Kontur an Konifere und Laubkrone (der Grund,
-    // aus dem die Säume einmal hinzukamen):
-    //
-    //     Stand              Saum innen 1,53 Pp   Konifere 53,0 (78)   Laubkrone 66,1 (646)
-    //     ohne 0,50/2,0      Saum innen 0,36 Pp   Konifere 53,0 (78)   Laubkrone 67,7 (624)
-    //     ohne 0,26/4,2      Saum innen 1,53 Pp   Konifere 67,3 (46)   Laubkrone 66,1 (646)
-    //     ohne 0,24/4,2      Saum innen 1,52 Pp   Konifere 53,0 (78)   Laubkrone 67,9 (652)
-    //
-    // Kein Saum am Laub kauft eine Silhouette; alle drei kosten eine. Die
-    // Konifere zerfiel mit ihrem Saum in 78 statt 46 Konturstücke, und jedes
-    // sprang schwächer — aufgehellte Karten sind vom Himmel nicht mehr zu
-    // unterscheiden. An den Felsen bleibt der Saum: Ein geschlossener Körper
-    // mit glatten Normalen ist der Fall, für den der Term gedacht ist.
-    //
-    // Die Dojo-Kronen laufen durch dieselbe Funktion und haben dieselbe
-    // Mechanik — sie behalten den Saum trotzdem. Der Befund ist auf der Insel
-    // gemessen, nicht im Dojo, und ein Auftrag über die Insel ist kein Freibrief,
-    // eine andere Umgebung nebenbei zu verändern. Es steht im Protokoll.
-    himmelssaum
-      ? addSkyRim(new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }), {
-          strength: 0.5,
-          power: 2.0,
-        })
-      : new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }),
-    schoepfe.length
-  );
-  setze(blobs, kern, farben);
 
   const karten = new THREE.InstancedMesh(
-    cardCluster({ count: dichte, radius: 1, seed: seed ^ 0x2f71, kind, cardScale }),
+    cardCluster({
+      count: dichte,
+      radius: 1,
+      seed: seed ^ 0x2f71,
+      kind,
+      cardScale,
+      // Innen von 0,12 bis 0,62 der Schale: Das ist der Raum, den der alte
+      // Kern (0,88 · 0,72 des Schopfs unter einer Schale von 1,2) einnahm.
+      innen: innenlaub > 0 ? { anzahl: Math.round(dichte * innenlaub), von: 0.12, bis: 0.62 } : null,
+    }),
     kartenMaterial,
     schoepfe.length
   );
   applyFoliageMaterial(karten, kartenMaterial);
   setze(karten, schale, kartenFarben);
 
-  return { blobs, karten };
+  return { karten };
 }
 
 // Materialien der Inselbäume, einmal für alle.
@@ -1066,6 +1035,15 @@ function inselBaumMaterialien() {
     // nicht Gegenstand dieses Auftrags und braucht eine eigene Messung.
     _inselNadeln.alphaToCoverage = true;
     _inselKarten.alphaToCoverage = true;
+    // **Abdeckung ja, Alpha schreiben nein.** Mit `alphaToCoverage` setzt three
+    // kein `OPAQUE`, und das Alpha der Blattkarte landete ungemischt im
+    // Framebuffer. In der Brille laeuft die App als AR-Sitzung; der Compositor
+    // mischt dort ueber genau diesen Wert das Kamerabild ein. Der Nutzer hat
+    // es gesehen: durch Kronen und Buesche die Umrisse seines Zimmers.
+    // `tools/alphaprobe.mjs` zaehlte 2,1 bis 4,0 Prozent der Bildpunkte unter
+    // Alpha 1 – genau die Karten in den Kronen und Bueschen.
+    deckendesAlpha(_inselNadeln);
+    deckendesAlpha(_inselKarten);
 
     // --- Fernstufe: In der Ferne traegt der Huellkoerper, nicht die Karte ----
     //
@@ -1124,15 +1102,15 @@ function inselBaumMaterialien() {
 
 // Sammelbehälter für die Bäume EINER Insel.
 //
-// Warum nicht ein Baum = ein Objekt: Ein Baum besteht aus Stamm/Astwerk,
-// Hüllkörpern und Blattkarten – als eigenes Objekt gebaut sind das drei
+// Warum nicht ein Baum = ein Objekt: Ein Baum bestand aus Stamm/Astwerk,
+// Hüllkörpern und Blattkarten – als eigenes Objekt gebaut waren das drei
 // Draw-Calls je Baum. Neun Bäume auf der Hauptinsel waren damit 27 Draw-Calls
 // und die ganze Umgebung lag bei 129 von 120. Gemessen.
 //
 // Stämme und Äste wandern deshalb in einen Geometrie-Eimer, und die Schöpfe
-// aller Bäume werden je Laubart in EIN InstancedMesh-Paar gesammelt. Aus 27
-// werden fünf: Holz, Nadel-Hüllkörper, Nadel-Karten, Laub-Hüllkörper,
-// Laub-Karten. Die Form der Bäume bleibt dabei unangetastet.
+// aller Bäume werden je Laubart in EIN InstancedMesh gesammelt. Seit das
+// Innenlaub die Hüllkörper ersetzt, sind es drei: Holz, Nadel-Karten,
+// Laub-Karten.
 function makeTreeCollector() {
   return {
     holz: new GeoBucket(),
@@ -1143,7 +1121,16 @@ function makeTreeCollector() {
 }
 
 // Baut die gesammelten Bäume zu wenigen Meshes zusammen.
-function buildCollectedTrees(ctx, seed) {
+//
+// `fern`: Die Mini-Inseln stehen 50 bis 100 m entfernt und tragen über die
+// Hälfte aller Kronenschöpfe der Umgebung. Dort genügen 60 Prozent der Karten,
+// je ein Viertel größer – aus dieser Entfernung ist eine Karte ein paar
+// Bildpunkte, und die Deckung hält die Mipmap-Korrektur des Laubmaterials.
+// Ohne diese Stufe lag die Insel mit den neuen Baumformen bei 417 000
+// Dreiecken statt 373 000.
+function buildCollectedTrees(ctx, seed, { fern = false } = {}) {
+  const dichteFaktor = fern ? 0.6 : 1;
+  const kartenFaktor = fern ? 1.25 : 1;
   const { holz: holzMat, karten, nadeln } = inselBaumMaterialien();
   const meshes = [];
   const stamm = ctx.holz.mesh(holzMat, 'island-holz');
@@ -1155,16 +1142,13 @@ function buildCollectedTrees(ctx, seed) {
       seed: seed ^ 0x5a11,
       kartenMaterial: nadeln,
       kind: 'nadel',
-      cardScale: 0.95,
-      dichte: 74,
-      farben: [0x2b4436, 0x33513e, 0x24392c],
+      cardScale: 0.95 * kartenFaktor,
+      dichte: Math.round(74 * dichteFaktor),
       kartenFarben: [0xd8f0c0, 0xc6e4ae, 0xe4ffd0],
-      himmelssaum: false,
       verdeckung: 1.0,
     });
-    k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
-    meshes.push(k.blobs, k.karten);
+    meshes.push(k.karten);
   }
 
   if (ctx.laub.length) {
@@ -1173,145 +1157,214 @@ function buildCollectedTrees(ctx, seed) {
       seed: seed ^ 0x2c93,
       kartenMaterial: karten,
       kind: 'azalea',
-      cardScale: 0.85,
-      dichte: 64,
+      cardScale: 0.85 * kartenFaktor,
+      dichte: Math.round(64 * dichteFaktor),
       // Zwei Drittel: dunkle und helle Laubbäume. Jeder Baum greift über
       // seinen `slice` in genau eines davon.
-      farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
       kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8, 0xd3efb0, 0xc2e39c, 0xe0f8c0],
-      himmelssaum: false,
+      toene: 6,
       verdeckung: 1.0,
     });
-    k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
-    meshes.push(k.blobs, k.karten);
+    meshes.push(k.karten);
   }
   return meshes;
 }
 
-// Ein Baum – Form unverändert aus PR #9, aber er baut keine eigenen Meshes
-// mehr, sondern schreibt in den Sammelbehälter der Insel.
-function addTree(rand, ctx, { x, y, z, scale = 1 }) {
+// Ein Baum. Er baut keine eigenen Meshes, sondern schreibt in den
+// Sammelbehälter der Insel (Holz in den Eimer, Kronenansätze in die Listen).
+//
+// **Natürlicher, im selben Stil.** Der Nutzer: „Grundsätzlich können Bäume
+// schöner gestaltet werden." Was die alten Bäume verraten hat, war nicht der
+// Stil, sondern die Gleichförmigkeit: ein gerader Kegelstumpf als Stamm, drei
+// bis vier Äste in festen Winkeln, sieben fast konzentrische Nadeletagen –
+// jeder Baum eine Kopie des vorigen in anderer Größe. Jetzt:
+//
+//   * Laubbaum: gebogener, sich verjüngender Stamm mit Wurzelanlauf, zwei bis
+//     vier Hauptäste mit gestreuten Winkeln und einem Leittrieb, Kronenballen
+//     in wechselnder Größe – die Krone wird dadurch asymmetrisch
+//   * Nadelbaum in zwei Gestalten: schlanke Fichte mit tief ansetzenden,
+//     unregelmäßigen, hängenden Etagen und schmaler Spitze, und Kiefer mit
+//     hohem, kahlem Stamm und lockerer, schirmartiger Krone
+//   * je Baum eine leichte Neigung und eine eigene Helligkeit
+function addTree(rand, ctx, { x, y, z, scale = 1, nadel = null }) {
+  if (nadel === null) nadel = rand() > 0.45;
   const yaw = rand() * TAU;
   const cy = Math.cos(yaw);
   const sy = Math.sin(yaw);
+  // Neigung bis rund vier Grad: Kein Baum im Freien steht lotrecht, und eine
+  // Gruppe exakt senkrechter Stämme liest sich als Pflanzung.
+  const neigA = rand() * TAU;
+  const neig = rand() * 0.07;
+  const nx = Math.cos(neigA) * neig;
+  const nz = Math.sin(neigA) * neig;
+  const scher = new THREE.Matrix4().set(1, nx, 0, 0, 0, 1, 0, 0, 0, nz, 1, 0, 0, 0, 0, 1);
   // Baumlokale Koordinaten in Inselkoordinaten überführen.
   const place = (geo) => {
+    geo.applyMatrix4(scher);
     geo.scale(scale, scale, scale);
     geo.rotateY(yaw);
     geo.translate(x, y, z);
     return geo;
   };
-  const punkt = (px, py, pz) => [
-    x + (px * cy + pz * sy) * scale,
-    y + py * scale,
-    z + (-px * sy + pz * cy) * scale,
-  ];
+  const punkt = (px, py, pz) => {
+    const sx = px + nx * py;
+    const sz = pz + nz * py;
+    return [x + (sx * cy + sz * sy) * scale, y + py * scale, z + (-sx * sy + sz * cy) * scale];
+  };
+  // Eigene Helligkeit je Baum, als Faktor auf die Kartenfarbe.
+  const hellig = 0.9 + rand() * 0.2;
+  // Holz in den Eimer, Kronenansatz (baumlokal) in die Liste seiner Art.
+  const holz = (geo) => ctx.holz.add(place(geo), 0xffffff);
+  const krone = (liste, ax, ay, az, ar, slice = 0) => {
+    const p = punkt(ax, ay, az);
+    liste.push([p[0], p[1], p[2], ar * scale, slice, hellig]);
+  };
+  const bau = { rand, holz, nadel: (...a) => krone(ctx.nadel, ...a), laub: (...a) => krone(ctx.laub, ...a) };
 
-  const trunkHeight = 0.5 + rand() * 0.5;
-  ctx.holz.add(
-    place(new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8).translate(0, trunkHeight / 2, 0)),
-    0xffffff
-  );
-
-  // Krone nach demselben Rezept wie im Zen-Garten: viele kleine Schöpfe, der
-  // Hüllkörper als Verdecker darunter. Der erste Anlauf dieser Runde hatte hier
-  // einen glatten Ball von 0,36 m Radius mit ein paar Karten davor – aus zwei
-  // Metern ein grüner Luftballon mit Aufklebern.
-  const hell = rand() > 0.5;
-  const nadelbaum = rand() > 0.45;
-
-  if (nadelbaum) {
-    // **Die gestapelten Kegel sind entfallen.**
-    //
-    // Sie waren die Silhouette *und* die Oberfläche zugleich: drei glatte
-    // Trichter übereinander, an denen jede Karte als Aufkleber saß. Eine
-    // Konifere hat keine glatte Mantelfläche, sie hat Etagen aus Zweigen mit
-    // Lücken dazwischen, durch die man den Stamm sieht.
-    //
-    // Jetzt ist der Baum eine **Reihe von Ansätzen mit abnehmendem Radius** –
-    // dieselbe Bauweise wie beim Laubbaum, nur als Kegel angeordnet statt als
-    // Kugel. Die Silhouette entsteht aus den Schöpfen, nicht aus einem Trichter.
-    // **Der Etagenabstand folgt dem Radius, nicht einem festen Schritt.**
-    //
-    // Vorher lagen die Etagen in gleichen Abständen von 0,29 übereinander,
-    // während ihr Radius nach oben von 0,46 auf 0,13 fiel. Oben standen die
-    // Schöpfe dadurch weiter auseinander als sie groß waren: Im Bild schwebte
-    // die oberste Etage als abgetrennter dunkler Klecks 1,6 m über der
-    // Baumspitze. Per Strahl nachgewiesen – der Treffer war `island-laub` bei
-    // y = 7,3, die Spitze darunter bei 5,7.
-    //
-    // Jetzt wächst y um den Radius der jeweiligen Etage. Damit überlappen zwei
-    // aufeinanderfolgende Etagen zwangsläufig, egal wie schnell der Radius
-    // abnimmt.
-    let ey = trunkHeight + 0.1;
-    for (let i = 0; i < 7; i++) {
-      const t = i / 6;
-      const radius = 0.46 * (1 - t * 0.78);
-      const p = punkt((rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05);
-      ctx.nadel.push([p[0], p[1], p[2], radius * scale, 0]);
-      // 0,95 statt 1,0: eine Spur enger als der Radius, damit die Etagen sich
-      // sicher schneiden statt sich nur zu berühren.
-      ey += radius * 0.95;
-    }
+  if (nadel) {
+    if (rand() < 0.62) baueFichte(bau);
+    else baueKiefer(bau);
   } else {
-    // **Laubbaum mit echtem Astwerk.**
-    //
-    // Vorher: zwei Kronenansätze über einem nackten Kegelstumpf. Der Stamm
-    // endete abrupt, es gab keinen Übergang zur Krone, und die Krone war eine
-    // Masse auf einem Stab. Der Dojo-Garten hat denselben Fehler schon einmal
-    // gehabt, und der Kommentar dort sagt, warum es keine Farbfrage ist:
-    //
-    //   „Ein Baum wird nicht durch seine Krone glaubwürdig, sondern durch die
-    //    Zweige, die man **durch** sie sieht."
-    //
-    // `branchInto()` verzweigt rekursiv über drei Ebenen. Die Laubschöpfe
-    // sitzen auf den **Zweigenden**, nicht als Kugel über allem – dadurch löst
-    // sich die Silhouette auf und man sieht Äste durch die Krone.
-    // **Die Gabel sass zu hoch, und das ist gemessen.**
-    //
-    // `tools/lutscher.mjs` misst ueber die Spalten des Stammes, wie viel der
-    // Baumhoehe nackter Stamm ist — differenziell aus dem Ein- und Ausblenden
-    // von `island-holz` gegen `island-laub` und `island-krone`. Am vorderen
-    // Laubbaum in `1-eyelevel`: **66,8 Prozent**, 125 von 187 Bildpunkten. Ein
-    // Laubbaum in der Natur liegt bei einem Viertel bis zwei Fuenfteln; zwei
-    // Drittel kahler Stiel unter einer runden Masse sind genau das, was der
-    // Pruefer „Lutscher" nennt.
-    //
-    // Die Gabel sitzt deshalb bei 0,60 der Stammhoehe statt an ihrer Spitze.
-    // Damit der Baum dabei nicht schrumpft, werden die Aeste laenger — es ist
-    // dieselbe eine Ziehung, nur mit anderen Grenzen, der Zufallsstrom bleibt
-    // also unverschoben.
-    const teile = [];
-    const oben = new THREE.Vector3(0, trunkHeight * 0.48, 0);
-    const nb = 3 + Math.floor(rand() * 2);
-    for (let k = 0; k < nb; k++) {
-      const az = (k / nb) * Math.PI * 2 + rand() * 0.9;
-      const dir = new THREE.Vector3(
-        Math.cos(az) * 0.6,
-        0.74,
-        Math.sin(az) * 0.6
-      ).normalize();
-      branchInto(teile, oben, dir, 0.46 + rand() * 0.18, 0.035, 2, rand);
+    baueLaubbaum(bau);
+  }
+}
+
+// Gebogener Stamm: ein Zylinder mit mehreren Ringen, dessen Achse einer
+// leichten Kurve folgt. Gibt die Geometrie und den Achsversatz über der
+// relativen Höhe zurück (für Astansätze auf der gebogenen Achse).
+function gebogenerStamm(rand, hoehe, rFuss, rKopf, biegung = 0.06) {
+  const geo = new THREE.CylinderGeometry(rKopf, rFuss, hoehe, 8, 5).translate(0, hoehe / 2, 0);
+  const bx = (rand() - 0.5) * 2 * biegung;
+  const bz = (rand() - 0.5) * 2 * biegung;
+  const kx = (rand() - 0.5) * 1.6 * biegung;
+  const kz = (rand() - 0.5) * 1.6 * biegung;
+  // Am Fuß steht die Achse still (Faktor t): Der Wurzelanlauf ist gerade,
+  // und ein Stamm, der schon über dem Boden ausweicht, liesse ihn seitlich
+  // herausstehen.
+  const versatz = (t) => [
+    bx * Math.sin(t * Math.PI) * t + kx * t * t,
+    bz * Math.sin(t * Math.PI) * t + kz * t * t,
+  ];
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const t = THREE.MathUtils.clamp(pos.getY(i) / hoehe, 0, 1);
+    const [dx, dz] = versatz(t);
+    pos.setX(i, pos.getX(i) + dx);
+    pos.setZ(i, pos.getZ(i) + dz);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  return { geo, versatz };
+}
+
+function baueLaubbaum({ rand, holz, laub }) {
+  // **Die Gabel sitzt tief.** `tools/lutscher.mjs` hat an den alten Bäumen
+  // zwei Drittel nackten Stamm unter der Krone gemessen – der „Lutscher" des
+  // Prüfers. Ein Laubbaum liegt bei einem Viertel bis zwei Fünfteln.
+  const hoehe = 0.38 + rand() * 0.24;
+  const stamm = gebogenerStamm(rand, hoehe, 0.088, 0.052);
+  holz(stamm.geo);
+  holz(wurzelanlauf(0.07, 0.125, 0.16, Math.floor(rand() * 0xffff)));
+
+  const teile = [];
+  const n = 2 + Math.floor(rand() * 3);
+  const basisAz = rand() * TAU;
+  // Ein Leittrieb: Der steilste und längste Ast führt die Krone nach oben,
+  // die anderen breiten sie aus. Ohne ihn sind alle Äste gleich, und die
+  // Krone wird eine Halbkugel.
+  const leit = Math.floor(rand() * n);
+  for (let k = 0; k < n; k++) {
+    const az = basisAz + (k / n) * TAU + (rand() - 0.5) * 1.0;
+    const istLeit = k === leit;
+    // Steil: Die Verzweigung (`branchInto`) spreizt auf jeder Ebene ohnehin
+    // weit nach außen. Mit flach ansetzenden Hauptästen wurde daraus ein
+    // flacher Schirm – eine Akazie aus der Savanne statt eines Laubbaums.
+    const spreiz = istLeit ? 0.15 + rand() * 0.2 : 0.38 + rand() * 0.34;
+    const dir = new THREE.Vector3(Math.cos(az) * spreiz, 0.82 + rand() * 0.22, Math.sin(az) * spreiz).normalize();
+    // Die Äste setzen gestaffelt an, nicht alle an einem Punkt.
+    const tAnsatz = istLeit ? 1 : 0.78 + rand() * 0.22;
+    const [ox, oz] = stamm.versatz(tAnsatz);
+    const von = new THREE.Vector3(ox, hoehe * tAnsatz, oz);
+    const len = (istLeit ? 0.54 : 0.38) + rand() * 0.2;
+    branchInto(teile, von, dir, len, istLeit ? 0.044 : 0.036, 2, rand);
+  }
+  for (const t of teile) holz(t.geo);
+
+  // Heller oder dunkler Laubbaum: der Griff in die obere oder untere Hälfte
+  // der gemeinsamen Palette.
+  const slice = rand() < 0.5 ? 3 : 0;
+  for (const t of teile) {
+    // Alle Astebenen tragen Laub: die Zweigenden die Kontur, die Gabeln
+    // darunter das Innere. Nur auf den Spitzen ist die Krone eine Schale mit
+    // glatter Unterseite, und die Mitte bleibt hohl.
+    // Wechselnde Ballengröße macht die Kontur unruhig, wie bei einem
+    // gewachsenen Baum.
+    const r =
+      t.depth === 0 ? 0.15 + rand() * 0.1 : t.depth === 1 ? 0.11 + rand() * 0.06 : 0.15 + rand() * 0.05;
+    laub(t.tip.x, t.tip.y, t.tip.z, r, slice);
+  }
+}
+
+// Fichte: tief beastet, schlank, unregelmäßige Etagen, die außen hängen.
+function baueFichte({ rand, holz, nadel }) {
+  const kahl = 0.1 + rand() * 0.16;
+  const r0 = 0.4 + rand() * 0.1;
+  const etagen = 7 + Math.floor(rand() * 2);
+  let ey = kahl + r0 * 0.45;
+  const ansaetze = [];
+  for (let i = 0; i < etagen; i++) {
+    const t = i / (etagen - 1);
+    const radius = r0 * (1 - t * 0.86) * (0.86 + rand() * 0.28);
+    // Gelegentlich eine Lücke: Ein Astquirl ist abgestorben oder ausgebrochen.
+    if (i > 1 && i < etagen - 2 && rand() < 0.12) {
+      ey += radius * 0.55;
+      continue;
     }
-    for (const t of teile) ctx.holz.add(place(t.geo), 0xffffff);
-    // Heller oder dunkler Laubbaum: der Griff in die obere oder untere Hälfte
-    // der gemeinsamen Palette.
-    const slice = hell ? 3 : 0;
-    for (const t of teile) {
-      // **Auch die vorletzte Astebene traegt Laub.** Bisher sassen die Schoepfe
-      // nur auf den aeussersten Zweigenden; die Krone war dadurch eine Schale
-      // mit einer glatten Unterseite. Ein Laubbaum ist innen belaubt, und man
-      // sieht die Aeste DURCH das Laub — dafuer muss auch dazwischen etwas
-      // stehen.
-      //
-      // Der Halbmesser der inneren Schoepfe ist fest und nicht gezogen: Eine
-      // zusaetzliche rand()-Ziehung hier verschoebe Steine, Blumen und Voegel.
-      if (t.depth > 1) continue;
-      const p = punkt(t.tip.x, t.tip.y, t.tip.z);
-      const r = t.depth === 0 ? 0.17 + rand() * 0.06 : 0.115;
-      ctx.laub.push([p[0], p[1], p[2], r * scale, slice]);
+    ansaetze.push([(rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05, radius]);
+    // Die untersten Etagen bekommen hängende Seitenäste: zwei kleinere
+    // Ansätze weiter außen und tiefer. Daraus wird der Fuß der Krone ein
+    // Kranz aus Zweigen statt eines Balls. Nur dort, weil jeder Ansatz
+    // mindestens zwei Schöpfe kostet – an allen breiten Etagen hätte eine
+    // Fichte zweieinhalbmal so viele Kartendreiecke wie vorher.
+    if (i < 2) {
+      const k = 2;
+      const a0 = rand() * TAU;
+      for (let j = 0; j < k; j++) {
+        const a = a0 + (j / k) * TAU + (rand() - 0.5) * 0.8;
+        ansaetze.push([Math.cos(a) * radius * 0.62, ey - radius * 0.24, Math.sin(a) * radius * 0.62, radius * 0.5]);
+      }
     }
+    ey += radius * (0.74 + rand() * 0.22);
+  }
+  // Schmale Spitze: ein kleiner Ansatz über der obersten Etage.
+  ansaetze.push([0, ey + 0.04, 0, 0.07]);
+  const spitze = ey + 0.1;
+  const stamm = gebogenerStamm(rand, spitze * 0.9, 0.075, 0.02, 0.025);
+  holz(stamm.geo);
+  for (const [ax, ay, az, ar] of ansaetze) nadel(ax, ay, az, ar);
+}
+
+// Kiefer: hoher kahler Stamm, lockere, flache Krone aus wenigen Ballen.
+function baueKiefer({ rand, holz, nadel }) {
+  const kahl = 0.6 + rand() * 0.35;
+  const stamm = gebogenerStamm(rand, kahl + 0.55, 0.08, 0.035, 0.09);
+  holz(stamm.geo);
+  holz(wurzelanlauf(0.065, 0.11, 0.12, Math.floor(rand() * 0xffff)));
+  const etagen = 4 + Math.floor(rand() * 2);
+  let ey = kahl;
+  for (let i = 0; i < etagen; i++) {
+    const t = i / (etagen - 1);
+    // Die Kiefernkrone ist oben breit und flach, nicht spitz.
+    const radius = 0.3 * (1 - t * 0.45) * (0.8 + rand() * 0.4);
+    const ballen = i === etagen - 1 ? 1 : 1 + Math.floor(rand() * 2);
+    for (let j = 0; j < ballen; j++) {
+      const a = rand() * TAU;
+      const d = ballen > 1 ? radius * (0.35 + rand() * 0.4) : rand() * 0.06;
+      const [ox, oz] = stamm.versatz(Math.min(1, ey / (kahl + 0.55)));
+      nadel(ox + Math.cos(a) * d, ey, oz + Math.sin(a) * d, radius);
+    }
+    ey += radius * (0.55 + rand() * 0.25);
   }
 }
 
@@ -2021,8 +2074,13 @@ function grasMaterial() {
            // betraegt 0,7 Punkte. Die Totale bleibt dabei unberuehrt
            // (Wiesenmittel 150,0 auf 150,6, Anteil ueber L 190 unveraendert
            // 18,1 %) — die Grenze, an der ein frueherer Anlauf gescheitert ist.
+           // **Gruener und schwaecher, seit die Wiese satter ist.** Der alte
+           // Ton (0,40 | 0,55 | 0,44) ist ein Graugruen; mit 45 Prozent
+           // gemischt nahm er der Wiese ab zwoelf Metern fast die Haelfte
+           // ihrer Saettigung, und genau dort schaut man in der Brille hin.
+           // Die Staffelung bleibt – sie kommt jetzt mehr aus der Helligkeit.
            float weite = smoothstep(2.0, 24.0, tiefe) * (1.0 - smoothstep(30.0, 55.0, tiefe));
-           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.40, 0.55, 0.44), weite * 0.45);
+           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.34, 0.54, 0.30), weite * 0.32);
            // --- Das Ufer -------------------------------------------------
            //
            // Der Pruefer: „Der Bach ist ein gestrichener Farbstreifen ohne
@@ -2802,15 +2860,23 @@ function bodyColor(out, zone, shape, p, t, a) {
     // **anders** grün, es ist **dunkler** grün. Der Farbton bewegt sich
     // deshalb nur noch um ein Viertel des alten Betrags, die Sättigung um ein
     // Fünftel; die Helligkeit trägt den Rest.
+    // **Satter und eine Spur dunkler – der Nutzer: „Der Boden sollte viel
+    // gruener erscheinen."** Gemessen auf der Wiese (8-busch, 7-grasblick,
+    // 1-eyelevel unten) stand sie bei RGB 162|190|135, L 180, Saettigung 29,5,
+    // Farbton 90 Grad: ein blasses Gelbgruen. Zwei Gruende, beide hier zu
+    // beheben: zu wenig Saettigung in der Albedo, und eine Helligkeit, die
+    // nach der Belichtung in der Schulter der ACES-Kurve landet, wo jede Farbe
+    // Richtung Weiss gedrueckt wird. Mehr Saettigung allein haette die Schulter
+    // wieder abgeflacht; deshalb geht die Helligkeit gleichzeitig herunter.
+    //
+    // Der Farbton steht in der Albedo bei 112 Grad, im Bild landet er gut zehn
+    // Grad gelber: Die Sonne ist warm (0xfff1d4) und ACES zieht helle Gruentoene
+    // Richtung Gelb. Ein erster Anlauf mit 101 Grad in der Albedo blieb im Bild
+    // bei 91 – mehr Saettigung (29,4 auf 38,1), aber dasselbe Limettengruen.
     out.setHSL(
-      0.268 + 0.018 * feucht - 0.024 * trocken + 0.007 * variation,
-      // 0,44 statt 0,40: Beim Beruhigen der Ausschlaege ist der Wiese auch
-      // Saettigung verloren gegangen — der Pruefer misst in `2-waterfall`
-      // y = 440 einen Abstand max minus min von 76 auf 56. Gleichmaessig gruen
-      // heisst nicht blass; der Grundwert holt das zurueck, ohne die Streuung
-      // wieder aufzumachen.
-      0.44 + 0.05 * feucht - 0.045 * trocken + 0.022 * variation,
-      0.34 - 0.10 * feucht + 0.095 * trocken + 0.075 * variation - 0.07 * smoothstep(0.82, 1.0, rr)
+      0.31 + 0.018 * feucht - 0.024 * trocken + 0.007 * variation,
+      0.7 + 0.05 * feucht - 0.045 * trocken + 0.022 * variation,
+      0.28 - 0.09 * feucht + 0.085 * trocken + 0.065 * variation - 0.06 * smoothstep(0.82, 1.0, rr)
     );
     // Zur Kante hin reißt die Narbe auf: Erde und Fels kommen durch. Ohne das
     // liegt das Gras als geschlossene, gleichmäßig dicke Zuckergussschicht auf
@@ -2870,7 +2936,7 @@ function bodyColor(out, zone, shape, p, t, a) {
     const drape = shape.drapeAt(a);
     const g2e = smoothstep(drape * 0.30, drape * 1.15, t);
     if (g2e < 1) {
-      const grass = _tmpColor.setHSL(0.272, 0.42, 0.30 + 0.05 * (mott - 0.5));
+      const grass = _tmpColor.setHSL(0.31, 0.66, 0.26 + 0.05 * (mott - 0.5));
       out.lerp(grass, 1 - g2e);
     }
     return out;
@@ -4986,6 +5052,236 @@ function findlingsKorn(material) {
   return material;
 }
 
+// --- Baumplätze: Haine und Solitäre ------------------------------------------
+//
+// **Der Nutzer: „Bei Inseln sind zu viele Bäume aneinander gereiht."**
+//
+// Die alte Regel stellte zwei Drittel der Bäume auf einen Bogen um den
+// Höhenrücken (±0,75 rad, 0,70–0,90 des Radius) – ohne Mindestabstand. Neun
+// Bäume auf einem schmalen Kreisring sind aus jeder Richtung eine Reihe, und in
+// der Totale `4-aerial` stand sie genau so da: eine Perlenkette am Inselrand.
+//
+// In der Natur stehen Bäume in **Gruppen** (ein Hain, in dem einer den Ton
+// angibt) und **einzeln** (der Solitär im offenen Feld). Dazwischen ist Luft.
+// Genau das baut diese Funktion:
+//
+//   * 2–3 Haine (Minis: einer) auf dem äußeren Ring 0,62–0,85 des Radius,
+//     gegeneinander um mindestens 100 Grad versetzt; der erste am Höhenrücken,
+//     wo die Bäume vorher schon standen
+//   * je Hain 2–4 Bäume in lockerer Traube um den Mittelpunkt
+//   * 1–3 Solitäre im offenen Feld 0,55–0,80
+//   * Mindestabstand nach Kronengröße, und **keine drei Bäume auf einer
+//     Linie**: Ein Kandidat, der mit zwei nahen Bäumen einen Winkel über 160
+//     Grad bildet, wird verworfen. Das ist die Reihe, als Regel verboten.
+//
+// Die Grenzen von vorher gelten weiter: nicht in den Bach (`shape.frei`), nicht
+// in die Quelle, die Mitte bleibt frei für die Karten. Neu ist ein Ausschluss
+// um die festen Prüfkameras (harness-common.mjs): Ein Baum, der mit dem
+// Stamm in einer Kamera steht, macht ihr Bild wertlos.
+//
+// Alles aus einem **eigenen Zufallsstrom**. Vorher zog jeder Baum je nach Art
+// unterschiedlich oft aus dem Inselstrom, und jede Änderung an einem Baum
+// verschob Steine, Blumen und Vögel (siehe `alteBaumZuege`).
+const INSEL_PRUEFKAMERAS = [
+  // Weltkoordinaten / WORLD_SCALE, nur die Standorte auf der Hauptinsel.
+  [0.375, 2.25], // 1-eyelevel
+  [-0.5, 1.5], // 2-waterfall
+  [-2.25, 3.0], // 5-backlight
+  [1.15, 1.85], // 6-groundcover
+  [0.75, 2.5], // 7-grasblick
+  [0.125, 1.525], // 8-busch
+];
+
+function inselBaumPlaetze(rand, shape, { anzahl, radius, kameras = [] }) {
+  const plaetze = [];
+  const quelle = shape.riverCurve ? [0.1, 0.2] : null;
+  const passt = (x, z, s, imHain) => {
+    const r = Math.hypot(x, z);
+    if (r < radius * 0.5) return false;
+    if (!shape.frei(x, z, 0.3 * s)) return false;
+    // Stamm deutlich innerhalb des Umrisses; die Krone darf über die Kante.
+    if (r > radius * shape.outline(Math.atan2(x, z)) * 0.88) return false;
+    if (quelle && Math.hypot(x - quelle[0], z - quelle[1]) < 0.7) return false;
+    for (const [kx, kz] of kameras) {
+      // Mit der Baumgröße: Eine Krone reicht rund 0,75 Einheiten je
+      // Maßstabseinheit vom Stamm, und `5-backlight` blickt steil nach oben –
+      // mit festen 1,3 Einheiten hing ein großer Laubbaum noch ins Bild.
+      if (Math.hypot(x - kx, z - kz) < 0.9 + 0.8 * s) return false;
+    }
+    for (const p of plaetze) {
+      // Kronenhalbmesser rund 0,5 je Maßstabseinheit. Im Hain dürfen sich die
+      // Kronen berühren, zwischen Hainen und Solitären bleibt Luft.
+      const mindest = 0.5 * (s + p.scale) * (imHain && p.hain === imHain ? 0.95 : 1.45);
+      if (Math.hypot(x - p.x, z - p.z) < mindest) return false;
+    }
+    // Keine drei auf einer Linie: Winkel am mittleren Baum unter 160 Grad.
+    const nah = plaetze.filter((p) => Math.hypot(x - p.x, z - p.z) < radius * 0.75);
+    for (let i = 0; i < nah.length; i++) {
+      for (let j = i + 1; j < nah.length; j++) {
+        if (fastGerade([x, z], [nah[i].x, nah[i].z], [nah[j].x, nah[j].z])) return false;
+      }
+    }
+    return true;
+  };
+
+  const versuche = (n, ziehe) => {
+    for (let k = 0; k < n; k++) {
+      const p = ziehe();
+      if (p) return p;
+    }
+    return null;
+  };
+
+  const haine = anzahl >= 6 ? 2 + (rand() < 0.5 ? 1 : 0) : 1;
+  const solitaere = anzahl >= 6 ? 1 + Math.floor(rand() * 3) : anzahl >= 3 ? 1 : 0;
+  const imHain = Math.max(haine * 2, anzahl - solitaere);
+  // Bäume auf die Haine verteilen, jeder mindestens zwei, höchstens vier.
+  const jeHain = new Array(haine).fill(2);
+  for (let rest = imHain - haine * 2; rest > 0; rest--) {
+    const kandidaten = jeHain.map((n, i) => (n < 4 ? i : -1)).filter((i) => i >= 0);
+    if (!kandidaten.length) break;
+    jeHain[kandidaten[Math.floor(rand() * kandidaten.length)]]++;
+  }
+
+  // Hainmittelpunkte: der erste am Höhenrücken, die übrigen mit Abstand.
+  // Die Art wechselt von Hain zu Hain; mit freier Wahl standen in einem
+  // Viertel der Fälle nur Laub- oder nur Nadelbäume auf der Insel.
+  let nadelHain = rand() < 0.5;
+  const mitten = [];
+  const start = shape.ridgeAngle;
+  const schritt = TAU / haine;
+  for (let h = 0; h < haine; h++) {
+    // Der Mittelpunkt muss selbst ein Baumplatz sein, sonst fällt der ganze
+    // Hain aus, sobald er im Bach oder an der Quelle landet. Gesucht wird in
+    // einem Fächer um den Sollwinkel, der den Mindestversatz der Haine hält.
+    const soll = start + h * schritt;
+    const facher = h > 0 ? Math.min(0.6, schritt - 1.75) : 0.8;
+    const mitte = versuche(25, () => {
+      const winkel = soll + (rand() - 0.5) * facher;
+      const rMitte = radius * (0.62 + rand() * 0.23);
+      const mx = Math.sin(winkel) * rMitte;
+      const mz = Math.cos(winkel) * rMitte;
+      return passt(mx, mz, 1.2, h + 1) ? [mx, mz] : null;
+    });
+    if (!mitte) continue;
+    const [mx, mz] = mitte;
+    mitten.push([mx, mz, h + 1]);
+    // Ein Hain wird von einer Art getragen: Nadel- oder Laubhain, mit einem
+    // Viertel Beimischung der anderen.
+    if (h > 0) nadelHain = !nadelHain;
+    for (let b = 0; b < jeHain[h]; b++) {
+      const p = versuche(40, () => {
+        const a = rand() * TAU;
+        const d = radius * (b === 0 ? rand() * 0.06 : 0.1 + rand() * 0.16);
+        const x = mx + Math.sin(a) * d;
+        const z = mz + Math.cos(a) * d;
+        // Der Mittelbaum ist der größte; zum Rand hin werden sie kleiner.
+        const scale = b === 0 ? 1.15 + rand() * 0.35 : 0.75 + rand() * 0.45;
+        return passt(x, z, scale, h + 1) ? { x, z, scale } : null;
+      });
+      if (!p) continue;
+      plaetze.push({ ...p, hain: h + 1, nadel: rand() < 0.75 ? nadelHain : !nadelHain });
+    }
+  }
+
+  // Solitäre im offenen Feld: eher Laubbäume, eher groß.
+  for (let s = 0; s < solitaere; s++) {
+    const p = versuche(60, () => {
+      const a = rand() * TAU;
+      const rr = radius * (0.55 + rand() * 0.25);
+      const x = Math.sin(a) * rr;
+      const z = Math.cos(a) * rr;
+      const scale = 1.0 + rand() * 0.5;
+      // Ein Solitär braucht Raum: doppelter Abstand zu allem.
+      if (plaetze.some((q) => Math.hypot(x - q.x, z - q.z) < 0.5 * (scale + q.scale) * 1.9)) return null;
+      return passt(x, z, scale, 0) ? { x, z, scale } : null;
+    });
+    if (p) plaetze.push({ ...p, hain: 0, nadel: rand() < 0.3 });
+  }
+
+  // Was nicht unterkam (Bach, Quelle, Kameras, Abstände), wächst bevorzugt
+  // am Rand eines bestehenden Hains nach – dort ist am ehesten noch Platz,
+  // ohne dass die Verteilung verwischt. Jeder dritte Versuch sucht frei im
+  // Ring, falls um die Haine nichts mehr geht.
+  for (let k = 0; k < anzahl * 12 && plaetze.length < anzahl; k++) {
+    const amHain = mitten.length && k % 3 !== 2;
+    const [mx, mz, hain] = amHain ? mitten[Math.floor(rand() * mitten.length)] : [0, 0, 0];
+    const a = rand() * TAU;
+    const d = amHain ? radius * (0.14 + rand() * 0.24) : radius * (0.55 + rand() * 0.3);
+    const x = mx + Math.sin(a) * d;
+    const z = mz + Math.cos(a) * d;
+    const scale = 0.75 + rand() * 0.4;
+    if (!passt(x, z, scale, hain)) continue;
+    const art = plaetze.find((q) => hain && q.hain === hain)?.nadel ?? rand() < 0.5;
+    plaetze.push({ x, z, scale, hain, nadel: art });
+  }
+  return plaetze;
+}
+
+// **Die Zufallszüge des alten Baumbaus, ohne den Baum.**
+//
+// Die Insel würfelt alles aus einem Strom: Bäume, dann Knöchel, Findlinge,
+// Blumen, Büsche, Vögel, Wolken. Die alten Bäume zogen je nach Art und
+// Astzahl unterschiedlich oft daraus. Zogen die neuen Bäume einfach anders,
+// stand danach die ganze Insel woanders – im ersten Anlauf gesehen: ein
+// Findling mitten in der Prüfkamera `5-backlight`, und der Busch, für den
+// `8-busch` eingerichtet ist, war verschwunden.
+//
+// Deshalb werden hier genau die Züge des alten Baumbaus gemacht und
+// verworfen, in derselben Reihenfolge. Das ist keine Logik, sondern eine
+// Zählung; wer sie entfernt, verschiebt jeden Gegenstand der Insel und muss
+// alle Prüfbilder neu ansehen.
+const _altAchse = new THREE.Vector3(0, 1, 0);
+const _altUrsprung = new THREE.Vector3();
+function alteBaumZuege(rand, shape, trees, radius) {
+  const aeste = [];
+  for (let i = 0; i < trees; i++) {
+    const gehaeuft = i > 0 && rand() > 0.35;
+    const winkel = gehaeuft ? shape.ridgeAngle + (rand() - 0.5) * 1.5 : rand() * TAU;
+    const r = radius * (gehaeuft ? 0.7 + rand() * 0.2 : 0.6 + rand() * 0.28);
+    const tx = Math.sin(winkel) * r;
+    const tz = Math.cos(winkel) * r;
+    if (shape.riverCurve && Math.hypot(tx - 0.1, tz - 0.2) < 0.7) continue;
+    rand(); // Maßstab
+    rand(); // Drehung
+    rand(); // Stammhöhe
+    rand(); // hell oder dunkel
+    if (rand() > 0.45) {
+      // Nadelbaum: sieben Etagen zu je zwei Zügen.
+      for (let k = 0; k < 14; k++) rand();
+      continue;
+    }
+    // Laubbaum: Astzahl, je Ast Azimut und Länge, dann die Verzweigung (ihre
+    // Zugzahl hängt nicht von der Richtung ab), dann ein Zug je Zweigende.
+    const nb = 3 + Math.floor(rand() * 2);
+    aeste.length = 0;
+    for (let k = 0; k < nb; k++) {
+      rand();
+      branchInto(aeste, _altUrsprung, _altAchse, 0.46 + rand() * 0.18, 0.035, 2, rand);
+    }
+    for (const t of aeste) {
+      t.geo.dispose();
+      if (t.depth === 0) rand();
+    }
+  }
+}
+
+// Liegen drei Punkte fast auf einer Geraden? Gemessen als größter Innenwinkel
+// des Dreiecks: über 160 Grad ist es eine Reihe.
+function fastGerade(a, b, c) {
+  const winkel = (p, q, r) => {
+    const ux = q[0] - p[0];
+    const uz = q[1] - p[1];
+    const vx = r[0] - p[0];
+    const vz = r[1] - p[1];
+    const l = Math.hypot(ux, uz) * Math.hypot(vx, vz);
+    if (l < 1e-9) return Math.PI;
+    return Math.acos(Math.max(-1, Math.min(1, (ux * vx + uz * vz) / l)));
+  };
+  const grenze = (160 / 180) * Math.PI;
+  return winkel(a, b, c) > grenze || winkel(b, a, c) > grenze || winkel(c, a, b) > grenze;
+}
+
 function buildIsland(
   rand,
   {
@@ -5052,34 +5348,11 @@ function buildIsland(
   const stoneBucket = new GeoBucket();
   const shadowBucket = new GeoBucket();
 
-  // Bäume: gehäuft am Höhenrücken, einzeln im offenen Feld – das staffelt den
-  // Blick in Vorder-, Mittel- und Hintergrund, statt gleichmäßig zu streuen.
-  for (let i = 0; i < trees; i++) {
-    const clustered = i > 0 && rand() > 0.35;
-    const angle = clustered ? shape.ridgeAngle + (rand() - 0.5) * 1.5 : rand() * TAU;
-    // Die Inselmitte bleibt frei. Dort steht der Nutzer, und dort landen die
-    // Karten im Halbkreis – ein Baum an dieser Stelle verstellt nicht nur die
-    // Sicht, er steht mitten im Arbeitsbereich.
-    //
-    // **Hier fehlt `outline(angle)`, anders als bei Findlingen und Knöcheln.**
-    // Das ist bewusst so belassen: Mit dem Faktor wandert JEDER Baum, und die
-    // sechs festen Prüfkameras (harness-common.mjs) zeigen dann eine andere
-    // Insel – eine davon stand danach im Geäst. Mit dem festen Seed steht kein
-    // Stamm außerhalb des Umrisses; nur Kronen kragen über die Kante, was ein
-    // Baum am Abbruch auch tut. Wer den Seed ändert, muss den Faktor
-    // nachziehen und die Vergleichsbilder neu einfrieren.
-    const r = radius * (clustered ? 0.70 + rand() * 0.20 : 0.60 + rand() * 0.28);
-    const tx = Math.sin(angle) * r;
-    const tz = Math.cos(angle) * r;
-    if (shape.riverCurve && Math.hypot(tx - 0.1, tz - 0.2) < 0.7) continue; // nicht in die Quelle
-    const y = shape.heightAt(tx, tz);
-    const scale = 0.85 + rand() * 0.5;
-    addTree(rand, trees_, { x: tx, y, z: tz, scale });
-    addContactShadow(shadowBucket, shape, tx, tz, 0.46 * scale, shadows);
-  }
-  for (const m of buildCollectedTrees(trees_, 0x1de4 ^ Math.floor(rand() * 4096))) {
-    island.add(m);
-  }
+  // Bäume, erster Teil: nur die Zufallszüge des alten Baumbaus (siehe
+  // `alteBaumZuege`), damit alles Folgende an seinem Platz bleibt. Gepflanzt
+  // wird erst nach den Findlingen, damit kein Stamm in einem Block steht.
+  alteBaumZuege(rand, shape, trees, radius);
+  const kronenSaat = 0x1de4 ^ Math.floor(rand() * 4096);
 
   // Felsknöchel am Kantensaum: teils versenkte Blöcke, die durch die Grasnarbe
   // stoßen. Sie lösen den durchgehenden grünen Wulst auf und verzahnen
@@ -5170,6 +5443,30 @@ function buildIsland(
     });
     addContactShadow(shadowBucket, shape, sx, sz, s * 1.7, shadows);
   }
+
+  // Bäume, zweiter Teil: Haine und Solitäre (siehe `inselBaumPlaetze`), aus
+  // einem eigenen Strom, der aus dem Kronensamen abgeleitet ist. Die
+  // Inselmitte bleibt frei – dort steht der Nutzer, und dort landen die Karten
+  // im Halbkreis.
+  //
+  // Die Stämme kommen **nicht** in `shape.blocked`: Blumen und Büsche weiter
+  // unten prüfen dagegen, und jede zusätzliche Absage kostet sie einen neuen
+  // Wurf aus dem Inselstrom – genau die Verschiebung, die `alteBaumZuege`
+  // verhindert. Ein Busch unter einem Baum ist ohnehin Unterholz.
+  const baumRand = mulberry32(Math.imul(kronenSaat, 2654435761) >>> 0);
+  const plaetze = inselBaumPlaetze(baumRand, shape, {
+    anzahl: trees,
+    radius,
+    kameras: river != null ? INSEL_PRUEFKAMERAS : [],
+  });
+  island.userData.baumPlaetze = plaetze.map(({ x, z, scale, nadel }) => ({ x, z, scale, nadel }));
+  for (const p of plaetze) {
+    const y = shape.heightAt(p.x, p.z);
+    addTree(baumRand, trees_, { x: p.x, y, z: p.z, scale: p.scale, nadel: p.nadel });
+    addContactShadow(shadowBucket, shape, p.x, p.z, 0.46 * p.scale, shadows);
+  }
+  // `detail < 1` sind die Mini-Inseln (siehe createIslandEnvironment).
+  for (const m of buildCollectedTrees(trees_, kronenSaat, { fern: detail < 1 })) island.add(m);
 
   // Dieselbe Karte wie die Flanke. Vorher trug der Findling die Granitkarte mit
   // ihren Einschlüssen, die Wand aber nicht – zwei Gesteinsarten in einem Bild,
@@ -5276,8 +5573,8 @@ function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
   // Ihr Grün hatte dazu einen auf null geklemmten Rotkanal und stand damit in
   // einer völlig anderen Farbfamilie als die Wiese.
   //
-  // Jetzt tragen sie dasselbe Blattwerk wie die Bäume: dunkler Hüllkörper als
-  // Verdecker, Blattkarten davor. Damit lösen sie sich in der Silhouette auf,
+  // Jetzt tragen sie dasselbe Blattwerk wie die Bäume: Blattkarten außen,
+  // dunkles Innenlaub darunter. Damit lösen sie sich in der Silhouette auf,
   // bewegen sich im selben Wind und gehören farblich zur selben Familie.
   const buschAnsaetze = [];
   const BUESCHE = 14;
@@ -5301,20 +5598,30 @@ function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
     }
     addContactShadow(shadowBucket, shape, x, z, s * 1.5, true);
   }
+  // **Der „komische gruene Kern".** So hat der Nutzer die Buesche aus der
+  // Brille beschrieben, und in der Nahansicht `8-busch` steht er genau so da:
+  // Die Kartenschale war lueckig, und durch die Luecken sah man den Huellkoerper
+  // als glatte, facettierte Kugel in einem Blaugruen (0x3a5f42 unter dem
+  // kuehlen Himmelslicht), das in keinem Blatt vorkommt. In der Brille kam der
+  // Passthrough-Fehler dazu – die Karten waren halb durchsichtig (siehe
+  // `deckendesAlpha`).
+  //
+  // Drei Hebel zusammen haben ihn kleiner gemacht (Kern 0,40 statt 0,52, Ton
+  // beschatteter Blaetter, Schale mit 105 statt 82 Karten), aber nicht
+  // weggebracht: Ein glatter Koerper bleibt durch jede Luecke ein Ball. Jetzt
+  // ist der Kern ganz fort, und das Innere fuellt dunkles Laub (`innenlaub`
+  // in `baueKrone`). Wo man hineinsieht, sieht man Schatten im Laub.
   const busch = baueKrone({
     ansaetze: buschAnsaetze,
     seed: 0x6b21,
     kartenMaterial: inselBaumMaterialien().karten,
     kind: 'azalea',
-    cardScale: 0.78,
-    dichte: 82,
-    kern: 0.52,
-    schale: 1.35,
-    farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
+    cardScale: 0.84,
+    dichte: 105,
+    schale: 1.28,
     kartenFarben: [0xd2eaa8, 0xc3dd99, 0xdcf2b4, 0xcae4a0, 0xd8eeae, 0xbfd894],
-    himmelssaum: false,
+    toene: 6,
   });
-  busch.blobs.name = 'bushes';
   busch.karten.name = 'bush-leaves';
   busch.karten.receiveShadow = true;
   // **Buesche werfen jetzt selbst.**
@@ -5330,10 +5637,8 @@ function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
   // 4,8 bis 7,8 Stufen Abfall. Ein Busch von anderthalb Metern wirft bei diesem
   // Sonnenstand knapp zwei Meter Schatten; das ist kein Fleck unter ihm,
   // sondern eine Form neben ihm.
-  busch.blobs.castShadow = true;
-  busch.blobs.receiveShadow = true;
   busch.karten.castShadow = true;
-  group.add(busch.blobs, busch.karten);
+  group.add(busch.karten);
 
   // **Und unter den Blüten.**
   //
@@ -5446,13 +5751,20 @@ function createIslandEnvironment() {
   const SUN_DIR = new THREE.Vector3(18, 24, -24).normalize();
   const sunPos = SUN_DIR.clone().multiplyScalar(38);
 
+  // **Klarere Ferne.** Der Nutzer aus der Brille: „Die Atmosphaere, wenn man
+  // in die Weite guckt, ist etwas getruebt und nicht so schoen." In
+  // `1-eyelevel` stand ueber dem Horizont ein fast weisses Band (L 188,6) und
+  // die Felsen der rechten Mini-Insel lagen grau im Schleier (Saettigung 13).
+  // Der Horizontton geht deshalb ein Stueck ins Blau (0xdaeef8 → 0xc6e4f7),
+  // und der warme Dunst um die Sonne von 0,55 auf 0,35 – er legte sich als
+  // Milchglas ueber die halbe Himmelsseite. Der Nebel unten zieht mit.
   group.add(
-    makeDome(0x3d80c6, 0xdaeef8, 0xc8e4f6, 44, {
+    makeDome(0x3d80c6, 0xc6e4f7, 0xc8e4f6, 44, {
       dir: SUN_DIR,
       color: 0x4a3a1c,
       tight: 250,
       broad: 2.2,
-      streuung: { tiefe: 0.26, dunst: 0.55, farbe: 0xf6e8d2 },
+      streuung: { tiefe: 0.26, dunst: 0.35, farbe: 0xf6e8d2 },
     })
   );
 
@@ -5809,25 +6121,12 @@ function createIslandEnvironment() {
   // bei 82 m Abstand nur 57 m Tiefe und verliert damit ein Drittel des Dunstes.
   // Die Reichweite ist ein Kompromiss: Stärker gesetzt löste sich die
   // Hauptinsel in der Totale (Kamera 57 m entfernt) selbst in Milch auf.
-  const fog = new THREE.Fog(0xb2d6ea, 6 * WORLD_SCALE, 32 * WORLD_SCALE);
-
-  // Was in der Brille dünner wird. Das Laub zuerst – Alpha-Test und
-  // Überzeichnung –, dann die Streudekoration: Blumen, Grasbüschel, Pilze und
-  // Büsche sind zu Hunderten da und einzeln nicht zu vermissen. Die Wolken, der
-  // Wasserfall und die Insel selbst bleiben; sie sind die Silhouette.
-  const ISLAND_QUALITAET = {
-    ausduennen: new Map([
-      // Die beiden großen Posten. Gemessen (inselkosten.mjs, volle Stufe):
-      // Kronenlaub 46.060 Dreiecke, Rankenlaub 28.764, Hüllkörper 17.360 –
-      // zusammen zwei Drittel der Insel.
-      ['island-laub', 0.5],
-      ['island-ranken-laub', 0.45],
-      ['island-krone', 0.6],
-      ['flowers', 0.45],
-      ['bushes', 0.7],
-      ['mushrooms', 0.6],
-    ]),
-  };
+  // **Und weiter hinaus geschoben: 8 bis 50 statt 6 bis 32 Einheiten.** Eine
+  // Mini-Insel in 48 m lag bisher zu 23 Prozent im Nebel, eine in 100 m zu
+  // 73 – aus der Brille ein Schleier ueber allem, was nicht die eigene Insel
+  // ist. Jetzt sind es 9 und 42 Prozent: Die Ferne staffelt noch, aber sie
+  // behaelt Farbe. Der Ton folgt dem blaueren Horizont der Kuppel.
+  const fog = new THREE.Fog(0xa8d0ec, 8 * WORLD_SCALE, 50 * WORLD_SCALE);
 
   return {
     id: 'island',
@@ -5855,7 +6154,10 @@ function createIslandEnvironment() {
     walk: makeIslandWalk(shape, WORLD_SCALE, 0.99),
 
     setQuality(stufe) {
-      applyQuality(group, null, stufe, ISLAND_QUALITAET);
+      // Kein Ausduennen mehr: Laub, Blumen und Buesche bleiben in beiden
+      // Stufen vollstaendig (siehe quality.js). Die Stufe regelt hier nur die
+      // Schattenkarte der Sonne.
+      applyQuality(group, null, stufe);
       return null;
     },
     update(time) {
@@ -9590,7 +9892,14 @@ function mondScheibe(stilName = 'weiss') {
   const M = S / 2;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = S;
-  const ctx = canvas.getContext('2d');
+  // **willReadFrequently: Dieser Canvas wird zurückgelesen** (getImageData
+  // unten). Ohne den Hinweis legt Chromium ihn auf die Grafikkarte, und jedes
+  // Zurücklesen wartet auf sie. Gemessen im Prüfstand: Der Zen-Garten baute
+  // auf frischer Seite in 2,2 s, nach dem Dojo in 13,6 s – 12,6 s davon allein
+  // in getImageData. Auf der Brille, wo dieselbe GPU gerade die VR-Bilder
+  // rechnet, ist ein Zurücklesen erst recht teuer. Mit dem Hinweis liegt der
+  // Canvas im Hauptspeicher, und das Lesen ist eine Kopie.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const mr = mulberry32(stil.saat);
 
   // --- A: Albedo ------------------------------------------------------------
@@ -10868,33 +11177,11 @@ function createNightEnvironment() {
       },
     }),
 
-    // **Hier gibt es bewusst nichts auszudünnen.** Der Nachthimmel hat keine
-    // Blattkarten, keine additiven Lagen über Bildschirmgröße und keine
-    // Instanzenwolke, deren Hälfte man nicht vermisst: Er besteht aus einer
-    // Bodenfläche, dreißig Brocken und zwei Punktwolken. Die Sterne zu halbieren
-    // spart ein paar tausend Punkte und nimmt der Szene ihr einziges Motiv.
-    //
-    // Der Aufruf steht trotzdem hier, und zwar mit leerer Konfiguration: Damit
-    // greift der materialseitige Teil von applyQuality() – doppelseitige
-    // Materialien werden in der Brille einseitig – und es ist an dieser Stelle
-    // aktenkundig, dass die Prüfung stattgefunden hat und negativ ausfiel.
+    // Die Stufe regelt hier nur die Schattenkarte des Mondes (quality.js).
+    // Sterne, Staub und Meteor bleiben in beiden Stufen – die Bewegung ist
+    // das, was die Szene lebendig macht.
     setQuality(stufe) {
-      // **`additivBehalten` ist hier kein Beiwerk, sondern Pflicht.**
-      // `applyQuality()` blendet in der Brille jedes additiv gemischte Mesh
-      // und jedes Points-Objekt aus. Die Vorgabe `/$^/` passt auf nichts —
-      // außer auf den **leeren** Namen, denn bei Länge 0 fallen Anfang und
-      // Ende zusammen. Genau davon haben die Sternschalen bisher gelebt: Sie
-      // hatten keinen Namen.
-      //
-      // Seit sie `nacht-sterne` heißen, greift dieser Zufallsschutz nicht
-      // mehr. Ohne die Ausnahme hier hätte die Quest 3 einen Nachthimmel
-      // **ohne Sterne** — und im Headless-Lauf, der auf „voll" steht, wäre es
-      // nie aufgefallen.
-      // Seit Paket 8 sind es vier additive Gegenstände: Sternfeld, Feinstaub,
-      // Staubteufel und Meteor. Alle heißen `nacht-…`, alle sollen in der
-      // Brille bleiben — die Bewegung ist das, was die Szene lebendig macht,
-      // und sie ist billig: drei Punktwolken und zwei Dreiecke.
-      applyQuality(group, null, stufe, { additivBehalten: /^nacht-/ });
+      applyQuality(group, null, stufe);
       return null;
     },
 
@@ -10973,7 +11260,8 @@ const SAND_RADIUS = 20;
 function kornCanvas(size, rand) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
+  // Wird zurückgelesen – siehe die Mondscheibe oben zu willReadFrequently.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#808080';
   ctx.fillRect(0, 0, size, size);
 
@@ -11706,7 +11994,16 @@ function blattTextur() {
 // Kirschbaum im Wind, sondern ein Schneesturm — im Bild lagen ständig Blätter
 // über der halben Fläche. Ein Sakura verliert einzelne Blüten; was zählt, ist,
 // dass ab und zu eines vorbeitrudelt.
-function makeBluetenblaetter(rand, quellen, anzahl = 90) {
+//
+// **Und 30 statt 90, und dreimal so langsam.** Der Nutzer aus der Brille: „Die
+// Blätter fallen viel zu schnell, beziehungsweise es sind zu viele." Bei 0,22
+// bis 0,52 m/s war ein Blatt aus 3,3 m Kronenhöhe in sechs bis fünfzehn
+// Sekunden unten, und unter den beiden Bäumen lag ein Dauerregen von
+// fünfundvierzig Blättern je Krone. Ein Zen-Garten lebt von der Ruhe: Ein
+// Blütenblatt segelt, es fällt nicht. Mit 0,07 bis 0,15 m/s braucht eines
+// zwanzig bis fünfzig Sekunden, und mit fünfzehn je Baum ist selten mehr als
+// eine Handvoll gleichzeitig in der Luft.
+function makeBluetenblaetter(rand, quellen, anzahl = 30) {
   const geo = new THREE.PlaneGeometry(0.062, 0.078);
   const mat = new THREE.MeshLambertMaterial({
     map: blattTextur(),
@@ -11754,11 +12051,13 @@ function makeBluetenblaetter(rand, quellen, anzahl = 90) {
       r: Math.sqrt(rand()),
       y0: rand(),
       // Jedes Blatt fällt anders schnell und taumelt anders — nichts im
-      // Gleichtakt.
-      fall: 0.22 + rand() * 0.3,
-      dreh: (rand() - 0.5) * 3.4,
+      // Gleichtakt. Drehen und Kippen laufen mit dem langsameren Fall auf
+      // etwa die Hälfte herunter; ein Blatt, das schnell rotiert, aber kaum
+      // sinkt, läse sich als Insekt.
+      fall: 0.07 + rand() * 0.08,
+      dreh: (rand() - 0.5) * 1.6,
       kipp: rand() * Math.PI * 2,
-      kippTempo: 0.8 + rand() * 1.9,
+      kippTempo: 0.4 + rand() * 0.9,
       schwing: rand() * Math.PI * 2,
       schwingWeite: 0.18 + rand() * 0.45,
       groesse: 0.75 + rand() * 0.6,
@@ -11779,10 +12078,13 @@ function makeBluetenblaetter(rand, quellen, anzahl = 90) {
         const y = t * d.hoehe;
         // Je tiefer, desto weiter vom Stamm weg
         const weite = d.streu * (0.35 + (1 - t) * 0.9);
+        // Das Pendeln läuft mit dem Fall langsamer: Bei 0,7 rad/s wanderte ein
+        // Blatt bis zu 0,44 m/s zur Seite – dreimal so schnell, wie es jetzt
+        // sinkt, und damit flatternd statt segelnd.
         pos.set(
-          d.qx + Math.cos(d.a) * d.r * weite + Math.sin(time * 0.7 + d.schwing) * d.schwingWeite,
+          d.qx + Math.cos(d.a) * d.r * weite + Math.sin(time * 0.32 + d.schwing) * d.schwingWeite,
           y + 0.02,
-          d.qz + Math.sin(d.a) * d.r * weite + Math.cos(time * 0.55 + d.schwing) * d.schwingWeite
+          d.qz + Math.sin(d.a) * d.r * weite + Math.cos(time * 0.26 + d.schwing) * d.schwingWeite
         );
         e.set(
           Math.sin(time * d.kippTempo + d.kipp) * 1.5,
@@ -13463,10 +13765,8 @@ function makeBambooGrove(rand, cx, cz) {
 // Ahorn (Momiji) mit roter/oranger Krone als Farbkontrast.
 // Das Blattmaterial der Ahornkronen, einmal für alle Bäume.
 //
-// Der zugehörige Hüllkörper-Werkstoff ist entfallen: Den legt `baueKrone()`
-// selbst an, als Lambert-Material mit Instanzfarben. Vorher legte **jeder
-// einzelne Blob** ein eigenes Standardmaterial an, nur um einen von vier
-// Grüntönen zu bekommen.
+// Einen Hüllkörper-Werkstoff gibt es nicht mehr: Das Kroneninnere tragen
+// abgedunkelte Karten aus demselben Material (`baueKrone`, `innenlaub`).
 let _mapleCards = null;
 function mapleMaterials() {
   if (!_mapleCards) {
@@ -13616,18 +13916,13 @@ function makeMaple(rand) {
     // von cremeorange auf rosé. Der Prüfer hat am selben Punkt „deutlich
     // lauter und deutlich rauschiger modelliert als alles andere" bemängelt;
     // die neuen Töne sind eine Spur weniger gesättigt.
-    // **Der Huellkoerper war 30 Helligkeitsstufen dunkler als seine Karten**
-    // (L 52 gegen L 82, gemessen ueber beide Knotenmasken). Wo die Karten eine
-    // Luecke lassen, stand deshalb ein fast schwarzes Loch statt verschatteten
-    // Laubs — der Pruefer nennt sie „dunkelbraun-violette Flecken, die als
-    // Loecher oder Schmutz lesen". Dieselbe Rechnung wie bei den Karten
-    // (0,35 zur Helligkeit hin) und dazu ein Viertel heller.
-    farben: [0x914548, 0xa65656, 0x7e383d],
+    // Der Hüllkörper, der hier früher unter den Karten saß, war trotz zweier
+    // Aufhellungen „dunkelbraun-violette Flecken, die als Löcher oder Schmutz
+    // lesen" (Prüfer). Er ist entfallen; das Innere füllt dunkles Ahornlaub.
     kartenFarben: [0xe6a3a0, 0xf0b4ad, 0xd99190, 0xecafa7],
   });
-  krone.blobs.name = 'zen-ahorn-blobs';
   krone.karten.name = 'zen-ahorn-karten';
-  tree.add(krone.blobs, krone.karten);
+  tree.add(krone.karten);
   return tree;
 }
 
@@ -15405,12 +15700,10 @@ function createZenEnvironment() {
 
   // Kirschblütenbaum (Sakura)
   //
-  // **Der Hüllkörper bleibt, die Karten kommen dazu.** Die sechs
-  // Ikosaeder-Blobs waren die ganze Krone – aus der Nähe sechs rosa Bälle. Sie
-  // bleiben stehen, aber als *Silhouette*: Sie schließen die Krone, damit man
-  // nicht hindurchsieht, und sind nach unten abgedunkelt, damit sie zwischen
-  // den Karten als Tiefe lesen statt als Ball. Darüber liegt eine Instanz je
-  // Blob mit echten Blütenkarten samt Wind und Transluzenz.
+  // Die sechs Ikosaeder-Blobs waren einmal die ganze Krone – aus der Nähe
+  // sechs rosa Bälle. Danach blieben sie als Hüllkörper unter Blütenkarten
+  // stehen und lasen durch die Lücken weiter als Flecken. Jetzt trägt die
+  // Krone nur noch Karten: Blüten außen, abgedunkelte Blüten innen.
   const sakura = new THREE.Group();
   // **Die Krone ist um einen halben Meter gestiegen.** Vorher saß sie direkt
   // auf dem Stamm — selbst mit Astwerk wäre davon nichts zu sehen gewesen,
@@ -15492,37 +15785,17 @@ function createZenEnvironment() {
     seed: 0x5a4a,
     kartenMaterial: sakuraCards,
     kind: 'sakura',
-    // Große Karten, damit sie sich überlappen und den Hüllkörper zudecken.
+    // Große Karten, damit sie sich überlappen und die Krone schließen.
     cardScale: 0.85,
-    // **Der Hüllkörper liegt in derselben Farbfamilie wie die Blüten, nur
-    // dunkler.** Der erste Anlauf hatte ihn auf Pflaume gesetzt, weil „dunkel
-    // gleich Tiefe" – das Ergebnis waren dunkle Pflaumen mit rosa Sprenkeln
-    // darauf. Tiefe entsteht durch **Helligkeitsunterschied innerhalb einer
-    // Farbe**, nicht durch eine zweite Farbe.
-    // **Und der Huellkoerper war trotzdem eine zweite Farbe.**
-    //
-    // Der Pruefer hat „kraeftig blauviolette Fehlflecken mit scharfer Kante
-    // mitten in der rosa Masse" gemeldet. Gemessen im Kronenkasten von
-    // `a-eyelevel` (0,60-270,240), Bildpunkte mit G < min(R,B) − 14:
-    // **797 von 48 600, also 1,64 Prozent**, typisch rgb(136 | 107 | 140) bei
-    // L 116 — gegen eine Bluetenmasse bei L 219.
-    //
-    // Die Toene oben waren 0xc98fa6, 0xd6a0b4 und 0xbc8398. Der letzte hat
-    // rgb(188 | 131 | 152): Gruen liegt **21 Stufen unter Blau**, waehrend die
-    // Karten mit 0xffe4ee nur 10 darunter liegen. Der Huellkoerper war also
-    // nicht dieselbe Farbe in dunkler, sondern eine magentastichigere — und
-    // weil er im Kernschatten der Karten liegt und nur die kuehle Hemisphaere
-    // abbekommt, kippt er im Bild vollends ins Violette.
-    //
-    // Jetzt sind es die Kartenfarben selbst, mal 0,80. Damit stimmt der Ton
-    // per Konstruktion, und der Abstand ist der, der gemeint war: eine
-    // Helligkeitsstufe innerhalb einer Farbe.
-    farben: [0xccb6be, 0xcca8b5, 0xc69ead],
+    // Früher lag unter den Karten ein Hüllkörper, erst pflaumenfarben, dann in
+    // den Kartentönen mal 0,80 – der Prüfer fand ihn beide Male als
+    // „blauviolette Fehlflecken mit scharfer Kante mitten in der rosa Masse".
+    // Tiefe entsteht durch Helligkeitsunterschied innerhalb einer Farbe; das
+    // leistet jetzt das Innenlaub aus denselben Karten.
     kartenFarben: [0xffe4ee, 0xffd2e2, 0xf8c6d8],
   });
-  sakuraKrone.blobs.name = 'zen-sakura-blobs';
   sakuraKrone.karten.name = 'zen-sakura-karten';
-  sakura.add(sakuraKrone.blobs, sakuraKrone.karten);
+  sakura.add(sakuraKrone.karten);
   sakura.position.set(-4.5, 0, 2.5);
   group.add(sakura);
   const sakuraShadow = makeBlobShadow(0.9, 0.66);
@@ -15909,23 +16182,11 @@ function createZenEnvironment() {
     szene.environment = umgebungVorher;
     for (const [o, sichtbar] of innen) o.visible = sichtbar;
     for (const [k, sichtbar] of aussen) k.visible = sichtbar;
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const karte = pmrem.fromCubemap(ziel.texture).texture;
-    pmrem.dispose();
+    // Geteilter Generator, nicht entsorgen – siehe src/pmrem.js.
+    const karte = gemeinsamerPmrem(renderer).fromCubemap(ziel.texture).texture;
     ziel.dispose();
     return karte;
   }
-
-  // Die Kronen bleiben dichter als das Bodenlaub: Sie stehen auf Augenhöhe und
-  // sind das, was man zuerst sieht. Der Bambusschopf verträgt am meisten – er
-  // steht am weitesten weg und ist ohnehin ein Büschel.
-  const ZEN_QUALITAET = {
-    ausduennen: new Map([
-      ['zen-sakura-karten', 0.65],
-      ['zen-ahorn-karten', 0.65],
-      ['zen-bambus-laub', 0.45],
-    ]),
-  };
 
   // --- Wer wirft, wer empfängt ----------------------------------------------
   //
@@ -15947,10 +16208,10 @@ function createZenEnvironment() {
     // Stamm**, also genau verkehrt herum. Die Karten decken aus Sonnenrichtung
     // schlicht zu wenig Fläche, um allein einen Baumschatten zu tragen.
     //
-    // Der Hüllkörper wirft deshalb wieder mit. Was dabei entsteht, ist der
-    // Schatten eines Baumes: ein dichter Kern und ein aufgelöster Saum aus den
-    // Karten. Der Kern ist keine Blase, weil die Hüllkörper mehrere kleine
-    // Schöpfe sind und nicht eine Kugel.
+    // Der Hüllkörper warf deshalb wieder mit. Seit er dem Innenlaub gewichen
+    // ist, trägt dieses den dichten Teil des Schattens: Die Innenkarten werfen
+    // wie die äußeren, und aus Sonnenrichtung liegen jetzt mehrere Lagen Laub
+    // hintereinander statt einer.
     const nurEmpfangen = new Set(['zen-sand', 'zen-saum', 'zen-moos']);
     // **`zen-ferne` gehoert hierher, und zwar seit es den Huegelzug gibt.**
     //
@@ -16053,17 +16314,17 @@ function createZenEnvironment() {
         // einer Szene hängt, gibt es nichts aufzunehmen.
         pondMat.envMap = zenSpiegel ?? zenSky;
         pondMat.needsUpdate = true;
+        // Die Karte kommt genau einmal – `applyQuality()` darf sie beim
+        // nächsten Stufenwechsel nicht wieder abräumen (siehe quality.js).
+        pondMat.userData.eigeneUmgebungskarte = true;
       }
       return this.environment;
     },
 
-    // Qualitätsstufen. Die Blattkarten sind hier das teuerste Neue: zwei
-    // Dreiecke **und** ein Alpha-Test je Blatt, und der Alpha-Test verbietet
-    // das frühe Verwerfen von Fragmenten. Ausgedünnt wird deshalb nur das Laub;
-    // Sand, Steine und Wasser bleiben in jeder Stufe vollständig, weil sie den
-    // Garten ausmachen und keine Überzeichnung erzeugen.
+    // Die Stufe regelt nur die Schattenkarte (quality.js); das Laub bleibt in
+    // beiden Stufen vollständig.
     setQuality(stufe) {
-      applyQuality(group, null, stufe, ZEN_QUALITAET);
+      applyQuality(group, null, stufe);
       return null;
     },
 
@@ -18157,9 +18418,8 @@ function konstruktUmgebungskarte(renderer) {
   // einen weichen Uebergang. Die feinere Unterteilung der Dojo-Sonde ist dort
   // noetig, weil eine 4-Grad-Sonne sonst in ein Dreieck faellt.
   probe.add(new THREE.Mesh(new THREE.SphereGeometry(8, 32, 20), material));
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const ziel = pmrem.fromScene(probe, 0, 0.1, 30);
-  pmrem.dispose();
+  // Geteilter Generator, nicht entsorgen – siehe src/pmrem.js.
+  const ziel = gemeinsamerPmrem(renderer).fromScene(probe, 0, 0.1, 30);
   probe.traverse((o) => {
     if (o.isMesh) o.geometry.dispose();
   });
@@ -18775,21 +19035,28 @@ function createMatrixEnvironment() {
  * Nebels. Der Stellvertreter leitet **alles** weiter, was er nicht selbst
  * kennt, und baut dabei.
  *
- * Selbst kennt er genau drei Dinge, und die dürfen nicht bauen:
+ * Selbst kennt er diese Dinge, und die dürfen nicht bauen:
  *
  *   • `id` — `main.js` sucht damit die gemerkte Umgebung, und der Prüfstand
  *     sucht damit seine Zielumgebung. Beides läuft über **alle** fünf.
+ *   • `kurzname` — die Beschriftung im Menü (Reiter „Welt").
+ *   • `gebaut` — ob es die Welt schon gibt. Danach richtet sich, ob ein
+ *     Wechsel erst „wird aufgebaut…" anzeigt (main.js, `waehleUmgebung`).
  *   • `sichtbar(ja)` — was nicht gebaut ist, ist auch nicht sichtbar; nur das
  *     Einschalten baut.
  *   • `setQuality(stufe)` — läuft ebenfalls über alle fünf. Die Stufe wird
  *     gemerkt und beim Bauen nachgeholt.
  */
-function traegeUmgebung(id, bauen, scene) {
+function traegeUmgebung(id, kurzname, bauen, scene) {
   let echt = null;
   let stufe = null;
   const holen = () => {
     if (!echt) {
       echt = bauen();
+      // Die Kennung steht doppelt: in der Liste und im Rückgabewert der
+      // Baufunktion. Laufen sie auseinander, merkt sich main.js eine Welt
+      // unter falschem Namen – das soll laut auffallen, nicht still.
+      if (echt.id !== id) console.error(`Umgebung „${id}" baut sich als „${echt.id}"`);
       echt.group.visible = false;
       scene.add(echt.group);
       if (stufe !== null) echt.setQuality?.(stufe);
@@ -18798,6 +19065,9 @@ function traegeUmgebung(id, bauen, scene) {
   };
   const eigen = {
     id,
+    // Menüname ohne Bauen (siehe umgebungsliste.js). Bewusst nicht `name`: Den
+    // vollen Namen samt Emoji liefert die gebaute Welt für die Statuszeile.
+    kurzname,
     get gebaut() {
       return echt !== null;
     },
@@ -18830,21 +19100,16 @@ function traegeUmgebung(id, bauen, scene) {
 }
 
 export function createEnvironments(scene) {
-  // **Die Reihenfolge ist der Index, den `cycleEnvironment` durchläuft** und
-  // den die Testskripte hart verdrahtet haben (Konstrukt = 3). Ein Einschub in
-  // der Mitte würde jedes davon still auf die falsche Welt zeigen lassen.
-  // Deshalb steht das Dojo angehängt und nicht eingeschoben.
-  //
-  // Die Kennung steht hier doppelt — einmal hier, einmal im Rückgabewert der
-  // Baufunktion. Sie muss bekannt sein, **bevor** gebaut wird, denn `main.js`
-  // sucht die gemerkte Umgebung über sie. Wer eine ändert, ändert beide; der
-  // Prüfstand unten schlägt sonst Alarm.
-  const bauplaene = [
-    ['island', createIslandEnvironment],
-    ['night', createNightEnvironment],
-    ['zen', createZenEnvironment],
-    ['matrix', createMatrixEnvironment],
-    ['dojo', createDojoEnvironment],
-  ];
-  return bauplaene.map(([id, bauen]) => traegeUmgebung(id, bauen, scene));
+  // Die Reihenfolge kommt aus `src/umgebungsliste.js`, die Baufunktion aus
+  // dieser Tabelle. Nichts außerhalb hängt an der Position: Gemerkt wird die
+  // Wahl über die `id` (main.js, `savedEnvIndex`), und die Werkzeuge suchen
+  // ihre Zielwelt ebenfalls über sie.
+  const BAUFUNKTIONEN = {
+    island: createIslandEnvironment,
+    night: createNightEnvironment,
+    zen: createZenEnvironment,
+    matrix: createMatrixEnvironment,
+    dojo: createDojoEnvironment,
+  };
+  return UMGEBUNGEN.map(({ id, kurz }) => traegeUmgebung(id, kurz, BAUFUNKTIONEN[id], scene));
 }

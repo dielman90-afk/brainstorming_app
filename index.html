@@ -495,9 +495,18 @@
       <button id="btn-timer">Timer<span class="ic" data-icon="timer"></span></button>
       <button id="btn-whiteboard">Whiteboard<span class="ic" data-icon="whiteboard"></span></button>
       <button id="btn-tools-order" title="Werkzeuge, Zonen und Karten nebeneinander vor dich holen (Strg+Z macht es rückgängig)">Alles ordnen<span class="ic" data-icon="layout"></span></button>
-      <button id="btn-env">Umgebung<span class="ic" data-icon="environment"></span></button>
       <button id="btn-fontsize" title="Schriftgröße der Karten umschalten"><span class="lbl">Schrift: Normal</span><span class="ic" data-icon="fontsize"></span></button>
     </div>
+
+    <!-- Umgebung und Bildqualität: direkte Wahl statt eines Knopfs, der reihum
+         weiterschaltet. Die Chips entstehen in main.js aus derselben Liste
+         wie der Reiter „Welt" im Hand-Menü (src/umgebungsliste.js); die
+         aktive Wahl trägt `.active`. -->
+    <fieldset class="group-box">
+      <legend class="group-title"><span class="ic-lead" data-icon="environment"></span>Umgebung</legend>
+      <div class="chip-row" id="env-row" title="Welt wählen"></div>
+      <div class="chip-row" id="quality-row" title="Bildqualität – beide Stufen zeigen dieselbe Optik, „Flüssig“ spart Rechenzeit"></div>
+    </fieldset>
 
     <!-- Prozessflussdiagramm. Am Desktop bewusst als eigener Block statt
          verstreut in der Aktionsliste: Die Formen brauchen eine direkte

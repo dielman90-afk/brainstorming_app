@@ -32,12 +32,34 @@ const ROWS = [
 ];
 const MAX_COLS = Math.max(...ROWS.map((row) => row.length));
 
+// Wie weit neben einer Taste der Strahl noch ihr gehört. Etwas mehr als die
+// Lücke (8–9 mm), damit auch der Rand um die äußeren Tasten zählt; der Platz um
+// das Eingabefeld und die Panel-Ecken bleibt frei.
+const FANG = 0.012;
+// Die schon angezielte Taste behält den Strahl bis 3 mm jenseits der Mitte
+// einer Lücke. Ohne diesen Vorsprung kippte ein Strahl, der genau auf der
+// Mittellinie ruht, mit jedem Zittern zwischen zwei Tasten hin und her – und
+// jedes Kippen gab einen Vibrations-Tick.
+const HALTEN = 0.003;
+
+// Angezielte Taste: tritt etwas hervor und bekommt einen kräftigen Rand. Der
+// frühere Farbwechsel allein (#2c2933 → #3b3644, Kontrast 1,2 : 1) war in der
+// Brille kaum zu sehen.
+//
+// Sie wächst um feste 2 mm je Seite, nicht um einen Faktor: Die Leertaste ist
+// fast fünfmal so breit wie eine Buchstabentaste, und mit 8 % wäre sie um
+// 1 cm je Seite gewachsen – über die 8-mm-Lücke hinweg auf ihre Nachbarn.
+const HOVER_WACHSEN = 0.002;
+const HOVER_LIFT = 0.004;
+const HOVER_BORDER_PX = 7;
+const BLITZ_MS = 110;
+
 // Farbwelt wie im Hand-Menü
 const COLORS = {
   panelFill: 'rgba(24, 22, 28, 0.98)',
   panelBorder: 'rgba(255, 180, 84, 0.45)',
   key: '#2c2933',
-  keyHover: '#3b3644',
+  keyHover: '#433d4f',
   previewBg: '#221f28',
   accent: '#ffb454',
   accentHover: '#ffc06f',
@@ -47,7 +69,39 @@ const COLORS = {
   active: '#4a3a24',
   text: '#f0eef2',
   muted: '#8f8a98',
+  // Rand der angezielten Taste; auf der Amber-Taste hell statt Amber.
+  hoverBorder: '#ffb454',
+  hoverBorderOnAccent: '#fff4e3',
+  // Aufblitzen beim Drücken
+  flash: '#ffb454',
+  flashOnAccent: '#fff0d6',
 };
+
+// Kurzer Klick beim Tastendruck. Bei Hand-Tracking ist er die einzige
+// Bestätigung außer dem Text im Feld – Hände haben keinen Vibrationsmotor.
+// Der AudioContext entsteht beim ersten Druck, also aus einer Nutzergeste.
+let klickAudio = null;
+function klick(akzent = false) {
+  try {
+    klickAudio ??= new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = klickAudio;
+    if (ctx.state === 'suspended') Promise.resolve(ctx.resume()).catch(() => {});
+    const t = ctx.currentTime;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(akzent ? 1700 : 1400, t);
+    o.frequency.exponentialRampToValueAtTime(akzent ? 1100 : 850, t + 0.035);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.11, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    o.connect(g).connect(ctx.destination);
+    o.start(t);
+    o.stop(t + 0.06);
+  } catch {
+    // Ton ist optional
+  }
+}
 
 export class VirtualKeyboard {
   // onStatus: kurze Rückmeldungen nach außen reichen.
@@ -75,6 +129,13 @@ export class VirtualKeyboard {
     panel.position.z = -0.004;
     flatLayer(panel, KB_LAYER.bg);
     this.group.add(panel);
+    // **Das Panel fängt den Strahl ab.** Ziele waren bisher nur die Tasten. In
+    // den Lücken lief der Strahl durch die Tastatur hindurch: Er sprang auf 4 m
+    // oder auf eine Karte dahinter, der Trigger griff diese Karte, und mit der
+    // Hand begann ein Pinch dort das Ziehen der Welt. Jetzt endet der Strahl auf
+    // der Tastatur, und nahe einer Taste zählt diese (interactions.js).
+    panel.userData.strahlFang = (weltPunkt) => this._tasteNahe(weltPunkt);
+    this.panel = panel;
 
     // --- Eingabefeld ---
     this.preview = createTextPanel({
@@ -182,13 +243,89 @@ export class VirtualKeyboard {
     });
     panel.mesh.position.set(x, y, 0.002);
     flatLayer(panel.mesh, KB_LAYER.key);
-    const key = { mesh: panel.mesh, panel, label, bg, hover, fg, isLetter: false };
-    panel.mesh.userData.onClick = onClick;
-    panel.mesh.userData.setHover = (hovered) =>
-      panel.setColors({ background: hovered ? key.hover : key.bg });
+    const key = {
+      mesh: panel.mesh,
+      panel,
+      label,
+      bg,
+      hover,
+      fg,
+      isLetter: false,
+      x,
+      y,
+      width,
+      hovered: false,
+      blitz: false,
+      blitzTimer: 0,
+      akzent: bg === COLORS.accent,
+    };
+    panel.mesh.userData.onClick = () => {
+      this._blitze(key);
+      klick(key.akzent);
+      onClick();
+    };
+    panel.mesh.userData.setHover = (hovered) => {
+      key.hovered = hovered;
+      if (hovered) panel.mesh.scale.set(1 + (2 * HOVER_WACHSEN) / width, 1 + (2 * HOVER_WACHSEN) / KEY, 1);
+      else panel.mesh.scale.set(1, 1, 1);
+      panel.mesh.position.z = hovered ? 0.002 + HOVER_LIFT : 0.002;
+      this._zeichneTaste(key);
+    };
     this.group.add(panel.mesh);
     this.keys.push(key);
     return key;
+  }
+
+  // Alle Zustände einer Taste in einem Zug zeichnen: Grundfarbe, angezielt,
+  // Aufblitzen. Einzeln gesetzt überschrieb sonst etwa die Umschalttaste beim
+  // Umfärben die Hervorhebung, unter der der Strahl gerade steht.
+  _zeichneTaste(key) {
+    const rand = key.akzent ? COLORS.hoverBorderOnAccent : COLORS.hoverBorder;
+    if (key.blitz) {
+      key.panel.setColors({
+        background: key.akzent ? COLORS.flashOnAccent : COLORS.flash,
+        color: COLORS.accentText,
+        border: rand,
+        borderWidth: HOVER_BORDER_PX,
+      });
+      return;
+    }
+    key.panel.setColors({
+      background: key.hovered ? key.hover : key.bg,
+      color: key.fg,
+      border: key.hovered ? rand : null,
+      borderWidth: HOVER_BORDER_PX,
+    });
+  }
+
+  // Kurz in Amber aufleuchten – sichtbar, dass genau diese Taste ausgelöst hat.
+  _blitze(key) {
+    key.blitz = true;
+    this._zeichneTaste(key);
+    clearTimeout(key.blitzTimer);
+    key.blitzTimer = setTimeout(() => {
+      key.blitz = false;
+      this._zeichneTaste(key);
+    }, BLITZ_MS);
+  }
+
+  // Die Taste, der ein Punkt auf dem Panel gehört: die nächste, sofern er
+  // höchstens FANG neben ihrem Rand liegt. Sonst keine – der Strahl endet dann
+  // auf dem Panel, ohne etwas auszulösen.
+  _tasteNahe(weltPunkt) {
+    const p = this.group.worldToLocal(weltPunkt.clone());
+    let beste = null;
+    let abstand = FANG;
+    for (const key of this.keys) {
+      const dx = Math.max(Math.abs(p.x - key.x) - key.width / 2, 0);
+      const dy = Math.max(Math.abs(p.y - key.y) - KEY / 2, 0);
+      const d = Math.hypot(dx, dy) - (key.hovered ? HALTEN : 0);
+      if (d <= abstand) {
+        abstand = d;
+        beste = key;
+      }
+    }
+    return beste?.mesh ?? null;
   }
 
   // Farben einer Taste dauerhaft ändern (z. B. aktive Umschalttaste)
@@ -196,11 +333,17 @@ export class VirtualKeyboard {
     key.bg = bg ?? key.bg;
     key.hover = hover ?? key.hover;
     key.fg = fg ?? key.fg;
-    key.panel.setColors({ background: key.bg, color: key.fg });
+    this._zeichneTaste(key);
   }
 
+  get offen() {
+    return this.group.visible;
+  }
+
+  // Tasten zuerst: Liegt der Strahl auf einer Taste, trifft er sie vor dem
+  // Panel dahinter (z = 0,002 gegen −0,004) und braucht den Umweg nicht.
   get uiTargets() {
-    return this.group.visible ? this.keys.map((key) => key.mesh) : [];
+    return this.group.visible ? [...this.keys.map((key) => key.mesh), this.panel] : [];
   }
 
   // --- Umschalttaste ---
