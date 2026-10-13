@@ -95,6 +95,7 @@ export function createTextPanel({
 
   accent = null, // Farbstreifen am linken Rand (z. B. Kategorie-Farbe)
   border = null, // feiner Rahmen um das Panel
+  borderWidth = 3, // Strichstärke des Rahmens in Leinwand-Pixeln
   // Linien-Icon links vom Text (nur einzeilig). Name aus icons.js; gezeichnet
   // wird derselbe SVG-Pfad wie im Desktop-Overlay – eine Formquelle für beide
   // Oberflächen.
@@ -132,6 +133,7 @@ export function createTextPanel({
     color,
     accent,
     border,
+    borderWidth,
     fontSize,
     renderedFontSize: fontSize,
     truncated: false,
@@ -170,11 +172,12 @@ export function createTextPanel({
         ctx.restore();
       }
       if (state.border) {
-        ctx.lineWidth = 3;
+        const bw = state.borderWidth;
+        ctx.lineWidth = bw;
         ctx.strokeStyle = state.border;
         ctx.save();
-        ctx.translate(1.5, 1.5);
-        shapePath(ctx, shape, canvas.width - 3, canvas.height - 3, r);
+        ctx.translate(bw / 2, bw / 2);
+        shapePath(ctx, shape, canvas.width - bw, canvas.height - bw, r);
         ctx.stroke();
         ctx.restore();
       }
@@ -284,11 +287,12 @@ export function createTextPanel({
     get truncated() {
       return state.truncated;
     },
-    setColors({ background, color: fg, accent: newAccent, border: newBorder } = {}) {
+    setColors({ background, color: fg, accent: newAccent, border: newBorder, borderWidth: newWidth } = {}) {
       if (background) state.background = background;
       if (fg) state.color = fg;
       if (newAccent !== undefined) state.accent = newAccent;
       if (newBorder !== undefined) state.border = newBorder;
+      if (newWidth !== undefined) state.borderWidth = newWidth;
       redraw();
     },
     dispose() {

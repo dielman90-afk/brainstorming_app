@@ -628,6 +628,8 @@ const locomotion = new Locomotion({
   camera,
   controllers: interactions.controllers,
 });
+// Beim Tippen stillstehen: Die Tastatur steht fest in der Welt.
+locomotion.pausiert = () => keyboard.offen;
 
 const UP = new THREE.Vector3(0, 1, 0);
 // **Es gibt keine Hoch/Runter-Tasten mehr.** Q und E waren ein Freiflug ohne
@@ -1479,12 +1481,10 @@ async function startTopic(topic) {
   }
 }
 
-// Texteingabe: XR = Tastatur mit Diktat-Knopf, Desktop = Eingabefeld.
+// Texteingabe: XR = virtuelle Tastatur, Desktop = Eingabefeld.
 //
-// Der Diktat-Versuch läuft nicht mehr automatisch vor der Tastatur: Auf der
-// Quest scheitert er zuverlässig, und die Wartezeit bis zum Fehlschlag verzögert
-// jede Eingabe. Stattdessen öffnet sich direkt die Tastatur – mit „🎤 Sprechen"
-// als gleichwertigem Weg für alle, die nicht tippen wollen.
+// In der Brille gibt es keine Spracheingabe (siehe keyboard.js, „Kein Diktat
+// in XR"); die Tastatur öffnet sich direkt.
 async function getUserText() {
   if (renderer.xr.isPresenting) {
     // In XR wird getippt. Spracheingabe ist dort abgeschaltet (siehe speech.js),

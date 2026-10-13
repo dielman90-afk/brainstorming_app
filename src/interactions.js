@@ -6,6 +6,56 @@ import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 // im Undo-Verlauf (ein Grab setzt die Matrix minimal neu, auch ohne Bewegung).
 const MOVE_EPSILON_SQ = 1e-6;
 
+// **Strahl und Zielpunkt werden nach der flachen UI gezeichnet.**
+//
+// Tastatur, Hand-Menü und HUD liegen per `flatLayer` (wristMenu.js) ohne
+// Tiefentest auf den Ordnungen 20–44. Der Strahl stand auf 0 und wurde deshalb
+// zuerst gezeichnet – die Tastatur malte darüber, und genau dort, wo er auf
+// eine Taste traf, war er zu 98 % verdeckt. Man sah ihn bis zum Rand der
+// Tastatur und musste raten, welche Taste er erreicht. Mit 50 kommt er danach.
+// Den Tiefentest braucht er dafür nicht abzuschalten: Die flache UI schreibt
+// keine Tiefe, vor ihr liegt im Tiefenpuffer nur die Welt dahinter.
+const STRAHL_ORDNUNG = 50;
+const ZEIGER_ORDNUNG = 51;
+// Der Zielpunkt hat in jeder Entfernung dieselbe Sehgröße: 1,1 cm Halbmesser je
+// Meter, also gut 8 mm auf der Tastatur (Tasten 52 mm) in 0,74 m Abstand – ein
+// Drittel der Tastenbreite, groß genug neben dem Buchstaben darunter.
+const ZEIGER_JE_METER = 0.011;
+const ZEIGER_MIN = 0.004;
+const ZEIGER_MAX = 0.05;
+const _Z = new THREE.Vector3(0, 0, 1);
+
+// Ring mit dunklem Saum und Punkt in der Mitte, in der Farbe des Strahls. Hell
+// genug für die dunklen Tasten und doch vom weißen Buchstaben darunter zu
+// unterscheiden; mit dem Saum auch auf der Amber-Taste „OK" und auf hellen
+// Karten lesbar.
+const ZEIGER_FARBE = 0x9bd7ff;
+function baueZeiger() {
+  const gruppe = new THREE.Group();
+  gruppe.name = 'zeiger';
+  const teile = [
+    [new THREE.RingGeometry(0.6, 1.0, 40), 0x000000, 0.5],
+    [new THREE.RingGeometry(0.7, 0.9, 40), ZEIGER_FARBE, 1],
+    [new THREE.CircleGeometry(0.2, 20), ZEIGER_FARBE, 1],
+  ];
+  for (const [geometrie, farbe, deckkraft] of teile) {
+    const mesh = new THREE.Mesh(
+      geometrie,
+      new THREE.MeshBasicMaterial({
+        color: farbe,
+        transparent: true,
+        opacity: deckkraft,
+        depthWrite: false,
+        toneMapped: false,
+      })
+    );
+    mesh.renderOrder = ZEIGER_ORDNUNG;
+    gruppe.add(mesh);
+  }
+  gruppe.visible = false;
+  return gruppe;
+}
+
 // Ray-Casting + Grab für XR-Controller sowie Maus-Fallback am Desktop.
 export class InteractionManager {
   constructor({ renderer, scene, camera, cardManager, getUiTargets, xrRoot, haptics = null }) {
@@ -26,6 +76,11 @@ export class InteractionManager {
     this._weltHilf = new THREE.Vector3();
     this.controllers = [];
     this.hands = [];
+    // Wie viele Strahlen ein Objekt gerade anvisieren. Hervorgehoben wird beim
+    // ersten, zurückgenommen erst beim letzten – sonst löschte der eine Strahl
+    // beim Weiterziehen die Hervorhebung, unter der der andere noch steht.
+    this._hoverZahl = new Map();
+    this._normale = new THREE.Vector3();
     this.drag = null;
     this.onCardContextMenu = null;
     this.onCardDoubleClick = null;
@@ -50,9 +105,17 @@ export class InteractionManager {
     return [...this.getUiTargets(), ...this.cardManager.cards.map((c) => c.group)];
   }
 
-  _findInteractive(object) {
+  // `point`: der Trefferpunkt in Weltkoordinaten. Flächen mit `strahlFang`
+  // (die Tastatur) fangen den Strahl ab und dürfen auf ein Ziel in der Nähe
+  // umlenken – siehe keyboard.js. Ohne Ziel heißt der Treffer „block": Der
+  // Strahl endet dort, ausgelöst wird nichts, und dahinter liegt nichts frei.
+  _findInteractive(object, point = null) {
     let o = object;
     while (o) {
+      if (o.userData.strahlFang) {
+        const ziel = point ? o.userData.strahlFang(point) : null;
+        return ziel ? { type: 'ui', object: ziel } : { type: 'block', object: o };
+      }
       if (o.userData.onClick) return { type: 'ui', object: o };
       if (o.userData.drawSurface) return { type: 'draw', surface: o.userData.drawSurface, object: o };
       if (o.userData.grabTarget) return { type: 'grab', target: o.userData.grabTarget, object: o };
@@ -73,10 +136,21 @@ export class InteractionManager {
       );
       line.name = 'ray';
       line.scale.z = 4;
+      line.renderOrder = STRAHL_ORDNUNG;
       controller.add(line);
       controller.userData.hover = null;
-      controller.addEventListener('selectstart', () => this._onSelectStart(controller));
-      controller.addEventListener('selectend', () => this._onSelectEnd(controller));
+      // Der Zielpunkt hängt an der Szene, nicht am Controller: Er liegt flach auf
+      // der getroffenen Fläche, nicht quer zum Strahl.
+      controller.userData.zeiger = baueZeiger();
+      this.scene.add(controller.userData.zeiger);
+      controller.addEventListener('selectstart', () => {
+        controller.userData.drueckt = true;
+        this._onSelectStart(controller);
+      });
+      controller.addEventListener('selectend', () => {
+        controller.userData.drueckt = false;
+        this._onSelectEnd(controller);
+      });
 
       const grip = this.renderer.xr.getControllerGrip(i);
       grip.add(modelFactory.createControllerModel(grip));
@@ -120,22 +194,84 @@ export class InteractionManager {
   _firstInteractiveHit() {
     const hits = this.raycaster.intersectObjects(this._targets(), true);
     for (const hit of hits) {
-      const interactive = this._findInteractive(hit.object);
+      const interactive = this._findInteractive(hit.object, hit.point);
       if (interactive) {
-        return { ...interactive, distance: hit.distance, point: hit.point, uv: hit.uv };
+        return {
+          ...interactive,
+          distance: hit.distance,
+          point: hit.point,
+          uv: hit.uv,
+          // Für den Zielpunkt: getroffene Fläche samt Objekt (das kann ein Kind
+          // des interaktiven Objekts sein, etwa die Rückseite einer Karte).
+          face: hit.face,
+          flaeche: hit.object,
+        };
       }
     }
     return null;
   }
 
+  _hoverSchluessel(h) {
+    if (!h) return null;
+    return h.type === 'card' ? h.card : h.object;
+  }
+
+  _hebeHervor(h, an) {
+    if (h.type === 'ui') h.object.userData.setHover?.(an);
+    if (h.type === 'card') h.card.setHovered(an);
+  }
+
   _setHover(controller, hit) {
     const prev = controller.userData.hover;
-    if ((prev?.object ?? prev?.card) === (hit?.object ?? hit?.card)) return;
-    if (prev?.type === 'ui') prev.object.userData.setHover?.(false);
-    if (prev?.type === 'card') prev.card.setHovered(false);
-    if (hit?.type === 'ui') hit.object.userData.setHover?.(true);
-    if (hit?.type === 'card') hit.card.setHovered(true);
+    const alt = this._hoverSchluessel(prev);
+    const neu = this._hoverSchluessel(hit);
     controller.userData.hover = hit;
+    if (alt === neu) return;
+    if (alt) {
+      const zahl = (this._hoverZahl.get(alt) ?? 1) - 1;
+      if (zahl > 0) this._hoverZahl.set(alt, zahl);
+      else {
+        this._hoverZahl.delete(alt);
+        this._hebeHervor(prev, false);
+      }
+    }
+    if (neu) {
+      const zahl = (this._hoverZahl.get(neu) ?? 0) + 1;
+      this._hoverZahl.set(neu, zahl);
+      if (zahl === 1) this._hebeHervor(hit, true);
+    }
+    // Ein Tick je neuer Taste oder Schaltfläche, nur in der zielenden Hand –
+    // so spürt man beim Überstreichen einer Reihe jede Taste einzeln.
+    if (hit?.type === 'ui') this.haptics?.pulseOnly?.('hover', controller);
+  }
+
+  // Zielpunkt auf die getroffene Fläche legen, flach auf ihr und gleich groß in
+  // jeder Entfernung. Auf flacher UI ohne Tiefentest zeichnet er ebenfalls ohne
+  // – sonst verschwände er unter der Taste, auf der er liegt. Auf Karten und
+  // Zonen behält er den Tiefentest, damit er nicht durch Wände scheint.
+  _setzeZeiger(controller, hit) {
+    const zeiger = controller.userData.zeiger;
+    if (!zeiger) return;
+    if (!hit || !controller.visible || !hit.face || !hit.flaeche) {
+      zeiger.visible = false;
+      return;
+    }
+    const n = this._normale.copy(hit.face.normal).transformDirection(hit.flaeche.matrixWorld);
+    if (n.dot(this.raycaster.ray.direction) > 0) n.negate();
+    zeiger.position.copy(hit.point).addScaledVector(n, 0.0015);
+    zeiger.quaternion.setFromUnitVectors(_Z, n);
+    const druck = controller.userData.drueckt ? 0.7 : 1;
+    const r = THREE.MathUtils.clamp(hit.distance * ZEIGER_JE_METER, ZEIGER_MIN, ZEIGER_MAX);
+    zeiger.scale.setScalar(r * druck);
+    const ohneTiefe = hit.flaeche.material?.depthTest === false;
+    for (const teil of zeiger.children) teil.material.depthTest = !ohneTiefe;
+    zeiger.visible = true;
+  }
+
+  _versteckeZeiger() {
+    for (const controller of this.controllers) {
+      if (controller.userData.zeiger) controller.userData.zeiger.visible = false;
+    }
   }
 
   _onSelectStart(controller) {
@@ -150,6 +286,9 @@ export class InteractionManager {
       controller.userData.emptySelect = true;
       return;
     }
+    // Auf der Tastatur, aber neben jeder Taste: nichts auslösen. Vor allem kein
+    // Griff ins Leere – mit der Hand zöge das sonst die Welt heran.
+    if (hit.type === 'block') return;
     if (hit.type === 'ui') {
       this.haptics?.pulse('click', controller);
       hit.object.userData.onClick();
@@ -221,10 +360,16 @@ export class InteractionManager {
   }
 
   update() {
-    if (!this.renderer.xr.isPresenting) return;
+    if (!this.renderer.xr.isPresenting) {
+      // Nach dem Ende der Sitzung nicht als Ring in der Desktop-Ansicht stehen.
+      this._versteckeZeiger();
+      return;
+    }
     for (const controller of this.controllers) {
-      // Aktiver Zeichenstrich: Ray nur gegen die Zeichenfläche
+      // Aktiver Zeichenstrich: Ray nur gegen die Zeichenfläche. Den Ort zeigt
+      // dort der Strich selbst.
       if (controller.userData.drawing) {
+        if (controller.userData.zeiger) controller.userData.zeiger.visible = false;
         this.tempMatrix.identity().extractRotation(controller.matrixWorld);
         this.raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
         this.raycaster.ray.direction.set(0, 0, -1).applyMatrix4(this.tempMatrix);
@@ -235,6 +380,7 @@ export class InteractionManager {
 
       const hit = this._xrRaycast(controller);
       this._setHover(controller, hit);
+      this._setzeZeiger(controller, hit);
       const ray = controller.getObjectByName('ray');
       if (ray) ray.scale.z = hit ? Math.max(hit.distance, 0.1) : 4;
 

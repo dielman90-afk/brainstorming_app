@@ -58,6 +58,10 @@ export class Locomotion {
     this._mid = new THREE.Vector3();
     this._q = new THREE.Quaternion();
     this._drag = null; // { mid, angle, count } – Bezug des laufenden Hand-Zugs
+    // () => boolean, von main.js gesetzt: Solange es true liefert, steht man
+    // still – während die Tastatur offen ist. Sie steht fest in der Welt; jeder
+    // Stickausschlag trug einen von ihr weg oder drehte sie aus dem Blick.
+    this.pausiert = () => false;
   }
 
   _isHand(c) {
@@ -82,6 +86,14 @@ export class Locomotion {
 
   update(dt) {
     if (!this.renderer.xr.isPresenting) return;
+    if (this.pausiert()) {
+      // Kein Gleiten, kein Drehen, kein Ziehen an der Welt. Die Drehung bleibt
+      // gespannt, bis der Stick einmal in der Mitte war: Wer ihn beim
+      // Schließen der Tastatur noch zur Seite hält, dreht sich nicht sofort.
+      this._drag = null;
+      this._snapArmed = true;
+      return;
+    }
 
     for (const c of this.controllers) {
       const gp = c.userData.inputSource?.gamepad;

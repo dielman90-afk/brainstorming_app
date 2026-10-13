@@ -358,6 +358,18 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Satzzeichen, Umschalttaste für genau ein Zeichen wie auf dem Handy). Optisch
   gehört sie zum Rest der App: abgerundetes Glas-Panel mit Amber-Rahmen, weich
   abgerundete Tasten, gleiche Farbwelt wie Hand-Menü und Whiteboard-Leiste.
+  **Zielen:** Ein hellblauer Zielpunkt liegt flach auf der Taste, die der
+  Strahl trifft, und der Strahl ist bis dorthin sichtbar. Vorher malte die
+  Tastatur über ihn (feste Zeichenordnung ohne Tiefentest), sodass er genau am
+  Ziel verschwand; jetzt zeichnen Strahl und Zielpunkt nach der flachen UI
+  (`src/interactions.js`). Die angezielte Taste bekommt einen Amber-Rand und
+  tritt leicht hervor, jeder Wechsel auf eine neue Taste gibt einen kurzen
+  Vibrations-Tick, und beim Drücken blitzt sie auf und klickt (der Klick ist
+  bei Hand-Tracking die einzige Bestätigung). Die Lücken zwischen den Tasten
+  gehören der nächsten Taste; der Strahl endet auf der Tastatur und fällt nicht
+  mehr auf Karten dahinter durch. Solange die Tastatur offen ist, steht man
+  still – Stick, Snap-Turn und Ziehen an der Welt ruhen. Prüfstand:
+  `tools/tastaturprobe.mjs`.
   **In XR wird getippt – Spracheingabe gibt es dort nicht.** Warum, steht im
   nächsten Punkt.
 - **Keine Spracheingabe in XR** (`src/speech.js`): Der Quest-Browser hat **keine
