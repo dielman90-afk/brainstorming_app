@@ -10,6 +10,7 @@ import {
   foliageMaterial,
   applyFoliageMaterial,
   blobGeometry,
+  laubKoerperMaterial,
   branchInto,
   updateFoliage,
 } from './foliage.js';
@@ -1130,7 +1131,10 @@ function buildGarden(group, r) {
     // ist eine Kuppel auch mit 80 Dreiecken rund. Das spart bei rund 170
     // Polstern über 40 000 Dreiecke, ohne dass man einen Unterschied sieht.
     moundGeo,
-    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    // Blattzeichnung statt glatter Fläche (siehe `laubKoerperMaterial`). Die
+    // Kachel von 0,9 m gibt Büschel von 22–34 cm – dieselbe Größe wie die
+    // Karten darüber, damit Körper und Schale als eine Pflanze lesen.
+    laubKoerperMaterial({ kind: 'azalea', kachel: 0.9 }),
     mounds.length
   );
   moundMesh.name = 'dojo-garden-polster';
@@ -1231,7 +1235,11 @@ function buildGarden(group, r) {
 
   const canopyMesh = new THREE.InstancedMesh(
     blobGeometry(1, 0x5d2, 0.7),
-    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+    // Die Kronenwand trägt keine Karten; ohne Zeichnung war sie aus der Tür
+    // die glatteste und hellste Fläche im Grün. Gröbere Kachel als an den
+    // Polstern: Aus zehn bis zwanzig Metern ist ein Laubbüschel ein halber
+    // Meter.
+    laubKoerperMaterial({ kind: 'azalea', kachel: 2.4 }),
     canopy.length
   );
   canopyMesh.name = 'dojo-garden-fernkronen';
@@ -1257,13 +1265,9 @@ function buildGarden(group, r) {
 
   // --- Ahornlaub ------------------------------------------------------------
   //
-  // Ein Schopf je Zweigende statt einer Kugel über dem Baum. Dieselbe
-  // Blob-Geometrie, aber klein und vielfach – die Krone bekommt dadurch eine
-  // aufgelöste Silhouette und Löcher, durch die man Zweige sieht.
-  const MAPLE = [
-    [0x6e2a1a, 0x7d3520, 0x8c4526],
-    [0x8a5a24, 0x9a6b2c, 0x7a4a20],
-  ];
+  // Ein Schopf je Zweigende statt einer Kugel über dem Baum: klein und
+  // vielfach – die Krone bekommt dadurch eine aufgelöste Silhouette und
+  // Löcher, durch die man Zweige sieht.
   // **Drei kleine Schöpfe je Zweigende statt eines großen.**
   //
   // Mit 0,34–0,60 m Radius war jeder Schopf eine glatte Blase; zusammen ergaben
@@ -1282,26 +1286,20 @@ function buildGarden(group, r) {
       });
     }
   }
-  const crownMesh = new THREE.InstancedMesh(
-    blobGeometry(1, 0x2f7, 0.72),
-    new THREE.MeshLambertMaterial({ color: 0xffffff }),
-    puffs.length
-  );
-  crownMesh.name = 'dojo-garden-krone';
-  puffs.forEach((c, i) => {
-    const s = c.s;
-    q.setFromEuler(new THREE.Euler(r() * 0.6, r() * Math.PI, r() * 0.6));
-    m.compose(c.p, q, new THREE.Vector3(s * 1.25, s, s * 1.15));
-    crownMesh.setMatrixAt(i, m);
-    const pal = MAPLE[c.hue];
-    crownMesh.setColorAt(i, new THREE.Color(pal[Math.floor(r() * pal.length)]));
-  });
-  crownMesh.instanceMatrix.needsUpdate = true;
-  if (crownMesh.instanceColor) crownMesh.instanceColor.needsUpdate = true;
-  // Wirft nicht: siehe die Messung an `dojo-garden-stein` weiter oben.
-  crownMesh.castShadow = false;
-  crownMesh.userData.fullCount = puffs.length;
-  group.add(crownMesh);
+  // **Kein Hüllkörper mehr unter dem Ahornlaub.** Hier stand eine glatte
+  // Lambert-Blase je Schopf, und durch die Lücken der Karten sah man sie als
+  // braunrote Klumpen. Das Innere füllen jetzt abgedunkelte Karten
+  // (`innen` an der Kartengeometrie unten).
+  //
+  // Die Zufallszüge des Körpers (Drehung und Farbe, vier je Schopf) bleiben
+  // stehen: Karten, Farne und Gräser weiter unten ziehen aus demselben Strom,
+  // und ohne diese Züge stünde der ganze übrige Garten an anderen Stellen.
+  for (let i = 0; i < puffs.length; i++) {
+    r();
+    r();
+    r();
+    r();
+  }
 
   // Und dieselben Schöpfe noch einmal als Karten. Die beiden Ahorne stehen
   // **in der Türachse** – sie sind das, was man beim Blick nach draußen zuerst
@@ -1323,6 +1321,7 @@ function buildGarden(group, r) {
       seed: 0x2f71,
       kind: 'maple',
       cardScale: 0.62,
+      innen: { anzahl: 16, von: 0.12, bis: 0.62 },
     }),
     mapleCards,
     puffs.length
@@ -1571,7 +1570,10 @@ function buildForest(group, r) {
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
 
-  const kronenMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  // Nadelzeichnung statt glatter Kronen, Kachel 2,2 m: Aus fünfzehn Metern
+  // trägt ein Zweig dann noch ein paar Bildpunkte Struktur, und in der Ferne
+  // mittelt die Mipmap sie zur bisherigen Farbe.
+  const kronenMaterial = laubKoerperMaterial({ kind: 'nadel', kachel: 2.2 });
   for (const [name, geo, list] of [
     // **Die Grenze liegt bei 34 m, nicht bei 26.** Sie bezieht sich auf den
     // Abstand vom *Raum*, weil der Spieler dort immer steht – aus der Luft

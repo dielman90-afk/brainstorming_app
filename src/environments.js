@@ -19,7 +19,6 @@ import {
   cardCluster,
   applyFoliageMaterial,
   updateFoliage,
-  blobGeometry,
   branchInto,
 } from './dojo/foliage.js';
 import { buildSkyEnvironment } from './dojo/skylight.js';
@@ -690,38 +689,44 @@ function verschmelzeSchatten(schatten, name = 'kontaktschatten') {
 // Das Rezept, das im Dojo-Garten funktioniert und hier übernommen wird:
 //
 //   * Schopfradius 0,15–0,32 m, **drei bis vier** je Ansatzpunkt statt einem
-//   * der Hüllkörper ist Masse und Verdecker, nicht die Krone: dunkel, klein
-//   * die Karten sitzen bei 1,12× darüber und machen Kontur und Silhouette
-//   * `blobGeometry` statt `IcosahedronGeometry`: verrauscht und zusammengeführt,
-//     also weich schattiert statt facettiert
+//   * die Außenkarten machen Kontur und Silhouette
+//   * **Innenlaub statt Hüllkörper.** Bis zu dieser Runde saß unter jeder
+//     Kartenschale ein glatter Lambert-Körper (`blobGeometry`, 20 Dreiecke) als
+//     Verdecker. Durch die Lücken sah man ihn als glatte Masse ohne
+//     Blattzeichnung, und der Nutzer hat ihn in allen Umgebungen als „komische
+//     Strukturen, die vielleicht auffüllen sollen" gemeldet. Jetzt füllen
+//     dunkle Karten das Innere (`cardCluster({ innen })`): Wer durch eine Lücke
+//     sieht, sieht Laub im Schatten. Der Körper bleibt nur noch auf Wunsch
+//     (`kern > 0`) – im Dojo für die Formschnittpolster, die als geschlossene
+//     Körper gemeint sind; die laufen aber nicht über diese Funktion.
 //
 // @param ansaetze  [[x, y, z, radius], …] – die groben Kronenpositionen
-// @returns {{ blobs: THREE.InstancedMesh, karten: THREE.InstancedMesh }}
+// @returns {{ karten: THREE.InstancedMesh }}
 function baueKrone({
   ansaetze,
   seed,
   kartenMaterial,
   kind,
-  farben,
   kartenFarben,
   cardScale,
-  // Wie weit die Kartenschale über dem Hüllkörper liegt. Zu wenig, und der
-  // Hüllkörper bildet die Silhouette; zu viel, und die Karten schweben.
+  // Kartenschale als Vielfaches des Schopfradius. Der Wert stammt aus der Zeit
+  // des Hüllkörpers (Schale 1,2 über einem Kern von 0,88 · 0,72) und bleibt,
+  // damit Kronengröße und Silhouette sich nicht verschieben.
   schale = 1.2,
-  // Wie weit der Hüllkörper **innerhalb** der Kartenschale sitzt. Er ist
-  // Verdecker, nicht Silhouette: Wer ihn auf 1,0 lässt, sieht ihn.
-  kern = 0.88,
   dichte = 70,
-  // Himmelssaum auf dem Hüllkörper. Auf der Insel gemessen abgeschaltet, siehe
-  // die Begründung am Werkstoff unten. Die anderen Umgebungen behalten ihn,
-  // solange niemand dieselbe Messung für sie gemacht hat — die Mechanik ist
-  // dort dieselbe, der Befund ist es nicht automatisch.
-  himmelssaum = true,
+  // Innenlaub als Anteil der Außenkarten. 0,30 ersetzt die 20 Dreiecke des
+  // alten Kerns durch rund 40 Kartendreiecke je Schopf (bei Dichte 64–74);
+  // die Insel wächst dabei um wenige Prozent, gemessen im Protokoll.
+  innenlaub = 0.3,
   // Staerke der Kronenverdeckung (0 = aus). Die anderen Umgebungen laufen durch
   // dieselbe Funktion und bekommen sie NICHT: Der Befund ist auf der Insel
   // gemessen, und ein Auftrag ueber die Insel ist kein Freibrief, den
   // Dojo-Garten nebenbei zu veraendern. Dieselbe Regel wie beim Himmelssaum.
   verdeckung = 0,
+  // Zahl der Töne, aus denen ein Schopf zieht (`ton % 3` plus `slice`). Stand
+  // früher als Länge der Hüllkörperpalette da; die Zahl bleibt, damit jeder
+  // Schopf denselben Ton zieht wie vorher.
+  toene = 3,
 }) {
   const r = mulberry32(seed);
   const schoepfe = [];
@@ -749,7 +754,7 @@ function baueKrone({
         z: az + (r() - 0.5) * ar * 1.1,
         s: ar * (0.42 + r() * 0.2),
         slice: slice ?? 0,
-        ton: Math.floor(r() * farben.length),
+        ton: Math.floor(r() * toene),
         dreh: [r() * 0.6, r() * Math.PI * 2, r() * 0.6],
       });
     }
@@ -829,68 +834,25 @@ function baueKrone({
     mesh.userData.fullCount = schoepfe.length;
   };
 
-  const blobs = new THREE.InstancedMesh(
-    // **Detailstufe 0, nicht 1.** Ein Hüllkörper ist Verdecker hinter dichten
-    // Karten; seine Facetten sieht niemand, seine Dreiecke zahlt man trotzdem.
-    // Stufe 1 sind 80 Dreiecke je Schopf, Stufe 0 sind 20 – bei rund 220
-    // Schöpfen auf der Insel ein Unterschied von 13.000 Dreiecken für nichts.
-    // Gemessen mit inselkosten.mjs.
-    blobGeometry(0, seed ^ 0x51, 0.72),
-    // Lambert statt Standard: Der Hüllkörper soll dunkle Masse sein, kein
-    // Material mit Glanzlicht. Er spart damit auch den PBR-Pfad im Shader.
-    //
-    // **Auf der Insel kein Himmelssaum** (`himmelssaum: false`). Er steht hier
-    // auf `strength 0.5, power 2.0` — der stärkste der Insel — mit der
-    // Begründung, dieser Körper bilde vielerorts die äußere Kontur gegen den
-    // Himmel. Das ist der Denkfehler: Der Körper
-    // ist eine Detailstufe-0-Blase, **zwanzig Dreiecke**, nicht indiziert.
-    // Seine Normalen sind Facettennormalen, der Fresnel-Term ist damit je
-    // Facette konstant — er malt keinen Saum an der Kontur, sondern hellt
-    // ganze Facetten mitten im Busch himmelblau auf. Genau das hat der Prüfer
-    // in `5-backlight` gefunden, und im vergrößerten Ausschnitt sieht man es
-    // sofort: helle blaugraue Flecken im Buschinnern, die als Löcher zum
-    // Himmel lesen.
-    //
-    // `tools/saumprobe.mjs` schaltet die Saumgruppen zur Laufzeit einzeln ab
-    // und misst dreierlei: den Anteil der Laubpixel, die Himmelsfarbe tragen
-    // **ohne einen Nachbarn ausserhalb des Laubs** (der Befund), und den
-    // Helligkeitssprung über die Kontur an Konifere und Laubkrone (der Grund,
-    // aus dem die Säume einmal hinzukamen):
-    //
-    //     Stand              Saum innen 1,53 Pp   Konifere 53,0 (78)   Laubkrone 66,1 (646)
-    //     ohne 0,50/2,0      Saum innen 0,36 Pp   Konifere 53,0 (78)   Laubkrone 67,7 (624)
-    //     ohne 0,26/4,2      Saum innen 1,53 Pp   Konifere 67,3 (46)   Laubkrone 66,1 (646)
-    //     ohne 0,24/4,2      Saum innen 1,52 Pp   Konifere 53,0 (78)   Laubkrone 67,9 (652)
-    //
-    // Kein Saum am Laub kauft eine Silhouette; alle drei kosten eine. Die
-    // Konifere zerfiel mit ihrem Saum in 78 statt 46 Konturstücke, und jedes
-    // sprang schwächer — aufgehellte Karten sind vom Himmel nicht mehr zu
-    // unterscheiden. An den Felsen bleibt der Saum: Ein geschlossener Körper
-    // mit glatten Normalen ist der Fall, für den der Term gedacht ist.
-    //
-    // Die Dojo-Kronen laufen durch dieselbe Funktion und haben dieselbe
-    // Mechanik — sie behalten den Saum trotzdem. Der Befund ist auf der Insel
-    // gemessen, nicht im Dojo, und ein Auftrag über die Insel ist kein Freibrief,
-    // eine andere Umgebung nebenbei zu verändern. Es steht im Protokoll.
-    himmelssaum
-      ? addSkyRim(new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }), {
-          strength: 0.5,
-          power: 2.0,
-        })
-      : new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: false }),
-    schoepfe.length
-  );
-  setze(blobs, kern, farben);
 
   const karten = new THREE.InstancedMesh(
-    cardCluster({ count: dichte, radius: 1, seed: seed ^ 0x2f71, kind, cardScale }),
+    cardCluster({
+      count: dichte,
+      radius: 1,
+      seed: seed ^ 0x2f71,
+      kind,
+      cardScale,
+      // Innen von 0,12 bis 0,62 der Schale: Das ist der Raum, den der alte
+      // Kern (0,88 · 0,72 des Schopfs unter einer Schale von 1,2) einnahm.
+      innen: innenlaub > 0 ? { anzahl: Math.round(dichte * innenlaub), von: 0.12, bis: 0.62 } : null,
+    }),
     kartenMaterial,
     schoepfe.length
   );
   applyFoliageMaterial(karten, kartenMaterial);
   setze(karten, schale, kartenFarben);
 
-  return { blobs, karten };
+  return { karten };
 }
 
 // Materialien der Inselbäume, einmal für alle.
@@ -1137,15 +1099,15 @@ function inselBaumMaterialien() {
 
 // Sammelbehälter für die Bäume EINER Insel.
 //
-// Warum nicht ein Baum = ein Objekt: Ein Baum besteht aus Stamm/Astwerk,
-// Hüllkörpern und Blattkarten – als eigenes Objekt gebaut sind das drei
+// Warum nicht ein Baum = ein Objekt: Ein Baum bestand aus Stamm/Astwerk,
+// Hüllkörpern und Blattkarten – als eigenes Objekt gebaut waren das drei
 // Draw-Calls je Baum. Neun Bäume auf der Hauptinsel waren damit 27 Draw-Calls
 // und die ganze Umgebung lag bei 129 von 120. Gemessen.
 //
 // Stämme und Äste wandern deshalb in einen Geometrie-Eimer, und die Schöpfe
-// aller Bäume werden je Laubart in EIN InstancedMesh-Paar gesammelt. Aus 27
-// werden fünf: Holz, Nadel-Hüllkörper, Nadel-Karten, Laub-Hüllkörper,
-// Laub-Karten. Die Form der Bäume bleibt dabei unangetastet.
+// aller Bäume werden je Laubart in EIN InstancedMesh gesammelt. Seit das
+// Innenlaub die Hüllkörper ersetzt, sind es drei: Holz, Nadel-Karten,
+// Laub-Karten.
 function makeTreeCollector() {
   return {
     holz: new GeoBucket(),
@@ -1170,14 +1132,11 @@ function buildCollectedTrees(ctx, seed) {
       kind: 'nadel',
       cardScale: 0.95,
       dichte: 74,
-      farben: [0x2b4436, 0x33513e, 0x24392c],
       kartenFarben: [0xd8f0c0, 0xc6e4ae, 0xe4ffd0],
-      himmelssaum: false,
       verdeckung: 1.0,
     });
-    k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
-    meshes.push(k.blobs, k.karten);
+    meshes.push(k.karten);
   }
 
   if (ctx.laub.length) {
@@ -1190,14 +1149,12 @@ function buildCollectedTrees(ctx, seed) {
       dichte: 64,
       // Zwei Drittel: dunkle und helle Laubbäume. Jeder Baum greift über
       // seinen `slice` in genau eines davon.
-      farben: [0x3a5f42, 0x436b4a, 0x33553c, 0x35583c, 0x3d6544, 0x2f4f37],
       kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8, 0xd3efb0, 0xc2e39c, 0xe0f8c0],
-      himmelssaum: false,
+      toene: 6,
       verdeckung: 1.0,
     });
-    k.blobs.name = 'island-krone';
     k.karten.name = 'island-laub';
-    meshes.push(k.blobs, k.karten);
+    meshes.push(k.karten);
   }
   return meshes;
 }
@@ -1227,8 +1184,8 @@ function addTree(rand, ctx, { x, y, z, scale = 1 }) {
     0xffffff
   );
 
-  // Krone nach demselben Rezept wie im Zen-Garten: viele kleine Schöpfe, der
-  // Hüllkörper als Verdecker darunter. Der erste Anlauf dieser Runde hatte hier
+  // Krone nach demselben Rezept wie im Zen-Garten: viele kleine Schöpfe mit
+  // Innenlaub. Der erste Anlauf dieser Runde hatte hier
   // einen glatten Ball von 0,36 m Radius mit ein paar Karten davor – aus zwei
   // Metern ein grüner Luftballon mit Aufklebern.
   const hell = rand() > 0.5;
@@ -5302,8 +5259,8 @@ function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
   // Ihr Grün hatte dazu einen auf null geklemmten Rotkanal und stand damit in
   // einer völlig anderen Farbfamilie als die Wiese.
   //
-  // Jetzt tragen sie dasselbe Blattwerk wie die Bäume: dunkler Hüllkörper als
-  // Verdecker, Blattkarten davor. Damit lösen sie sich in der Silhouette auf,
+  // Jetzt tragen sie dasselbe Blattwerk wie die Bäume: Blattkarten außen,
+  // dunkles Innenlaub darunter. Damit lösen sie sich in der Silhouette auf,
   // bewegen sich im selben Wind und gehören farblich zur selben Familie.
   const buschAnsaetze = [];
   const BUESCHE = 14;
@@ -5335,11 +5292,11 @@ function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
   // Passthrough-Fehler dazu – die Karten waren halb durchsichtig (siehe
   // `deckendesAlpha`).
   //
-  // Drei Hebel zusammen: Der Kern wird kleiner und sitzt tiefer in der Schale
-  // (0,40 statt 0,52), er bekommt den Ton beschatteter Blaetter statt eines
-  // eigenen (gelbgruen, kein Blauanteil), und die Schale wird dichter (105
-  // statt 82 Karten je Schopf, etwas groesser, etwas naeher am Kern). Wo man
-  // jetzt noch hineinsieht, sieht man Schatten im Laub, keinen Ball.
+  // Drei Hebel zusammen haben ihn kleiner gemacht (Kern 0,40 statt 0,52, Ton
+  // beschatteter Blaetter, Schale mit 105 statt 82 Karten), aber nicht
+  // weggebracht: Ein glatter Koerper bleibt durch jede Luecke ein Ball. Jetzt
+  // ist der Kern ganz fort, und das Innere fuellt dunkles Laub (`innenlaub`
+  // in `baueKrone`). Wo man hineinsieht, sieht man Schatten im Laub.
   const busch = baueKrone({
     ansaetze: buschAnsaetze,
     seed: 0x6b21,
@@ -5347,13 +5304,10 @@ function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
     kind: 'azalea',
     cardScale: 0.84,
     dichte: 105,
-    kern: 0.4,
     schale: 1.28,
-    farben: [0x45652b, 0x4d7031, 0x3e5c27, 0x416029, 0x486a2e, 0x395523],
     kartenFarben: [0xd2eaa8, 0xc3dd99, 0xdcf2b4, 0xcae4a0, 0xd8eeae, 0xbfd894],
-    himmelssaum: false,
+    toene: 6,
   });
-  busch.blobs.name = 'bushes';
   busch.karten.name = 'bush-leaves';
   busch.karten.receiveShadow = true;
   // **Buesche werfen jetzt selbst.**
@@ -5369,10 +5323,8 @@ function addUndergrowth(group, rand, shape, fremdeFuesse = []) {
   // 4,8 bis 7,8 Stufen Abfall. Ein Busch von anderthalb Metern wirft bei diesem
   // Sonnenstand knapp zwei Meter Schatten; das ist kein Fleck unter ihm,
   // sondern eine Form neben ihm.
-  busch.blobs.castShadow = true;
-  busch.blobs.receiveShadow = true;
   busch.karten.castShadow = true;
-  group.add(busch.blobs, busch.karten);
+  group.add(busch.karten);
 
   // **Und unter den Blüten.**
   //
@@ -13499,10 +13451,8 @@ function makeBambooGrove(rand, cx, cz) {
 // Ahorn (Momiji) mit roter/oranger Krone als Farbkontrast.
 // Das Blattmaterial der Ahornkronen, einmal für alle Bäume.
 //
-// Der zugehörige Hüllkörper-Werkstoff ist entfallen: Den legt `baueKrone()`
-// selbst an, als Lambert-Material mit Instanzfarben. Vorher legte **jeder
-// einzelne Blob** ein eigenes Standardmaterial an, nur um einen von vier
-// Grüntönen zu bekommen.
+// Einen Hüllkörper-Werkstoff gibt es nicht mehr: Das Kroneninnere tragen
+// abgedunkelte Karten aus demselben Material (`baueKrone`, `innenlaub`).
 let _mapleCards = null;
 function mapleMaterials() {
   if (!_mapleCards) {
@@ -13652,18 +13602,13 @@ function makeMaple(rand) {
     // von cremeorange auf rosé. Der Prüfer hat am selben Punkt „deutlich
     // lauter und deutlich rauschiger modelliert als alles andere" bemängelt;
     // die neuen Töne sind eine Spur weniger gesättigt.
-    // **Der Huellkoerper war 30 Helligkeitsstufen dunkler als seine Karten**
-    // (L 52 gegen L 82, gemessen ueber beide Knotenmasken). Wo die Karten eine
-    // Luecke lassen, stand deshalb ein fast schwarzes Loch statt verschatteten
-    // Laubs — der Pruefer nennt sie „dunkelbraun-violette Flecken, die als
-    // Loecher oder Schmutz lesen". Dieselbe Rechnung wie bei den Karten
-    // (0,35 zur Helligkeit hin) und dazu ein Viertel heller.
-    farben: [0x914548, 0xa65656, 0x7e383d],
+    // Der Hüllkörper, der hier früher unter den Karten saß, war trotz zweier
+    // Aufhellungen „dunkelbraun-violette Flecken, die als Löcher oder Schmutz
+    // lesen" (Prüfer). Er ist entfallen; das Innere füllt dunkles Ahornlaub.
     kartenFarben: [0xe6a3a0, 0xf0b4ad, 0xd99190, 0xecafa7],
   });
-  krone.blobs.name = 'zen-ahorn-blobs';
   krone.karten.name = 'zen-ahorn-karten';
-  tree.add(krone.blobs, krone.karten);
+  tree.add(krone.karten);
   return tree;
 }
 
@@ -15441,12 +15386,10 @@ function createZenEnvironment() {
 
   // Kirschblütenbaum (Sakura)
   //
-  // **Der Hüllkörper bleibt, die Karten kommen dazu.** Die sechs
-  // Ikosaeder-Blobs waren die ganze Krone – aus der Nähe sechs rosa Bälle. Sie
-  // bleiben stehen, aber als *Silhouette*: Sie schließen die Krone, damit man
-  // nicht hindurchsieht, und sind nach unten abgedunkelt, damit sie zwischen
-  // den Karten als Tiefe lesen statt als Ball. Darüber liegt eine Instanz je
-  // Blob mit echten Blütenkarten samt Wind und Transluzenz.
+  // Die sechs Ikosaeder-Blobs waren einmal die ganze Krone – aus der Nähe
+  // sechs rosa Bälle. Danach blieben sie als Hüllkörper unter Blütenkarten
+  // stehen und lasen durch die Lücken weiter als Flecken. Jetzt trägt die
+  // Krone nur noch Karten: Blüten außen, abgedunkelte Blüten innen.
   const sakura = new THREE.Group();
   // **Die Krone ist um einen halben Meter gestiegen.** Vorher saß sie direkt
   // auf dem Stamm — selbst mit Astwerk wäre davon nichts zu sehen gewesen,
@@ -15528,37 +15471,17 @@ function createZenEnvironment() {
     seed: 0x5a4a,
     kartenMaterial: sakuraCards,
     kind: 'sakura',
-    // Große Karten, damit sie sich überlappen und den Hüllkörper zudecken.
+    // Große Karten, damit sie sich überlappen und die Krone schließen.
     cardScale: 0.85,
-    // **Der Hüllkörper liegt in derselben Farbfamilie wie die Blüten, nur
-    // dunkler.** Der erste Anlauf hatte ihn auf Pflaume gesetzt, weil „dunkel
-    // gleich Tiefe" – das Ergebnis waren dunkle Pflaumen mit rosa Sprenkeln
-    // darauf. Tiefe entsteht durch **Helligkeitsunterschied innerhalb einer
-    // Farbe**, nicht durch eine zweite Farbe.
-    // **Und der Huellkoerper war trotzdem eine zweite Farbe.**
-    //
-    // Der Pruefer hat „kraeftig blauviolette Fehlflecken mit scharfer Kante
-    // mitten in der rosa Masse" gemeldet. Gemessen im Kronenkasten von
-    // `a-eyelevel` (0,60-270,240), Bildpunkte mit G < min(R,B) − 14:
-    // **797 von 48 600, also 1,64 Prozent**, typisch rgb(136 | 107 | 140) bei
-    // L 116 — gegen eine Bluetenmasse bei L 219.
-    //
-    // Die Toene oben waren 0xc98fa6, 0xd6a0b4 und 0xbc8398. Der letzte hat
-    // rgb(188 | 131 | 152): Gruen liegt **21 Stufen unter Blau**, waehrend die
-    // Karten mit 0xffe4ee nur 10 darunter liegen. Der Huellkoerper war also
-    // nicht dieselbe Farbe in dunkler, sondern eine magentastichigere — und
-    // weil er im Kernschatten der Karten liegt und nur die kuehle Hemisphaere
-    // abbekommt, kippt er im Bild vollends ins Violette.
-    //
-    // Jetzt sind es die Kartenfarben selbst, mal 0,80. Damit stimmt der Ton
-    // per Konstruktion, und der Abstand ist der, der gemeint war: eine
-    // Helligkeitsstufe innerhalb einer Farbe.
-    farben: [0xccb6be, 0xcca8b5, 0xc69ead],
+    // Früher lag unter den Karten ein Hüllkörper, erst pflaumenfarben, dann in
+    // den Kartentönen mal 0,80 – der Prüfer fand ihn beide Male als
+    // „blauviolette Fehlflecken mit scharfer Kante mitten in der rosa Masse".
+    // Tiefe entsteht durch Helligkeitsunterschied innerhalb einer Farbe; das
+    // leistet jetzt das Innenlaub aus denselben Karten.
     kartenFarben: [0xffe4ee, 0xffd2e2, 0xf8c6d8],
   });
-  sakuraKrone.blobs.name = 'zen-sakura-blobs';
   sakuraKrone.karten.name = 'zen-sakura-karten';
-  sakura.add(sakuraKrone.blobs, sakuraKrone.karten);
+  sakura.add(sakuraKrone.karten);
   sakura.position.set(-4.5, 0, 2.5);
   group.add(sakura);
   const sakuraShadow = makeBlobShadow(0.9, 0.66);
@@ -15971,10 +15894,10 @@ function createZenEnvironment() {
     // Stamm**, also genau verkehrt herum. Die Karten decken aus Sonnenrichtung
     // schlicht zu wenig Fläche, um allein einen Baumschatten zu tragen.
     //
-    // Der Hüllkörper wirft deshalb wieder mit. Was dabei entsteht, ist der
-    // Schatten eines Baumes: ein dichter Kern und ein aufgelöster Saum aus den
-    // Karten. Der Kern ist keine Blase, weil die Hüllkörper mehrere kleine
-    // Schöpfe sind und nicht eine Kugel.
+    // Der Hüllkörper warf deshalb wieder mit. Seit er dem Innenlaub gewichen
+    // ist, trägt dieses den dichten Teil des Schattens: Die Innenkarten werfen
+    // wie die äußeren, und aus Sonnenrichtung liegen jetzt mehrere Lagen Laub
+    // hintereinander statt einer.
     const nurEmpfangen = new Set(['zen-sand', 'zen-saum', 'zen-moos']);
     // **`zen-ferne` gehoert hierher, und zwar seit es den Huegelzug gibt.**
     //
