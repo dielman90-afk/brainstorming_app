@@ -1301,7 +1301,7 @@ function buildGarden(group, r) {
     r();
   }
 
-  // Und dieselben Schöpfe noch einmal als Karten. Die beiden Ahorne stehen
+  // Die Schöpfe als Karten. Die beiden Ahorne stehen
   // **in der Türachse** – sie sind das, was man beim Blick nach draußen zuerst
   // und am größten sieht. Wenn irgendwo im Garten ein einzelnes Blatt
   // auflösbar ist, dann hier, und wenn irgendwo Gegenlicht durch ein Blatt

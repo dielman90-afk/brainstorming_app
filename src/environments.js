@@ -730,7 +730,7 @@ function baueKrone({
 }) {
   const r = mulberry32(seed);
   const schoepfe = [];
-  for (const [ax, ay, az, ar, slice] of ansaetze) {
+  for (const [ax, ay, az, ar, slice, hellig] of ansaetze) {
     // Anzahl aus dem Radius: Ein großer Ansatz bekommt mehr Schöpfe, nicht
     // größere. Genau das ist der Unterschied zwischen Krone und Blumenkohl.
     //
@@ -754,6 +754,7 @@ function baueKrone({
         z: az + (r() - 0.5) * ar * 1.1,
         s: ar * (0.42 + r() * 0.2),
         slice: slice ?? 0,
+        hellig: hellig ?? 1,
         ton: Math.floor(r() * toene),
         dreh: [r() * 0.6, r() * Math.PI * 2, r() * 0.6],
       });
@@ -824,6 +825,8 @@ function baueKrone({
       // verloren. Mit dem Versatz zieht jeder Baum aus seinem eigenen Drittel.
       const idx = (c.slice ?? 0) + (c.ton % 3);
       _ton.set(palette[idx % palette.length]);
+      // Eigene Helligkeit des Baums (Inselbäume, siehe `addTree`).
+      if (c.hellig !== 1) _ton.multiplyScalar(c.hellig);
       if (verdeckung > 0) {
         _ton.multiplyScalar(Math.max(0.25, 1 - dunkel[i] * verdeckung));
       }
@@ -1118,7 +1121,16 @@ function makeTreeCollector() {
 }
 
 // Baut die gesammelten Bäume zu wenigen Meshes zusammen.
-function buildCollectedTrees(ctx, seed) {
+//
+// `fern`: Die Mini-Inseln stehen 50 bis 100 m entfernt und tragen über die
+// Hälfte aller Kronenschöpfe der Umgebung. Dort genügen 60 Prozent der Karten,
+// je ein Viertel größer – aus dieser Entfernung ist eine Karte ein paar
+// Bildpunkte, und die Deckung hält die Mipmap-Korrektur des Laubmaterials.
+// Ohne diese Stufe lag die Insel mit den neuen Baumformen bei 417 000
+// Dreiecken statt 373 000.
+function buildCollectedTrees(ctx, seed, { fern = false } = {}) {
+  const dichteFaktor = fern ? 0.6 : 1;
+  const kartenFaktor = fern ? 1.25 : 1;
   const { holz: holzMat, karten, nadeln } = inselBaumMaterialien();
   const meshes = [];
   const stamm = ctx.holz.mesh(holzMat, 'island-holz');
@@ -1130,8 +1142,8 @@ function buildCollectedTrees(ctx, seed) {
       seed: seed ^ 0x5a11,
       kartenMaterial: nadeln,
       kind: 'nadel',
-      cardScale: 0.95,
-      dichte: 74,
+      cardScale: 0.95 * kartenFaktor,
+      dichte: Math.round(74 * dichteFaktor),
       kartenFarben: [0xd8f0c0, 0xc6e4ae, 0xe4ffd0],
       verdeckung: 1.0,
     });
@@ -1145,8 +1157,8 @@ function buildCollectedTrees(ctx, seed) {
       seed: seed ^ 0x2c93,
       kartenMaterial: karten,
       kind: 'azalea',
-      cardScale: 0.85,
-      dichte: 64,
+      cardScale: 0.85 * kartenFaktor,
+      dichte: Math.round(64 * dichteFaktor),
       // Zwei Drittel: dunkle und helle Laubbäume. Jeder Baum greift über
       // seinen `slice` in genau eines davon.
       kartenFarben: [0xdcf5b8, 0xcbeaa4, 0xe6ffc8, 0xd3efb0, 0xc2e39c, 0xe0f8c0],
@@ -1159,130 +1171,200 @@ function buildCollectedTrees(ctx, seed) {
   return meshes;
 }
 
-// Ein Baum – Form unverändert aus PR #9, aber er baut keine eigenen Meshes
-// mehr, sondern schreibt in den Sammelbehälter der Insel.
+// Ein Baum. Er baut keine eigenen Meshes, sondern schreibt in den
+// Sammelbehälter der Insel (Holz in den Eimer, Kronenansätze in die Listen).
+//
+// **Natürlicher, im selben Stil.** Der Nutzer: „Grundsätzlich können Bäume
+// schöner gestaltet werden." Was die alten Bäume verraten hat, war nicht der
+// Stil, sondern die Gleichförmigkeit: ein gerader Kegelstumpf als Stamm, drei
+// bis vier Äste in festen Winkeln, sieben fast konzentrische Nadeletagen –
+// jeder Baum eine Kopie des vorigen in anderer Größe. Jetzt:
+//
+//   * Laubbaum: gebogener, sich verjüngender Stamm mit Wurzelanlauf, zwei bis
+//     vier Hauptäste mit gestreuten Winkeln und einem Leittrieb, Kronenballen
+//     in wechselnder Größe – die Krone wird dadurch asymmetrisch
+//   * Nadelbaum in zwei Gestalten: schlanke Fichte mit tief ansetzenden,
+//     unregelmäßigen, hängenden Etagen und schmaler Spitze, und Kiefer mit
+//     hohem, kahlem Stamm und lockerer, schirmartiger Krone
+//   * je Baum eine leichte Neigung und eine eigene Helligkeit
 function addTree(rand, ctx, { x, y, z, scale = 1, nadel = null }) {
+  if (nadel === null) nadel = rand() > 0.45;
   const yaw = rand() * TAU;
   const cy = Math.cos(yaw);
   const sy = Math.sin(yaw);
+  // Neigung bis rund vier Grad: Kein Baum im Freien steht lotrecht, und eine
+  // Gruppe exakt senkrechter Stämme liest sich als Pflanzung.
+  const neigA = rand() * TAU;
+  const neig = rand() * 0.07;
+  const nx = Math.cos(neigA) * neig;
+  const nz = Math.sin(neigA) * neig;
+  const scher = new THREE.Matrix4().set(1, nx, 0, 0, 0, 1, 0, 0, 0, nz, 1, 0, 0, 0, 0, 1);
   // Baumlokale Koordinaten in Inselkoordinaten überführen.
   const place = (geo) => {
+    geo.applyMatrix4(scher);
     geo.scale(scale, scale, scale);
     geo.rotateY(yaw);
     geo.translate(x, y, z);
     return geo;
   };
-  const punkt = (px, py, pz) => [
-    x + (px * cy + pz * sy) * scale,
-    y + py * scale,
-    z + (-px * sy + pz * cy) * scale,
-  ];
+  const punkt = (px, py, pz) => {
+    const sx = px + nx * py;
+    const sz = pz + nz * py;
+    return [x + (sx * cy + sz * sy) * scale, y + py * scale, z + (-sx * sy + sz * cy) * scale];
+  };
+  // Eigene Helligkeit je Baum, als Faktor auf die Kartenfarbe.
+  const hellig = 0.9 + rand() * 0.2;
+  // Holz in den Eimer, Kronenansatz (baumlokal) in die Liste seiner Art.
+  const holz = (geo) => ctx.holz.add(place(geo), 0xffffff);
+  const krone = (liste, ax, ay, az, ar, slice = 0) => {
+    const p = punkt(ax, ay, az);
+    liste.push([p[0], p[1], p[2], ar * scale, slice, hellig]);
+  };
+  const bau = { rand, holz, nadel: (...a) => krone(ctx.nadel, ...a), laub: (...a) => krone(ctx.laub, ...a) };
 
-  const trunkHeight = 0.5 + rand() * 0.5;
-  ctx.holz.add(
-    place(new THREE.CylinderGeometry(0.05, 0.09, trunkHeight, 8).translate(0, trunkHeight / 2, 0)),
-    0xffffff
-  );
-
-  // Krone nach demselben Rezept wie im Zen-Garten: viele kleine Schöpfe mit
-  // Innenlaub. Der erste Anlauf dieser Runde hatte hier
-  // einen glatten Ball von 0,36 m Radius mit ein paar Karten davor – aus zwei
-  // Metern ein grüner Luftballon mit Aufklebern.
-  const hell = rand() > 0.5;
-  // Die Art kommt aus der Platzwahl: Ein Hain wird von einer Art getragen.
-  const nadelbaum = nadel ?? rand() > 0.45;
-
-  if (nadelbaum) {
-    // **Die gestapelten Kegel sind entfallen.**
-    //
-    // Sie waren die Silhouette *und* die Oberfläche zugleich: drei glatte
-    // Trichter übereinander, an denen jede Karte als Aufkleber saß. Eine
-    // Konifere hat keine glatte Mantelfläche, sie hat Etagen aus Zweigen mit
-    // Lücken dazwischen, durch die man den Stamm sieht.
-    //
-    // Jetzt ist der Baum eine **Reihe von Ansätzen mit abnehmendem Radius** –
-    // dieselbe Bauweise wie beim Laubbaum, nur als Kegel angeordnet statt als
-    // Kugel. Die Silhouette entsteht aus den Schöpfen, nicht aus einem Trichter.
-    // **Der Etagenabstand folgt dem Radius, nicht einem festen Schritt.**
-    //
-    // Vorher lagen die Etagen in gleichen Abständen von 0,29 übereinander,
-    // während ihr Radius nach oben von 0,46 auf 0,13 fiel. Oben standen die
-    // Schöpfe dadurch weiter auseinander als sie groß waren: Im Bild schwebte
-    // die oberste Etage als abgetrennter dunkler Klecks 1,6 m über der
-    // Baumspitze. Per Strahl nachgewiesen – der Treffer war `island-laub` bei
-    // y = 7,3, die Spitze darunter bei 5,7.
-    //
-    // Jetzt wächst y um den Radius der jeweiligen Etage. Damit überlappen zwei
-    // aufeinanderfolgende Etagen zwangsläufig, egal wie schnell der Radius
-    // abnimmt.
-    let ey = trunkHeight + 0.1;
-    for (let i = 0; i < 7; i++) {
-      const t = i / 6;
-      const radius = 0.46 * (1 - t * 0.78);
-      const p = punkt((rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05);
-      ctx.nadel.push([p[0], p[1], p[2], radius * scale, 0]);
-      // 0,95 statt 1,0: eine Spur enger als der Radius, damit die Etagen sich
-      // sicher schneiden statt sich nur zu berühren.
-      ey += radius * 0.95;
-    }
+  if (nadel) {
+    if (rand() < 0.62) baueFichte(bau);
+    else baueKiefer(bau);
   } else {
-    // **Laubbaum mit echtem Astwerk.**
-    //
-    // Vorher: zwei Kronenansätze über einem nackten Kegelstumpf. Der Stamm
-    // endete abrupt, es gab keinen Übergang zur Krone, und die Krone war eine
-    // Masse auf einem Stab. Der Dojo-Garten hat denselben Fehler schon einmal
-    // gehabt, und der Kommentar dort sagt, warum es keine Farbfrage ist:
-    //
-    //   „Ein Baum wird nicht durch seine Krone glaubwürdig, sondern durch die
-    //    Zweige, die man **durch** sie sieht."
-    //
-    // `branchInto()` verzweigt rekursiv über drei Ebenen. Die Laubschöpfe
-    // sitzen auf den **Zweigenden**, nicht als Kugel über allem – dadurch löst
-    // sich die Silhouette auf und man sieht Äste durch die Krone.
-    // **Die Gabel sass zu hoch, und das ist gemessen.**
-    //
-    // `tools/lutscher.mjs` misst ueber die Spalten des Stammes, wie viel der
-    // Baumhoehe nackter Stamm ist — differenziell aus dem Ein- und Ausblenden
-    // von `island-holz` gegen `island-laub` und `island-krone`. Am vorderen
-    // Laubbaum in `1-eyelevel`: **66,8 Prozent**, 125 von 187 Bildpunkten. Ein
-    // Laubbaum in der Natur liegt bei einem Viertel bis zwei Fuenfteln; zwei
-    // Drittel kahler Stiel unter einer runden Masse sind genau das, was der
-    // Pruefer „Lutscher" nennt.
-    //
-    // Die Gabel sitzt deshalb bei 0,60 der Stammhoehe statt an ihrer Spitze.
-    // Damit der Baum dabei nicht schrumpft, werden die Aeste laenger — es ist
-    // dieselbe eine Ziehung, nur mit anderen Grenzen, der Zufallsstrom bleibt
-    // also unverschoben.
-    const teile = [];
-    const oben = new THREE.Vector3(0, trunkHeight * 0.48, 0);
-    const nb = 3 + Math.floor(rand() * 2);
-    for (let k = 0; k < nb; k++) {
-      const az = (k / nb) * Math.PI * 2 + rand() * 0.9;
-      const dir = new THREE.Vector3(
-        Math.cos(az) * 0.6,
-        0.74,
-        Math.sin(az) * 0.6
-      ).normalize();
-      branchInto(teile, oben, dir, 0.46 + rand() * 0.18, 0.035, 2, rand);
+    baueLaubbaum(bau);
+  }
+}
+
+// Gebogener Stamm: ein Zylinder mit mehreren Ringen, dessen Achse einer
+// leichten Kurve folgt. Gibt die Geometrie und den Achsversatz über der
+// relativen Höhe zurück (für Astansätze auf der gebogenen Achse).
+function gebogenerStamm(rand, hoehe, rFuss, rKopf, biegung = 0.06) {
+  const geo = new THREE.CylinderGeometry(rKopf, rFuss, hoehe, 8, 5).translate(0, hoehe / 2, 0);
+  const bx = (rand() - 0.5) * 2 * biegung;
+  const bz = (rand() - 0.5) * 2 * biegung;
+  const kx = (rand() - 0.5) * 1.6 * biegung;
+  const kz = (rand() - 0.5) * 1.6 * biegung;
+  // Am Fuß steht die Achse still (Faktor t): Der Wurzelanlauf ist gerade,
+  // und ein Stamm, der schon über dem Boden ausweicht, liesse ihn seitlich
+  // herausstehen.
+  const versatz = (t) => [
+    bx * Math.sin(t * Math.PI) * t + kx * t * t,
+    bz * Math.sin(t * Math.PI) * t + kz * t * t,
+  ];
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const t = THREE.MathUtils.clamp(pos.getY(i) / hoehe, 0, 1);
+    const [dx, dz] = versatz(t);
+    pos.setX(i, pos.getX(i) + dx);
+    pos.setZ(i, pos.getZ(i) + dz);
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  return { geo, versatz };
+}
+
+function baueLaubbaum({ rand, holz, laub }) {
+  // **Die Gabel sitzt tief.** `tools/lutscher.mjs` hat an den alten Bäumen
+  // zwei Drittel nackten Stamm unter der Krone gemessen – der „Lutscher" des
+  // Prüfers. Ein Laubbaum liegt bei einem Viertel bis zwei Fünfteln.
+  const hoehe = 0.38 + rand() * 0.24;
+  const stamm = gebogenerStamm(rand, hoehe, 0.088, 0.052);
+  holz(stamm.geo);
+  holz(wurzelanlauf(0.07, 0.125, 0.16, Math.floor(rand() * 0xffff)));
+
+  const teile = [];
+  const n = 2 + Math.floor(rand() * 3);
+  const basisAz = rand() * TAU;
+  // Ein Leittrieb: Der steilste und längste Ast führt die Krone nach oben,
+  // die anderen breiten sie aus. Ohne ihn sind alle Äste gleich, und die
+  // Krone wird eine Halbkugel.
+  const leit = Math.floor(rand() * n);
+  for (let k = 0; k < n; k++) {
+    const az = basisAz + (k / n) * TAU + (rand() - 0.5) * 1.0;
+    const istLeit = k === leit;
+    // Steil: Die Verzweigung (`branchInto`) spreizt auf jeder Ebene ohnehin
+    // weit nach außen. Mit flach ansetzenden Hauptästen wurde daraus ein
+    // flacher Schirm – eine Akazie aus der Savanne statt eines Laubbaums.
+    const spreiz = istLeit ? 0.15 + rand() * 0.2 : 0.38 + rand() * 0.34;
+    const dir = new THREE.Vector3(Math.cos(az) * spreiz, 0.82 + rand() * 0.22, Math.sin(az) * spreiz).normalize();
+    // Die Äste setzen gestaffelt an, nicht alle an einem Punkt.
+    const tAnsatz = istLeit ? 1 : 0.78 + rand() * 0.22;
+    const [ox, oz] = stamm.versatz(tAnsatz);
+    const von = new THREE.Vector3(ox, hoehe * tAnsatz, oz);
+    const len = (istLeit ? 0.54 : 0.38) + rand() * 0.2;
+    branchInto(teile, von, dir, len, istLeit ? 0.044 : 0.036, 2, rand);
+  }
+  for (const t of teile) holz(t.geo);
+
+  // Heller oder dunkler Laubbaum: der Griff in die obere oder untere Hälfte
+  // der gemeinsamen Palette.
+  const slice = rand() < 0.5 ? 3 : 0;
+  for (const t of teile) {
+    // Alle Astebenen tragen Laub: die Zweigenden die Kontur, die Gabeln
+    // darunter das Innere. Nur auf den Spitzen ist die Krone eine Schale mit
+    // glatter Unterseite, und die Mitte bleibt hohl.
+    // Wechselnde Ballengröße macht die Kontur unruhig, wie bei einem
+    // gewachsenen Baum.
+    const r =
+      t.depth === 0 ? 0.15 + rand() * 0.1 : t.depth === 1 ? 0.11 + rand() * 0.06 : 0.15 + rand() * 0.05;
+    laub(t.tip.x, t.tip.y, t.tip.z, r, slice);
+  }
+}
+
+// Fichte: tief beastet, schlank, unregelmäßige Etagen, die außen hängen.
+function baueFichte({ rand, holz, nadel }) {
+  const kahl = 0.1 + rand() * 0.16;
+  const r0 = 0.4 + rand() * 0.1;
+  const etagen = 7 + Math.floor(rand() * 2);
+  let ey = kahl + r0 * 0.45;
+  const ansaetze = [];
+  for (let i = 0; i < etagen; i++) {
+    const t = i / (etagen - 1);
+    const radius = r0 * (1 - t * 0.86) * (0.86 + rand() * 0.28);
+    // Gelegentlich eine Lücke: Ein Astquirl ist abgestorben oder ausgebrochen.
+    if (i > 1 && i < etagen - 2 && rand() < 0.12) {
+      ey += radius * 0.55;
+      continue;
     }
-    for (const t of teile) ctx.holz.add(place(t.geo), 0xffffff);
-    // Heller oder dunkler Laubbaum: der Griff in die obere oder untere Hälfte
-    // der gemeinsamen Palette.
-    const slice = hell ? 3 : 0;
-    for (const t of teile) {
-      // **Auch die vorletzte Astebene traegt Laub.** Bisher sassen die Schoepfe
-      // nur auf den aeussersten Zweigenden; die Krone war dadurch eine Schale
-      // mit einer glatten Unterseite. Ein Laubbaum ist innen belaubt, und man
-      // sieht die Aeste DURCH das Laub — dafuer muss auch dazwischen etwas
-      // stehen.
-      //
-      // Der Halbmesser der inneren Schoepfe ist fest und nicht gezogen: Eine
-      // zusaetzliche rand()-Ziehung hier verschoebe Steine, Blumen und Voegel.
-      if (t.depth > 1) continue;
-      const p = punkt(t.tip.x, t.tip.y, t.tip.z);
-      const r = t.depth === 0 ? 0.17 + rand() * 0.06 : 0.115;
-      ctx.laub.push([p[0], p[1], p[2], r * scale, slice]);
+    ansaetze.push([(rand() - 0.5) * 0.05, ey, (rand() - 0.5) * 0.05, radius]);
+    // Die untersten Etagen bekommen hängende Seitenäste: zwei kleinere
+    // Ansätze weiter außen und tiefer. Daraus wird der Fuß der Krone ein
+    // Kranz aus Zweigen statt eines Balls. Nur dort, weil jeder Ansatz
+    // mindestens zwei Schöpfe kostet – an allen breiten Etagen hätte eine
+    // Fichte zweieinhalbmal so viele Kartendreiecke wie vorher.
+    if (i < 2) {
+      const k = 2;
+      const a0 = rand() * TAU;
+      for (let j = 0; j < k; j++) {
+        const a = a0 + (j / k) * TAU + (rand() - 0.5) * 0.8;
+        ansaetze.push([Math.cos(a) * radius * 0.62, ey - radius * 0.24, Math.sin(a) * radius * 0.62, radius * 0.5]);
+      }
     }
+    ey += radius * (0.74 + rand() * 0.22);
+  }
+  // Schmale Spitze: ein kleiner Ansatz über der obersten Etage.
+  ansaetze.push([0, ey + 0.04, 0, 0.07]);
+  const spitze = ey + 0.1;
+  const stamm = gebogenerStamm(rand, spitze * 0.9, 0.075, 0.02, 0.025);
+  holz(stamm.geo);
+  for (const [ax, ay, az, ar] of ansaetze) nadel(ax, ay, az, ar);
+}
+
+// Kiefer: hoher kahler Stamm, lockere, flache Krone aus wenigen Ballen.
+function baueKiefer({ rand, holz, nadel }) {
+  const kahl = 0.6 + rand() * 0.35;
+  const stamm = gebogenerStamm(rand, kahl + 0.55, 0.08, 0.035, 0.09);
+  holz(stamm.geo);
+  holz(wurzelanlauf(0.065, 0.11, 0.12, Math.floor(rand() * 0xffff)));
+  const etagen = 4 + Math.floor(rand() * 2);
+  let ey = kahl;
+  for (let i = 0; i < etagen; i++) {
+    const t = i / (etagen - 1);
+    // Die Kiefernkrone ist oben breit und flach, nicht spitz.
+    const radius = 0.3 * (1 - t * 0.45) * (0.8 + rand() * 0.4);
+    const ballen = i === etagen - 1 ? 1 : 1 + Math.floor(rand() * 2);
+    for (let j = 0; j < ballen; j++) {
+      const a = rand() * TAU;
+      const d = ballen > 1 ? radius * (0.35 + rand() * 0.4) : rand() * 0.06;
+      const [ox, oz] = stamm.versatz(Math.min(1, ey / (kahl + 0.55)));
+      nadel(ox + Math.cos(a) * d, ey, oz + Math.sin(a) * d, radius);
+    }
+    ey += radius * (0.55 + rand() * 0.25);
   }
 }
 
@@ -5383,7 +5465,8 @@ function buildIsland(
     addTree(baumRand, trees_, { x: p.x, y, z: p.z, scale: p.scale, nadel: p.nadel });
     addContactShadow(shadowBucket, shape, p.x, p.z, 0.46 * p.scale, shadows);
   }
-  for (const m of buildCollectedTrees(trees_, kronenSaat)) island.add(m);
+  // `detail < 1` sind die Mini-Inseln (siehe createIslandEnvironment).
+  for (const m of buildCollectedTrees(trees_, kronenSaat, { fern: detail < 1 })) island.add(m);
 
   // Dieselbe Karte wie die Flanke. Vorher trug der Findling die Granitkarte mit
   // ihren Einschlüssen, die Wand aber nicht – zwei Gesteinsarten in einem Bild,

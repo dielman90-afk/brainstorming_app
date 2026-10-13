@@ -180,6 +180,19 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   deshalb `opaque`, solange eine Umgebung aktiv ist, und Blattkarten mit
   Alpha-Abdeckung schreiben kein Alpha mehr. `tools/alphaprobe.mjs` stellt eine
   AR-Sitzung nach und zählt die durchscheinenden Bildpunkte.
+- **Vegetation ohne Füllkörper** (`src/dojo/foliage.js`, `baueKrone` in
+  `src/environments.js`): Kronen und Büsche bestehen nur noch aus
+  Blattkarten – außen Kontur und Licht, innen abgedunkeltes Innenlaub. Der
+  glatte Hüllkörper darunter ist entfallen; durch die Lücken las er sich als
+  glatte Masse ohne Blattzeichnung. Damit ferne Kronen nicht verkahlen, hebt
+  das Laubmaterial Alpha je Mipmap-Stufe an. Wo ein geschlossener Körper
+  gewollt ist (Formschnittpolster, Kronenwand und Wald im Dojo), trägt er
+  Blattzeichnung per Weltprojektion (`laubKoerperMaterial`). Auf der Insel
+  stehen die Bäume in zwei bis drei Hainen und als Solitäre statt in einer
+  Reihe, mit Mindestabstand und ohne drei auf einer Linie. Laubbäume haben
+  gebogene Stämme mit Wurzelanlauf und asymmetrische Kronen; Nadelbäume
+  kommen als Fichte und als Kiefer. `tools/kronenprobe.mjs` misst sichtbaren
+  Kern, Durchblick und Baumabstände.
 
 - **Weltmaßstab:** Die Himmelsinsel ist 1:1 zum Nutzer bemaßt – Bäume rund 6 m,
   die Hauptinsel gut 40 m breit, Büsche auf Schulterhöhe. Sie war ursprünglich
