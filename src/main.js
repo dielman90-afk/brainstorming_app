@@ -131,8 +131,9 @@ const AMBIENT_STANDARD = 1.4;
 const ambientLight = new THREE.HemisphereLight(0xffffff, 0x334455, AMBIENT_STANDARD);
 scene.add(ambientLight);
 
-// Umgebungen: Passthrough/Weiß (-1) sowie die virtuellen Welten aus
-// environments.js, per 🌐-Button zyklisch durchschaltbar.
+// Umgebungen: Raum/Neutral (-1) sowie die virtuellen Welten aus
+// environments.js, direkt wählbar im Reiter „Welt" des Hand-Menüs bzw. in der
+// Leiste „Umgebung" am Desktop.
 // Dezenter, weicher Boden statt Raster für die schlichte Desktop-/Weiß-Ansicht.
 function makeDesktopFloor() {
   const canvas = document.createElement('canvas');
@@ -158,7 +159,7 @@ scene.add(desktopFloor);
 
 const environments = createEnvironments(scene);
 const ENV_STORAGE_KEY = 'webxr-brainstorming-env';
-let envIndex = -1; // -1 = Passthrough (AR) bzw. weißer Hintergrund
+let envIndex = -1; // -1 = Passthrough (AR) bzw. neutraler dunkler Hintergrund
 
 // Ist in einer AR-Sitzung eine Umgebung gewählt, darf das Zimmer nirgends
 // durchscheinen – siehe passthrough.js.
@@ -212,9 +213,15 @@ function applyEnvironment() {
     // hier seine Spiegelkarte auf, und in „Flüssig" stünde sonst womöglich die
     // Schattenkarte der vorigen Umgebung darin.
     renderer.shadowMap.needsUpdate = true;
+    // **Grundlicht vor dem Haken setzen, nicht danach.** Der Zen-Garten nimmt
+    // in `ensureEnvironment` seinen Teich auf, und die Hemisphärenleuchte hängt
+    // an der Szene. Mit dem Wert der vorigen Welt hing die Helligkeit der
+    // Spiegelung davon ab, woher man kam – beim Durchschalten zufällig richtig
+    // (Nachthimmel und Garten haben beide 0), bei Direktwahl aus dem Konstrukt
+    // oder von der Insel (1,4) nicht mehr.
+    ambientLight.intensity = env.sceneAmbient ?? AMBIENT_STANDARD;
     env.ensureEnvironment?.(renderer);
     scene.environment = env.environment ?? null;
-    ambientLight.intensity = env.sceneAmbient ?? AMBIENT_STANDARD;
     desktopFloor.visible = false;
   } else if (inPassthrough) {
     ambientLight.intensity = AMBIENT_STANDARD;
@@ -232,6 +239,9 @@ function applyEnvironment() {
   // Neue Welt, neue Schattenkarte – auch dann, wenn „Flüssig" gerade ein Bild
   // ohne Schattenpass vorgesehen hätte.
   renderer.shadowMap.needsUpdate = true;
+  // Menü und Desktop-Leiste zeigen, was jetzt gilt. Hier und nicht beim Klick:
+  // Auch Sitzungsbeginn, -ende, Start und Qualitätswechsel laufen hier durch.
+  zeigeUmgebungswahl();
 }
 
 // Gemerkt wird die stabile `id` der Umgebung, nicht ihre Position in der Liste:
@@ -251,13 +261,17 @@ function savedEnvIndex() {
   }
 }
 
-function cycleEnvironment() {
-  envIndex = envIndex >= environments.length - 1 ? -1 : envIndex + 1;
+function indexVon(id) {
+  if (id === 'neutral' || id === 'passthrough') return -1;
+  return environments.findIndex((env) => env.id === id);
+}
+
+// Sofort und synchron umschalten. Der Weg der Werkzeuge (`__app.env.waehle`,
+// `cycle`) und das Ziel von `waehleUmgebung`.
+function setzeUmgebung(index) {
+  envIndex = index;
   try {
-    localStorage.setItem(
-      ENV_STORAGE_KEY,
-      envIndex >= 0 ? environments[envIndex].id : 'passthrough'
-    );
+    localStorage.setItem(ENV_STORAGE_KEY, envIndex >= 0 ? environments[envIndex].id : 'passthrough');
   } catch {
     // Autosave der Umgebungswahl ist optional
   }
@@ -268,8 +282,86 @@ function cycleEnvironment() {
       ? `${environments[envIndex].name} aktiv.`
       : inAR
         ? '🪟 Passthrough aktiv – du siehst wieder deinen Raum.'
-        : 'Weißer Hintergrund aktiv.'
+        : 'Neutraler Hintergrund aktiv.'
   );
+}
+
+// Eine Welt weiter – für die Werkzeuge, die so ihre Zielwelt ansteuern, und
+// für die Aktion `environment`. Im Menü gibt es dafür keinen Knopf mehr.
+function cycleEnvironment() {
+  setzeUmgebung(envIndex >= environments.length - 1 ? -1 : envIndex + 1);
+}
+
+// **Ein Wechsel aus dem Menü baut nie im selben Takt, in dem geklickt wurde.**
+//
+// Eine ungebaute Welt kostet Sekunden (siehe `traegeUmgebung` in
+// environments.js): das prozedurale Bauen, die Spiegel- und Himmelskarten,
+// danach das Übersetzen der Shader. Solange das läuft, reicht die Brille kein
+// Bild ein, und die Quest zeigt das letzte weiter – bisher war das die alte
+// Welt ohne jedes Zeichen, also ein Hänger. Jetzt wird erst „… wird
+// aufgebaut" gezeichnet und eingereicht, gebaut wird zwei Bilder später. Die
+// Zeit ist dieselbe, aber man sieht, dass etwas passiert, und die alte Welt
+// bleibt bis dahin stehen.
+//
+// Der zweite Hebel ist die Direktwahl selbst: Durchschalten baute jede Welt
+// auf dem Weg mit – von der Insel zum Dojo drei Welten, die niemand sehen
+// wollte.
+let umschaltAuftrag = null; // { index, warteBilder, anzeige }
+const umschaltProtokoll = [];
+
+function waehleUmgebung(index) {
+  const env = index >= 0 ? environments[index] : null;
+  brichUmschaltungAb();
+  if (!env || env.gebaut) {
+    setzeUmgebung(index);
+    return;
+  }
+  // Während Claude arbeitet, gehört der Spinner Claude – dann nur die Zeile.
+  const text = `${env.kurzname} wird aufgebaut…`;
+  const anzeige = busy ? 'zeile' : 'spinner';
+  if (anzeige === 'spinner') setBusyLabel(text);
+  setStatus(text, 0);
+  umschaltAuftrag = { index, warteBilder: 2, anzeige, angefordert: performance.now() };
+  zeigeUmgebungswahl(index);
+}
+
+function brichUmschaltungAb() {
+  if (umschaltAuftrag?.anzeige === 'spinner') setBusyLabel(null);
+  umschaltAuftrag = null;
+}
+
+// Am Anfang der Bildschleife, nicht nach `renderer.render`: Erst wenn der
+// Rückruf zurückkehrt, reicht WebXR das Bild ein. Würde danach im selben
+// Rückruf gebaut, hielte das genau das Bild mit dem Hinweis zurück.
+function fuehreUmschaltungAus() {
+  if (!umschaltAuftrag || umschaltAuftrag.warteBilder-- > 0) return;
+  const { index, anzeige, angefordert } = umschaltAuftrag;
+  umschaltAuftrag = null;
+  const start = performance.now();
+  setzeUmgebung(index);
+  umschaltProtokoll.push({
+    id: environments[index].id,
+    wartezeit: start - angefordert,
+    bauzeit: performance.now() - start,
+  });
+  if (anzeige === 'spinner') setBusyLabel(null);
+}
+
+// Menü und Desktop-Leiste auf den Stand bringen. `ziel`: die Welt, die gerade
+// gewählt wurde und noch gebaut wird – sie leuchtet schon.
+function zeigeUmgebungswahl(ziel = umschaltAuftrag?.index ?? envIndex) {
+  const inAR = renderer.xr.isPresenting && xrMode === 'immersive-ar';
+  wristMenu.setActionLabel('env:neutral', inAR ? 'Raum' : 'Neutral');
+  wristMenu.setActionActive('env:neutral', ziel < 0);
+  environments.forEach((env, i) => wristMenu.setActionActive(`env:${env.id}`, i === ziel));
+  const stufe = aktuelleQualitaet();
+  for (const s of QUALITAETSSTUFEN) wristMenu.setActionActive(`quality:${s}`, s === stufe);
+  for (const knopf of document.querySelectorAll('#env-row button')) {
+    knopf.classList.toggle('active', indexVon(knopf.dataset.env) === ziel);
+  }
+  for (const knopf of document.querySelectorAll('#quality-row button')) {
+    knopf.classList.toggle('active', knopf.dataset.stufe === stufe);
+  }
 }
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -716,7 +808,12 @@ function applyQualityTier() {
 
 function cycleQuality() {
   const i = QUALITAETSSTUFEN.indexOf(aktuelleQualitaet());
-  qualitaetsWahl = QUALITAETSSTUFEN[(i + 1) % QUALITAETSSTUFEN.length];
+  setzeQualitaet(QUALITAETSSTUFEN[(i + 1) % QUALITAETSSTUFEN.length]);
+}
+
+function setzeQualitaet(neu) {
+  if (!QUALITAETSSTUFEN.includes(neu)) return;
+  qualitaetsWahl = neu;
   try {
     localStorage.setItem(QUALITY_STORAGE_KEY, qualitaetsWahl);
   } catch {
@@ -932,6 +1029,25 @@ const CLUSTER_FARBEN = [
 ];
 
 async function handleAction(action) {
+  // Welt und Bildqualität haben mit Claude nichts zu tun – sie gehen auch,
+  // während eine Anfrage läuft. Bisher schluckte die Sperre unten diese Klicks.
+  if (action === 'environment') {
+    waehleUmgebung(envIndex >= environments.length - 1 ? -1 : envIndex + 1);
+    return;
+  }
+  if (action.startsWith('env:')) {
+    const index = indexVon(action.slice(4));
+    if (index >= -1) waehleUmgebung(index);
+    return;
+  }
+  if (action === 'quality') {
+    cycleQuality();
+    return;
+  }
+  if (action.startsWith('quality:')) {
+    setzeQualitaet(action.slice(8));
+    return;
+  }
   if (busy) {
     setStatus('Claude arbeitet noch – einen Moment.');
     return;
@@ -939,14 +1055,6 @@ async function handleAction(action) {
   try {
     if (action === 'new') {
       await newCardFlow();
-      return;
-    }
-    if (action === 'environment') {
-      cycleEnvironment();
-      return;
-    }
-    if (action === 'quality') {
-      cycleQuality();
       return;
     }
     if (action === 'fontsize') {
@@ -1548,7 +1656,6 @@ const DESKTOP_BUTTONS = {
   'btn-flow-label': 'flow-label',
   'btn-flow-layout': 'flow-layout',
   'btn-clear': 'clear',
-  'btn-env': 'environment',
   'btn-undo': 'undo',
   'btn-redo': 'redo',
 };
@@ -1759,6 +1866,37 @@ contextMenu.addEventListener('click', (e) => {
   }
 });
 
+// Umgebung und Bildqualität am Desktop: je Welt ein Chip, dieselben Aktionen
+// wie im Reiter „Welt" (handleAction `env:<id>` bzw. `quality:<stufe>`). Die
+// Namen kommen ohne Bauen aus dem Stellvertreter (`kurzname`).
+const envRow = document.getElementById('env-row');
+if (envRow) {
+  const eintraege = [
+    { id: 'neutral', label: 'Neutral' },
+    ...environments.map((env) => ({ id: env.id, label: env.kurzname })),
+  ];
+  for (const { id, label } of eintraege) {
+    const button = document.createElement('button');
+    button.textContent = label;
+    button.dataset.env = id;
+    button.addEventListener('click', () => handleAction(`env:${id}`));
+    envRow.appendChild(button);
+  }
+}
+const qualityRow = document.getElementById('quality-row');
+if (qualityRow) {
+  for (const stufe of QUALITAETSSTUFEN) {
+    const button = document.createElement('button');
+    button.textContent = stufe === 'voll' ? 'Voll' : 'Flüssig';
+    button.dataset.stufe = stufe;
+    button.title = QUALITAET_NAMEN[stufe];
+    button.addEventListener('click', () => handleAction(`quality:${stufe}`));
+    qualityRow.appendChild(button);
+  }
+}
+// Markiert wird beim ersten `applyEnvironment()` unten im Start – nicht hier:
+// `zeigeUmgebungswahl` liest `xrMode`, und das ist hier noch nicht deklariert.
+
 // Formauswahl im Kontextmenü – nach demselben Muster wie die Farbpunkte.
 // Beschriftet wie die Formleiste im Overlay: Fünf namenlose Symbole
 // untereinander waren nicht zu deuten, und breiter wird das Menü davon nicht –
@@ -1945,13 +2083,16 @@ renderer.xr.addEventListener('sessionstart', () => {
   // „mittel" umgeschaltet, und genau diese Fassung war es, die der Nutzer als
   // unbrauchbar gemeldet hat.
   locomotion.reset(); // Fortbewegungs-Rig zentriert starten
+  brichUmschaltungAb();
   if (xrMode === 'immersive-ar') {
     // Passthrough: Raum zeigen, Umgebung per Menü zuschaltbar
     envIndex = -1;
   } else {
-    // Reine VR-Session: direkt immersiv – zuletzt genutzte Umgebung, sonst Insel
+    // Reine VR-Session: direkt immersiv – zuletzt genutzte Umgebung, sonst
+    // Insel. Über die id, nicht über „Platz 0": Vorn steht seit dem Umstellen
+    // das Konstrukt, und die Startwelt soll sich nicht still mitverschieben.
     const saved = savedEnvIndex();
-    envIndex = saved !== null && saved >= 0 ? saved : 0;
+    envIndex = saved !== null && saved >= 0 ? saved : indexVon('island');
   }
   applyEnvironment();
   wristMenu.setVisible(true);
@@ -1972,6 +2113,7 @@ renderer.xr.addEventListener('sessionend', () => {
   // (siehe Animationsschleife) fällt aus – im 🌌 Nachthimmel, dessen Boden bei
   // 25 m liegt, sah die Kamera danach senkrecht in den Planeten.
   _walkEnv = -2;
+  brichUmschaltungAb();
   envIndex = savedEnvIndex() ?? -1;
   applyEnvironment();
   wristMenu.setVisible(false);
@@ -2061,6 +2203,9 @@ clock.connect(document);
 let elapsed = 0;
 
 renderer.setAnimationLoop(() => {
+  // Ein angefragter Weltwechsel baut hier, zu Beginn eines Bildes – siehe
+  // `fuehreUmschaltungAus`.
+  fuehreUmschaltungAus();
   // update() ist die einzige Zeitquelle; elapsed wird selbst akkumuliert.
   clock.update();
   const dt = Math.min(0.1, clock.getDelta());
@@ -2341,6 +2486,14 @@ window.__app = {
     desktopFloor,
     current: () => envIndex,
     cycle: cycleEnvironment,
+    // Direkt und synchron auf eine Welt (id oder 'neutral') – für Werkzeuge.
+    // Das Menü nimmt den Weg über `waehleUmgebung`, mit Hinweis vor dem Bauen.
+    waehle: (id) => {
+      brichUmschaltungAb();
+      setzeUmgebung(indexVon(id));
+    },
+    ausstehend: () => umschaltAuftrag?.index ?? null,
+    protokoll: umschaltProtokoll,
     // Der begehbare Bereich der aktiven Umgebung – damit ein Testskript ihn
     // ohne Umweg über die Bildschleife befragen kann.
     walk: () => (envIndex >= 0 ? environments[envIndex].walk : null) ?? FLAT_WALK,

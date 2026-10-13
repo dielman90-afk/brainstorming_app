@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { gemeinsamerPmrem } from '../pmrem.js';
 import { FILL, ROOM, SHOJI, SUN, sunDirection, WALL } from './layout.js';
 
 // Licht und Atmosphäre des Konstrukt-Dojos.
@@ -127,12 +128,12 @@ function buildEnvironment(renderer) {
   const shell = new THREE.Mesh(new THREE.SphereGeometry(8, 32, 20), material);
   probe.add(shell);
 
-  const pmrem = new THREE.PMREMGenerator(renderer);
+  // Geteilter Generator, nicht entsorgen – siehe src/pmrem.js.
+  const pmrem = gemeinsamerPmrem(renderer);
   // `sigma` > 0 verschmiert die Sonde leicht, bevor sie gefiltert wird. Der
   // Schlitz hat harte Kanten; ohne die Vorunschärfe zeichnet sich seine Kante in
   // den rauen Mips als Treppe ab.
   const target = pmrem.fromScene(probe, 0.03, 0.1, 30);
-  pmrem.dispose();
 
   shell.geometry.dispose();
   material.dispose();

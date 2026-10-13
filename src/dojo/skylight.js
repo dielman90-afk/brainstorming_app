@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { gemeinsamerPmrem } from '../pmrem.js';
 import { SUN, sunDirection } from './layout.js';
 
 // ☀ Himmelslicht für den Außenbereich.
@@ -295,9 +296,9 @@ export function buildSkyEnvironment(renderer, himmel = null) {
   const shell = new THREE.Mesh(new THREE.SphereGeometry(8, 64, 40), material);
   probe.add(shell);
 
-  const pmrem = new THREE.PMREMGenerator(renderer);
+  // Geteilter Generator, nicht entsorgen – siehe src/pmrem.js.
+  const pmrem = gemeinsamerPmrem(renderer);
   const target = pmrem.fromScene(probe, PREBLUR_SIGMA, 0.1, 30);
-  pmrem.dispose();
 
   shell.geometry.dispose();
   material.dispose();

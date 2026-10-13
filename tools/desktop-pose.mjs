@@ -23,7 +23,7 @@
 
 import { startServer, launchBrowser, openApp } from './harness-common.mjs';
 
-const UMGEBUNGEN = ['island', 'night', 'zen', 'matrix', 'dojo'];
+const UMGEBUNGEN = ['matrix', 'island', 'night', 'zen', 'dojo'];
 
 const server = await startServer();
 const browser = await launchBrowser();
@@ -36,6 +36,7 @@ try {
     await page.evaluate((wanted) => {
       const api = window.__app.env;
       const ziel = api.environments.findIndex((e) => e.id === wanted);
+      if (api.waehle) api.waehle(wanted);
       let schutz = 0;
       while (api.current() !== ziel && schutz++ < 12) api.cycle();
     }, id);
@@ -81,6 +82,7 @@ try {
   await page.evaluate(() => {
     const api = window.__app.env;
     const ziel = api.environments.findIndex((e) => e.id === 'night');
+    if (api.waehle) api.waehle('night');
     let schutz = 0;
     while (api.current() !== ziel && schutz++ < 12) api.cycle();
   });

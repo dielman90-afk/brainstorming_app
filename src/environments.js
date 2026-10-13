@@ -25,12 +25,15 @@ import {
 import { buildSkyEnvironment } from './dojo/skylight.js';
 import { applyQuality } from './dojo/quality.js';
 import { deckendesAlpha } from './passthrough.js';
+import { UMGEBUNGEN } from './umgebungsliste.js';
+import { gemeinsamerPmrem } from './pmrem.js';
 
-// Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets):
+// Fünf umschaltbare VR-Umgebungen, komplett prozedural (keine externen Assets),
+// in der Reihenfolge von `src/umgebungsliste.js`:
+//   ⬜ Konstrukt    – nahtloser, komplett weißer Void („Matrix"-Ladeprogramm)
 //   🏝 Himmelsinsel – Low-Poly-Insel mit Bäumen, Fluss/Wasserfall und Wolken
 //   🌌 Nachthimmel  – Sternenfeld, Mond und rötlicher Mars-Untergrund
 //   🪷 Zen-Garten   – ruhige Kies-/Steinlandschaft
-//   ⬜ Konstrukt    – nahtloser, komplett weißer Void („Matrix"-Ladeprogramm)
 //   ⛩ Konstrukt-Dojo – der Trainingsraum aus demselben Film (src/dojo/)
 //
 // **Die Module unter `src/dojo/` sind nicht nur fürs Dojo.** `materials.js`,
@@ -15934,9 +15937,8 @@ function createZenEnvironment() {
     szene.environment = umgebungVorher;
     for (const [o, sichtbar] of innen) o.visible = sichtbar;
     for (const [k, sichtbar] of aussen) k.visible = sichtbar;
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const karte = pmrem.fromCubemap(ziel.texture).texture;
-    pmrem.dispose();
+    // Geteilter Generator, nicht entsorgen – siehe src/pmrem.js.
+    const karte = gemeinsamerPmrem(renderer).fromCubemap(ziel.texture).texture;
     ziel.dispose();
     return karte;
   }
@@ -18171,9 +18173,8 @@ function konstruktUmgebungskarte(renderer) {
   // einen weichen Uebergang. Die feinere Unterteilung der Dojo-Sonde ist dort
   // noetig, weil eine 4-Grad-Sonne sonst in ein Dreieck faellt.
   probe.add(new THREE.Mesh(new THREE.SphereGeometry(8, 32, 20), material));
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const ziel = pmrem.fromScene(probe, 0, 0.1, 30);
-  pmrem.dispose();
+  // Geteilter Generator, nicht entsorgen – siehe src/pmrem.js.
+  const ziel = gemeinsamerPmrem(renderer).fromScene(probe, 0, 0.1, 30);
   probe.traverse((o) => {
     if (o.isMesh) o.geometry.dispose();
   });
@@ -18789,21 +18790,28 @@ function createMatrixEnvironment() {
  * Nebels. Der Stellvertreter leitet **alles** weiter, was er nicht selbst
  * kennt, und baut dabei.
  *
- * Selbst kennt er genau drei Dinge, und die dürfen nicht bauen:
+ * Selbst kennt er diese Dinge, und die dürfen nicht bauen:
  *
  *   • `id` — `main.js` sucht damit die gemerkte Umgebung, und der Prüfstand
  *     sucht damit seine Zielumgebung. Beides läuft über **alle** fünf.
+ *   • `kurzname` — die Beschriftung im Menü (Reiter „Welt").
+ *   • `gebaut` — ob es die Welt schon gibt. Danach richtet sich, ob ein
+ *     Wechsel erst „wird aufgebaut…" anzeigt (main.js, `waehleUmgebung`).
  *   • `sichtbar(ja)` — was nicht gebaut ist, ist auch nicht sichtbar; nur das
  *     Einschalten baut.
  *   • `setQuality(stufe)` — läuft ebenfalls über alle fünf. Die Stufe wird
  *     gemerkt und beim Bauen nachgeholt.
  */
-function traegeUmgebung(id, bauen, scene) {
+function traegeUmgebung(id, kurzname, bauen, scene) {
   let echt = null;
   let stufe = null;
   const holen = () => {
     if (!echt) {
       echt = bauen();
+      // Die Kennung steht doppelt: in der Liste und im Rückgabewert der
+      // Baufunktion. Laufen sie auseinander, merkt sich main.js eine Welt
+      // unter falschem Namen – das soll laut auffallen, nicht still.
+      if (echt.id !== id) console.error(`Umgebung „${id}" baut sich als „${echt.id}"`);
       echt.group.visible = false;
       scene.add(echt.group);
       if (stufe !== null) echt.setQuality?.(stufe);
@@ -18812,6 +18820,9 @@ function traegeUmgebung(id, bauen, scene) {
   };
   const eigen = {
     id,
+    // Menüname ohne Bauen (siehe umgebungsliste.js). Bewusst nicht `name`: Den
+    // vollen Namen samt Emoji liefert die gebaute Welt für die Statuszeile.
+    kurzname,
     get gebaut() {
       return echt !== null;
     },
@@ -18844,21 +18855,16 @@ function traegeUmgebung(id, bauen, scene) {
 }
 
 export function createEnvironments(scene) {
-  // **Die Reihenfolge ist der Index, den `cycleEnvironment` durchläuft** und
-  // den die Testskripte hart verdrahtet haben (Konstrukt = 3). Ein Einschub in
-  // der Mitte würde jedes davon still auf die falsche Welt zeigen lassen.
-  // Deshalb steht das Dojo angehängt und nicht eingeschoben.
-  //
-  // Die Kennung steht hier doppelt — einmal hier, einmal im Rückgabewert der
-  // Baufunktion. Sie muss bekannt sein, **bevor** gebaut wird, denn `main.js`
-  // sucht die gemerkte Umgebung über sie. Wer eine ändert, ändert beide; der
-  // Prüfstand unten schlägt sonst Alarm.
-  const bauplaene = [
-    ['island', createIslandEnvironment],
-    ['night', createNightEnvironment],
-    ['zen', createZenEnvironment],
-    ['matrix', createMatrixEnvironment],
-    ['dojo', createDojoEnvironment],
-  ];
-  return bauplaene.map(([id, bauen]) => traegeUmgebung(id, bauen, scene));
+  // Die Reihenfolge kommt aus `src/umgebungsliste.js`, die Baufunktion aus
+  // dieser Tabelle. Nichts außerhalb hängt an der Position: Gemerkt wird die
+  // Wahl über die `id` (main.js, `savedEnvIndex`), und die Werkzeuge suchen
+  // ihre Zielwelt ebenfalls über sie.
+  const BAUFUNKTIONEN = {
+    island: createIslandEnvironment,
+    night: createNightEnvironment,
+    zen: createZenEnvironment,
+    matrix: createMatrixEnvironment,
+    dojo: createDojoEnvironment,
+  };
+  return UMGEBUNGEN.map(({ id, kurz }) => traegeUmgebung(id, kurz, BAUFUNKTIONEN[id], scene));
 }

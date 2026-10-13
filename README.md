@@ -37,26 +37,9 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   ist die Signatur von Fremdlast auf der CPU, nicht der Szene.)
 
 - **Fünf virtuelle Umgebungen** (`src/environments.js` und `src/dojo/`, komplett
-  prozedural, ohne externe Assets): Der Button **„Umgebung“** schaltet zyklisch durch
-  Passthrough/Weiß → **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Büschen,
-  Pilzen, Blumen, Fluss samt Wasserfall mit Schaum & Regenbogen, hängenden Ranken
-  unter den Inseln, kreisenden Vögeln, Schmetterlingen, 3D-Wolken – auch unter den
-  Inseln – und schwebenden Mini-Inseln) →
-  **🌌 Nachthimmel** (Sternenfeld, Mond und natürlicher **Mars-Untergrund** mit
-  Kratern, Felsen und Hügeln) → **🪷 Zen-Garten** (geharkter Sand, Koi-Teich mit
-  Seerosen, Lotus & Wasser-Ringen, Bambushain, Kirschblüten- und Ahornbaum,
-  Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel).
-  Im Teich ziehen **zwei Koi** ihre Bahnen – Spindelkörper aus einem
-  Rotationsprofil, seitlich schmal und hochrückig, mit weichen Flossen,
-  wedelndem Schwanz und gefleckter Zeichnung als Canvas-Textur (Kohaku in
-  Weiß-Rot, Ogon in Orange-Weiß). Zuvor waren es fünf flachgedrückte Kugeln mit
-  Kegeln als Flossen, die im Wasser wie Bonbons mit Zacken aussahen.
-  Sie schwimmen **kopfvoran**: Die Blickrichtung ist die Tangente der Bahn,
-  abgeleitet aus der Position, nicht der Bahnwinkel plus ein fester Versatz.
-  Genau der war vorher drin – mit 90° daneben, sodass die Fische breitseits
-  durch den Teich zogen. Dazu eine leichte Schräglage in die Kurve und eine
-  mitgehende Nase beim Auf- und Abtauchen; einer zieht seine Runden im, der
-  andere gegen den Uhrzeigersinn. →
+  prozedural, ohne externe Assets): Der Reiter **„Welt“** im Hand-Menü – am
+  Desktop die Leiste **„Umgebung“** – wählt jede Welt direkt. Die Reihenfolge
+  steht an einer Stelle (`src/umgebungsliste.js`): Raum bzw. Neutral →
   **⬜ Konstrukt** (nahtloser, komplett weißer Void im Stil des
   „Matrix“-Ladeprogramms – Kuppel und Boden im selben Weißton, kein sichtbarer
   Horizont, gleichmäßiges schattenfreies Licht). Darin steht die **Einrichtung
@@ -82,7 +65,26 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
   Startpunkt, also hinter dem Halbkreis, in dem neue Karten erscheinen.
   Das frühere **🌐 Studio** (schlichter heller Verlauf) ist entfernt: Es war vom
   Konstrukt kaum zu unterscheiden – beides eine helle, leere Kuppel – und
-  verlängerte den Durchlauf des Buttons ohne erkennbaren Unterschied.
+  verlängerte den Durchlauf des Buttons ohne erkennbaren Unterschied. →
+  **🏝 Himmelsinsel** (Low-Poly-Insel mit Bäumen, Büschen,
+  Pilzen, Blumen, Fluss samt Wasserfall mit Schaum & Regenbogen, hängenden Ranken
+  unter den Inseln, kreisenden Vögeln, Schmetterlingen, 3D-Wolken – auch unter den
+  Inseln – und schwebenden Mini-Inseln) →
+  **🌌 Nachthimmel** (Sternenfeld, Mond und natürlicher **Mars-Untergrund** mit
+  Kratern, Felsen und Hügeln) → **🪷 Zen-Garten** (geharkter Sand, Koi-Teich mit
+  Seerosen, Lotus & Wasser-Ringen, Bambushain, Kirschblüten- und Ahornbaum,
+  Steinlaterne, Torii, Blütenblätter, Staubpartikel im Licht und Bodennebel).
+  Im Teich ziehen **zwei Koi** ihre Bahnen – Spindelkörper aus einem
+  Rotationsprofil, seitlich schmal und hochrückig, mit weichen Flossen,
+  wedelndem Schwanz und gefleckter Zeichnung als Canvas-Textur (Kohaku in
+  Weiß-Rot, Ogon in Orange-Weiß). Zuvor waren es fünf flachgedrückte Kugeln mit
+  Kegeln als Flossen, die im Wasser wie Bonbons mit Zacken aussahen.
+  Sie schwimmen **kopfvoran**: Die Blickrichtung ist die Tangente der Bahn,
+  abgeleitet aus der Position, nicht der Bahnwinkel plus ein fester Versatz.
+  Genau der war vorher drin – mit 90° daneben, sodass die Fische breitseits
+  durch den Teich zogen. Dazu eine leichte Schräglage in die Kurve und eine
+  mitgehende Nase beim Auf- und Abtauchen; einer zieht seine Runden im, der
+  andere gegen den Uhrzeigersinn.
   Keine Umgebung hat ein Boden-Raster; filmisches Tone-Mapping, weiche
   Beleuchtung, gebackenes Vertex-Shading und gefälschte Kontaktschatten
   (Blob-Shadows) sorgen für Tiefe ohne teure Echtzeit-Schatten. Die Auswahl wird
@@ -157,8 +159,8 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     *Nachtrag:* Die eigene XR-Stufe gibt es nicht mehr – die Brille rendert
     dieselbe Fassung wie der Desktop (siehe **Bildqualität**).
 
-- **Bildqualität** (`src/dojo/quality.js`, Hand-Menü → *Board* →
-  *Bildqualität*): zwei Stufen mit **derselben Optik**. Vorher gab es drei
+- **Bildqualität** (`src/dojo/quality.js`, Hand-Menü → *Welt* → *Voll* /
+  *Flüssig*, am Desktop die Leiste „Umgebung“): zwei Stufen mit **derselben Optik**. Vorher gab es drei
   (sparsam, mittel, voll), die Brille startete auf „mittel", und die unteren
   Stufen sparten, indem sie das Bild veränderten – einseitiges Laub, kein
   Umgebungslicht, ausgedünnte Büsche. Auf der Quest war nur „voll" brauchbar.
@@ -272,19 +274,28 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
     und Confluence rendern das direkt, der in VR gebaute Prozess ist also ohne
     Zwischenschritt im Dokument und dort weiter bearbeitbar. Ein Bild wäre eine
     Sackgasse.
-- **Hand-Menü** (`src/wristMenu.js`) auf drei Reitern, damit das Panel trotz
-  26 Aktionen kompakt bleibt. Jede Aktion trägt dasselbe Linien-Icon wie ihr
+- **Hand-Menü** (`src/wristMenu.js`) auf vier Reitern, damit das Panel trotz
+  gut 30 Aktionen kompakt bleibt. Jede Aktion trägt dasselbe Linien-Icon wie ihr
   Desktop-Knopf (eine Pfad-Definition in `src/icons.js`, auf die
-  Canvas-Textur gezeichnet). Die kürzere Seite wird im Panel vertikal
+  Canvas-Textur gezeichnet). Kürzere Seiten werden im Panel vertikal
   zentriert, damit unten keine leere Reihe klafft:
   - **Ideen:** *Neue Karte*, *Themen-Start*, *Verwandte Ideen*, *Kritiker*,
     *Cluster*, *Zusammenfassen*, *Farbe*, *Verbinden*, *Schrift*,
     *Karte löschen*
   - **Board:** *Rückgängig*, *Wiederholen*, *Zone*, *Timer*, *Whiteboard*,
-    *Umgebung*, *Bildqualität*, *Als Datei*,
-    *Alles löschen* (mit Zweifach-Bestätigung)
+    *Alles ordnen*, *Als Datei*, *Alles löschen* (mit Zweifach-Bestätigung)
   - **Prozess:** *Aus Text bauen*, *Schritt*, *Form wechseln*, *Pfeil ziehen*,
     *Zweig benennen*, *Anordnen*, *Als Mermaid*
+  - **Welt:** *Raum* (mit Passthrough, sonst *Neutral*), *Konstrukt*, *Insel*,
+    *Nachthimmel*, *Zen-Garten*, *Dojo*, *Voll*, *Flüssig* – je Welt ein
+    Knopf statt eines Umschalters. Die aktive Welt und die aktive Stufe
+    leuchten. Gebaut wird nur, was gewählt wird; vorher baute das
+    Durchschalten jede Welt auf dem Weg mit. Ist die gewählte Welt noch nicht
+    gebaut, steht zuerst „… wird aufgebaut“ mit Spinner im Bild und die alte
+    Welt bleibt stehen; gebaut wird zwei Bilder später. So sieht man in der
+    Brille, dass etwas passiert, statt eines eingefrorenen Bildes. Welt und
+    Qualität lassen sich auch wählen, während Claude arbeitet. Prüfstand:
+    `tools/weltprobe.mjs`.
 
   Das Menü sitzt **mit Controllern** über dem Handrücken der linken Hand und
   reicht nach vorn ins Blickfeld (statt hinter dem Handgelenk Richtung
@@ -483,8 +494,10 @@ Deren Canvas-Text wird einmal nachgezeichnet, sobald die Fonts geladen sind.
 │   ├── fonts.js            Lokal gebündelte Schriften (@fontsource)
 │   ├── ai.js               Client für den Server-Proxy (Timeout + Wiederholung)
 │   ├── boardState.js       JSON-Export/-Import, Mermaid-Export, Autosave
-│   ├── environments.js     Vier prozedurale Umgebungen (Insel, Mars-Nacht, Zen, Konstrukt
-│   │                       inkl. Matrix-Sitzgruppe: Ohrensessel + Radiola-Konsole)
+│   ├── environments.js     Prozedurale Umgebungen (Konstrukt inkl. Matrix-Sitzgruppe,
+│   │                       Insel, Mars-Nacht, Zen; das Dojo liegt unter src/dojo/)
+│   ├── umgebungsliste.js   Reihenfolge und Menünamen der Welten – die einzige Stelle
+│   ├── pmrem.js            Ein geteilter PMREM-Generator für alle Spiegel-/Himmelskarten
 │   ├── whiteboard.js       Zeichenbares Whiteboard mit Werkzeugleiste + KI-Analyse
 │   ├── zones.js            Zonen als Behälter: Mitgliedschaft, Raster, Mitwandern
 │   ├── timer.js            Schwebende Timebox-Uhr mit Gong
@@ -595,7 +608,7 @@ Deployment.
 | Menü **mit Controllern** | Über dem Handrücken der **linken Hand** – mit dem rechten Ray anvisieren und Trigger drücken |
 | Menü **ohne Controller** | **Handfläche öffnen und zum Gesicht drehen** – das Menü erscheint darüber (linke Hand bevorzugt, die rechte geht genauso). Klicken per **Pinch** (Daumen + Zeigefinger) der anderen Hand |
 | Bewegen **ohne Controller** | **Ins Leere pinchen und die Hand bewegen** = sich an der Welt entlangziehen · **beide Hände** = zusätzlich drehen |
-| Menüseite wechseln | Reiter **„Ideen“**, **„Board“** bzw. **„Prozess“** oben im Panel antippen |
+| Menüseite wechseln | Reiter **„Ideen“**, **„Board“**, **„Prozess“** bzw. **„Welt“** oben im Panel antippen |
 | Neue Karte | Menü → „Neue Karte“ → virtuelle Tastatur öffnet sich (Spracheingabe gibt es in XR nicht) |
 | Themen-Start | Menü → „Themen-Start“ → Thema sprechen/tippen |
 | **Kartenschrift** | Menü → „Ideen“ → **„Schrift“** (Normal → Groß → Sehr groß) |
@@ -609,7 +622,8 @@ Deployment.
 | Board als Datei | Menü → „Board“ → „Als Datei“ (liegt nach der Sitzung in den Downloads) |
 | Fehlerkarte schließen | Die rote Karte im Blickfeld antippen (verschwindet sonst nach 10 s) |
 | Zone / Timer | Menü → „Board“ → „Zone“ bzw. „Timer“ |
-| Umgebung wechseln | Menü → „Umgebung“ (Passthrough → Himmelsinsel → Nachthimmel/Mars → Zen-Garten → Konstrukt) |
+| Umgebung wechseln | Menü → „Welt“ → Knopf der Welt (Raum, Konstrukt, Insel, Nachthimmel, Zen-Garten, Dojo); am Desktop die Leiste „Umgebung“ |
+| Bildqualität | Menü → „Welt“ → „Voll“ bzw. „Flüssig“; am Desktop dieselbe Leiste |
 | Statusmeldungen | Kleines HUD-Panel unten im Blickfeld |
 
 Die Platzierung des Menüs lässt sich in `src/wristMenu.js` über die Konstanten

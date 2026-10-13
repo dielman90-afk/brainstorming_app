@@ -665,6 +665,9 @@ export async function selectEnv(page, id) {
     ({ wanted, frozen }) => {
       const api = window.__app.env;
       const target = api.environments.findIndex((e) => e.id === wanted);
+      // Direkt wählen wie der Reiter „Welt" – Durchschalten baute jede Welt
+      // auf dem Weg mit. `cycle` bleibt der Rückfall für ältere Stände.
+      if (api.waehle) api.waehle(wanted);
       let guard = 0;
       while (api.current() !== target && guard++ < 12) api.cycle();
       const env = api.environments[target];
