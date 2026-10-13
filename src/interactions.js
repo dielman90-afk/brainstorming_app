@@ -6,17 +6,26 @@ import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 // im Undo-Verlauf (ein Grab setzt die Matrix minimal neu, auch ohne Bewegung).
 const MOVE_EPSILON_SQ = 1e-6;
 
-// **Strahl und Zielpunkt werden nach der flachen UI gezeichnet.**
+// **Strahl und Zielpunkt zeichnen nach der flachen UI – wenn sie auf ihr liegen.**
 //
 // Tastatur, Hand-Menü und HUD liegen per `flatLayer` (wristMenu.js) ohne
 // Tiefentest auf den Ordnungen 20–44. Der Strahl stand auf 0 und wurde deshalb
 // zuerst gezeichnet – die Tastatur malte darüber, und genau dort, wo er auf
 // eine Taste traf, war er zu 98 % verdeckt. Man sah ihn bis zum Rand der
-// Tastatur und musste raten, welche Taste er erreicht. Mit 50 kommt er danach.
-// Den Tiefentest braucht er dafür nicht abzuschalten: Die flache UI schreibt
-// keine Tiefe, vor ihr liegt im Tiefenpuffer nur die Welt dahinter.
-const STRAHL_ORDNUNG = 50;
-const ZEIGER_ORDNUNG = 51;
+// Tastatur und musste raten, welche Taste er erreicht. Trifft er flache UI,
+// kommt er deshalb danach (50). Den Tiefentest braucht er dafür nicht
+// abzuschalten: Die flache UI schreibt keine Tiefe, vor ihr liegt im
+// Tiefenpuffer nur die Welt dahinter.
+//
+// **Nur dann.** Mit 50 für immer lag auch der Strahl der ruhenden Hand, der
+// unter der Tastatur hindurch auf eine Karte zeigt, quer über den Tasten – die
+// flache UI kann ihn ja nicht per Tiefe verdecken. Zielt er in die Welt, bleibt
+// er bei 0 und sein Zielpunkt bei 19: über Karten, Zonen und Whiteboard
+// (0–6), unter Hand-Menü, Tastatur und HUD.
+const STRAHL_ORDNUNG_UI = 50;
+const ZEIGER_ORDNUNG_UI = 51;
+const STRAHL_ORDNUNG_WELT = 0;
+const ZEIGER_ORDNUNG_WELT = 19;
 // Der Zielpunkt hat in jeder Entfernung dieselbe Sehgröße: 1,1 cm Halbmesser je
 // Meter, also gut 8 mm auf der Tastatur (Tasten 52 mm) in 0,74 m Abstand – ein
 // Drittel der Tastenbreite, groß genug neben dem Buchstaben darunter.
@@ -49,7 +58,7 @@ function baueZeiger() {
         toneMapped: false,
       })
     );
-    mesh.renderOrder = ZEIGER_ORDNUNG;
+    mesh.renderOrder = ZEIGER_ORDNUNG_WELT;
     gruppe.add(mesh);
   }
   gruppe.visible = false;
@@ -136,7 +145,7 @@ export class InteractionManager {
       );
       line.name = 'ray';
       line.scale.z = 4;
-      line.renderOrder = STRAHL_ORDNUNG;
+      line.renderOrder = STRAHL_ORDNUNG_WELT;
       controller.add(line);
       controller.userData.hover = null;
       // Der Zielpunkt hängt an der Szene, nicht am Controller: Er liegt flach auf
@@ -249,12 +258,14 @@ export class InteractionManager {
   // jeder Entfernung. Auf flacher UI ohne Tiefentest zeichnet er ebenfalls ohne
   // – sonst verschwände er unter der Taste, auf der er liegt. Auf Karten und
   // Zonen behält er den Tiefentest, damit er nicht durch Wände scheint.
+  // Rückgabe: ob der Treffer auf flacher UI liegt (dann zeichnet auch der
+  // Strahl nach ihr, siehe STRAHL_ORDNUNG_UI).
   _setzeZeiger(controller, hit) {
     const zeiger = controller.userData.zeiger;
-    if (!zeiger) return;
+    if (!zeiger) return false;
     if (!hit || !controller.visible || !hit.face || !hit.flaeche) {
       zeiger.visible = false;
-      return;
+      return false;
     }
     const n = this._normale.copy(hit.face.normal).transformDirection(hit.flaeche.matrixWorld);
     if (n.dot(this.raycaster.ray.direction) > 0) n.negate();
@@ -264,8 +275,20 @@ export class InteractionManager {
     const r = THREE.MathUtils.clamp(hit.distance * ZEIGER_JE_METER, ZEIGER_MIN, ZEIGER_MAX);
     zeiger.scale.setScalar(r * druck);
     const ohneTiefe = hit.flaeche.material?.depthTest === false;
-    for (const teil of zeiger.children) teil.material.depthTest = !ohneTiefe;
+    for (const teil of zeiger.children) {
+      teil.material.depthTest = !ohneTiefe;
+      teil.renderOrder = ohneTiefe ? ZEIGER_ORDNUNG_UI : ZEIGER_ORDNUNG_WELT;
+    }
     zeiger.visible = true;
+    return ohneTiefe;
+  }
+
+  // Strahl bis zum Treffer (sonst 4 m) und in der Zeichenordnung seines Ziels.
+  _setzeStrahl(controller, hit, aufUi) {
+    const ray = controller.getObjectByName('ray');
+    if (!ray) return;
+    ray.scale.z = hit ? Math.max(hit.distance, 0.1) : 4;
+    ray.renderOrder = aufUi ? STRAHL_ORDNUNG_UI : STRAHL_ORDNUNG_WELT;
   }
 
   _versteckeZeiger() {
@@ -361,10 +384,16 @@ export class InteractionManager {
 
   update() {
     if (!this.renderer.xr.isPresenting) {
-      // Nach dem Ende der Sitzung nicht als Ring in der Desktop-Ansicht stehen.
+      // Nach dem Ende der Sitzung nicht als Ring in der Desktop-Ansicht stehen,
+      // und keine Hervorhebung aus der Brille mitnehmen.
       this._versteckeZeiger();
+      for (const controller of this.controllers) this._setHover(controller, null);
       return;
     }
+    // three setzt beim Controller nur `.matrix` (WebXRController.update); die
+    // Weltmatrix wäre sonst die des letzten Bildes, und der Zielpunkt hinge der
+    // Strahlspitze ein Bild hinterher.
+    this.xrRoot.updateMatrixWorld(true);
     for (const controller of this.controllers) {
       // Aktiver Zeichenstrich: Ray nur gegen die Zeichenfläche. Den Ort zeigt
       // dort der Strich selbst.
@@ -378,11 +407,13 @@ export class InteractionManager {
         continue;
       }
 
-      const hit = this._xrRaycast(controller);
+      // **Ohne Tracking zielt ein Controller nicht.** three blendet ihn aus,
+      // behält aber die letzte Pose. Zielte er von dort weiter, hielte er seine
+      // Taste hervorgehoben – und weil die Hervorhebung beide Strahlen zählt,
+      // könnte der andere sie nicht mehr löschen. Zwei Tasten sähen angezielt aus.
+      const hit = controller.visible ? this._xrRaycast(controller) : null;
       this._setHover(controller, hit);
-      this._setzeZeiger(controller, hit);
-      const ray = controller.getObjectByName('ray');
-      if (ray) ray.scale.z = hit ? Math.max(hit.distance, 0.1) : 4;
+      this._setzeStrahl(controller, hit, this._setzeZeiger(controller, hit));
 
       // Gehaltenes Objekt per Daumenstick (hoch/runter) skalieren
       const axes = controller.userData.inputSource?.gamepad?.axes;

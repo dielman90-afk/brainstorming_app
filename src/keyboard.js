@@ -36,11 +36,20 @@ const MAX_COLS = Math.max(...ROWS.map((row) => row.length));
 // Lücke (8–9 mm), damit auch der Rand um die äußeren Tasten zählt; der Platz um
 // das Eingabefeld und die Panel-Ecken bleibt frei.
 const FANG = 0.012;
+// Die schon angezielte Taste behält den Strahl bis 3 mm jenseits der Mitte
+// einer Lücke. Ohne diesen Vorsprung kippte ein Strahl, der genau auf der
+// Mittellinie ruht, mit jedem Zittern zwischen zwei Tasten hin und her – und
+// jedes Kippen gab einen Vibrations-Tick.
+const HALTEN = 0.003;
 
 // Angezielte Taste: tritt etwas hervor und bekommt einen kräftigen Rand. Der
 // frühere Farbwechsel allein (#2c2933 → #3b3644, Kontrast 1,2 : 1) war in der
 // Brille kaum zu sehen.
-const HOVER_SCALE = 1.08;
+//
+// Sie wächst um feste 2 mm je Seite, nicht um einen Faktor: Die Leertaste ist
+// fast fünfmal so breit wie eine Buchstabentaste, und mit 8 % wäre sie um
+// 1 cm je Seite gewachsen – über die 8-mm-Lücke hinweg auf ihre Nachbarn.
+const HOVER_WACHSEN = 0.002;
 const HOVER_LIFT = 0.004;
 const HOVER_BORDER_PX = 7;
 const BLITZ_MS = 110;
@@ -257,7 +266,8 @@ export class VirtualKeyboard {
     };
     panel.mesh.userData.setHover = (hovered) => {
       key.hovered = hovered;
-      panel.mesh.scale.setScalar(hovered ? HOVER_SCALE : 1);
+      if (hovered) panel.mesh.scale.set(1 + (2 * HOVER_WACHSEN) / width, 1 + (2 * HOVER_WACHSEN) / KEY, 1);
+      else panel.mesh.scale.set(1, 1, 1);
       panel.mesh.position.z = hovered ? 0.002 + HOVER_LIFT : 0.002;
       this._zeichneTaste(key);
     };
@@ -309,7 +319,7 @@ export class VirtualKeyboard {
     for (const key of this.keys) {
       const dx = Math.max(Math.abs(p.x - key.x) - key.width / 2, 0);
       const dy = Math.max(Math.abs(p.y - key.y) - KEY / 2, 0);
-      const d = Math.hypot(dx, dy);
+      const d = Math.hypot(dx, dy) - (key.hovered ? HALTEN : 0);
       if (d <= abstand) {
         abstand = d;
         beste = key;

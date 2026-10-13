@@ -1489,6 +1489,10 @@ async function getUserText() {
   if (renderer.xr.isPresenting) {
     // In XR wird getippt. Spracheingabe ist dort abgeschaltet (siehe speech.js),
     // es gibt also auch keinen Erkenner, der ums Mikrofon streiten könnte.
+    // Eine offene Fehlerkarte im Blickfeld läge über der Tastatur, und deren
+    // Panel fängt jeden Strahl ab – wegtippen ginge nicht mehr. Die Meldung
+    // steht weiter in der Statuszeile.
+    hud.hideError();
     return await new Promise((resolve) => {
       keyboard.open(camera, {
         onSubmit: (text) => resolve(text),

@@ -109,7 +109,7 @@ try {
     const g = tp.taste('g');
     tp.ziele(0, tp.welt(g.mesh));
     const hit = ia._xrRaycast(c);
-    ia._setzeZeiger(c, hit);
+    ia._setzeStrahl(c, hit, ia._setzeZeiger(c, hit));
     const z = c.userData.zeiger;
     const ray = c.getObjectByName('ray');
     const normal = new T.Vector3(0, 0, 1).applyQuaternion(z.quaternion);
@@ -232,7 +232,10 @@ try {
     const blitzSofort = g.blitz;
     await new Promise((r) => setTimeout(r, 250));
     const blitzSpaeter = g.blitz;
-    // Druck in der Lücke tippt die nächste Taste
+    // Druck in der Lücke tippt die nächste Taste. Vorher die Hervorhebung von
+    // „g" lösen: Eine angezielte Taste behält den Strahl bis 3 mm jenseits der
+    // Lückenmitte (siehe Gegenprüfung unten) – hier geht es um die freie Lücke.
+    ia._setHover(c0, null);
     const luecke = tp.welt(g.mesh).lerp(tp.welt(h.mesh), 0.55);
     tp.ziele(0, luecke);
     ia._onSelectStart(c0);
@@ -243,7 +246,10 @@ try {
     return { angezielt, beideWeg, gZuletzt, tickListe, getippt, blitzSofort, blitzSpaeter, lueckeGetippt };
   });
   pruefe(zwei.angezielt.hovered, 'die angezielte Taste ist hervorgehoben');
-  pruefe(Math.abs(zwei.angezielt.scale - 1.08) < 1e-9 && zwei.angezielt.z > 0.005, `sie tritt hervor (×${zwei.angezielt.scale}, z ${(zwei.angezielt.z * 1000).toFixed(0)} mm)`);
+  pruefe(
+    Math.abs(zwei.angezielt.scale - (1 + 0.004 / 0.052)) < 1e-9 && zwei.angezielt.z > 0.005,
+    `sie tritt hervor (×${zwei.angezielt.scale.toFixed(4)} = 2 mm je Seite, z ${(zwei.angezielt.z * 1000).toFixed(0)} mm)`
+  );
   pruefe(zwei.beideWeg.gNoch && zwei.beideWeg.hJetzt, 'zwei Strahlen: geht der eine weiter, bleibt die Taste des anderen hervorgehoben');
   pruefe(!zwei.gZuletzt, 'erst wenn beide weg sind, erlischt sie');
   pruefe(
@@ -253,6 +259,89 @@ try {
   pruefe(zwei.getippt === 'G', `Drücken tippt „G" (Großschreibung am Satzanfang): „${zwei.getippt}"`);
   pruefe(zwei.blitzSofort && !zwei.blitzSpaeter, 'die Taste blitzt auf und kehrt zurück');
   pruefe(zwei.lueckeGetippt === 'h', `Drücken in der Lücke tippt die nächste Taste („${zwei.lueckeGetippt}")`);
+
+  // --- Befunde der Gegenprüfung ----------------------------------------------
+  console.log('\n=== Gegenprüfung: Tracking, Zeichenordnung, Lücken, Leertaste ===');
+  const nach = await page.evaluate(() => {
+    const T = window.__THREE;
+    const app = window.__app;
+    const tp = window.__tp;
+    const ia = app.interactions;
+    const [c0, c1] = ia.controllers;
+    const g = tp.taste('g');
+    const h = tp.taste('h');
+    const ergebnis = {};
+    for (const c of [c0, c1]) ia._setHover(c, null);
+
+    // a) Hand verliert das Tracking, während sie auf „g" zielt: Die andere
+    //    Hand überstreicht „g" und geht weiter – „g" muss erlöschen.
+    tp.ziele(0, tp.welt(g.mesh));
+    ia._setHover(c0, ia._xrRaycast(c0));
+    c0.visible = false;
+    // Was update() je Controller tut, ohne XR-Sitzung nachgestellt:
+    const hit0 = c0.visible ? ia._xrRaycast(c0) : null;
+    ia._setHover(c0, hit0);
+    tp.ziele(1, tp.welt(g.mesh), [-0.12, -0.38, -0.12]);
+    ia._setHover(c1, ia._xrRaycast(c1));
+    tp.ziele(1, tp.welt(h.mesh), [-0.12, -0.38, -0.12]);
+    ia._setHover(c1, ia._xrRaycast(c1));
+    ergebnis.gErloschen = !g.hovered;
+    ia._setHover(c1, null);
+    c0.visible = true;
+
+    // b) Zeichenordnung je Treffer: Taste → 50/51, Karte → 0/19.
+    const ordnung = (c, hit) => {
+      const aufUi = ia._setzeZeiger(c, hit);
+      ia._setzeStrahl(c, hit, aufUi);
+      return { aufUi, zeiger: c.userData.zeiger.children[0].renderOrder, strahl: c.getObjectByName('ray').renderOrder };
+    };
+    tp.ziele(0, tp.welt(g.mesh));
+    ergebnis.taste = ordnung(c0, ia._xrRaycast(c0));
+    const [karte] = app.cardManager.spawnIdeas(['Seitlich'], app.camera);
+    karte.group.position.copy(karte.group.parent.worldToLocal(tp.kopf().add(new T.Vector3(1.2, 0, -1.4))));
+    karte.group.lookAt(tp.kopf());
+    app.scene.updateMatrixWorld(true);
+    tp.ziele(0, karte.group.getWorldPosition(new T.Vector3()));
+    const kartenTreffer = ia._xrRaycast(c0);
+    ergebnis.karteTyp = kartenTreffer?.type;
+    ergebnis.karte = ordnung(c0, kartenTreffer);
+    app.cardManager.removeCard(karte);
+
+    // c) Hysterese: 1 mm jenseits der Mitte der Lücke g|h.
+    const mitte = (g.x + g.width / 2 + h.x - h.width / 2) / 2;
+    const punkt = app.keyboard.group.localToWorld(new T.Vector3(mitte + 0.001, g.y, 0));
+    g.hovered = false;
+    ergebnis.ohneVorsprung = app.keyboard._tasteNahe(punkt) === h.mesh ? 'h' : 'g';
+    g.hovered = true;
+    ergebnis.mitVorsprung = app.keyboard._tasteNahe(punkt) === g.mesh ? 'g' : 'h';
+    g.hovered = false;
+
+    // d) Die angezielte Leertaste bleibt in ihrer Spur.
+    const leer = app.keyboard.spaceKey;
+    const links = app.keyboard.cancelKey;
+    const rechts = app.keyboard.backKey;
+    leer.mesh.userData.setHover(true);
+    const halb = (leer.width * leer.mesh.scale.x) / 2;
+    ergebnis.luftLinks = leer.x - halb - (links.x + links.width / 2);
+    ergebnis.luftRechts = rechts.x - rechts.width / 2 - (leer.x + halb);
+    leer.mesh.userData.setHover(false);
+    return ergebnis;
+  });
+  pruefe(nach.gErloschen, 'verliert eine Hand das Tracking, gibt sie ihre Taste frei – die andere löscht sie beim Weiterziehen');
+  pruefe(
+    nach.taste.aufUi && nach.taste.strahl === 50 && nach.taste.zeiger === 51,
+    `auf einer Taste zeichnen Strahl und Zielpunkt nach der UI (${nach.taste.strahl}/${nach.taste.zeiger})`
+  );
+  pruefe(
+    nach.karteTyp === 'card' && !nach.karte.aufUi && nach.karte.strahl === 0 && nach.karte.zeiger === 19,
+    `auf einer Karte bleiben sie unter Menü und Tastatur (${nach.karteTyp}, ${nach.karte.strahl}/${nach.karte.zeiger})`
+  );
+  pruefe(nach.ohneVorsprung === 'h', `1 mm jenseits der Lückenmitte gehört der Strahl ohne Vorsprung „h" (${nach.ohneVorsprung})`);
+  pruefe(nach.mitVorsprung === 'g', `ist „g" schon angezielt, behält es ihn dort (${nach.mitVorsprung}) – kein Flattern`);
+  pruefe(
+    nach.luftLinks > 0.005 && nach.luftRechts > 0.005,
+    `die angezielte Leertaste behält Luft zu den Nachbarn (${(nach.luftLinks * 1000).toFixed(1)} / ${(nach.luftRechts * 1000).toFixed(1)} mm)`
+  );
 
   // --- 4. Stillstand ----------------------------------------------------------
   console.log('\n=== 4. Stillstand beim Tippen ===');
@@ -335,9 +424,8 @@ try {
       const ray = c.getObjectByName('ray');
       ray.scale.z = hit.distance;
       if (neu) {
-        ray.renderOrder = 50;
         ia._setHover(c, hit);
-        ia._setzeZeiger(c, hit);
+        ia._setzeStrahl(c, hit, ia._setzeZeiger(c, hit));
       } else {
         // So sah es vorher aus: Strahl unter der Tastatur, kein Zielpunkt,
         // Hervorhebung nur als dunkler Farbwechsel.
