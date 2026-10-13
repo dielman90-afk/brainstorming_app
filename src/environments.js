@@ -9626,7 +9626,14 @@ function mondScheibe(stilName = 'weiss') {
   const M = S / 2;
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = S;
-  const ctx = canvas.getContext('2d');
+  // **willReadFrequently: Dieser Canvas wird zurückgelesen** (getImageData
+  // unten). Ohne den Hinweis legt Chromium ihn auf die Grafikkarte, und jedes
+  // Zurücklesen wartet auf sie. Gemessen im Prüfstand: Der Zen-Garten baute
+  // auf frischer Seite in 2,2 s, nach dem Dojo in 13,6 s – 12,6 s davon allein
+  // in getImageData. Auf der Brille, wo dieselbe GPU gerade die VR-Bilder
+  // rechnet, ist ein Zurücklesen erst recht teuer. Mit dem Hinweis liegt der
+  // Canvas im Hauptspeicher, und das Lesen ist eine Kopie.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const mr = mulberry32(stil.saat);
 
   // --- A: Albedo ------------------------------------------------------------
@@ -10987,7 +10994,8 @@ const SAND_RADIUS = 20;
 function kornCanvas(size, rand) {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d');
+  // Wird zurückgelesen – siehe die Mondscheibe oben zu willReadFrequently.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.fillStyle = '#808080';
   ctx.fillRect(0, 0, size, size);
 

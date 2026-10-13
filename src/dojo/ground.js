@@ -212,7 +212,10 @@ export function gravelMaps(stones, gardenBounds) {
   // --- Höhenfeld zeichnen ----------------------------------------------------
   const hc = document.createElement('canvas');
   hc.width = hc.height = size;
-  const hx = hc.getContext('2d');
+  // Wird zurückgelesen (getImageData unten). Ohne willReadFrequently läge der
+  // Canvas auf der Grafikkarte, und das Lesen wartete auf sie – im Prüfstand
+  // war das nach einer schon gebauten Welt der größte Posten beim Bauen.
+  const hx = hc.getContext('2d', { willReadFrequently: true });
   hx.fillStyle = '#a0a0a0'; // Kammhöhe zwischen den Rillen
   hx.fillRect(0, 0, size, size);
   hx.lineCap = 'round';
